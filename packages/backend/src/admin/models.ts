@@ -1,3 +1,4 @@
+import {resolveModelReference,writeWorkflowModel,loadModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
 // Admin "模型与评测": the model each capability uses and where that choice comes from,
 // the prompt versions in use, quality / latency / cost of the last days per model, the switch history
 // and the SelectBench runs that compare models on the same batch. A switch is audited and applies to
@@ -99,7 +100,9 @@ export async function modelsOverview(days = 7): Promise<BeforeJson<AdminModels>>
         estimate: priced(u),
       })),
   }));
+  const registered=await listRegisteredModels(),connections=await listConnections();
   const choices = Object.values(MODELS).map((m) => ({ key: m.key, service: m.service, vision: !!m.vision }));
+  choices.push(...registered.map(m=>({key:'model:'+m.id,service:connections.find(c=>c.id===m.providerId)?.name??m.providerId,vision:m.capabilities.includes('vision')})));
   return { days, capabilities: steps, choices, history, benches, nvidiaPool, providers };
 }
 
@@ -108,19 +111,26 @@ export async function switchModel(capability: string, model: string | null, reas
   const c = capabilities()[capability];
   if (!c) throw Object.assign(new Error("unknown capability"), { statusCode: 400 });
   if (!reason.trim()) throw Object.assign(new Error("a reason is required"), { statusCode: 400 });
-  if (model !== null) {
-    const spec = MODELS[model];
-    if (!spec) throw Object.assign(new Error("unknown model"), { statusCode: 400 });
-    if (!capabilityAcceptsModel(c, spec)) throw Object.assign(new Error("this capability needs a vision model"), { statusCode: 400 });
+  let id:string|null=null;
+  if(model!==null) {
+    id=await resolveModelReference(model);
+    const registered=id?await loadModel(id):null;
+    const spec=registered?{vision:registered.capabilities.includes('vision')}:MODELS[model];
+    if(!spec)throw Object.assign(new Error('unknown model'),{statusCode:400});
+    if(!capabilityAcceptsModel(c,spec))throw Object.assign(new Error('this capability needs a vision model'),{statusCode:400});
   }
-  const before = (await modelSources())[capability];
-  if (model === null) await sql`DELETE FROM settings WHERE key = ${`models.${capability}`}`;
-  else {
-    await sql`INSERT INTO settings (key, value, updated_by) VALUES (${`models.${capability}`}, ${sql.json({ model })}, ${actor})
-              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()`;
-  }
+  const before=(await modelSources())[capability];
+  await sql.begin(async tx=>{
+    if(id!==null||model===null)await writeWorkflowModel(tx,'models.'+capability,id,actor);
+    else {
+      // Built-in deployment presets have no normalized row; remove any prior FK binding atomically.
+      await tx`DELETE FROM provider_workflow_models WHERE setting_key=${'models.'+capability}`;
+      await tx`INSERT INTO settings(key,value,updated_by) VALUES (${'models.'+capability},${tx.json({model})},${actor})
+       ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
+    }
+    await audit(actor,'models.switch','capability:'+capability,reason,before??null,{model:id?'model:'+id:model},{db:tx});
+  });
   invalidateModelCache();
   const after = (await modelSources())[capability];
-  await audit(actor, "models.switch", `capability:${capability}`, reason, before ?? null, after ?? null);
   return { capability, before, after };
 }

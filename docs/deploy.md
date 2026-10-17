@@ -79,6 +79,18 @@ docker compose run --rm setup && docker compose up -d
 
 下面按时间从新到旧列出每次更新要注意的事。
 
+#### Provider 连接与模型管理
+
+`0106`–`0110` 只新增连接、模型、验证记录和引用映射表，不删除旧数据。新管理页、API、运行时和数据迁移必须一起交付。
+
+先在数据库副本上验证，再按维护窗口执行：备份、停止旧 API 和 worker、运行 `scripts/migrate.ts`，然后运行 `node --env-file-if-exists=.env scripts/migrate-provider-connections.ts`，核验结果后启动新版服务。不要在旧 worker 仍运行时单独迁移 `models.*` 引用。
+
+新凭据通过 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 加密；设置为随机 32 字节的 base64 值，并与数据库备份一起妥善保管。已有环境凭据引用由迁移保留，替换或清除只影响该连接。
+
+迁移保留模型级超时和现有引用。只有迁移前已经开启路由的模型取得当前配置的 `legacy` 资格；原先关闭的路由仍须测试通过才能开启。修改地址、凭据或调用配置会使旧资格失效，界面分别显示路由开关和实际可用性。没有可用模型时明确报错。
+
+完成标记、数据和引用在同一事务提交。重跑只核验，管理员后来删除的对象不会恢复。迁移后旧管理写接口返回 409，请使用新的连接与模型页面。[API 和兼容约定](provider-api.md)。
+
 #### EventGraph：删除旧的本地知识图谱原型（2026 年 10 月 16 日）
 
 四个新迁移 `0097`–`0100` **删除表和其中的数据**：`knowledge_claims`、`knowledge_extractions`、`knowledge_entities`（改用 Graphiti 之前的本地图谱原型）和 `knowledge_sync`（已删除的 `scripts/graphiti-sync.ts` 的导入进度）。现在的图谱数据在 Graphiti/Neo4j 里，导入记录在 `graphiti_ingestions`，都不受影响。要保留旧原型的数据，先按[备份](#备份)导出这四张表再升级。

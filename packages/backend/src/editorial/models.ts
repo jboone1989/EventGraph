@@ -1,3 +1,5 @@
+import {registeredRuntime} from '../providers/registry/runtime.ts';
+import {loadModel,loadConnection,normalizedRegistryActive,resolveModelReference} from '../providers/registry/connections.ts';
 // Model per capability: the code default (the site's choice in site/models.ts, else `default`, the deployment's
 // own model), an environment override, and an admin switch kept in settings (every switch is audited).
 // Read at call time and cached for a minute, so a switch applies to the next call without a restart; a
@@ -52,9 +54,13 @@ export function capabilities(): Record<string, Capability> {
 /** Names of the active steps currently routed to a service, using the same choices as model calls. */
 export async function stepsOnService(service: string): Promise<string[]> {
   const current = await modelSources();
-  return Object.entries(capabilities())
-    .filter(([key, c]) => MODELS[current[key]!.model]?.service === service && !c.idle?.())
-    .map(([, c]) => c.label.split("（")[0]!);
+  const names:string[]=[];
+  for(const [key,c] of Object.entries(capabilities())) {
+    const reference=current[key]!.model;
+    const actual=reference.startsWith('model:')?await loadConnection((await loadModel(reference.slice(6))).provider_id):null;
+    if((actual?.vendor??MODELS[reference]?.service)===service&&!c.idle?.())names.push(c.label.split('（')[0]!);
+  }
+  return names;
 }
 
 let cache: { at: number; overrides: Record<string, string> } | null = null;
@@ -63,7 +69,7 @@ async function overrides(): Promise<Record<string, string>> {
   if (cache && Date.now() - cache.at < 60_000) return cache.overrides;
   const rows = await sql<{ key: string; value: { model?: string } }[]>`SELECT key, value FROM settings WHERE key LIKE 'models.%'`;
   const map: Record<string, string> = {};
-  for (const r of rows) if (r.value?.model && MODELS[r.value.model]) map[r.key.slice("models.".length)] = r.value.model;
+  for (const r of rows) if (r.value?.model) map[r.key.slice("models.".length)] = r.value.model;
   cache = { at: Date.now(), overrides: map };
   return map;
 }
@@ -73,7 +79,8 @@ export function invalidateModelCache() {
 }
 
 /** Whether a registered model explicitly declares image input support. Unspecified means text-only. */
-export function modelSupportsVision(model: string): boolean {
+export async function modelSupportsVision(model: string): Promise<boolean> {
+  if(model.startsWith('model:'))return (await loadModel(model.slice(6))).capabilities.includes('vision');
   if (MODELS[model]) return MODELS[model].vision === true;
   // The healthy NVIDIA pool resolves a preset to its concrete service model ID.
   const dynamicId=model.startsWith("nvidia:")?model.slice(7):"";
@@ -90,6 +97,7 @@ export async function modelFor(capability: CapabilityKey | (string & {})): Promi
   const c = capabilities()[capability];
   if (!c) throw new Error(`unknown model step: ${capability}`);
   const chosen = (await overrides())[capability] ?? process.env[c.env] ?? c.default;
+  if(chosen.startsWith('model:')){await registeredRuntime(chosen.slice(6),c.vision?'vision':'text');return chosen;}
   if (process.env.NVIDIA_MODEL_POOL_ENABLED === "true") {
     const nvidiaChosen=MODELS[chosen]?.service==="nvidia" ||
       (chosen==="default"&&process.env.NVIDIA_POOL_ROUTE_DEFAULT==="true");
@@ -99,7 +107,9 @@ export async function modelFor(capability: CapabilityKey | (string & {})): Promi
     if (chosen === "default" && process.env.NVIDIA_POOL_ROUTE_DEFAULT === "true")
       return availableModel(c.vision ? "nvidia-glm-5.3-flash" : "nvidia-gpt-oss-20b");
   }
-  return MODELS[chosen] ? chosen : c.default;
+  if(await normalizedRegistryActive()){const id=await resolveModelReference(chosen);if(id){await registeredRuntime(id,c.vision?'vision':'text');return 'model:'+id;}}
+  if(!MODELS[chosen])throw new Error('Unknown configured model: '+chosen);
+  return chosen;
 }
 
 /** Where the current choice comes from, for the admin page. */
@@ -108,7 +118,7 @@ export async function modelSources(): Promise<Record<string, { model: string; so
   const out: Record<string, { model: string; source: "admin" | "env" | "default" }> = {};
   for (const [key, c] of Object.entries(capabilities())) {
     if (o[key]) out[key] = { model: o[key]!, source: "admin" };
-    else if (process.env[c.env] && MODELS[process.env[c.env]!]) out[key] = { model: process.env[c.env]!, source: "env" };
+    else if (process.env[c.env]) out[key] = { model: process.env[c.env]!, source: "env" };
     else out[key] = { model: c.default, source: "default" };
   }
   return out;

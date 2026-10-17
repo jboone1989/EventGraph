@@ -1,3 +1,4 @@
+import {ProviderConfigError} from '@aihot/backend/providers/registry/connection-types';
 // Admin sign-in and the /api/admin guard. Public routes never read the session.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
@@ -59,6 +60,7 @@ export function adminHandler(fn: AdminHandler) {
     try {
       return await fn(req, reply, admin);
     } catch (error) {
+      if(error instanceof ProviderConfigError)return sendProblem(req,reply,{status:error.statusCode,code:'provider_configuration',detail:error.message,fieldErrors:error.fieldErrors,dependencies:error.dependencies});
       if (error instanceof ZodError) {
         return sendProblem(req, reply, { status: 400, code: "invalid_request", detail: error.issues.map((issue) => `${issue.path.join(".") || "请求"}: ${issue.message}`).join("; ").slice(0, 300) });
       }
