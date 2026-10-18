@@ -1,0 +1,12 @@
+# Overlays the existing cn-dev Compose stack. Only app code changes.
+# The database, Neo4j, egress bridge, and persistent volumes are untouched.
+# Always use with --no-build and a digest-pinned EVENTGRAPH_APP_IMAGE.
+services:
+  setup:
+    image: ${EVENTGRAPH_APP_IMAGE:?Image digest required}
+  api:
+    image: ${EVENTGRAPH_APP_IMAGE:?Image digest required}
+  worker:
+    image: ${EVENTGRAPH_APP_IMAGE:?Image digest required}
+  web:
+    image: ${EVENTGRAPH_APP_IMAGE:?Image digest required}
