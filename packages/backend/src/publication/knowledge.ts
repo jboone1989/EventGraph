@@ -3,6 +3,7 @@
 // public, so a cited report that was withdrawn, held back or never published is left out here.
 import { sql } from "../db.ts";
 import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges } from "../knowledge/graphiti.ts";
+export { graphStats, graphSearch } from "../knowledge/graphiti.ts";
 import { cached, cachedByKey } from "../lib/cache.ts";
 import { publicSourceName } from "./rules.ts";
 import { storyReportCondition } from "./scope.ts";
