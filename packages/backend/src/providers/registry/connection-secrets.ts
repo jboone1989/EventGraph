@@ -1,4 +1,4 @@
-import {createCipheriv,createDecipheriv,randomBytes,createHash} from 'node:crypto';
+import {createCipheriv,createDecipheriv,randomBytes,createHmac} from 'node:crypto';
 import {credential} from '../../config.ts';
 import {ProviderConfigError} from './connection-types.ts';
 
@@ -27,5 +27,6 @@ export function storedCredential(row:{credential_secret:string|null;credential_e
 }
 /** Never persist or return secret values; the digest also invalidates checks after environment key rotation. */
 export function credentialDigest(value:string|null):string {
- return createHash('sha256').update(value??'').digest('hex');
+ // The fingerprint stored in DB must not be a fast offline dictionary oracle for weak API keys.
+ return createHmac('sha256',encryptionKey()).update(value??'').digest('hex');
 }
