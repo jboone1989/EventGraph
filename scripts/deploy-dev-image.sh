@@ -33,12 +33,17 @@ if [[ ! "$previous_sha" =~ ^[a-f0-9]{40}$ ]] ||
    ! git -C "$GITHUB_WORKSPACE" merge-base --is-ancestor "$previous_sha" "$EVENTGRAPH_SOURCE_SHA"; then
   echo "Unknown development source ancestry; abort" >&2; exit 1
 fi
-if git -C "$GITHUB_WORKSPACE" diff --name-only "$previous_sha" "$EVENTGRAPH_SOURCE_SHA" -- database/migrations/ |
-   grep -q .; then
-  echo "DB migration requires a separate, explicit development migration" >&2; exit 1
+migration_changes="$(git -C "$GITHUB_WORKSPACE" diff --name-only \
+  "$previous_sha" "$EVENTGRAPH_SOURCE_SHA" -- \
+  database/migrations/ ':(glob)modules/*/migrations/**' \
+  scripts/migrate.ts scripts/migration-safety.ts)"
+if [[ -n "$migration_changes" ]]; then
+  echo "DB migration code changed; require explicit development migration" >&2; exit 1
 fi
 
-free_kib="$(df -Pk "$root" | awk 'NR==2 {print $4}')"
+docker_data_root="$(docker info --format '{{.DockerRootDir}}')"
+[[ -n "$docker_data_root" ]] || { echo "Docker data root unknown" >&2; exit 1; }
+free_kib="$(df -Pk "$docker_data_root" | awk 'NR==2 {print $4}')"
 [[ "$free_kib" =~ ^[0-9]+$ ]] && (( free_kib > 4194304 )) ||
   { echo "Less than 4 GiB of free development disk; abort" >&2; exit 1; }
 
@@ -136,5 +141,4 @@ for id in "${candidates[@]}"; do
   done
   if [[ "$keep" == 0 ]]; then docker image rm "$id" >/dev/null 2>&1 || true; fi
 done
-docker image prune -f >/dev/null || true
 echo "DEV UPDATED: source=$EVENTGRAPH_SOURCE_SHA image=$EVENTGRAPH_APP_IMAGE"
