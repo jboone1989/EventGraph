@@ -60,12 +60,13 @@ export async function ingestGraphitiOnce() {
       },
     });
     if (!receipt.accepted || !receipt.episode_id) throw new Error("Graphiti did not accept episode");
-    await sql`
+    const [ingestion] = await sql<{ ingested_at: Date }[]>`
       INSERT INTO graphiti_ingestions(article_id,revision,episode_id)
       VALUES(${article.id},${article.revision},${receipt.episode_id})
-      ON CONFLICT (article_id,revision) DO NOTHING`;
+      ON CONFLICT (article_id,revision) DO NOTHING
+      RETURNING ingested_at`;
     await sql`DELETE FROM settings WHERE key = ${retryKey}`;
-    return { status: "ingested", articleId: article.id, duplicate: receipt.duplicate };
+    return { status: "ingested", articleId: article.id, duplicate: receipt.duplicate, ingestedAt: ingestion?.ingested_at.toISOString() ?? null };
   } catch (error) {
     // An upstream timeout is not proof of failure: Graphiti may still finish after the client
     // disconnects. Cool down this identity rather than immediately paying to ingest it again.
