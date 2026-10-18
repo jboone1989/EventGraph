@@ -67,7 +67,8 @@ export function routingState(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[],now
  try{checkConnectionPolicy(c.base_url,c.policy);checkModel(modelInput(r),connectionView(c));}catch{reasons.push('Configuration violates endpoint or model policy');}
  const own=checks.filter(x=>x.model_id===r.id);
  const eligible=own.filter(x=>x.config_fingerprint===fingerprint&&
-  (x.status==='legacy'||x.status==='verified'&&x.verified_at&&now-x.verified_at.getTime()<86400000)&&r.capabilities.includes(x.capability as never)).map(x=>x.capability);
+  (x.status==='legacy'||x.status==='verified')&&x.verified_at&&
+  now>=x.verified_at.getTime()&&now-x.verified_at.getTime()<86400000&&r.capabilities.includes(x.capability as never)).map(x=>x.capability);
  if(!eligible.length) {
   const mismatched=own.find(x=>x.config_fingerprint!==fingerprint);
   const changed=mismatched?.config_snapshot?Object.keys(snapshot).filter(k=>snapshot[k]!==mismatched.config_snapshot![k]):[];
