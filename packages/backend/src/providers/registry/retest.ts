@@ -15,7 +15,7 @@ async function expiring(now:number):Promise<Candidate[]> {
  return sql<Candidate[]>`SELECT k.model_id,k.capability FROM registered_model_checks k
   JOIN registered_models m ON m.id=k.model_id JOIN provider_connections c ON c.id=m.provider_id
   WHERE m.enabled AND m.route_enabled AND c.enabled AND k.status IN ('verified','legacy') AND k.verified_at IS NOT NULL
-   AND m.probe_spec->>'capability'=k.capability AND k.capability=ANY(m.capabilities)
+   AND m.probe_spec->>'capability'=k.capability AND m.capabilities ? k.capability
    AND k.verified_at>=${new Date(now-DAY_MS-GRACE_MS)} AND k.verified_at<=${new Date(now-DAY_MS+LEAD_MS)}
   ORDER BY k.verified_at,k.model_id`;
 }
