@@ -92,7 +92,7 @@ test("history waits behind live work and founds no event; a new source's post fr
   assert.deepEqual([(await job(old))?.name, (await job(old))?.priority], ["content.analyze", -2]);
   assert.equal((await groupArticle(old)).verdict, "historical");
   const historicalLinks = await sql<{ fact_id: number; manual: boolean; role: string }[]>`SELECT fact_id, manual, role FROM fact_articles WHERE article_id = ${old}`;
-  assert.deepEqual(historicalLinks, [], `historical article must not found facts: ${JSON.stringify(historicalLinks)}`);
+  assert.equal(historicalLinks.length, 0, `historical article must not found facts: ${JSON.stringify(historicalLinks)}`);
 
   const fresh = await report("fresh", { title: `新闻 ${T}`, backfill: "first-import", publishedAt: new Date(Date.now() - 3_600_000) });
   await queueProcessing(fresh, { step: "analyze" });
