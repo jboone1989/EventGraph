@@ -21,7 +21,7 @@ rollback_on_exit() {
  trap - EXIT
  if [[ "$rc" != 0 && "$RELEASE_STARTED" == 1 ]]; then
   if [[ "$MIGRATION_ATTEMPTED" == 1 ]]; then
-   echo "ALERT: migration may have run; manual recovery required" >&2
+   echo "ALERT: migration may have run; manual recovery required. Database backup: ${BACKUP_FILE:-not available}" >&2
   else
    echo "ALERT: restoring prior checkout and environment" >&2
    [[ -f "$ENV_SNAPSHOT" ]] && cp -p "$ENV_SNAPSHOT" .env
@@ -184,5 +184,5 @@ for n in 1 2 3 4 5 6 7 8 9 10; do
  if python3 scripts/production-smoke.py; then OK=1; break; fi
  sleep 6
 done
-[[ "$OK" == 1 ]] || { echo "Smoke failed; persisted volumes were not altered" >&2; exit 1; }
+[[ "$OK" == 1 ]] || { echo "Smoke failed. Database migration attempted=$MIGRATION_ATTEMPTED; inspect backup and deployment state before recovery" >&2; exit 1; }
 echo "SUCCESS: $NEW_SHA app=$APP_TAG knowledge=$KNOWLEDGE_TAG elapsed=${SECONDS}s"
