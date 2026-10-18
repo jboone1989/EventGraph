@@ -65,6 +65,7 @@ jobs:
           /usr/lib/postgresql/17/bin/pg_restore --version
       - name: Release script validation
         run: |
+          bash -n scripts/deploy-dev-image.sh
           bash -n scripts/deploy-prod.sh
           python3 -m py_compile scripts/production-env-check.py
           python3 - <<'PY'
@@ -127,6 +128,11 @@ jobs:
           sed -i 's/^COLLECT_ENABLED=.*/COLLECT_ENABLED=false/; s/^MODEL_CALLS_ENABLED=.*/MODEL_CALLS_ENABLED=false/' .env
           # The smoke check reaches the site by its compose service name.
           echo "MCP_ALLOWED_HOSTS=web" >> .env
+      - name: Validate immutable dev image override
+        env:
+          EVENTGRAPH_APP_IMAGE: ghcr.io/jboone1989/eventgraph-app@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.dev-image.yml config --quiet
       - name: Build and start with docker compose
         run: docker compose up -d --build
       - name: Smoke check
