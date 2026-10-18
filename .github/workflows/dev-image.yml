@@ -1,0 +1,115 @@
+# A completed, successful Check on main is the hook. PR changes are not deployed.
+# CI verification is an independent workflow; this workflow only packages images
+# and (optionally) deploys a pinned image to the development machine.
+name: Build Image & Update Dev
+
+on:
+  workflow_run:
+    workflows: ["Check"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eventgraph-development-release
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_branch == 'main' &&
+          github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.build.outputs.image_ref }}
+      sha: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Checkout exact passing commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Skip obsolete runs after a newer main push
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -Eeuo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
+          if [[ "$current" == "$VERIFIED_SHA" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::A newer main commit exists; skip obsolete Docker image."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate GHCR (ephemeral CI identity)
+        if: steps.current.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and publish the app on GitHub-hosted runner
+        id: build
+        if: steps.current.outputs.publish == 'true'
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -Eeuo pipefail
+          repo="${GITHUB_REPOSITORY,,}"
+          image="ghcr.io/${repo}-app"
+          docker buildx create --name eventgraph-ci --driver docker-container --use
+          docker buildx build --platform linux/amd64 --push \
+            --file Dockerfile --tag "$image:sha-$SOURCE_SHA" \
+            --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --metadata-file "$RUNNER_TEMP/image-metadata.json" .
+          digest="$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/image-metadata.json")"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "::error::Build did not return an immutable image digest"; exit 1;
+          }
+          echo "image_ref=$image@$digest" >> "$GITHUB_OUTPUT"
+          echo "Built immutable image $image@$digest"
+
+  deploy_dev:
+    # Explicit opt-in: no self-hosted runner job is queued until the owner enables
+    # the repository variable. The runner must be on cn-dev and be trusted.
+    if: ${{ needs.publish.result == 'success' && needs.publish.outputs.image_ref != '' && vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
+    needs: [publish]
+    runs-on: [self-hosted, linux, X64, eventgraph-cn-dev]
+    timeout-minutes: 20
+    environment: development
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout exact published source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download and update development app services only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENTGRAPH_APP_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_SOURCE_SHA: ${{ needs.publish.outputs.sha }}
+          EVENTGRAPH_DEV_ROOT: /home/ubuntu/livingruntime-aihot
+        run: |
+          set -Eeuo pipefail
+          export DOCKER_CONFIG="$RUNNER_TEMP/eventgraph-docker-auth"
+          mkdir -m 700 -p "$DOCKER_CONFIG"
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true; rm -f "$DOCKER_CONFIG/config.json"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          bash "$GITHUB_WORKSPACE/scripts/deploy-dev-image.sh"
