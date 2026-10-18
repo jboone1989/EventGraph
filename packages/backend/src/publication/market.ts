@@ -1,7 +1,9 @@
 // An event beside the prices around it: the assets its reports name, each priced just before the event's
 // first public report and a day later (or at the latest snapshot while that day is not over). Prices are
 // set side by side only; nothing here says the event moved them.
-import { SPOT_ASSETS, type SpotAsset } from "../market-spot.ts";
+import { getSpot, SPOT_ASSETS, type SpotAsset } from "../market-spot.ts";
+export { getSpot, SPOT_ASSETS };
+export type { SpotAsset };
 import { sql } from "../db.ts";
 import { storyReportCondition } from "./scope.ts";
 
