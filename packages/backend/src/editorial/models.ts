@@ -111,9 +111,14 @@ async function effectiveChoice(c:Capability,admin?:string):Promise<{model:string
  // A malformed admin selection must not mask a healthy environment override.
  if(admin&&await validChoice(admin))return {model:admin,source:'admin'};
  const env=process.env[c.env];
- if(env&&await validChoice(env))return {model:env,source:'env'};
- // With no valid environment fallback, keep an invalid explicit admin choice:
- // modelFor must fail closed, not silently route through an unrelated default.
+ if(env) {
+  if(await validChoice(env))return {model:env,source:'env'};
+  // An explicitly invalid environment override falls back to the site default.
+  // This matches the pre-registry routing behavior even if admin is also stale.
+  return {model:c.default,source:'default'};
+ }
+ // An invalid saved admin choice with no environment override must fail closed
+ // until an operator fixes it, rather than silently replacing it with another model.
  if(admin)return {model:admin,source:'admin'};
  return {model:c.default,source:'default'};
 }
