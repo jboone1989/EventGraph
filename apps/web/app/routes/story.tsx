@@ -9,6 +9,7 @@ import { pageReuse } from "../lib/page-reuse";
 import { breadcrumbLd, localized, pageMeta, storyLd, titled } from "../lib/seo";
 import { beijingDate, beijingTime } from "@aihot/contracts/time";
 import { localizedMonthDayTime, monthDay, relativeTime } from "../lib/format";
+import { EventTimeMachine } from "../features/story/EventTimeMachine";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
 import { KnowledgeExplorer, type KnowledgeGraph } from "../components/KnowledgeNetwork";
@@ -356,6 +357,16 @@ export default function StoryPage() {
               </div>
             )}
           </Panel>
+
+          {story.timeline.length > 0 && (
+            <Panel
+              title={t("事件时间机器", "Event time machine")}
+              sub={t("从最早的报道开始，逐步回放事件是如何被报道的。", "Replay the event through its published source reports, one step at a time.")}
+              className="order-2"
+            >
+              <EventTimeMachine key={story.publicId} reports={story.timeline} totalReports={story.reportCount} />
+            </Panel>
+          )}
 
           <Panel title={t("从事件走进知识网络","From Event to Knowledge")} sub={t("事件树追踪进展，知识图谱记录实体之间有证据的关系。","The event tree follows developments; the knowledge graph retains sourced relationships.")} className="order-2">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-panel border border-line-soft bg-bg-sunk/50 px-4 py-3">
