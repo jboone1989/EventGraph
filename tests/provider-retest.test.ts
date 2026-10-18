@@ -22,12 +22,14 @@ const model=(providerId:string,extra:Partial<ModelInput>={}):ModelInput=>({provi
 const HOUR=3600000;
 async function seed(ageHours:number|null,extra:Partial<ModelInput>={},status='verified') {
  const c=await createConnection(connection(),'test','test');
- const m=await createRegisteredModel(model(c.id,extra),'test','test');
+ const m=await createRegisteredModel(model(c.id,{...extra,routeEnabled:false}),'test','test');
  if(ageHours!==null) {
   const row=await loadModel(m.id),conn=await loadConnection(row.provider_id);
   await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,config_snapshot,status,verified_at)
    VALUES (${m.id}::uuid,'text',${configurationFingerprint(conn,row)},${sql.json(configurationSnapshot(conn,row))},${status},${new Date(Date.now()-ageHours*HOUR)})`;
  }
+ if(extra.routeEnabled!==false&&ageHours!==null&&status==='verified')
+  await sql`UPDATE registered_models SET route_enabled=true WHERE id=${m.id}::uuid`;
  return m.id;
 }
 const reply=()=>network.get('https://retest.invalid').intercept({path:'/v1/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'OK'}}]});
@@ -64,7 +66,8 @@ test('changed configuration is not retested; repeat and concurrent runs spend on
  await cleanup();on();
  const changed=await seed(23);
  const m=await loadModel(changed);
- await updateRegisteredModel(changed,{...model(m.provider_id),modelId:'renamed',routeEnabled:true},m.version,'edit','test');
+ // Simulate an upstream configuration edit made after the last successful probe.
+ await sql`UPDATE registered_models SET model_id='renamed',version=version+1 WHERE id=${changed}::uuid`;
  const ids=[];for(let i=0;i<5;i++)ids.push(await seed(23));
  for(let i=0;i<3;i++)reply();
  const [a,b]=await Promise.all([retestExpiringModels(),retestExpiringModels()]);
