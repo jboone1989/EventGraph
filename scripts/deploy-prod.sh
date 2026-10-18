@@ -129,7 +129,22 @@ BUILD_ON_DEV
 else
  echo "[1–2/5] No image changes: reuse existing app and knowledge images"
 fi
+# Keep a private configuration snapshot for rollback, never print its contents.
+RELEASE_STATE_DIR="$HOME/.local/state/eventgraph-release"
+install -d -m 0700 "$RELEASE_STATE_DIR"
+ENV_SNAPSHOT="$RELEASE_STATE_DIR/env-$OLD_SHA-$(date -u +%Y%m%dT%H%M%SZ)"
+cp -p .env "$ENV_SNAPSHOT"
+chmod 0600 "$ENV_SNAPSHOT"
+if [[ "$SCHEMA_CHANGED" == 1 ]]; then
+ echo "[3/5] Back up PostgreSQL before schema migration or checkout changes"
+ BACKUP_RUN_DIR="$RELEASE_STATE_DIR/db-$TAG-$(date -u +%Y%m%dT%H%M%SZ)"
+ python3 scripts/production-db-backup.py --source-env .env --output-dir "$BACKUP_RUN_DIR"
+ BACKUP_FILE="$(find "$BACKUP_RUN_DIR" -maxdepth 1 -type f -name '*.dump' -print -quit)"
+ [[ -n "$BACKUP_FILE" && -s "$BACKUP_FILE" ]] || { echo "No valid database backup" >&2; exit 1; }
+ pg_restore --list "$BACKUP_FILE" >/dev/null || { echo "Backup failed pg_restore validation" >&2; exit 1; }
+fi
 echo "[3/5] Advance checkout and pin per-service release image"
+RELEASE_STARTED=1
 git merge --ff-only "$NEW_SHA"
 [[ "$(git rev-parse HEAD)" == "$NEW_SHA" ]] || exit 1
 python3 - "$APP_TAG" "$KNOWLEDGE_TAG" <<'WRITE_RELEASE'
@@ -150,6 +165,7 @@ python3 scripts/production-env-check.py .env --role production --compare config/
 "${COMPOSE[@]}" config --quiet
 echo "[4/5] Apply schema migration only if migration files changed"
 if [[ "$SCHEMA_CHANGED" == 1 ]]; then
+ MIGRATION_ATTEMPTED=1
  "${COMPOSE[@]}" run --rm --no-deps setup
 fi
 # Compose compares image/config hashes; no --force-recreate, no --build, and
