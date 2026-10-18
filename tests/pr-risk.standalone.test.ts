@@ -5,6 +5,9 @@ import { classify, tierOf } from "../scripts/pr-risk.ts";
 test("deploy, CI, migrations, auth, money and review rules are high", () => {
   for (const path of [
     ".github/workflows/check.yml",
+    ".github/security-review.md",
+    "scripts/pr-risk.ts",
+    "tests/pr-risk.standalone.test.ts",
     "REVIEW.md",
     "Dockerfile",
     "knowledge_service/Dockerfile",
