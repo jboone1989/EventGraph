@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { getSpot, SPOT_ASSETS, type SpotAsset } from "@aihot/backend/market-spot";
+import { getSpot, SPOT_ASSETS, type SpotAsset } from "@aihot/backend/publication/market";
 import { storyMarket } from "@aihot/backend/publication/market";
 import { resolveStory } from "@aihot/backend/publication/stories";
 

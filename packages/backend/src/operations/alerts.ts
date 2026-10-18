@@ -224,6 +224,7 @@ async function modelStops(service: string): Promise<string> {
 /** `stops` is for the services that are not models; a model service's follows from the steps that use it. */
 const PROVIDERS: Record<string, { name: string; where: string; stops?: string }> = {
   llm: { name: "默认模型服务", where: "模型服务商的控制台" },
+  nvidia: { name: "NVIDIA NIM", where: "NVIDIA API 控制台" },
   zhipu: { name: "智谱", where: "智谱开放平台" },
   dashscope: { name: "阿里云百炼", where: "阿里云百炼控制台" },
   deepseek: { name: "DeepSeek", where: "DeepSeek 开放平台" },
