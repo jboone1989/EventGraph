@@ -269,7 +269,10 @@ export async function writeWorkflowModel(tx:Tx,key:string,id:string|null,actor:s
 }
 
 export async function normalizedRegistryActive(db:Db=sql):Promise<boolean> {
- return (await db`SELECT 1 FROM settings WHERE key='providerConnections.migration.v1'`).length>0;
+ // Importing old records is never permission to switch live routing.
+ if(process.env.MODEL_PROVIDER_REGISTRY_ENABLED!=='true')return false;
+ const [activated]=await db`SELECT 1 FROM settings WHERE key='providerConnections.activation.v1'`;
+ return !!activated;
 }
 export async function assertLegacyRegistryWritable():Promise<void> {
  if(await normalizedRegistryActive())throw new ProviderConfigError('Legacy model management is retired; use provider connections and model IDs',undefined,409);
