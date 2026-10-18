@@ -361,7 +361,7 @@ export default function StoryPage() {
           {story.timeline.length > 0 && (
             <Panel
               title={t("事件时间机器", "Event time machine")}
-              sub={t("从最早的报道开始，逐步回放事件是如何被报道的。", "Replay the event through its published source reports, one step at a time.")}
+              sub={t("按照已加载报道的发布时间逐步回放。", "Replay the currently loaded reports by publication time.")}
               className="order-2"
             >
               <EventTimeMachine key={story.publicId} reports={story.timeline} totalReports={story.reportCount} />
