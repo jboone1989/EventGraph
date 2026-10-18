@@ -7,7 +7,7 @@ DEV_ROOT="/home/ubuntu/livingruntime-aihot"
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=12 -o ServerAliveInterval=15 "${DEV}")
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.production.yml
  -f docker-compose.knowledge.yml -f docker-compose.release.yml --profile knowledge)
-umask 077
+# Restrict private backups, not Git checkout and Docker bind-mounted source modes.
 LOCK_PATH="$HOME/.eventgraph-production-release.lock"
 exec 9>"$LOCK_PATH"
 command -v flock >/dev/null || { echo "flock is required" >&2; exit 1; }
@@ -133,15 +133,21 @@ fi
 RELEASE_STATE_DIR="$HOME/.local/state/eventgraph-release"
 install -d -m 0700 "$RELEASE_STATE_DIR"
 ENV_SNAPSHOT="$RELEASE_STATE_DIR/env-$OLD_SHA-$(date -u +%Y%m%dT%H%M%SZ)"
-cp -p .env "$ENV_SNAPSHOT"
-chmod 0600 "$ENV_SNAPSHOT"
+( umask 077; cp -p .env "$ENV_SNAPSHOT"; chmod 0600 "$ENV_SNAPSHOT" )
 if [[ "$SCHEMA_CHANGED" == 1 ]]; then
  echo "[3/5] Back up PostgreSQL before schema migration or checkout changes"
  BACKUP_RUN_DIR="$RELEASE_STATE_DIR/db-$TAG-$(date -u +%Y%m%dT%H%M%SZ)"
- python3 scripts/production-db-backup.py --source-env .env --output-dir "$BACKUP_RUN_DIR"
- BACKUP_FILE="$(find "$BACKUP_RUN_DIR" -maxdepth 1 -type f -name '*.dump' -print -quit)"
- [[ -n "$BACKUP_FILE" && -s "$BACKUP_FILE" ]] || { echo "No valid database backup" >&2; exit 1; }
- pg_restore --list "$BACKUP_FILE" >/dev/null || { echo "Backup failed pg_restore validation" >&2; exit 1; }
+ # The database hostname "db" is Compose-internal; the host cannot connect
+ # to it. Run the matching pg_dump/pg_restore v17 client inside the db service.
+ # Redirect only the archive bytes to a private file; never put PG credentials
+ # on the command line or in release logs.
+ install -d -m 0700 "$BACKUP_RUN_DIR"
+ BACKUP_FILE="$BACKUP_RUN_DIR/eventgraph-$TAG.dump"
+ ( umask 077; "${COMPOSE[@]}" exec -T db pg_dump -U aihot -d aihot \
+   --format=custom --no-owner --no-acl > "$BACKUP_FILE" )
+ [[ -s "$BACKUP_FILE" ]] || { echo "No valid database backup" >&2; exit 1; }
+ "${COMPOSE[@]}" exec -T db pg_restore --list < "$BACKUP_FILE" >/dev/null ||
+  { echo "Backup failed in-container pg_restore validation" >&2; exit 1; }
 fi
 echo "[3/5] Advance checkout and pin per-service release image"
 RELEASE_STARTED=1
