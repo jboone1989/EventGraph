@@ -10,6 +10,11 @@ import { upsertMaterial } from '@aihot/backend/content/materials';
 import { buildApp } from '../apps/api/src/app.ts';
 
 const app = await buildApp();
+// Preserve the actual rendering error in CI output when a share image fails.
+const renderErrors: string[] = [];
+app.addHook("onError", async (req, _reply, error) => {
+  if (req.url.startsWith("/og/")) renderErrors.push(String(error.stack ?? error));
+});
 const T = tag();
 let id: string;
 before(async () => {
@@ -40,7 +45,7 @@ test('mutable content never authorizes a reader to reuse stale data beyond the w
   const failures:string[]=[];
   for (const url of paths) {
     const response=await app.inject({method:'GET',url});
-    assert.equal(response.statusCode,200,url);
+    assert.equal(response.statusCode, 200, `${url}: ${renderErrors.at(-1) ?? response.body.slice(0, 300)}`);
     const responses=[response];
     if(response.headers.etag){
       const conditional=await app.inject({method:'GET',url,headers:{'if-none-match':String(response.headers.etag)}});
