@@ -18,7 +18,10 @@ test("ordinary news keeps full material only for a bounded 7–30 day period", (
 });
 
 test("daily compaction retains searchable identity, citations and selected research evidence", () => {
-  const sql = readFileSync(new URL("../packages/backend/src/operations/news-compaction.ts", import.meta.url), "utf8");
+  const sql = [
+    "../packages/backend/src/operations/news-compaction.ts",
+    "../packages/backend/src/publication/compaction.ts",
+  ].map(file => readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
   const migration = readFileSync(new URL("../database/migrations/0086_article_compaction.sql", import.meta.url), "utf8");
   // Scope and preservation are expressed directly in the single DB query, not only in documentation.
   for (const clause of ["a.compacted_at IS NULL", "a.discovered_at <", "a.processing_state IN",
