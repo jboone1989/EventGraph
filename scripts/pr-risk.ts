@@ -10,6 +10,9 @@ export type Tier = "low" | "medium" | "high";
 const HIGH: RegExp[] = [
   /^\.github\/workflows\//,
   /^\.github\/CODEOWNERS$/,
+  /^\.github\/security-review\.md$/,
+  /^scripts\/pr-risk\.ts$/,
+  /^tests\/pr-risk\.standalone\.test\.ts$/,
   /^(REVIEW|CLAUDE|AGENTS)\.md$/,
   /(^|\/)Dockerfile$/,
   /^docker-compose(\.[\w-]+)?\.yml$/,
@@ -56,7 +59,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error("Usage: node scripts/pr-risk.ts <base-sha> [head-sha]");
     process.exit(2);
   }
-  const changed = execFileSync("git", ["diff", "--name-only", `${base}...${head}`], { encoding: "utf8" }).split("\n");
+  const changed = execFileSync("git", ["diff", "--no-renames", "--name-only", `${base}...${head}`], { encoding: "utf8" }).split("\n");
   const { tier, paths } = classify(changed);
   console.log(`tier=${tier}`);
   for (const p of paths) if (p.tier !== "low") console.log(`${p.tier}\t${p.path}`);
