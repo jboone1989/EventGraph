@@ -13,8 +13,8 @@ export interface ReplayFrame {
 
 export function buildReplayFrames(timeline: readonly StoryReportView[]): ReplayFrame[] {
   const ordered = timeline
-    .filter((report) => Number.isFinite(Date.parse(report.publishedAt)))
-    .sort((a, b) => Date.parse(a.publishedAt) - Date.parse(b.publishedAt) || a.id.localeCompare(b.id));
+    .filter((report) => /(?:Z|[+-]\d{2}:\d{2})$/i.test(report.publishedAt) && Number.isFinite(Date.parse(report.publishedAt)))
+    .sort((a, b) => Date.parse(a.publishedAt) - Date.parse(b.publishedAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const frames: ReplayFrame[] = [];
   const sources = new Set<string>();
   let firstParty = 0;
