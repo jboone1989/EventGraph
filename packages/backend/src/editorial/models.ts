@@ -92,11 +92,31 @@ export function capabilityAcceptsModel(capability: Capability, model: { vision?:
   return !capability.vision || model.vision === true;
 }
 
+/** An invalid or deleted admin reference must not suppress a valid environment choice. */
+async function validChoice(reference:string):Promise<boolean> {
+ if(MODELS[reference])return true;
+ try {
+  if(reference.startsWith('model:')){await loadModel(reference.slice(6));return true;}
+  if(await normalizedRegistryActive())return !!(await resolveModelReference(reference));
+ } catch {return false;}
+ return false;
+}
+async function effectiveChoice(c:Capability,admin?:string):Promise<{model:string;source:'admin'|'env'|'default'}> {
+ const choices=[
+  {model:admin,source:'admin' as const},
+  {model:process.env[c.env],source:'env' as const},
+  {model:c.default,source:'default' as const}
+ ];
+ for(const choice of choices)if(choice.model&&await validChoice(choice.model))
+  return {model:choice.model,source:choice.source};
+ return {model:c.default,source:'default'};
+}
+
 /** The model a capability uses now: admin switch, else environment, else the code default. */
 export async function modelFor(capability: CapabilityKey | (string & {})): Promise<string> {
   const c = capabilities()[capability];
   if (!c) throw new Error(`unknown model step: ${capability}`);
-  const chosen = (await overrides())[capability] ?? process.env[c.env] ?? c.default;
+  const chosen=(await effectiveChoice(c,(await overrides())[capability])).model;
   if(chosen.startsWith('model:')){await registeredRuntime(chosen.slice(6),c.vision?'vision':'text');return chosen;}
   if (process.env.NVIDIA_MODEL_POOL_ENABLED === "true") {
     const nvidiaChosen=MODELS[chosen]?.service==="nvidia" ||
@@ -116,10 +136,7 @@ export async function modelFor(capability: CapabilityKey | (string & {})): Promi
 export async function modelSources(): Promise<Record<string, { model: string; source: "admin" | "env" | "default" }>> {
   const o = await overrides();
   const out: Record<string, { model: string; source: "admin" | "env" | "default" }> = {};
-  for (const [key, c] of Object.entries(capabilities())) {
-    if (o[key]) out[key] = { model: o[key]!, source: "admin" };
-    else if (process.env[c.env]) out[key] = { model: process.env[c.env]!, source: "env" };
-    else out[key] = { model: c.default, source: "default" };
-  }
+  for(const [key,c] of Object.entries(capabilities()))
+    out[key]=await effectiveChoice(c,o[key]);
   return out;
 }
