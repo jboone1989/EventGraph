@@ -4,7 +4,7 @@ import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {sql,closeDb} from '@aihot/backend/db';
 import {createConnection,updateConnection,deleteConnection,listConnections,loadConnection,
  createRegisteredModel,updateRegisteredModel,deleteRegisteredModel,getRegisteredModel,
- configurationFingerprint,routingState,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel} from '@aihot/backend/providers/registry/connections';
+ configurationFingerprint,routingState,normalizedRegistryActive,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel} from '@aihot/backend/providers/registry/connections';
 import {storedCredential,credentialDigest} from '@aihot/backend/providers/registry/connection-secrets';
 import {ProviderConfigError,type ConnectionInput,type ModelInput} from '@aihot/backend/providers/registry/connection-types';
 import {migrateProviderConnections,migratedId} from '../scripts/migrate-provider-connections.ts';
@@ -134,8 +134,17 @@ test('migration is repeatable, preserves source configurations and validates act
  await assert.rejects(migrateProviderConnections(),/Missing provider runtime credential: PROVIDER_MIGRATION_MISSING_KEY/);
  assert.equal((await sql`SELECT 1 FROM settings WHERE key='providerConnections.migration.v1'`).length,0);
  await sql`DELETE FROM model_providers WHERE vendor='example' AND model_id='missing-key'`;
+ delete process.env.MODEL_PROVIDER_REGISTRY_ENABLED;
  const first=await migrateProviderConnections();
- assert.equal(first.createdModels,3);assert.equal(first.migratedReferences,2);
+ assert.equal(first.createdModels,3);assert.equal(first.migratedReferences,0);
+ assert.equal(first.activated,false);
+ assert.equal(await normalizedRegistryActive(),false);
+ assert.equal((await sql`SELECT 1 FROM settings WHERE key='providerConnections.activation.v1'`).length,0);
+ process.env.MODEL_PROVIDER_REGISTRY_ENABLED='true';
+ assert.equal(await normalizedRegistryActive(),false,'flag alone must not activate old data');
+ const activated=await migrateProviderConnections({activate:true});
+ assert.equal(activated.migratedReferences,2);
+ assert.equal(await normalizedRegistryActive(),true);
  const original=oldIds.map(id=>migratedId('model',['nvidia',id]));
  for(const [i,id] of original.entries()) {
   const m=await getRegisteredModel(id);
