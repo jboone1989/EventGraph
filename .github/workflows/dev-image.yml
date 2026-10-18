@@ -14,7 +14,8 @@ permissions:
 
 concurrency:
   group: eventgraph-development-release
-  cancel-in-progress: true
+  # Never cancel a rollout halfway through a container replacement.
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -73,6 +74,7 @@ jobs:
           docker buildx build --platform linux/amd64 --push \
             --file Dockerfile --tag "$image:sha-$SOURCE_SHA" \
             --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
             --metadata-file "$RUNNER_TEMP/image-metadata.json" .
           digest="$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/image-metadata.json")"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
