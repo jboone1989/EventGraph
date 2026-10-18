@@ -4,7 +4,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {sql,closeDb} from '@aihot/backend/db';
 import {config} from '@aihot/backend/config';
-import {createConnection,createRegisteredModel,updateRegisteredModel,loadConnection,loadModel,configurationFingerprint,configurationSnapshot} from '@aihot/backend/providers/registry/connections';
+import {createConnection,createRegisteredModel,loadConnection,loadModel,configurationFingerprint,configurationSnapshot} from '@aihot/backend/providers/registry/connections';
 import {retestExpiringModels} from '@aihot/backend/providers/registry/retest';
 import type {ConnectionInput,ModelInput} from '@aihot/contracts/providers';
 const {MockAgent,getGlobalDispatcher,setGlobalDispatcher}=createRequire(new URL('../packages/backend/package.json',import.meta.url))('undici') as typeof import('undici');
@@ -65,7 +65,6 @@ test('selects only enabled, routed, previously successful single capabilities ne
 test('changed configuration is not retested; repeat and concurrent runs spend once; batch is capped',async()=>{
  await cleanup();on();
  const changed=await seed(23);
- const m=await loadModel(changed);
  // Simulate an upstream configuration edit made after the last successful probe.
  await sql`UPDATE registered_models SET model_id='renamed',version=version+1 WHERE id=${changed}::uuid`;
  const ids=[];for(let i=0;i<5;i++)ids.push(await seed(23));
