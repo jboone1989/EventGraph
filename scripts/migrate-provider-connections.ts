@@ -7,8 +7,10 @@ import {PRESETS} from '@aihot/site/models';
 import {sql,closeDb} from '@aihot/backend/db';
 import {audit} from '@aihot/backend/audit';
 import {connectionPolicy} from '@aihot/backend/providers/registry/connection-validation';
-import type {ProviderProfile} from '@aihot/backend/providers/registry/types';
+import {isVerifiedFreeTrialProvider,type ProviderProfile} from '@aihot/backend/providers/registry/types';
+import {credential} from '@aihot/backend/config';
 import {writeWorkflowModel,loadConnection,loadModel,configurationFingerprint,configurationSnapshot} from '@aihot/backend/providers/registry/connections';
+import {storedCredential} from '@aihot/backend/providers/registry/connection-secrets';
 
 interface LegacyRow {
  vendor:string;model_id:string;adapter:ProviderProfile['adapter'];endpoint:string|null;credential_env:string;
@@ -54,6 +56,11 @@ export async function migrateProviderConnections() {
    const {sourceMappings:_,...summary}=completed.value;
    return {...summary,createdModels:0,migratedReferences:0,verifiedBindings:bindings.length};
   }
+  // Require the same runtime credential environment as real dispatch, before any
+  // migration writes. Never certify a provider whose key is absent at migration time.
+  const keys=await tx<{credential_env:string}[]>`SELECT DISTINCT credential_env FROM model_providers WHERE credential_env IS NOT NULL AND credential_env<>''`;
+  for(const {credential_env} of keys)
+   if(!credential('models',credential_env))throw Error(`Missing provider runtime credential: ${credential_env}`);
   const sourceMappings:Array<{vendor:string;modelId:string;id:string}>=[];
   const expected=new Map<string,string>();
   let lastVendor='',lastModel='',sourceCount=0,createdModels=0;
@@ -88,14 +95,32 @@ export async function migrateProviderConnections() {
      SELECT ${id}::uuid,capability,'legacy-unverified','unverified',verified_at,latency_ms,detail,updated_at
      FROM model_provider_checks WHERE vendor=${row.vendor} AND model_id=${row.model_id}
      ON CONFLICT(model_id,capability) DO NOTHING`;
-    if(row.route_enabled) {
+    // An enabled route is not evidence that each declared capability was tested.
+    // Preserve only a fresh, successful, exact capability probe from the old table.
+    // NVIDIA's free-trial allowlist and actual runtime credentials remain mandatory.
+    if(row.enabled&&row.route_enabled&&
+       ['chat','embedding','document','safety'].includes(row.adapter)&&
+       (row.vendor!=='nvidia'||isVerifiedFreeTrialProvider(row.model_id))) {
      const connection=await loadConnection(c.id,tx),model=await loadModel(id,tx);
+     if(!storedCredential(connection))throw Error('Missing credential for migrating provider: '+row.vendor);
      const fingerprint=configurationFingerprint(connection,model),snapshot=configurationSnapshot(connection,model);
-     for(const capability of row.capabilities)await tx`INSERT INTO registered_model_checks
-      (model_id,capability,config_fingerprint,config_snapshot,status,verified_at,detail)
-      VALUES (${id}::uuid,${capability},${fingerprint},${tx.json(snapshot)},'legacy',now(),'Existing routing eligibility retained by migration')
-      ON CONFLICT(model_id,capability) DO UPDATE SET config_fingerprint=EXCLUDED.config_fingerprint,
-       config_snapshot=EXCLUDED.config_snapshot,status='legacy',verified_at=EXCLUDED.verified_at`;
+     const probes=await tx<{capability:string;verified_at:Date;updated_at:Date;latency_ms:number|null;detail:string|null}[]>`
+      SELECT capability,verified_at,updated_at,latency_ms,detail FROM model_provider_checks
+      WHERE vendor=${row.vendor} AND model_id=${row.model_id}
+       AND status='verified' AND verified_at IS NOT NULL`;
+     const now=Date.now();
+     for(const probe of probes) {
+      const age=now-probe.verified_at.getTime();
+      if(!row.capabilities.includes(probe.capability as never)||age<0||age>=86400000)continue;
+      await tx`INSERT INTO registered_model_checks
+       (model_id,capability,config_fingerprint,config_snapshot,status,verified_at,latency_ms,detail,updated_at)
+       VALUES (${id}::uuid,${probe.capability},${fingerprint},${tx.json(snapshot)},'legacy',
+        ${probe.verified_at},${probe.latency_ms},${probe.detail},${probe.updated_at})
+       ON CONFLICT(model_id,capability) DO UPDATE SET
+        config_fingerprint=EXCLUDED.config_fingerprint,config_snapshot=EXCLUDED.config_snapshot,
+        status='legacy',verified_at=EXCLUDED.verified_at,latency_ms=EXCLUDED.latency_ms,
+        detail=EXCLUDED.detail,updated_at=EXCLUDED.updated_at`;
+     }
     }
     lastVendor=row.vendor;lastModel=row.model_id;
    }
