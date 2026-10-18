@@ -57,8 +57,14 @@ export async function stepsOnService(service: string): Promise<string[]> {
   const names:string[]=[];
   for(const [key,c] of Object.entries(capabilities())) {
     const reference=current[key]!.model;
-    const actual=reference.startsWith('model:')?await loadConnection((await loadModel(reference.slice(6))).provider_id):null;
-    if((actual?.vendor??MODELS[reference]?.service)===service&&!c.idle?.())names.push(c.label.split('（')[0]!);
+    let owner=MODELS[reference]?.service;
+    if(reference.startsWith('model:')) {
+     // An admin can refer to a deleted normalized model. Show other steps
+     // instead of failing the whole admin status page.
+     try {owner=(await loadConnection((await loadModel(reference.slice(6))).provider_id)).vendor;}
+     catch {continue;}
+    }
+    if(owner===service&&!c.idle?.())names.push(c.label.split('（')[0]!);
   }
   return names;
 }
@@ -102,13 +108,13 @@ async function validChoice(reference:string):Promise<boolean> {
  return false;
 }
 async function effectiveChoice(c:Capability,admin?:string):Promise<{model:string;source:'admin'|'env'|'default'}> {
- const choices=[
-  {model:admin,source:'admin' as const},
-  {model:process.env[c.env],source:'env' as const},
-  {model:c.default,source:'default' as const}
- ];
- for(const choice of choices)if(choice.model&&await validChoice(choice.model))
-  return {model:choice.model,source:choice.source};
+ // A malformed admin selection must not mask a healthy environment override.
+ if(admin&&await validChoice(admin))return {model:admin,source:'admin'};
+ const env=process.env[c.env];
+ if(env&&await validChoice(env))return {model:env,source:'env'};
+ // With no valid environment fallback, keep an invalid explicit admin choice:
+ // modelFor must fail closed, not silently route through an unrelated default.
+ if(admin)return {model:admin,source:'admin'};
  return {model:c.default,source:'default'};
 }
 
