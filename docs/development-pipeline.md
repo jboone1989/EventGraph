@@ -24,9 +24,9 @@
 
 1. 在 cn-dev 安装 **仓库专用** GitHub Actions self-hosted runner，标签 `eventgraph-cn-dev`，用有 Docker 权限的独立运行账号；只允许运行受保护 `main` 的工作流。此 runner 拥有本机 Docker socket 的强权限，不能拿来执行来自外部 PR 的任意脚本。
 2. 在仓库 Actions Variables 里设置 `EVENTGRAPH_DEV_AUTO_DEPLOY=true`。没有这个变量时，不会安排远程部署作业；`GITHUB_TOKEN` 用于当次 GHCR 下载，不另建 Webhook 服务器或长期 GitHub Personal Access Token。
-3. 目标路径为 `/home/ubuntu/livingruntime-aihot`，要有现有 `.env` 和 Compose。首次启用前人工核对当前部署源码 SHA 和数据库迁移版本；历史不是同一个 Git commit ancestry 时脚本会拒绝覆盖，不能用 `reset --hard` 强行绕过。
+3. 目标路径为 `/home/ubuntu/livingruntime-aihot`，必须确认主机名 `VM-0-5-ubuntu`、真实 `.env` 和 Compose 均属于 cn-dev。首次启用前人工核对**运行中镜像对应的实际源码 SHA**和开发数据库迁移账本，再由有权限的操作者把该 40 位 SHA 写到 `~/.local/state/eventgraph-dev/last-source-sha`（权限 0600）。脚本不从可能有未提交改动的工作树 HEAD 猜测部署版本；缺少基线、SHA 不在同一 ancestry 或磁盘空闲不足 4 GiB 都会拒绝部署。
 4. 更新流程仅更新 `aihot` Compose 项目的 `api`、`worker`、`web`，依赖 `docker-compose.dev-image.yml`。任何检测到 `database/migrations/` 变化的发布都**拒绝自动更新**，应先单独迁移开发数据库再开启该次部署；不触碰生产环境。
-5. 健康检测失败只回滚应用镜像与容器；数据库和数据卷从不删除或自动恢复。历史 Git SHA 与镜像引用在 `~/.local/state/eventgraph-dev`。
+5. 更新前分别读取 `api/worker/web` 的**不可变本地镜像 ID**，保存三个回滚标签，更新后校验三个服务都在运行目标 digest 对应的镜像，连续三轮通过 web/API 健康探测才写入当前版本记录。失败、取消和超时会尽力恢复三个应用镜像与容器；数据库和数据卷从不删除或自动恢复。只清理本工作流标签识别且不被当前容器/回滚镜像使用的旧包镜像与 dangling 层，绝不调用 `docker system prune` 或 `docker volume prune`。历史 Git SHA 与镜像引用在 `~/.local/state/eventgraph-dev`。
 
 ## 触发链和重试
 
