@@ -1,5 +1,17 @@
 # 部署
 
+## 生产发布闸门（仅先检查，不自动发布）
+
+`scripts/deploy-prod.sh --check` 执行严格前置检查，默认 **不会**修改生产配置或部署应用；不得把脚本合并视为自动启用周发布。启用任何 systemd timer 前须在开发副本演练失败回滚，并确认实际生产机器、主机可达性和发布时间。
+
+- **一致来源：** 生产已有 `github` remote 继续只读 fetch，不修改远端配置；脚本通过 `git ls-remote` 确认源 SHA 与 `jboone1989/EventGraph` 的 `main` 完全相同，开发机构建也从这个规范地址获取同一 SHA。生产当前的 remote URL 仍必须在实际机器上核对。
+- **准入：** 仅准许对应 SHA 在 GitHub `check.yml` 的 `main` push 运行完成且成功。读不到 GitHub Actions API 时停止，必要时通过安全环境变量注入只读 `GITHUB_TOKEN`（不要写进 repo、日志或命令参数）。
+- **串行：** `flock` 拒绝重叠的手动发布、`--check` 和以后可能增加的 timer。
+- **有 schema 变化：** 先用生产 `.env` 执行 `production-db-backup.py`，再检查 `pg_restore --list`。备份失败则**不得推进代码或运行迁移**。
+- **回滚：** 无迁移的失败自动恢复上一个 Git SHA 和权限受限的 `.env` 快照、应用容器，并复检 smoke。有迁移尝试（即使失败）则停止并告警，由维护者审查数据库后手工决定恢复方式，避免代码回退后不兼容新 schema。备份和配置快照保存在用户私有的 `~/.local/state/eventgraph-release/`，不得公开。
+- **未做的事：** 本 PR 不安装或启用定时器、不变更现有生产 remote、不进行生产部署。需在开发环境做一次故意失败的真实回滚演练后，再讨论每周窗口和启用时间。
+
+
 ## 用 Docker（推荐）
 
 需要一台装了 Docker（带 Compose）的机器。云服务器建议至少 2 核、4 GB 内存，构建镜像时要用到。
