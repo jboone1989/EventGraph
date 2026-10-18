@@ -39,7 +39,14 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          node scripts/pr-risk.ts "$BASE" "$HEAD" > "$RUNNER_TEMP/risk.txt"
+          # Never execute the untrusted PR's classifier to decide its own risk.
+          # The bootstrap PR has no classifier on main yet: fail closed as high.
+          if git cat-file -e "$BASE:scripts/pr-risk.ts" 2>/dev/null; then
+            git show "$BASE:scripts/pr-risk.ts" > "$RUNNER_TEMP/trusted-risk.ts"
+            node "$RUNNER_TEMP/trusted-risk.ts" "$BASE" "$HEAD" > "$RUNNER_TEMP/risk.txt"
+          else
+            printf 'tier=high\nhigh\tbootstrap: no trusted classifier on base\n' > "$RUNNER_TEMP/risk.txt"
+          fi
           tier="$(sed -n 's/^tier=//p' "$RUNNER_TEMP/risk.txt")"
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
           {
