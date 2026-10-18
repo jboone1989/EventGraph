@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { sql } from "@aihot/backend/db";
+import { storePublicAnalyticsEvent } from "@aihot/backend/publication/analytics";
 
 // Explicit allowlist: content, path queries and sensitive browser fields are never collected.
 const EVENT_NAMES = new Set([
@@ -56,12 +56,7 @@ export function registerAnalytics(app: FastifyInstance) {
     perMinute.set(key, { count, until: prior && prior.until > now ? prior.until : now + 60_000 });
     if (perMinute.size > 5000) perMinute.clear();
     if (count > 120) return reply.code(429).send({ error: "rate_limited" });
-    await sql`INSERT INTO product_analytics_events
-      (session_id, event_name, page_type, language, content_id, duration_ms, referrer_host)
-      VALUES (${event.sessionId}, ${event.name}, ${event.pageType}, ${event.language},
-              ${event.contentId}, ${event.durationMs}, ${event.referrerHost})`;
-    if (Math.random() < 0.01)
-      await sql`DELETE FROM product_analytics_events WHERE occurred_at < NOW() - INTERVAL '90 days'`;
+    await storePublicAnalyticsEvent(event);
     return reply.code(204).send();
   });
 }

@@ -1,6 +1,7 @@
 // Compact normal (non-selected) old news to a lightweight, source-attributed index.
 // Never delete its identity, public summary, source link, editorial judgement or story history.
 import { sql } from "../db.ts";
+import { compactPublicArticleBodies } from "../publication/compaction.ts";
 
 export const DEFAULT_NEWS_BODY_DAYS = 30;
 export const MIN_NEWS_BODY_DAYS = 7;
@@ -61,8 +62,7 @@ export async function compactOrdinaryNews(
         WHERE article_id = ANY(${ids}::text[]) AND body_text IS NOT NULL`;
       await tx`UPDATE translations SET body_html = NULL, body_text = NULL
         WHERE article_id = ANY(${ids}::text[])`;
-      await tx`UPDATE pool_search SET body = '' WHERE article_id = ANY(${ids}::text[])`;
-      await tx`UPDATE publications SET body_mode = 'summary', syndicate = false WHERE article_id = ANY(${ids}::text[])`;
+      await compactPublicArticleBodies(tx, ids);
       return rows.length;
     });
     if (!n) break;
