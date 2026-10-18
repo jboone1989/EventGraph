@@ -7,7 +7,32 @@ DEV_ROOT="/home/ubuntu/livingruntime-aihot"
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=12 -o ServerAliveInterval=15 "${DEV}")
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.production.yml
  -f docker-compose.knowledge.yml -f docker-compose.release.yml --profile knowledge)
+umask 077
+LOCK_PATH="$HOME/.eventgraph-production-release.lock"
+exec 9>"$LOCK_PATH"
+command -v flock >/dev/null || { echo "flock is required" >&2; exit 1; }
+flock -n 9 || { echo "Another production release or --check is active" >&2; exit 1; }
 START=$SECONDS
+RELEASE_STARTED=0
+MIGRATION_ATTEMPTED=0
+ENV_SNAPSHOT=''
+rollback_on_exit() {
+ local rc="$1"
+ trap - EXIT
+ if [[ "$rc" != 0 && "$RELEASE_STARTED" == 1 ]]; then
+  if [[ "$MIGRATION_ATTEMPTED" == 1 ]]; then
+   echo "ALERT: migration may have run; manual recovery required" >&2
+  else
+   echo "ALERT: restoring prior checkout and environment" >&2
+   [[ -f "$ENV_SNAPSHOT" ]] && cp -p "$ENV_SNAPSHOT" .env
+   git reset --hard "$OLD_SHA" || echo "ALERT: git rollback failed" >&2
+   "${COMPOSE[@]}" up -d --no-deps --no-build --pull never api worker web knowledge || echo "ALERT: container rollback failed" >&2
+   python3 scripts/production-smoke.py || echo "ALERT: rollback smoke failed" >&2
+  fi
+ fi
+ exit "$rc"
+}
+trap 'rollback_on_exit "$?"' EXIT
 [[ "${1:-}" == "" || "${1:-}" == "--check" ]] || { echo "Usage: $0 [--check]" >&2; exit 2; }
 git diff --quiet && git diff --cached --quiet || { echo "Dirty checkout; abort" >&2; exit 1; }
 test -f .env && test -f scripts/production-smoke.py
