@@ -1,6 +1,6 @@
 import type {FastifyInstance} from "fastify";
-
-import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
+import {graphStats,graphSearch} from "@aihot/backend/knowledge/graphiti";
+import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters} from "@aihot/backend/publication/knowledge";
 import {timingSafeEqual} from "node:crypto";
 
 export function registerKnowledge(app:FastifyInstance){

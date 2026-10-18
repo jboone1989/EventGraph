@@ -48,9 +48,7 @@ export async function analyticsOverview() {
       HAVING BOOL_OR(event_name = 'story_open')
         AND BOOL_OR(event_name IN ('graph_node_select', 'source_open'))
     ) AS qualified`,
-    sql`SELECT COUNT(*)::int AS total_events,
-      (SELECT occurred_at::text FROM product_analytics_events ORDER BY occurred_at DESC, id DESC LIMIT 1) AS last_event_at
-      FROM product_analytics_events`,
+    sql`SELECT COUNT(*)::int AS total_events, MAX(occurred_at)::text AS last_event_at FROM product_analytics_events`,
   ]);
   const [cloudflare, posthog, searchConsole] = await external;
   return {

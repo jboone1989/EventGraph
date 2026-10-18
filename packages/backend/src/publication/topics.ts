@@ -63,7 +63,7 @@ export const TOPICS: Topic[] = file.topics.map((t) => ({
   entityId: t.entityId ?? null,
   tags: t.entityId ? [`entity:${t.entityId}`] : (t.tags ?? []),
   pattern: t.entityId ? titlePattern(t.name, t.entityId) : null,
-  aliases: t.entityId ? [t.slug, t.name, ...nameParts(t.name), ...(ENTITIES[t.entityId] ? [ENTITIES[t.entityId]!.name, ...ENTITIES[t.entityId]!.aliases, ...(ENTITIES[t.entityId]!.otherNames ?? [])] : []), ...(t.aliases ?? [])] : [],
+  aliases: t.entityId ? [t.slug, t.name, ...nameParts(t.name), ...(t.aliases ?? [])] : [],
 }));
 
 const BY_SLUG = new Map(TOPICS.map((t, position) => [t.slug, { topic: t, position }]));
