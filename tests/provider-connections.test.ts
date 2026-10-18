@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import {after,test} from 'node:test';
-import {randomBytes,randomUUID} from 'node:crypto';
+import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {sql,closeDb} from '@aihot/backend/db';
 import {createConnection,updateConnection,deleteConnection,listConnections,loadConnection,
  createRegisteredModel,updateRegisteredModel,deleteRegisteredModel,getRegisteredModel,
  configurationFingerprint,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel} from '@aihot/backend/providers/registry/connections';
-import {storedCredential} from '@aihot/backend/providers/registry/connection-secrets';
+import {storedCredential,credentialDigest} from '@aihot/backend/providers/registry/connection-secrets';
 import {ProviderConfigError,type ConnectionInput,type ModelInput} from '@aihot/backend/providers/registry/connection-types';
 import {migrateProviderConnections,migratedId} from '../scripts/migrate-provider-connections.ts';
 
@@ -18,6 +18,11 @@ const model=(providerId:string,extra:Partial<ModelInput>={}):ModelInput=>({provi
  body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'},stream:false,complexity:'medium',
  documentationUrl:null,notes:null,enabled:false,routeEnabled:false,...extra});
 after(closeDb);
+test('persisted credential fingerprint is keyed, never the offline SHA-256 of an API secret',()=>{
+ const weak='weak-secret-for-test',plain=createHash('sha256').update(weak).digest('hex');
+ assert.notEqual(credentialDigest(weak),plain);
+ assert.notEqual(credentialDigest(weak),credentialDigest(weak+'-rotated'));
+});
 
 test('credentials support replace, keep and clear, without values in views or audits',async()=>{
  const secret='secret-'+randomUUID();
@@ -104,6 +109,16 @@ test('migration is repeatable, preserves source configurations and validates act
   VALUES ('nvidia',${id},'chat','https://integrate.api.nvidia.com/v1/chat/completions','NVIDIA_API_KEY','["text"]'::jsonb,'{"temperature":0.7}'::jsonb,true,true)`;
  for(const [i,id] of oldIds.entries())await sql`INSERT INTO settings(key,value,updated_by)
   VALUES (${'models.migration-'+i},${sql.json({model:'nvidia:'+id})},${actor})`;
+ // Old route switches are not probe evidence. Only a fresh successful exact
+ // capability check may become legacy, and its original timestamp is preserved.
+ const verifiedAt=new Date(Date.now()-10*60*1000);
+ for(const id of oldIds)await sql`INSERT INTO model_provider_checks
+  (vendor,model_id,capability,status,verified_at,latency_ms,detail)
+  VALUES ('nvidia',${id},'text','verified',${verifiedAt},400,'prior verified probe')`;
+ await sql`INSERT INTO model_provider_checks
+  (vendor,model_id,capability,status,verified_at)
+  VALUES ('nvidia',${oldIds[0]},'vision','failed',NULL)`;
+
  await sql`UPDATE model_providers SET timeout_ms=120000 WHERE model_id=${oldIds[1]!}`;
  await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,enabled,route_enabled) VALUES ('nvidia','disabled-legacy','unconfigured','https://integrate.api.nvidia.com/v1/chat/completions','NVIDIA_API_KEY',false,false)`;
  const first=await migrateProviderConnections();
@@ -118,7 +133,9 @@ test('migration is repeatable, preserves source configurations and validates act
   assert.equal(await resolveModelReference(oldIds[i]!),null);
   assert.deepEqual(m.requestDefaults,{temperature:0.7});
   assert.deepEqual(m.routing.eligibleCapabilities,['text']);
-  assert.equal(m.checks[0]?.status,'legacy');
+  assert.equal(m.checks.find(c=>c.capability==='text')?.status,'legacy');
+  assert.equal(m.checks.find(c=>c.capability==='text')?.verifiedAt,verifiedAt.toISOString());
+  assert.notEqual(m.checks.find(c=>c.capability==='vision')?.status,'legacy');
   assert.equal(m.timeoutOverrideMs,i===0?60000:120000);
   const [setting]=await sql`SELECT value FROM settings WHERE key=${'models.migration-'+i}`;
   assert.equal(setting!.value.model,'model:'+id);
