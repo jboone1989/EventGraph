@@ -29,6 +29,6 @@ test("reports with the same publication timestamp become one complete step", () 
 });
 
 test("invalid and empty dates are ignored", () => {
-  assert.deepEqual(buildReplayFrames([report("bad", "not-a-date")]), []);
+  assert.deepEqual(buildReplayFrames([report("bad", "not-a-date"), report("local", "2026-10-05T10:00:00")]), []);
   assert.deepEqual(buildReplayFrames([]), []);
 });
