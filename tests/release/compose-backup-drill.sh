@@ -27,7 +27,7 @@ services:
       POSTGRES_PASSWORD: ${DRILL_PG_PASSWORD:?}
       POSTGRES_DB: aihot
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aihot -d aihot"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U aihot -d aihot"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -55,7 +55,7 @@ validate() { "${COMPOSE[@]}" exec -T db pg_restore --list < "$1" >/dev/null 2>"$
 dbsh() { "${COMPOSE[@]}" exec -T db psql -v ON_ERROR_STOP=1 -U aihot -At "$@"; }
 
 echo "== start fresh postgres:17-alpine ($PROJECT)"
-"${COMPOSE[@]}" up -d --wait --wait-timeout 120 db
+"${COMPOSE[@]}" up -d --wait --wait-timeout 75 db
 VOLUMES="$(docker inspect -f '{{range .Mounts}}{{if .Name}}{{.Name}} {{end}}{{end}}' "$("${COMPOSE[@]}" ps -q db)")"
 check "database uses an anonymous volume" test -n "$VOLUMES"
 check "server is major version 17" test "$(dbsh -d aihot -c 'show server_version_num')" -ge 170000
