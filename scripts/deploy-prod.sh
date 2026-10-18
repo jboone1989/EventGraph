@@ -38,10 +38,32 @@ git diff --quiet && git diff --cached --quiet || { echo "Dirty checkout; abort" 
 test -f .env && test -f scripts/production-smoke.py
 command -v docker >/dev/null
 python3 scripts/production-env-check.py .env --role production --compare config/environments/production.flags.env.example --enforce
+# Verify that production and builder use the same immutable EventGraph source commit.
 git fetch github main
 NEW_SHA="$(git rev-parse FETCH_HEAD)"
 OLD_SHA="$(git rev-parse HEAD)"
 [[ "$NEW_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+CANONICAL_SHA="$(git ls-remote https://github.com/jboone1989/EventGraph.git refs/heads/main | awk '{print $1}')"
+[[ "$CANONICAL_SHA" == "$NEW_SHA" ]] || { echo "Source mismatch: production remote is not EventGraph main" >&2; exit 1; }
+python3 - "$NEW_SHA" <<'VERIFY_CI'
+import json,os,sys,urllib.request
+sha=sys.argv[1]
+url=("https://api.github.com/repos/jboone1989/EventGraph/actions/workflows/"
+     "check.yml/runs?head_sha="+sha+"&event=push&per_page=20")
+headers={"Accept":"application/vnd.github+json","User-Agent":"eventgraph-release-check"}
+if os.getenv("GITHUB_TOKEN"):
+    headers["Authorization"]="Bearer "+os.environ["GITHUB_TOKEN"]
+try:
+    with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=20) as res:
+        runs=json.load(res).get("workflow_runs",[])
+except Exception as e:
+    raise SystemExit("CI verification unavailable, refusing release: "+type(e).__name__)
+if not any(r.get("head_sha")==sha and r.get("head_branch")=="main" and
+           r.get("event")=="push" and r.get("status")=="completed" and
+           r.get("conclusion")=="success" for r in runs):
+    raise SystemExit("No completed successful main-push Check for "+sha)
+print("CI verified:",sha)
+VERIFY_CI
 TAG="${NEW_SHA:0:12}"
 read_tag() { sed -n "s/^$1=//p" .env | tail -n1; }
 OLD_TAG="$(read_tag LRSITE_RELEASE)"
@@ -87,7 +109,7 @@ if [[ "$APP_CHANGED" == 1 || "$KNOWLEDGE_CHANGED" == 1 ]]; then
  "${SSH[@]}" "bash -s -- '$NEW_SHA' '$TAG' '$DEV_ROOT' '$APP_CHANGED' '$KNOWLEDGE_CHANGED'" <<'BUILD_ON_DEV'
 set -Eeuo pipefail
 SHA="$1"; TAG="$2"; ROOT="$3"; APP="$4"; KNOWLEDGE="$5"
-git -C "$ROOT" fetch https://github.com/jboone1989/AIHOT.git main
+git -C "$ROOT" fetch https://github.com/jboone1989/EventGraph.git main
 [[ "$(git -C "$ROOT" rev-parse FETCH_HEAD)" == "$SHA" ]] || { echo "Source mismatch" >&2; exit 1; }
 TMP="$(mktemp -d /tmp/livingruntime-build.XXXXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
