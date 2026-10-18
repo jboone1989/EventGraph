@@ -127,7 +127,7 @@ test("a company topic takes the articles about it, not the ones that only mentio
 test("a story page names the topics of its reports", async () => {
   const launch = await story(`智能体框架 V2 发布 ${T}`);
   await report({ source: OFFICIAL, at: hoursAgo(26), title: `智能体框架 V2 发布 ${T}`, tags: ["AI Agent"], fact: await fact(launch.id, "发布 V2") });
-  assert.deepEqual(await topicsOfStory(launch.id), [{ slug: "ai-agents", name: "AI Agent" }, { slug: "practical-guides", name: "Guides" }]);
+  assert.deepEqual(await topicsOfStory(launch.id), [{ slug: "ai-agents", name: "AI Agent 与自动化" }, { slug: "practical-guides", name: "实用教程" }]);
 });
 
 test("withdrawn articles stay out of lists and counts", async () => {
