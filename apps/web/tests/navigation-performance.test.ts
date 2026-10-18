@@ -42,6 +42,7 @@ const api=createServer((req,res)=>{
   hits.push(req.url!);
   if(p===failing){res.statusCode=503;return res.end(JSON.stringify({code:'unavailable'}));}
   if(p==='/api/health')return res.end('{}');
+  if(p==='/api/market/spot')return res.end(JSON.stringify({asset:url.searchParams.get('asset'),observations:[]}));
   if(p==='/api/site/search/suggestions')return res.end(JSON.stringify({topics:[{slug:'openai',name:'OpenAI',group:'company'}],hot:[{rank:1,title:'建议版本 '+suggestionsVersion,to:'/story/fixture'}]}));
   if(p==='/api/site/topics')return res.end(JSON.stringify({groups:[],topics:[{slug:'openai',name:'OpenAI',group:'company',definition:'Fixture',brand:null,total:0,recent:0,indexable:false,latest:null}]}));
   if(p==='/api/site/hot')return res.end(JSON.stringify({computedAt:at,windowHours:48,entries:[{rank:1,story:{publicId:'fixture',title:'建议版本 '+suggestionsVersion},heat:10,trend:'flat',trendPct:0,badges:[],participantCount:0,sourceCount:0,sourceNames:[],participants:[],spark:[],summary:null,latest:null,cover:null}]}));
@@ -98,11 +99,11 @@ test('SSR list and visited query variants return offline without another read',a
     await expect(page.getByRole('link',{name:'性能检查文章',exact:true})).toBeVisible({timeout:1500});
     await context.setOffline(false);
     await page.getByRole('button',{name:/^筛选/}).click();
-    await page.getByRole('link',{name:'模型',exact:true}).click();
+    await page.getByRole('link',{name:'深度研究',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 research',exact:true})).toBeVisible();
     await page.getByRole('button',{name:/^筛选/}).click();
-    await page.getByRole('link',{name:'产品',exact:true}).click();
-    await expect(page.getByRole('link',{name:'分类 term',exact:true})).toBeVisible();
+    await page.getByRole('link',{name:'加密货币',exact:true}).click();
+    await expect(page.getByRole('link',{name:'分类 crypto',exact:true})).toBeVisible();
     await context.setOffline(true);
     await page.goBack();
     await expect(page.getByRole('link',{name:'分类 research',exact:true})).toBeVisible({timeout:1500});
@@ -117,7 +118,7 @@ test('hover still fetches article data, touches that move do not, and failed pre
     const link=page.getByRole('link',{name:'性能检查文章',exact:true});
     const start=hits.length;
     await link.dispatchEvent('touchstart');await link.dispatchEvent('touchmove');
-    await page.getByRole('heading',{name:'精选',exact:true}).click();
+    await page.getByRole('heading',{name:'正在发生的事',exact:true}).click();
     assert.equal(hits.slice(start).filter(x=>x.startsWith('/api/site/items/')).length,0);
     const response=page.waitForResponse(r=>r.url().includes('/items/navigation-fixture.data'));
     await link.hover();await response;
@@ -129,7 +130,7 @@ test('hover still fetches article data, touches that move do not, and failed pre
       await freshPage.goto(origin+'/');failing='/api/site/items/navigation-fixture';
       const failed=freshPage.waitForResponse(r=>r.url().includes('/items/navigation-fixture.data')&&r.status()===503);
       await freshPage.getByRole('link',{name:'性能检查文章',exact:true}).hover();await failed;
-      await expect(freshPage.getByRole('heading',{name:'精选',exact:true})).toBeVisible();
+      await expect(freshPage.getByRole('heading',{name:'正在发生的事',exact:true})).toBeVisible();
     }finally{await fresh.close();}
   }finally{failing='';await context.close();}
 });
@@ -159,16 +160,16 @@ test('intent on a selected link preserves visited data and the next revisit star
   page.on('request',request=>{if(request.url().includes('.data'))requests.push(request.url());});
   try{
     await page.goto(origin+'/');
-    await page.getByRole('link',{name:'模型',exact:true}).click();
+    await page.getByRole('link',{name:'深度研究',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 research',exact:true})).toBeVisible();
-    await page.getByRole('link',{name:'模型',exact:true}).focus();
+    await page.getByRole('link',{name:'深度研究',exact:true}).focus();
     await page.waitForTimeout(150);
-    await page.getByRole('link',{name:'产品',exact:true}).click();
-    await expect(page.getByRole('link',{name:'分类 term',exact:true})).toBeVisible();
-    await page.getByRole('link',{name:'产品',exact:true}).focus();
+    await page.getByRole('link',{name:'加密货币',exact:true}).click();
+    await expect(page.getByRole('link',{name:'分类 crypto',exact:true})).toBeVisible();
+    await page.getByRole('link',{name:'加密货币',exact:true}).focus();
     await page.waitForTimeout(150);
     const before=requests.length;
-    await page.getByRole('link',{name:'模型',exact:true}).click();
+    await page.getByRole('link',{name:'深度研究',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 research',exact:true})).toBeVisible();
     assert.deepEqual(requests.slice(before),[],'neither prefetch nor navigation may evict and reload a still-valid visited page');
   }finally{await context.close();}
@@ -230,6 +231,8 @@ test('phone suggestions load only on opening, use one small read, retry failures
   const context=await safari.newContext({viewport:{width:390,height:844}});const page=await context.newPage();
   try{
     suggestionsVersion=1;await page.goto(origin+'/');
+    // The homepage also reads quotes after hydration; settle those before measuring search reads.
+    await expect(page.locator('section[aria-labelledby="market-title"]')).toContainText('行情暂时不可用。');
     assert.equal(hits.filter(x=>x==='/api/site/search/suggestions').length,0);
     let start=hits.length;
     await page.getByRole('button',{name:'搜索',exact:true}).click();
@@ -288,7 +291,7 @@ test('deep reading returns to its anchor, including folded dates',async()=>{
   try{
     await page.goto(origin+'/?tag=long-reading');
     await expect(page.locator('[data-card-key]')).toHaveCount(180);
-    await page.getByRole('button',{name:'收起10月4日',exact:true}).click();
+    await page.getByRole('button',{name:'收起 10月4日',exact:true}).click();
     await expect(page.locator('[data-card-key]')).toHaveCount(120);
     await page.getByRole('link',{name:'长列表文章 160',exact:true}).scrollIntoViewIfNeeded();
     const before=await page.evaluate(()=>{
@@ -300,6 +303,6 @@ test('deep reading returns to its anchor, including folded dates',async()=>{
     await page.goBack();
     await expect(page.locator('[data-card-key]')).toHaveCount(120);
     await expect.poll(()=>page.locator(`[data-card-key="${before.key}"]`).evaluate((e,top)=>Math.abs(e.getBoundingClientRect().top-top),before.top)).toBeLessThan(2);
-    await expect(page.getByRole('button',{name:'展开10月4日',exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'展开 10月4日',exact:true})).toBeVisible();
   }finally{await context.close();}
 });
