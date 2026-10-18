@@ -49,7 +49,7 @@ test('selects only enabled, routed, previously successful single capabilities ne
  await cleanup();on();
  const near=await seed(23),past=await seed(26),fresh=await seed(10),dead=await seed(40),never=await seed(null),
   failed=await seed(23,{},'failed'),unrouted=await seed(23,{routeEnabled:false}),
-  mismatch=await seed(23,{probeSpec:{capability:'vision',body:{messages:[]},response:'chat'},capabilities:['text','vision']});
+  mismatch=await seed(23,{probeSpec:{capability:'vision',body:{messages:[{role:'user',content:[{type:'image_url',image_url:{url:'https://example.invalid/sample.png'}}]}]},response:'chat'},capabilities:['text','vision']});
  reply();reply();
  const out=await retestExpiringModels();
  assert.deepEqual([out.state,out.tested,out.failed],['ran',2,0]);
