@@ -1,49 +1,37 @@
-# EventGraph 开发流水线：独立模块、事件组合
+# EventGraph 开发 CI/CD（GitHub 原生）
 
-本仓库已有 `.github/workflows/check.yml`。GitHub **原生 workflow_run 事件**就是构建触发器，无需另写 HTTP webhook 服务。
+本项目使用 GitHub Actions + Docker 官方 Actions + GHCR + Docker Compose，不运行额外的调度、轮询或自制部署脚本。
 
-## 三个独立环节
+## 分工
 
-| 步骤 | 触发条件 | 执行地点 | 输出 / 失败处理 |
-|---|---|---|---|
-| 本地开发预览 | cn-dev 上修改代码 | 现有开发进程 | `npm run dev:web` / `npm run dev:api` 热更新，**无需 PR** |
-| Check | PR / main push | GitHub-hosted runner | 类型检查、数据库/浏览器测试、Docker smoke；失败不发布镜像 |
-| Build Image | `Check` 在 main 的 push **成功完成** | GitHub-hosted runner | 构建应用镜像，发布 GHCR `sha-<commit>`，输出不可变 `image@sha256:digest` |
-| Update Dev | Build Image 成功且仓库变量启用 | cn-dev 专用 runner | 拉取指定 digest，更新 api/worker/web，健康检查；失败回滚应用容器 |
+| 环节 | GitHub 事件 | 运行位置 |
+|---|---|---|
+| CI（原有 `check.yml`） | `pull_request` / `push main` | GitHub-hosted |
+| 发布镜像（`dev-image.yml` 的 `publish`） | `Check` 在 `main` 的 push 成功完成 | GitHub-hosted |
+| 更新开发应用（`deploy_dev`） | 同一工作流的 `needs: publish`，启用后 | GitHub-hosted → SSH → cn-dev |
+| Claude Review | 独立 PR 评审 | 不阻塞开发预览 |
+| 生产部署 | 不在本工作流内 | 完全独立 |
 
-- **Claude Review** 是另一个并行质量关卡：在 PR 上复审，不能阻塞个人开发预览；合并前按仓库保护规则处理。
-- **生产部署完全独立**，不在这个 workflow 里。
-- PostgreSQL / Neo4j 保持运行。普通代码更新不迁移数据库、不重建数据库镜像，也不重启知识图谱。
-- `knowledge_service` 是单独 Python 服务，本 PR 不触发其构建；后续可按相同模式加独立镜像工作流。
+发布使用 Docker 官方 `setup-buildx-action`、`login-action`、`build-push-action`；利用 GitHub Actions BuildKit 缓存，而不是让 cn-dev 反复构建。镜像打上来源 Git SHA 标签，并以不变的 OCI digest 交给下一步。
 
-## 开发部署如何启用
+**不会从 PR 构建结果部署开发环境。** 工作流只接受本仓库 `main` 的成功 push Check，并在构建前检查当前 HEAD，避免旧提交覆盖新版本。
 
-默认仅在 `main` 成功通过 Check 后发布 GHCR 镜像。**Update Dev 默认跳过**：这避免未经确认就覆盖目前 cn-dev 的预览与数据库。
+## 开发部署启用前检查
 
-启用时需要一次性完成：
+首次合并后，只自动构建并发布 GHCR 镜像。**开发部署默认关闭**（没有设置变量即不运行），因为当前 cn-dev 运行的应用容器来自不同 Compose 工作目录，主工作区还有本地提交和未提交修改，不能盲目覆盖。
 
-1. 在 cn-dev 安装 **仓库专用** GitHub Actions self-hosted runner，标签 `eventgraph-cn-dev`，用有 Docker 权限的独立运行账号；只允许运行受保护 `main` 的工作流。此 runner 拥有本机 Docker socket 的强权限，不能拿来执行来自外部 PR 的任意脚本。
-2. 在仓库 Actions Variables 里设置 `EVENTGRAPH_DEV_AUTO_DEPLOY=true`。没有这个变量时，不会安排远程部署作业；`GITHUB_TOKEN` 用于当次 GHCR 下载，不另建 Webhook 服务器或长期 GitHub Personal Access Token。
-3. 目标路径为 `/home/ubuntu/livingruntime-aihot`，必须确认主机名 `VM-0-5-ubuntu`、真实 `.env` 和 Compose 均属于 cn-dev。首次启用前人工核对**运行中镜像对应的实际源码 SHA**和开发数据库迁移账本，再由有权限的操作者把该 40 位 SHA 写到 `~/.local/state/eventgraph-dev/last-source-sha`（权限 0600）。脚本不从可能有未提交改动的工作树 HEAD 猜测部署版本；缺少基线、SHA 不在同一 ancestry 或Docker 数据目录所在磁盘空闲不足 4 GiB 都会拒绝部署。
-4. 更新流程仅更新 `aihot` Compose 项目的 `api`、`worker`、`web`，依赖 `docker-compose.dev-image.yml`。任何检测到 `database/migrations/` 变化的发布都**拒绝自动更新**，应先单独迁移开发数据库再开启该次部署；不触碰生产环境。
-5. 更新前分别读取 `api/worker/web` 的**不可变本地镜像 ID**，保存三个回滚标签，更新后校验三个服务都在运行目标 digest 对应的镜像，连续三轮通过 web/API 健康探测才写入当前版本记录。失败、取消和超时会尽力恢复三个应用镜像与容器；数据库和数据卷从不删除或自动恢复。只尝试删除带有 EventGraph 镜像来源标签、且没有任何容器或回滚目标引用的旧镜像；绝不对整台开发机执行全局 image/system/volume prune。历史 Git SHA 与镜像引用在 `~/.local/state/eventgraph-dev`。
+统一 Compose 配置、确认现有应用和数据库兼容、核对真实运行版本后，才设置以下 GitHub Repository Variables 和 **development Environment Secrets**：
 
-## 触发链和重试
+- Variables: `EVENTGRAPH_DEV_AUTO_DEPLOY=true`、`EVENTGRAPH_DEV_HOST=43.142.127.40`、`EVENTGRAPH_DEV_USER=ubuntu`。
+- Environment secrets（development）: `EVENTGRAPH_DEV_SSH_KEY`（仅用于开发部署的 SSH 私钥）、`EVENTGRAPH_DEV_KNOWN_HOSTS`（从可信渠道核实的 SSH host key）。
+- 不需要 self-hosted runner、长期 GHCR PAT、Webhooks 服务器，也不向仓库提交任何密钥。
 
-```text
-编辑 cn-dev → 开发预览热更新（最快路径）
-        |
-        └── GitHub PR → Check → Claude Review → 合并 main
-                                        |
-                          main Check success（workflow_run）
-                                        |
-                        Build image at GitHub → GHCR digest
-                                        |
-                         Update Dev（启用后自动）
-                                        |
-                          health check / app rollback
-```
+启用后，GitHub 托管 Runner 用本次 `GITHUB_TOKEN` 登录 GHCR，在 cn-dev 上执行标准 Docker Compose `pull` / `up -d --no-deps --no-build`，仅更新 `api`、`worker`、`web`，随后在 web 容器内部做健康检查。保留 `db`、`knowledge-neo4j`、`knowledge`、`egress-bridge`、卷、环境文件和源码工作区。GitHub Actions `concurrency` 防止同一流水线并发运行。
 
-失败处理互相独立：测试失败就修测试；镜像构建失败只重跑 Build 工作流；开发环境启动失败只重新发布/回滚开发镜像。不会为了修改一个按钮去重建 PostgreSQL 或 Neo4j。
+部署步骤**不自动迁移数据库**，且不具备生产级自动回滚。如果需要新增迁移，应先按既有迁移流程验证开发数据库，确保正在运行的服务兼容。若健康检查失败，GitHub Actions 报红，需要人工核对或按旧镜像 digest 执行标准 Compose 回退，不能声称自动回滚成功。
 
-**尚未启用/验证：** 本 PR 创建后需要先确认 GitHub Check 和 Build 工作流可读、以及 GHCR 发布凭据有效。由于生产式的 GitHub runner 尚未确认安装在 cn-dev，真实 Update Dev 不得宣称已经可用或已经部署。
+## 开发预览
+
+直接编辑 cn-dev 上的开发代码可继续使用 `npm run dev:web`、`npm run dev:api` 的热更新模式；这条路径不需要推送 GitHub，也不需要等待 PR CI。推送 PR 后，CI 和 Claude Review 各自独立进行；合并 main 后生成可复现的镜像用于统一开发环境部署。
+
+当前的唯一阻塞：开发机运行栈尚未收敛为单一受控 Compose 来源，且未配置开发 SSH 凭据。**不要仅为了“完成自动化”而覆盖现有服务和数据。**
