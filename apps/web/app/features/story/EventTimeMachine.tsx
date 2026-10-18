@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import type { StoryReportView } from "@aihot/contracts/site";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
@@ -17,13 +17,17 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
   const frames = useMemo(() => buildReplayFrames(reports), [reports]);
   const [position, setPosition] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const trackId = useId();
   const last = Math.max(0, frames.length - 1);
   const step = Math.min(position, last);
   const frame = frames[step];
-  const date = (iso: string) => new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", {
+  const covered = frames[last]?.total ?? 0;
+  const partial = covered < totalReports || covered < reports.length;
+  const formatter = useMemo(() => new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", {
     timeZone: "Asia/Shanghai", year: "numeric", month: "short", day: "numeric",
-    hour: "2-digit", minute: "2-digit", hour12: false,
-  }).format(new Date(iso));
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  }), [lang]);
+  const date = (iso: string) => `${formatter.format(new Date(iso))} UTC+8`;
 
   useEffect(() => {
     if (!playing) return;
@@ -41,10 +45,9 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
   const titleOf = (r: StoryReportView) => lang === "zh"
     ? r.title
     : r.english?.title ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report";
-  const summaryOf = (r: StoryReportView) => lang === "zh" ? r.summary : (r.english?.summary ?? englishText(r.summary));
 
   return (
-    <div aria-label={t("事件时间回放", "Event report playback")} className="space-y-4">
+    <section aria-label={t("事件时间回放", "Event report playback")} className="space-y-4">
       <div className="rounded-panel border border-line-soft bg-bg-sunk/50 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-4">EVENT REPLAY</span>
@@ -52,11 +55,15 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
             {t("阶段", "Step")} {step + 1} / {frames.length}
           </span>
         </div>
-        <time dateTime={frame.publishedAt} className="mt-2 block text-[19px] font-semibold text-ink">{date(frame.publishedAt)}</time>
-        <label htmlFor="event-replay-position" className="mt-4 block text-[12px] text-ink-3">
-          {t("拖动时间轴，查看当时已发布的报道", "Move through publication history")}
+        <time dateTime={frame.publishedAt} aria-live={playing ? "off" : "polite"} className="mt-2 block text-[19px] font-semibold text-ink">{date(frame.publishedAt)}</time>
+        {partial && <p className="mt-2 rounded-lg bg-bg px-3 py-2 text-[12px] leading-relaxed text-ink-3" role="status">
+          {t(`仅回放已加载的 ${covered} / ${totalReports} 篇报道；最早一步不一定是事件真正起点。`,
+            `Replay covers only ${covered} of ${totalReports} reports; the first step may not be the event’s beginning.`)}
+        </p>}
+        <label htmlFor={trackId} className="mt-4 block text-[12px] text-ink-3">
+          {t("拖动时间轴，查看每一步新增的公开报道", "Move through newly published reports, step by step")}
         </label>
-        <input id="event-replay-position" type="range" min={0} max={last} step={1} value={step}
+        <input id={trackId} type="range" min={0} max={last} step={1} value={step}
           disabled={frames.length < 2} onChange={(e) => { setPlaying(false); setPosition(Number(e.target.value)); }}
           aria-valuetext={date(frame.publishedAt)}
           className="mt-2 w-full cursor-pointer accent-current disabled:opacity-40"/>
@@ -85,7 +92,7 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
       </div>
       <dl className="grid grid-cols-3 gap-2 text-center">
         {[
-          { label: t("累计报道", "Reports so far"), value: frame.total },
+          { label: t("本次回放累计", "Reports in replay"), value: frame.total },
           { label: t("一手资料", "First-party"), value: frame.firstParty },
           { label: t("报道来源", "Sources"), value: frame.sources },
         ].map(({ label, value }) => (
@@ -109,7 +116,6 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
                 className="mt-1 block text-[14px] font-semibold leading-relaxed text-ink hover:text-accent">
                 {titleOf(report)}
               </Link>
-              {summaryOf(report) && <p className="mt-1 line-clamp-3 text-[12px] leading-relaxed text-ink-3">{summaryOf(report)}</p>}
               {report.originalUrl && /^https?:\/\//i.test(report.originalUrl) && (
                 <a href={report.originalUrl} target="_blank" rel="noopener noreferrer"
                   className="mt-2 inline-block text-[12px] text-accent hover:underline">
@@ -122,14 +128,10 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
       </div>
       <p className="text-[11.5px] leading-relaxed text-ink-4">
         {t(
-          "按报道的公开发布时间回放，不代表 EventGraph 当时已收录这些报道；旁边的知识图谱展示当前关系，不随此时间轴回溯。",
-          "Replay follows publication timestamps, not ingestion times. The knowledge graph on this page remains a current snapshot, not an as-of graph."
-        )}
-        {totalReports > reports.length && (
-          <> {t(`此处仅覆盖时间线返回的 ${reports.length} / ${totalReports} 篇报道。`,
-            `This replay covers only ${reports.length} of ${totalReports} reports returned in the timeline.`)}</>
+          "只按报道的公开发布时间回放（非当时入库时间）。本面板以外的事件概览、知识图谱和热度均为当前快照，不会回溯；避免用今天的综述解释过去。",
+          "Playback uses publication times, not ingestion times. The overview, graph and activity outside this panel remain current snapshots, not historical ones."
         )}
       </p>
-    </div>
+    </section>
   );
 }
