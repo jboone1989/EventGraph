@@ -1,5 +1,19 @@
 # 部署
 
+## Provider Connections 数据迁移（先在开发副本验证）
+
+新增的 `0106`–`0110` 是添加新表的结构迁移，**不会自动迁移历史 Provider 资格**。旧 API/worker 停止写入后，先对 PostgreSQL 做自有私有备份，再在数据库副本进行显式的数据转换：
+
+```bash
+# 使用部署环境真实的运行时环境文件，不能用空白、示例文件或测试凭据代替。
+# 文件需要包含 DATABASE_URL、MODEL_CREDENTIAL_ENCRYPTION_KEY，以及
+# 旧 model_providers.credential_env 指向的每一个提供商 API key。
+node --env-file=.env scripts/migrate-provider-connections.ts
+```
+
+任何旧 `credential_env` 变量缺失时必须中止，不应留下部分转换结果。验证所有原先真正可路由的模型：逐能力检查 `routingState.eligibleCapabilities`；只有旧表对应能力存在 `verified` 且 `verified_at` 在最近 24 小时内，才允许以 `legacy` 过渡，时间戳必须保持原样。没有验证过的 vision/embedding 能力不可自动获得资格；过期能力必须重新测试。切到 `MODEL_PROVIDER_REGISTRY_ENABLED=true` 前，先核对副本库的旧路由资格与新路由资格的差异，不接受意外新增或失去的能力。正式切换需单独的迁移/回滚计划；本 PR 不改动生产启用状态。 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 需要作为受保护的持久密钥供各进程一致使用，不可在日志、CI 或文档里填写真实值。
+
+
 ## 用 Docker（推荐）
 
 需要一台装了 Docker（带 Compose）的机器。云服务器建议至少 2 核、4 GB 内存，构建镜像时要用到。
