@@ -103,7 +103,11 @@ test('workflow switch and reset update the FK binding with settings and fail clo
  const [binding]=await sql`SELECT model_id FROM provider_workflow_models WHERE setting_key='models.summarize'`;assert.equal(binding!.model_id,m.id);
  await switchModel('summarize',null,'reset','test');assert.equal((await sql`SELECT 1 FROM provider_workflow_models WHERE setting_key='models.summarize'`).length,0);
  await sql`INSERT INTO settings(key,value,updated_by) VALUES ('models.summarize','{"model":"missing-model"}'::jsonb,'test')`;
- invalidateModelCache();await assert.rejects(modelFor('summarize'),/Unknown configured model/);
+ // Fail closed if the saved admin model is invalid and no environment fallback exists.
+ const priorEnv=process.env.SUMMARIZE_MODEL;
+ delete process.env.SUMMARIZE_MODEL;
+ try{invalidateModelCache();await assert.rejects(modelFor('summarize'),/Unknown configured model/);}
+ finally{priorEnv===undefined?delete process.env.SUMMARIZE_MODEL:process.env.SUMMARIZE_MODEL=priorEnv;}
  await sql`DELETE FROM settings WHERE key='models.summarize'`;invalidateModelCache();
 });
 test('NVIDIA domain recognition enforces boundary, approved endpoint and model policy',async()=>{
