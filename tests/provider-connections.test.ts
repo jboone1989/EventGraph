@@ -4,7 +4,7 @@ import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {sql,closeDb} from '@aihot/backend/db';
 import {createConnection,updateConnection,deleteConnection,listConnections,loadConnection,
  createRegisteredModel,updateRegisteredModel,deleteRegisteredModel,getRegisteredModel,
- configurationFingerprint,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel} from '@aihot/backend/providers/registry/connections';
+ configurationFingerprint,routingState,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel} from '@aihot/backend/providers/registry/connections';
 import {storedCredential,credentialDigest} from '@aihot/backend/providers/registry/connection-secrets';
 import {ProviderConfigError,type ConnectionInput,type ModelInput} from '@aihot/backend/providers/registry/connection-types';
 import {migrateProviderConnections,migratedId} from '../scripts/migrate-provider-connections.ts';
@@ -75,6 +75,11 @@ test('verification follows configuration fingerprints, including external creden
  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,status,verified_at)
   VALUES (${m.id}::uuid,'text',${fingerprint},'verified',now())`;
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
+ // Even an exact legacy fingerprint cannot authorize checks older than 24 hours.
+ const stale=routingState({...await loadModel(m.id),enabled:true,route_enabled:true},await loadConnection(c.id),
+  [{model_id:m.id,capability:'text',config_fingerprint:fingerprint,status:'legacy',
+    verified_at:new Date(Date.now()-25*60*60*1000),latency_ms:null}]);
+ assert.deepEqual(stale.eligibleCapabilities,[]);
  const renamed=await updateConnection(c.id,connection({name:'New display name'}),c.version,'display',actor);
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
  process.env.PROVIDER_TEST_KEY='rotated';
@@ -121,6 +126,14 @@ test('migration is repeatable, preserves source configurations and validates act
 
  await sql`UPDATE model_providers SET timeout_ms=120000 WHERE model_id=${oldIds[1]!}`;
  await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,enabled,route_enabled) VALUES ('nvidia','disabled-legacy','unconfigured','https://integrate.api.nvidia.com/v1/chat/completions','NVIDIA_API_KEY',false,false)`;
+ // Preflight fails atomically when even a disabled legacy connection references
+ // a runtime key not present in this environment. Never write partial mappings.
+ delete process.env.PROVIDER_MIGRATION_MISSING_KEY;
+ await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,enabled,route_enabled)
+  VALUES ('example','missing-key','unconfigured','https://example.com/v1','PROVIDER_MIGRATION_MISSING_KEY',false,false)`;
+ await assert.rejects(migrateProviderConnections(),/Missing provider runtime credential: PROVIDER_MIGRATION_MISSING_KEY/);
+ assert.equal((await sql`SELECT 1 FROM settings WHERE key='providerConnections.migration.v1'`).length,0);
+ await sql`DELETE FROM model_providers WHERE vendor='example' AND model_id='missing-key'`;
  const first=await migrateProviderConnections();
  assert.equal(first.createdModels,3);assert.equal(first.migratedReferences,2);
  const original=oldIds.map(id=>migratedId('model',['nvidia',id]));
