@@ -110,8 +110,8 @@ jobs:
           EVENTGRAPH_DEV_ROOT: /home/ubuntu/livingruntime-aihot
         run: |
           set -Eeuo pipefail
-          export DOCKER_CONFIG="$RUNNER_TEMP/eventgraph-docker-auth"
-          mkdir -m 700 -p "$DOCKER_CONFIG"
-          trap 'docker logout ghcr.io >/dev/null 2>&1 || true; rm -f "$DOCKER_CONFIG/config.json"' EXIT
+          # Keep the runner's normal Docker config so Compose plugin discovery
+          # continues to work; use only the short-lived GitHub Actions token.
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           bash "$GITHUB_WORKSPACE/scripts/deploy-dev-image.sh"
