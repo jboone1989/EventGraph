@@ -61,6 +61,9 @@ async function focusAlpha(page: Page) {
   await page.locator(".lr-atlas-node-row").filter({ hasText: alpha.name }).click();
   await expect(page).toHaveURL(/\?entity=e2e-alpha$/);
   await expect(page.locator(".lr-atlas-canvas")).toHaveAttribute("aria-label", /2 entities, 2 relations/);
+  // The drawing engine must actually mount a canvas, not just render a label.
+  await expect(page.locator(".lr-atlas-loading")).toHaveCount(0);
+  await expect(page.locator(".lr-atlas-canvas canvas").first()).toBeAttached();
 }
 
 test("atlas groups directed facts, opens evidence and expands without losing the focus", async ({ page }) => {
