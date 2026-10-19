@@ -292,6 +292,7 @@ jobs:
 
       - name: Smoke-test published digest with Compose (no rebuild)
         if: steps.current.outputs.publish == 'true'
+        timeout-minutes: 12
         env:
           EVENTGRAPH_APP_IMAGE: ${{ steps.ref.outputs.image_ref }}
         shell: bash
@@ -300,6 +301,8 @@ jobs:
           [[ "$EVENTGRAPH_APP_IMAGE" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[a-f0-9]{64}$ ]]
           node scripts/init-env.ts --llm-key ci-not-a-real-key
           sed -i 's/^COLLECT_ENABLED=.*/COLLECT_ENABLED=false/; s/^MODEL_CALLS_ENABLED=.*/MODEL_CALLS_ENABLED=false/' .env
+          grep -qx 'COLLECT_ENABLED=false' .env
+          grep -qx 'MODEL_CALLS_ENABLED=false' .env
           echo "MCP_ALLOWED_HOSTS=web" >> .env
           cat > "$RUNNER_TEMP/ci-published-image.yml" <<'COMPOSE'
           services:
@@ -315,16 +318,23 @@ jobs:
           docker pull "$EVENTGRAPH_APP_IMAGE"
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" config --quiet
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" up -d --no-build --pull never
+          healthy=0
           for i in $(seq 1 90); do
-            if curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null; then break; fi
+            if curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null; then healthy=1; break; fi
             sleep 2
           done
+          if [[ "$healthy" -ne 1 ]]; then
+            echo '::error::Published image failed HTTP health check' >&2
+            exit 1
+          fi
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" ps
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" run --rm --no-deps --entrypoint node setup scripts/smoke.ts --base http://web:3000
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" exec -T db psql -U aihot -d aihot -Atc "select count(*) from sources" | grep -qx "$(node -p "require('./industry/sources.json').sources.length")"
 
       - name: Published-image smoke logs
         if: ${{ failure() && steps.current.outputs.publish == 'true' }}
+        env:
+          EVENTGRAPH_APP_IMAGE: ${{ steps.ref.outputs.image_ref }}
         run: |
           if test -f "$RUNNER_TEMP/ci-published-image.yml"; then
             docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" logs --tail 80
@@ -332,6 +342,8 @@ jobs:
 
       - name: Clean published-image smoke environment
         if: ${{ always() && steps.current.outputs.publish == 'true' }}
+        env:
+          EVENTGRAPH_APP_IMAGE: ${{ steps.ref.outputs.image_ref }}
         run: |
           if test -f "$RUNNER_TEMP/ci-published-image.yml"; then
             docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" down -v
