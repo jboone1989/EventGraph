@@ -31,24 +31,29 @@ function atOffset(y: string | number, mo: string | number, d: string | number, h
  */
 export function parseLooseDate(value: string | null | undefined, utcOffset = "+08:00"): Date | null {
   if (!value) return null;
-  const v = value.trim();
+  // AIHOT upstream e47bf83: "at" joins a date and its clock time.
+  const v = value.trim().replace(/(\d),?\s+at\s+(?=\d{1,2}:\d{2})/gi, "$1 ");
   if (!v) return null;
   const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(v);
   if (compact) return atOffset(compact[1]!, compact[2]!, compact[3]!, compact[4]!, compact[5]!, compact[6]!, utcOffset);
-  const numeric = /(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?(?:(?:T|\s*)(\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(v);
+  const yearFirst = /(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?(?:(?:T|\s*)(\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(v);
+  const monthFirst = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})(?:(?:T|\s+)(\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(v);
+  const numeric = yearFirst ?? monthFirst?.map((part, i, match) => i === 1 ? match[3]! : i === 2 ? match[1]! : i === 3 ? match[2]! : part);
   if (numeric && !calendarDay(numeric[1]!, numeric[2]!, numeric[3]!)) return null;
-  const english = /\b([a-z]{3,9})\s+(\d{1,2})(?:st|nd|rd|th)?[,]?\s+(\d{4})\b/i.exec(v)
-    ?? /\b(\d{1,2})\s+([a-z]{3,9})[,]?\s+(\d{4})\b/i.exec(v)?.map((part, i, match) => i === 1 ? match[2]! : i === 2 ? match[1]! : part);
+  const english = /\b([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?[,]?\s+(\d{4})\b/i.exec(v)
+    ?? /\b(\d{1,2})\s+([a-z]{3,9})\.?[,]?\s+(\d{2}|\d{4})\b/i.exec(v)?.map((part, i, match) => i === 1 ? match[2]! : i === 2 ? match[1]! : part);
   if (english) {
+    if (english[3]!.length === 2) english[3] = String(Number(english[3]) + (Number(english[3]) < 50 ? 2000 : 1900));
     const month = Date.parse(`${english[1]} 1, ${english[3]} 00:00:00 GMT`);
     if (!Number.isFinite(month) || !calendarDay(english[3]!, new Date(month).getUTCMonth() + 1, english[2]!)) return null;
   }
   if (!numeric && !english) return null;
   const text = v.replace(/(\d)(st|nd|rd|th)\b/gi, "$1");
+  const displayText = english ? text.slice(english.index ?? 0).replace(/\bSept\.\s/gi, 'Sep ') : text;
   if (EXPLICIT_ZONE.test(v) || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
-    const direct = Date.parse(text);
+    const direct = Date.parse(displayText);
     if (Number.isFinite(direct)) return new Date(direct);
-    if (!numeric) return null;
+    if (!numeric && !english) return null;
   }
   // 2026-09-26 / 2026/09/26 / 2026-09-26T10:00 / 2026年9月26日 (+ optional time), interpreted in the given offset.
   const m = numeric;
@@ -57,8 +62,8 @@ export function parseLooseDate(value: string | null | undefined, utcOffset = "+0
     return atOffset(y!, mo!, d!, h, mi, s, utcOffset);
   }
   // Parse English wall-clock fields in UTC so the host's daylight-saving rules cannot shift them.
-  const en = Date.parse(`${text} GMT`);
-  const englishDay = english && !/\d:\d/.test(text) ? Date.parse(`${english[1]} ${english[2]}, ${english[3]} GMT`) : NaN;
+  const en = Date.parse(`${displayText} GMT`);
+  const englishDay = english && !/\d:\d/.test(displayText) ? Date.parse(`${english[1]} ${english[2]}, ${english[3]} GMT`) : NaN;
   if (!Number.isFinite(en) && !Number.isFinite(englishDay)) return null;
   const utc = new Date(Number.isFinite(en) ? en : englishDay);
   return atOffset(utc.getUTCFullYear(), utc.getUTCMonth() + 1, utc.getUTCDate(), utc.getUTCHours(), utc.getUTCMinutes(), utc.getUTCSeconds(), utcOffset);
