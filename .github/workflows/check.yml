@@ -9,6 +9,12 @@ on:
   pull_request:
     branches: [develop, main]
   workflow_dispatch:
+    inputs:
+      weekly_release:
+        description: 'Only the scheduled weekly promotion may enable production publication'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -153,7 +159,11 @@ jobs:
   # CI success on develop/main publishes one immutable image; only develop auto-deploys.
   publish:
     needs: check
-    if: github.event_name == 'push'
+    if: >-
+      ${{ (github.event_name == 'push' && github.ref == 'refs/heads/develop') ||
+          (github.event_name == 'workflow_dispatch' &&
+           github.ref == 'refs/heads/main' &&
+           inputs.weekly_release == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -168,6 +178,18 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+
+      - name: Confirm weekly release came from the scheduled promotion
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          today="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          subject="$(git show -s --format=%s HEAD)"
+          [[ "$subject" == "release(weekly): $today develop@"* ]] || {
+            echo "::error::Production publish requires today's weekly release commit"
+            exit 1
+          }
 
       - name: Skip superseded commits
         id: current
@@ -267,5 +289,54 @@ jobs:
           fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
           envs: EVENTGRAPH_IMAGE,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
           command_timeout: 15m
+          version: '1.8.2'
+          script_path: scripts/ci/deploy-image.sh
+
+  deploy_production:
+    needs: publish
+    if: >-
+      ${{ needs.publish.outputs.image_ref != '' &&
+          github.ref == 'refs/heads/main' &&
+          github.event_name == 'workflow_dispatch' &&
+          inputs.weekly_release == true &&
+          vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
+    concurrency:
+      group: eventgraph-production-rollout
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.source_sha }}
+          persist-credentials: false
+      - name: Ensure this is still the scheduled main release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" == "$SOURCE_SHA" ]] ||
+            { echo "::error::Main advanced since production image publication"; exit 1; }
+      - name: Deploy verified immutable app image (leave databases/graph unchanged)
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_DEPLOY_ENV: production
+          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_DIR: ${{ vars.EVENTGRAPH_PROD_ROOT }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ vars.EVENTGRAPH_PROD_HOST }}
+          username: ${{ vars.EVENTGRAPH_PROD_USER }}
+          key: ${{ secrets.EVENTGRAPH_PROD_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_DEPLOY_ENV,EVENTGRAPH_IMAGE,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
+          command_timeout: 18m
           version: '1.8.2'
           script_path: scripts/ci/deploy-image.sh
