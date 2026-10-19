@@ -40,7 +40,6 @@ jobs:
           git remote add upstream https://github.com/KKKKhazix/AIHOT.git
           git fetch --no-tags upstream main:refs/remotes/upstream/main
           git fetch --no-tags origin develop:refs/remotes/origin/develop
-          git fetch --no-tags origin main:refs/remotes/origin/main
           upstream_sha="$(git rev-parse upstream/main)"
           if git merge-base --is-ancestor "$upstream_sha" origin/develop; then
             echo "develop already contains AIHOT upstream $upstream_sha"
@@ -61,14 +60,14 @@ jobs:
           conflicts=""
           # GITHUB_TOKEN has no workflows permission. If any new upstream
           # commit touches CI, propose a blocked draft instead of pushing it.
-          upstream_workflow_commits="$(git log --format=%h "$upstream_sha" ^origin/develop -- .github/workflows)"
+          upstream_workflow_commits="$(git log --full-history --format=%h "$upstream_sha" ^origin/develop -- .github/workflows)"
           if [[ -n "$upstream_workflow_commits" ]]; then
             mode=conflict
             conflicts=".github/workflows (upstream workflow changes require separate review)"
           elif ! git merge --no-ff --no-commit "$upstream_sha"; then
             git rev-parse -q --verify MERGE_HEAD >/dev/null || { echo 'Merge failed without a merge state'; exit 1; }
             # Resolve only workflow conflicts from EventGraph's main.
-            conflicts="$(git diff --name-only --diff-filter=U | grep -v '^\.github/workflows/' || true)"
+            conflicts="$(git -c core.quotepath=false diff --name-only --diff-filter=U | grep -v '^\.github/workflows/' || true)"
             if [[ -n "$conflicts" ]]; then
               mode=conflict
             fi
@@ -82,12 +81,9 @@ jobs:
 
           # Never push upstream workflow definitions with GITHUB_TOKEN:
           # they require an unavailable 'workflows' permission.
-          # Always retain EventGraph's reviewed CI from default branch main.
+          # Always retain EventGraph's existing CI from the target branch develop.
           git rm -r -f -- .github/workflows
-          git restore --source=origin/main --staged --worktree -- .github/workflows
-          if ! git diff --quiet origin/develop origin/main -- .github/workflows; then
-            echo "::notice::Sync PR changes CI to match main. Review this intentionally before merging to develop."
-          fi
+          git restore --source=origin/develop --staged --worktree -- .github/workflows
           if [[ "$mode" == clean ]]; then
             [[ -z "$(git diff --name-only --diff-filter=U)" ]]
             git commit -m "chore: merge AIHOT upstream ${upstream_sha:0:12}"
@@ -107,13 +103,13 @@ jobs:
             echo ""
             if [[ "$mode" == clean ]]; then
               echo "Merged cleanly onto develop. Review the diff and CI before merging."
-              echo "Trusted workflow files come from EventGraph main, never AIHOT upstream."
+              echo "Trusted workflow files come from EventGraph develop, never AIHOT upstream."
               echo "CI is dispatched explicitly because PRs created with GITHUB_TOKEN do not trigger pull_request workflows."
             else
               echo "**BLOCKED: application merge conflicts.** No upstream app code has been committed."
               echo "The draft PR records the upstream SHA and conflicting paths, keeping EventGraph operational."
               echo "Workflow-only changes are also blocked for separate review (GITHUB_TOKEN cannot push workflow history)."
-              echo "Codex must merge upstream/main into this branch, resolve conflicts, retain EventGraph CI from main, then ask Claude to review."
+              echo "Codex must merge upstream/main into this branch, resolve conflicts, retain EventGraph CI from develop, then ask Claude to review."
               echo "Never merge this PR until the real combined code and CI are verified."
               echo ""
               echo "Conflicting files:"
