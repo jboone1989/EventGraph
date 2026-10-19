@@ -1,3 +1,6 @@
+import {normalizedRegistryActive,resolveModelReference} from './registry/connections.ts';
+import {registeredRuntime,requestRegisteredModel,modelEndpoint} from './registry/runtime.ts';
+import {storedCredential} from './registry/connection-secrets.ts';
 // OpenAI-compatible chat calls, always through receipts. One model is enough: `default` is whatever the
 // deployment names in LLM_BASE_URL / LLM_API_KEY / LLM_MODEL, and every capability uses it unless the
 // site, an environment variable or the admin's model page picks one of the site's named presets
@@ -136,9 +139,15 @@ function isConnectFailure(error: unknown): boolean {
 export const isNvidiaTextModel=(id:string)=>nvidiaCapability(id)==="text";
 export const isNvidiaChatModel=(id:string)=>["text","vision"].includes(nvidiaCapability(id));
 
+function inputCapabilityFor(user:string|ContentPart[]):string {return Array.isArray(user)&&user.some(p=>p.type==='image_url')?'vision':'text';}
+
 export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): Promise<ChatJsonResult<z.infer<S>>> {
   // A healthy model chosen by the NVIDIA monitor can be addressed directly by ID.
   // Dynamic routing only accepts compatible text model IDs on our NVIDIA endpoint.
+  const normalizedId=opts.model.startsWith('model:')?opts.model.slice(6):
+    await normalizedRegistryActive()?await resolveModelReference(opts.model):null;
+  const normalized=normalizedId?await registeredRuntime(normalizedId,inputCapabilityFor(opts.user)):null;
+  if(normalized&&!['chat','document','safety'].includes(normalized.m.adapter))throw Error('Selected model does not support chat');
   const registryEnabled=process.env.MODEL_PROVIDER_REGISTRY_ENABLED==="true";
   const dynamicId = opts.model.startsWith("nvidia:") ? opts.model.slice(7) :
     registryEnabled&&MODELS[opts.model]?.service==="nvidia" ? MODELS[opts.model]!.model : "";
@@ -155,7 +164,11 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
      !registered?.checks.some(c=>c.status==="verified"&&c.capability===inputCapability&&c.verifiedAt&&
         Date.now()-Date.parse(c.verifiedAt)<86400000)))
     throw new Error("NVIDIA provider needs a recent successful "+inputCapability+" check: "+dynamicId);
-  const spec: ModelSpec | undefined = (provider instanceof ChatProvider ? {
+  const spec: ModelSpec | undefined = (normalized ? {
+    key:opts.model,service:normalized.c.vendor,model:normalized.m.model_id,baseUrlEnv:'',apiKeyEnv:'',
+    jsonMode:false,vision:normalized.m.capabilities.includes('vision'),extra:normalized.m.request_defaults,
+    endpoint:modelEndpoint(normalized.c,normalized.m),stream:normalized.m.stream,timeoutMs:normalized.m.timeout_override_ms??normalized.c.timeout_ms,
+  } : provider instanceof ChatProvider ? {
     key:opts.model,service:"nvidia",model:dynamicId,baseUrlEnv:"NVIDIA_BASE_URL",
     apiKeyEnv:"NVIDIA_API_KEY",jsonMode:false,
     vision:registered?.capabilities.includes("vision"),extra:registered?.requestDefaults,
@@ -172,7 +185,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
   if (!spec) throw new Error(`Unknown model ${opts.model}`);
   if (!config.modelCallsEnabled) throw new Error("Model calls are disabled (MODEL_CALLS_ENABLED=false)");
   const baseUrl = spec.endpoint ?? credential("models", spec.baseUrlEnv);
-  const apiKey = credential("models", spec.apiKeyEnv);
+  const apiKey = normalized?storedCredential(normalized.c):credential("models", spec.apiKeyEnv);
   if (!baseUrl || !apiKey || !spec.model) throw new Error(`Model ${opts.model} is not configured (${spec.baseUrlEnv}, ${spec.apiKeyEnv}${spec.key === "default" ? ", LLM_MODEL" : ""})`);
 
   const temperature = opts.temperature ?? 0.2;
@@ -199,12 +212,16 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
       model: spec.model,
       purpose: opts.purpose,
       subject: opts.subject,
-      identity: { model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(userText), temperature, maxTokens, extra: spec.extra ?? null },
+      identity: { connectionModelId:normalizedId,configuration:normalized?.fingerprint,model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(userText), temperature, maxTokens, extra: spec.extra ?? null },
       requestSummary: { promptVersion: opts.promptVersion, systemHash: sha256(opts.system), userHash: sha256(userText), userChars: userText.length, temperature, maxTokens },
       attemptTag: opts.attemptTag,
     },
     async () => {
       const started = Date.now();
+      if(normalizedId){
+        const {data,requestId}=await requestRegisteredModel(normalizedId,inputCapability,body,normalized!.fingerprint);
+        return {response:{...data,_latencyMs:Date.now()-started},requestId,usage:(data.usage as Record<string,unknown>)??null,cost:null};
+      }
       if(provider instanceof ChatProvider){
         const output=await provider.request(body,inputCapability);
         const json=output.data;

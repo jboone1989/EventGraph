@@ -1,5 +1,20 @@
 # 部署
 
+## Provider Connections 数据迁移（先在开发副本验证）
+
+新增的 `0107`–`0110` 是添加新表的结构迁移，**不会自动迁移历史 Provider 资格**。旧 API/worker 停止写入后，先对 PostgreSQL 做自有私有备份，再在数据库副本进行显式的数据转换：
+
+```bash
+# 使用部署环境真实的运行时环境文件，不能用空白、示例文件或测试凭据代替。
+# 文件需要包含 DATABASE_URL、MODEL_CREDENTIAL_ENCRYPTION_KEY，以及
+# 旧 model_providers.credential_env 指向的每一个提供商 API key。
+docker compose -f docker-compose.yml -f docker-compose.production.yml \
+  run --rm --no-deps api node scripts/migrate-provider-connections.ts
+```
+
+任何旧 `credential_env` 变量缺失时必须中止，不应留下部分转换结果。验证所有原先真正可路由的模型：逐能力检查 `routingState.eligibleCapabilities`；只有旧表对应能力存在 `verified` 且 `verified_at` 在最近 24 小时内，才允许以 `legacy` 过渡，时间戳必须保持原样。没有验证过的 vision/embedding 能力不可自动获得资格；过期能力必须重新测试。切到 `MODEL_PROVIDER_REGISTRY_ENABLED=true` 前，先核对副本库的旧路由资格与新路由资格的差异，不接受意外新增或失去的能力。正式切换需单独的迁移/回滚计划；本 PR 不改动生产启用状态。 数据导入完成**不会自动切换路由**。必须先在服务环境显式设置 `MODEL_PROVIDER_REGISTRY_ENABLED=true`，再在维护窗口执行 `docker compose -f docker-compose.yml -f docker-compose.production.yml run --rm --no-deps api node scripts/migrate-provider-connections.ts --activate`；只有 **环境开关和 `providerConnections.activation.v1` 标记同时成立** 才激活。启动前确认实际生产 Compose 文件组合、密钥注入路径与数据库服务健康，并核对能力探测续期任务，避免 24 小时后因失效导致请求失败。 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 需要作为受保护的持久密钥供各进程一致使用，不可在日志、CI 或文档里填写真实值。
+
+
 ## 用 Docker（推荐）
 
 需要一台装了 Docker（带 Compose）的机器。云服务器建议至少 2 核、4 GB 内存，构建镜像时要用到。
@@ -78,6 +93,19 @@ docker compose run --rm setup && docker compose up -d
 新迁移遇到长期占锁会报出文件名和等待超时，先处理占锁事务，再重跑 setup，不要跳过迁移或改写迁移账本。并发索引创建中断可能留下无效索引：核实报错中的对象后，用 `DROP INDEX CONCURRENTLY <索引名>` 清理该失败索引再重跑；有效但定义不同的同名索引须先核对差异。这些保护不改变上述 Docker 更新顺序，跨旧版本升级仍可能执行历史上的破坏性迁移。
 
 下面按时间从新到旧列出每次更新要注意的事。
+
+#### Provider 连接与模型管理
+
+`0106`–`0110` 只新增连接、模型、验证记录和引用映射表，不删除旧数据。新管理页、API、运行时和数据迁移必须一起交付。
+
+先在数据库副本上验证，再按维护窗口执行：备份、停止旧 API 和 worker、运行 `scripts/migrate.ts`，然后运行 `docker compose -f docker-compose.yml -f docker-compose.production.yml \
+  run --rm --no-deps api node scripts/migrate-provider-connections.ts`，核验结果后启动新版服务。不要在旧 worker 仍运行时单独迁移 `models.*` 引用。
+
+新凭据通过 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 加密；设置为随机 32 字节的 base64 值，并与数据库备份一起妥善保管。已有环境凭据引用由迁移保留，替换或清除只影响该连接。
+
+迁移保留模型级超时和现有引用。只有迁移前已经开启路由的模型取得当前配置的 `legacy` 资格；原先关闭的路由仍须测试通过才能开启。修改地址、凭据或调用配置会使旧资格失效，界面分别显示路由开关和实际可用性。没有可用模型时明确报错。
+
+完成标记、数据和引用在同一事务提交。重跑只核验，管理员后来删除的对象不会恢复。迁移后旧管理写接口返回 409，请使用新的连接与模型页面。[API 和兼容约定](provider-api.md)。
 
 #### EventGraph：删除旧的本地知识图谱原型（2026 年 10 月 16 日）
 
