@@ -36,6 +36,7 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
   const t = useText();
   const focused = useRef<string | null>(null);
   const desiredFocus = useRef(selectedKey);
+  const cameraStale = useRef(false);
   desiredFocus.current = selectedKey;
 
   // Only camera movements respond to focus. New data never triggers another pan.
@@ -66,7 +67,39 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
       instance.on("mouseout", "node", e => { e.target.removeClass("hovered"); readableLabels(instance, false); });
       instance.on("tap", "node", e => callbacks.current.onNode(e.target.id()));
       instance.on("tap", "edge", e => callbacks.current.onPair(e.target.id()));
-      resize = new ResizeObserver(() => instance.resize());
+      // Graph tabs can mount while display:none on phones. Resize alone does
+      // not fix Cytoscape's initial 0x0 camera; fit once on first real exposure.
+      let everVisible = container.current.getBoundingClientRect().width > 0 &&
+                        container.current.getBoundingClientRect().height > 0;
+      let wasVisible = everVisible;
+      resize = new ResizeObserver(() => {
+        const el = container.current;
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const visibleNow = rect.width > 0 && rect.height > 0;
+        instance.resize();
+        // A time scrub can change a hidden mobile graph at 0x0. Recenter only
+        // on its next exposure; don't reset camera for ordinary tab switches.
+        if (visibleNow && !wasVisible && instance.nodes().length &&
+            (!everVisible || cameraStale.current)) {
+          instance.fit(undefined, 45);
+          const targetKey = desiredFocus.current;
+          const target = targetKey ? instance.getElementById(targetKey) : null;
+          if (target?.length) instance.center(target);
+          cameraStale.current = false;
+        }
+        if (visibleNow) {
+          const key = desiredFocus.current;
+          const target = key ? instance.getElementById(key) : null;
+          if (target?.length) {
+            const pos = target.renderedPosition();
+            el.dataset.focusInViewport = String(pos.x >= 0 && pos.y >= 0 &&
+              pos.x <= rect.width && pos.y <= rect.height);
+          }
+        }
+        if (visibleNow) everVisible = true;
+        wasVisible = visibleNow;
+      });
       resize.observe(container.current);
       setReady(true);
     }).catch(() => { if (!disposed) setFailed(true); });
@@ -85,6 +118,8 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
     if (!instance || !ready) return;
     const firstLoad = instance.nodes().length === 0;
     const existing = new Set(instance.nodes().map(n => n.id()));
+    const desiredNodes = new Set(network.nodes.map(n => n.key));
+    const obsoleteNodes = instance.nodes().filter(n => !desiredNodes.has(n.id()));
     const newcomers = network.nodes.filter(n => !existing.has(n.key));
     const selected = desiredFocus.current;
     const active = selected ? instance.getElementById(selected) : null;
@@ -97,8 +132,26 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
     const ordered = [...newcomers.filter(n => n.key === selected), ...newcomers.filter(n => n.key !== selected)];
     const pairs = groupAtlasPairs(network.links);
     const newPairs = pairs.filter(p => !instance.getElementById(p.key).length);
-    if (!ordered.length && !newPairs.length && !pairs.some(p => instance.getElementById(p.key).data("count") !== p.links.length)) return;
+    const desiredPairs = new Set(pairs.map(p => p.key));
+    const obsoletePairs = instance.edges().filter(e => !desiredPairs.has(e.id()));
+    const changedPairs = pairs.some(p => {
+      const edge = instance.getElementById(p.key);
+      return edge.data("count") !== p.links.length ||
+        edge.data("expired") !== p.links.every(l => !!l.invalidAt);
+    });
+    const changedNodes = network.nodes.some(n => {
+      const node = instance.getElementById(n.key);
+      return node.length && (node.data("size") !== Math.min(35,14+Math.sqrt(n.degree)*3) ||
+        node.data("color") !== (n.degree>=8?"#8baff8":"#69d8c2"));
+    });
+    if (!ordered.length && !newPairs.length && !obsoleteNodes.length && !obsoletePairs.length &&
+        !changedPairs && !changedNodes) return;
     instance.batch(() => {
+      // Historical rewind must remove facts and entities absent from the new snapshot.
+      // Keep positions and camera for surviving nodes; do not rerun layout.
+      obsoletePairs.remove();
+      obsoleteNodes.remove();
+      if (selected && !desiredNodes.has(selected)) focused.current = null;
       let index = 0;
       for (const n of ordered) {
         const isRoot = rootIsNew && n.key === selected;
@@ -114,11 +167,19 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
           color: n.degree >= 8 ? "#8baff8" : "#69d8c2",
         }, position });
       }
+      for (const n of network.nodes) {
+        const current = instance.getElementById(n.key);
+        if (current.length) current.data({
+          size:Math.min(35,14+Math.sqrt(n.degree)*3),
+          color:n.degree>=8?"#8baff8":"#69d8c2",
+        });
+      }
       for (const pair of pairs) {
         const existingEdge = instance.getElementById(pair.key);
         const count = pair.links.length;
         if (existingEdge.length) {
-          existingEdge.data({ count, label: count > 1 ? String(count) : "" });
+          existingEdge.data({ count, label: count > 1 ? String(count) : "",
+            expired:pair.links.every(l=>!!l.invalidAt) });
         } else if (instance.getElementById(pair.a).length && instance.getElementById(pair.b).length) {
           instance.add({ group: "edges", data: {
             id: pair.key, source: pair.a, target: pair.b, count,
@@ -128,8 +189,25 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
         }
       }
     });
-    if (firstLoad) instance.fit(undefined, 45);
+    // Instrument the rendered canvas, not a React label, for browser acceptance.
+    if (container.current) {
+      container.current.dataset.renderedNodes = String(instance.nodes().length);
+      container.current.dataset.renderedPairs = String(instance.edges().length);
+      const rect = container.current.getBoundingClientRect();
+      if (!rect.width || !rect.height) cameraStale.current = true;
+    }
+    if (firstLoad && instance.width()>0 && instance.height()>0) instance.fit(undefined, 45);
     if (selected) centerOnce(instance, selected, !firstLoad);
+    // The first graph load can precede ResizeObserver's next callback. Record
+    // the actual Cytoscape focus position here too, not only on tab exposure.
+    if (container.current && selected && instance.width() > 0 && instance.height() > 0) {
+      const target = instance.getElementById(selected);
+      if (target.length) {
+        const pos = target.renderedPosition();
+        container.current.dataset.focusInViewport = String(pos.x >= 0 && pos.y >= 0 &&
+          pos.x <= instance.width() && pos.y <= instance.height());
+      }
+    }
     readableLabels(instance, false);
   }, [network, ready]);
 
