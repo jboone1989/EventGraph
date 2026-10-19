@@ -61,6 +61,7 @@ interface ReportRow extends RepresentativeIdentity {
   url: string;
   selected: boolean;
   at: Date;
+  discovered_at: Date;
   source_id: string;
   source_name: string;
   first_party: boolean;
@@ -79,7 +80,7 @@ interface ReportRow extends RepresentativeIdentity {
 async function storyReports(storyId: number, now: Date): Promise<ReportRow[]> {
   return sql<ReportRow[]>`
     SELECT DISTINCT ON (p.article_id) p.article_id AS id, p.title, p.original_title, p.summary, p.url, p.selected,
-      coalesce(p.published_at, p.discovered_at) AS at, s.id AS source_id, s.name AS source_name,
+      coalesce(p.published_at, p.discovered_at) AS at, p.discovered_at, s.id AS source_id, s.name AS source_name,
       (s.tier = 'T1') AS first_party, f.id AS fact_id,
       CASE WHEN ${compositeCondition()} THEN 'mention' ELSE fa.role END AS role, p.body_mode, p.score, p.timeline_at, ${REPRESENTATIVE_COLUMNS},
       ec.title AS en_title, ec.summary AS en_summary, ec.reason AS en_reason
@@ -99,6 +100,7 @@ function reportView(r: ReportRow): StoryReportView {
     originalUrl: r.url,
     source: { name: publicSourceName(r.source_name), firstParty: r.first_party },
     publishedAt: r.at.toISOString(),
+    discoveredAt: r.discovered_at.toISOString(),
     selected: r.selected,
     english: englishCopy(r),
   };
