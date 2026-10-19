@@ -45,8 +45,13 @@ jobs:
           if git merge-base --is-ancestor "$dev_sha" origin/main; then
             # An earlier run may have pushed main and then failed to dispatch Check.
             if [[ "$main_subject" == "release(weekly): $today develop@"* ]]; then
-              echo "Recovering release dispatch for main $main_sha"
-              gh workflow run check.yml --ref main -f weekly_release=true
+              dispatched="$(gh api "repos/$GH_REPO/actions/workflows/check.yml/runs?branch=main&event=workflow_dispatch&per_page=40" --jq ".workflow_runs[] | select(.head_sha == \"$main_sha\") | .id" | head -n 1)"
+              if [[ -z "$dispatched" ]]; then
+                echo "Recovering release dispatch for main $main_sha"
+                gh workflow run check.yml --ref main -f weekly_release=true
+              else
+                echo "Existing release dispatch $dispatched for main $main_sha; skip duplicate"
+              fi
             else
               echo "No new development commits to release"
             fi

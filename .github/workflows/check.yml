@@ -455,6 +455,17 @@ jobs:
           set -euo pipefail
           [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" == "$SOURCE_SHA" ]] ||
             { echo "::error::Main advanced since production image publication"; exit 1; }
+      - name: Refuse missing production SSH identity
+        env:
+          HOST: ${{ vars.EVENTGRAPH_PROD_HOST }}
+          LOGIN: ${{ vars.EVENTGRAPH_PROD_USER }}
+          ROOT: ${{ vars.EVENTGRAPH_PROD_ROOT }}
+          FINGERPRINT: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$HOST" && test -n "$LOGIN" && test -n "$ROOT" && test -n "$FINGERPRINT" ||
+            { echo "::error::Missing production SSH target identity"; exit 1; }
       - name: Deploy verified immutable app image (leave databases/graph unchanged)
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
