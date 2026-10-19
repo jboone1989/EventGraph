@@ -8,18 +8,24 @@ import { buildReplayFrames } from "./replay";
 interface Props {
   reports: StoryReportView[];
   totalReports: number;
+  position?: number;
+  onPositionChange?: (step: number) => void;
 }
 
 /** Client-only controls over already-public source reports; no generative call on page load. */
-export function EventTimeMachine({ reports, totalReports }: Props) {
+export function EventTimeMachine({ reports, totalReports, position: controlled, onPositionChange }: Props) {
   const t = useText();
   const lang = useUiLanguage();
   const frames = useMemo(() => buildReplayFrames(reports), [reports]);
-  const [position, setPosition] = useState(0);
+  const [localPosition, setLocalPosition] = useState(0);
   const [playing, setPlaying] = useState(false);
   const trackId = useId();
   const last = Math.max(0, frames.length - 1);
-  const step = Math.min(position, last);
+  const step = Math.max(0, Math.min(controlled ?? localPosition, last));
+  const change = (value: number) => {
+    if (controlled === undefined) setLocalPosition(value);
+    else onPositionChange?.(value);
+  };
   const frame = frames[step];
   const covered = frames[last]?.total ?? 0;
   const partial = covered < totalReports || covered < reports.length;
@@ -35,7 +41,7 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
       setPlaying(false);
       return;
     }
-    const timer = window.setTimeout(() => setPosition((p) => Math.min(p + 1, last)), 1700);
+    const timer = window.setTimeout(() => change(Math.min(step + 1, last)), 1700);
     return () => window.clearTimeout(timer);
   }, [playing, step, last]);
 
@@ -64,19 +70,19 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
           {t("拖动时间轴，查看每一步新增的公开报道", "Move through newly published reports, step by step")}
         </label>
         <input id={trackId} type="range" min={0} max={last} step={1} value={step}
-          disabled={frames.length < 2} onChange={(e) => { setPlaying(false); setPosition(Number(e.target.value)); }}
+          disabled={frames.length < 2} onChange={(e) => { setPlaying(false); change(Number(e.target.value)); }}
           aria-valuetext={date(frame.publishedAt)}
           className="mt-2 w-full cursor-pointer accent-current disabled:opacity-40"/>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={step === 0}
-            onClick={() => { setPlaying(false); setPosition(Math.max(0, step - 1)); }}
+            onClick={() => { setPlaying(false); change(Math.max(0, step - 1)); }}
             className="rounded-lg border border-line px-3 py-2 text-[12px] text-ink disabled:opacity-40">
             ← {t("上一阶段", "Previous")}
           </button>
           <button type="button" disabled={frames.length < 2}
             onClick={() => {
               if (playing) { setPlaying(false); return; }
-              if (step === last) setPosition(0);
+              if (step === last) change(0);
               setPlaying(true);
             }}
             aria-pressed={playing}
@@ -84,7 +90,7 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
             {playing ? t("暂停", "Pause") : t("播放", "Play")} {playing ? "Ⅱ" : "▶"}
           </button>
           <button type="button" disabled={step === last}
-            onClick={() => { setPlaying(false); setPosition(Math.min(last, step + 1)); }}
+            onClick={() => { setPlaying(false); change(Math.min(last, step + 1)); }}
             className="rounded-lg border border-line px-3 py-2 text-[12px] text-ink disabled:opacity-40">
             {t("下一阶段", "Next")} →
           </button>
@@ -128,8 +134,8 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
       </div>
       <p className="text-[11.5px] leading-relaxed text-ink-4">
         {t(
-          "只按报道的公开发布时间回放（非当时入库时间）。本面板以外的事件概览、知识图谱和热度均为当前快照，不会回溯；避免用今天的综述解释过去。",
-          "Playback uses publication times, not ingestion times. The overview, graph and activity outside this panel remain current snapshots, not historical ones."
+          "控制器按报道发布时间分组；系统已知时间与现实有效时间由 Explorer 服务端独立查询。时间缺失、分页及修订历史可能造成覆盖缺口。",
+          "Steps group reports by publication time; Explorer queries system-known and real-world-valid graph times separately. Missing dates, pagination and revisions limit coverage."
         )}
       </p>
     </section>
