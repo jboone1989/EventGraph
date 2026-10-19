@@ -39,14 +39,33 @@ compose() {
 previous=""
 if [ -f .eventgraph-last-good-image ]; then
   previous="$(cat .eventgraph-last-good-image)"
-elif docker image inspect eventgraph-app:latest >/dev/null 2>&1; then
-  previous="eventgraph-app:latest"
+else
+  # First managed release: capture the actual running image (not a mutable tag).
+  running="$(docker compose -f docker-compose.yml ps -q web || true)"
+  if [ -z "$running" ]; then
+    echo "No running web container or successful release marker: bootstrap first" >&2
+    exit 1
+  fi
+  old_id="$(docker inspect -f '{{.Image}}' "$running")"
+  docker image tag "$old_id" eventgraph-rollback:pre-ci
+  previous="eventgraph-rollback:pre-ci"
 fi
 export EVENTGRAPH_APP_IMAGE="$EVENTGRAPH_IMAGE"
 compose config --quiet
 printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null
 unset GHCR_TOKEN
 docker pull "$EVENTGRAPH_IMAGE"
+# Keep a usable rollback image even after host-level image pruning.
+case "$previous" in
+  ghcr.io/*)
+    if ! docker image inspect "$previous" >/dev/null 2>&1; then
+      docker pull "$previous"
+    fi
+    ;;
+  *)
+    docker image inspect "$previous" >/dev/null
+    ;;
+esac
 rollback() {
   echo "Deployment failed, restoring previous app image where available" >&2
   if [ -n "$previous" ] && [ "$previous" != "$EVENTGRAPH_IMAGE" ]; then
@@ -56,12 +75,8 @@ rollback() {
   fi
   exit 1
 }
-# Database schema migrations must have passed the PR migration-safety check.
-# Do not run the Compose setup seed command or touch DB/Neo4j containers.
-if ! compose run --rm --no-deps --pull never --entrypoint node setup scripts/migrate.ts; then
-  echo "Migration failed before app update" >&2
-  exit 1
-fi
+# Image-only rollout: schema migrations require a separately reviewed, backed-up release.
+# Database/Neo4j services and persistent volumes are not touched.
 if ! compose up -d --no-deps --no-build --pull never api worker web; then
   rollback
 fi

@@ -37,9 +37,12 @@ overlays/Neo4j layout before first activation. The script only updates setup,
 api, worker and web images; it does not stop DB/Neo4j.
 
 The container image is referenced by immutable digest. Deploys reject stale
-branch revisions and check the HTTP health endpoint. A failed health check
-attempts to restore the previous app image; it does not roll back database
-migrations. Back up production and ensure backward-compatible migrations.
+branch revisions and check the HTTP health endpoint. A failed health check attempts to restore the previous app image. Before the
+first managed release, the script snapshots the image ID from the running web
+container; it aborts instead of deploying without a rollback baseline.
+Migrations and database backups are a separate, reviewed process; normal image
+rollouts never run migrations or re-create the database. Releases that need a
+new schema must be coordinated separately.
 
 Do not enable either *_AUTO_DEPLOY switch until one-time prerequisites have
 been independently verified. Neither flag requires approval for future pushes.
