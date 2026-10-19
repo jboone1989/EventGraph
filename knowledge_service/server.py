@@ -119,6 +119,7 @@ def episode_source(row, fact):
         "source": source,
         "quote": fact,  # Graphiti-extracted assertion, NOT a verbatim quotation.
         "publishedAt": row["valid_at"].isoformat() if row.get("valid_at") else None,
+        "recordedAt": row["recorded_at"].isoformat() if row.get("recorded_at") else None,
     }
 
 
