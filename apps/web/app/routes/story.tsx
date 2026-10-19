@@ -9,10 +9,10 @@ import { pageReuse } from "../lib/page-reuse";
 import { breadcrumbLd, localized, pageMeta, storyLd, titled } from "../lib/seo";
 import { beijingDate, beijingTime } from "@aihot/contracts/time";
 import { localizedMonthDayTime, monthDay, relativeTime } from "../lib/format";
-import { EventTimeMachine } from "../features/story/EventTimeMachine";
+import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
-import { KnowledgeExplorer, type KnowledgeGraph } from "../components/KnowledgeNetwork";
+import type { KnowledgeGraph } from "../components/KnowledgeNetwork";
 import { englishText } from "../components/EnglishStory";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
@@ -205,7 +205,7 @@ type Order = "desc" | "asc";
 const viewCache = sessionCache<{ savedAt: number; filter: Filter; order: Order }>("aihot:story-view:", 30 * 60 * 1000);
 
 export default function StoryPage() {
-  const { story, graph, market } = useLoaderData<typeof loader>();
+  const { story, market } = useLoaderData<typeof loader();
   const t=useText();
   const uiLang=useUiLanguage();
   const when = (iso: string) => localizedMonthDayTime(iso, uiLang);
@@ -327,7 +327,7 @@ export default function StoryPage() {
       <div className="mt-5 grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:mt-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_340px]">
         {/* On phones the main column dissolves so the rail's cards can sit between its sections. */}
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-6">
-          <Panel id={SECTIONS.overview} title={t("先了解这件事","Event overview")} right={overview?.label} className="order-1">
+          <Panel id={SECTIONS.overview} title={t("当前事件综述（非历史快照）","Current overview (not historical)")} right={overview?.label} className="order-2">
             {overview ? (
               <>
                 <p className="whitespace-pre-line text-[15px] leading-[1.85] text-ink-2">{overview.text}</p>
@@ -359,25 +359,15 @@ export default function StoryPage() {
           </Panel>
 
           {story.timeline.length > 0 && (
-            <Panel
-              title={t("事件时间机器", "Event time machine")}
-              sub={t("按照已加载报道的发布时间逐步回放。", "Replay the currently loaded reports by publication time.")}
-              className="order-2"
-            >
-              <EventTimeMachine key={story.publicId} reports={story.timeline} totalReports={story.reportCount} />
+            <Panel title={t("事件探索工作台","EventGraph Explorer")}
+              sub={t("同一时点联动报道、关系与证据。","One time cutoff for reports, relations and evidence.")}
+              className="order-1">
+              <EventExplorer key={story.publicId} story={story}/>
             </Panel>
           )}
 
-          <Panel title={t("从事件走进知识网络","From Event to Knowledge")} sub={t("事件树追踪进展，知识图谱记录实体之间有证据的关系。","The event tree follows developments; the knowledge graph retains sourced relationships.")} className="order-2">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-panel border border-line-soft bg-bg-sunk/50 px-4 py-3">
-              <div><span className="lr-eyebrow">GRAPH LAYER / {t("关系层","RELATIONSHIPS")}</span><div className="mt-1 text-[13px] text-ink-2">{graph.entities} {t("个关联实体","entities")} · {graph.edges.length} {t("条关系事实","relations")}</div></div>
-              <Link to="/knowledge" className="lr-inline-link">{t("打开完整知识网络","Explore full graph")} <IconChevronRight size={15}/></Link>
-            </div>
-            <div className="lr-story-knowledge"><KnowledgeExplorer graph={graph} compact /></div>
-          </Panel>
-
           {/* Evidence is grouped by provenance, never synthesized into invented consensus. */}
-          <Panel title={t("证据与独立视角","Evidence & perspectives")} sub={t("同一事件，把当事方声明和第三方报道分开查看；标题与摘要均来自各自报道。","First-party statements and independent reporting are shown separately, with source references.")} className="order-2">
+          <Panel title={t("完整来源索引（截至目前）","Full source archive (current)")} sub={t("目前公开的报道索引，不属于历史回放。","Current public reports; outside the historical replay.")} className="order-2">
             <div className="grid gap-4 md:grid-cols-2">
               {([
                 { key: "official", label: t("一手资料","First-party sources"), rows: story.timeline.filter(r => r.source.firstParty) },
