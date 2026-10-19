@@ -138,6 +138,7 @@ jobs:
       COLLECT_ENABLED: "false"
       MODEL_CALLS_ENABLED: "false"
       E2E_BASE_URL: http://127.0.0.1:3000
+      E2E_SEEDED: "1" # This job always initializes a fresh database and runs e2e-seed.ts.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -316,6 +317,8 @@ jobs:
               image: ${EVENTGRAPH_APP_IMAGE:?}
           COMPOSE
           docker pull "$EVENTGRAPH_APP_IMAGE"
+          # --pull never applies to the PostgreSQL dependency too; preload its official image.
+          docker pull postgres:17-alpine
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" config --quiet
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" up -d --no-build --pull never
           healthy=0
