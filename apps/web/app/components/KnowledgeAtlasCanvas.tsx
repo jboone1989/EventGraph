@@ -198,6 +198,16 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
     }
     if (firstLoad && instance.width()>0 && instance.height()>0) instance.fit(undefined, 45);
     if (selected) centerOnce(instance, selected, !firstLoad);
+    // The first graph load can precede ResizeObserver's next callback. Record
+    // the actual Cytoscape focus position here too, not only on tab exposure.
+    if (container.current && selected && instance.width() > 0 && instance.height() > 0) {
+      const target = instance.getElementById(selected);
+      if (target.length) {
+        const pos = target.renderedPosition();
+        container.current.dataset.focusInViewport = String(pos.x >= 0 && pos.y >= 0 &&
+          pos.x <= instance.width() && pos.y <= instance.height());
+      }
+    }
     readableLabels(instance, false);
   }, [network, ready]);
 
