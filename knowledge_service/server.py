@@ -1,6 +1,7 @@
 """Thin API over Graphiti's temporal graph; news remains owned by AIHot."""
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Literal
 import os
 
 from fastapi import FastAPI, HTTPException
@@ -50,6 +51,8 @@ class Query(BaseModel):
 class ArticleRelations(BaseModel):
     articles: list[str] = Field(min_length=1, max_length=100)
     limit: int = Field(default=60, ge=1, le=100)
+    as_of: datetime | None = None
+    clock: Literal["known", "valid"] = "known"
 
 
 @asynccontextmanager
@@ -117,18 +120,25 @@ def episode_source(row, fact):
         "source": source,
         "quote": fact,  # Graphiti-extracted assertion, NOT a verbatim quotation.
         "publishedAt": row["valid_at"].isoformat() if row.get("valid_at") else None,
+        "recordedAt": row["created_at"].isoformat() if row.get("created_at") else None,
     }
 
 
-async def relation_results(rows):
+async def relation_results(rows, *, as_of: datetime | None = None, clock: str = "known"):
     ids = sorted({u for r in rows for u in (r["episodes"] or [])})
     source_rows = []
     if ids:
+        # Only references available in the selected time view can support a claim.
+        source_window = (
+            "AND e.created_at <= $as_of " if clock == "known"
+            else "AND e.valid_at IS NOT NULL AND e.valid_at <= $as_of "
+        ) if as_of else ""
         source_rows, _, _ = await app.state.graph.driver.execute_query(
             "MATCH (e:Episodic) WHERE e.uuid IN $uuids AND e.group_id = 'aihot' "
+            + source_window +
             "RETURN e.uuid AS uuid, e.name AS name, "
-            "e.source_description AS source_description, e.valid_at AS valid_at",
-            uuids=ids, routing_="r",
+            "e.source_description AS source_description, e.valid_at AS valid_at, e.created_at AS created_at",
+            uuids=ids, as_of=as_of, routing_="r",
         )
     sources = {r["uuid"]: r for r in source_rows}
     edges = []
@@ -145,6 +155,8 @@ async def relation_results(rows):
             "fact": r["fact"],
             "validAt": r["valid_at"].isoformat() if r["valid_at"] else None,
             "invalidAt": r["invalid_at"].isoformat() if r["invalid_at"] else None,
+            "recordedAt": r["created_at"].isoformat() if r.get("created_at") else None,
+            "expiredAt": r["expired_at"].isoformat() if r.get("expired_at") else None,
             "evidence": evidence,
         })
     keys = {e["subject"]["key"] for e in edges} | {e["object"]["key"] for e in edges}
@@ -156,23 +168,36 @@ EDGE_COLUMNS = (
     "o.uuid AS object_uuid, o.name AS object_name, "
     "r.uuid AS uuid, r.name AS name, r.fact AS fact, "
     "r.valid_at AS valid_at, r.invalid_at AS invalid_at, "
-    "r.episodes AS episodes"
+    "r.created_at AS created_at, r.expired_at AS expired_at, r.episodes AS episodes"
 )
 
 
 @app.post("/relations/by-articles")
 async def relations_by_articles(request: ArticleRelations):
+    if request.as_of and (request.as_of.tzinfo is None or request.as_of.utcoffset() is None):
+        raise HTTPException(status_code=400, detail="as_of must include a UTC offset")
     names = ["aihot:" + article for article in request.articles]
-    # Each supplied article is "ID:rN". Only Graphiti-owned facts are returned.
+    # Bi-temporal queries use stored Graphiti timestamps, never publication-time guesses.
+    if request.as_of and request.clock == "known":
+        episode_window = "AND ep.created_at <= $as_of "
+        edge_window = "AND r.created_at <= $as_of AND (r.expired_at IS NULL OR r.expired_at > $as_of) "
+    elif request.as_of:
+        episode_window = "AND ep.valid_at IS NOT NULL AND ep.valid_at <= $as_of "
+        edge_window = "AND r.valid_at IS NOT NULL AND r.valid_at <= $as_of AND (r.invalid_at IS NULL OR r.invalid_at > $as_of) "
+    else:
+        episode_window = edge_window = ""
     rows, _, _ = await app.state.graph.driver.execute_query(
         "MATCH (ep:Episodic) WHERE ep.group_id='aihot' AND ep.name IN $names "
+        + episode_window +
         "WITH collect(ep.uuid) AS ids "
         "MATCH (s:Entity)-[r:RELATES_TO]->(o:Entity) "
-        "WHERE r.group_id='aihot' AND coalesce(r.editorial_rejected, false)=false AND any(u IN coalesce(r.episodes, []) WHERE u IN ids) "
+        "WHERE r.group_id='aihot' AND coalesce(r.editorial_rejected, false)=false "
+        "AND any(u IN coalesce(r.episodes, []) WHERE u IN ids) "
+        + edge_window +
         "RETURN " + EDGE_COLUMNS + " ORDER BY r.created_at DESC LIMIT $limit",
-        names=names, limit=request.limit, routing_="r",
+        names=names, limit=request.limit, as_of=request.as_of, routing_="r",
     )
-    return await relation_results(rows)
+    return await relation_results(rows, as_of=request.as_of, clock=request.clock)
 
 
 @app.get("/entities/{uuid}")
