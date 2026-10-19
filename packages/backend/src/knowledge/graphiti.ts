@@ -6,11 +6,11 @@ type Article = {
   excerpt: string | null; body_text: string | null;
   source_name: string; published_at: Date | null;
 };
-type Evidence = { articleId: string; url: string; source: string; quote: string; publishedAt: string | null };
+type Evidence = { articleId: string; url: string; source: string; quote: string; publishedAt: string | null; recordedAt?: string | null };
 type Edge = {
   id: string; subject: { key: string; name: string; kind: string };
   predicate: string; object: { key: string; name: string; kind: string };
-  fact: string; validAt: string | null; invalidAt: string | null; evidence: Evidence[];
+  fact: string; validAt: string | null; invalidAt: string | null; recordedAt?: string | null; expiredAt?: string | null; evidence: Evidence[];
 };
 type Graph = { entities: number; edges: Edge[]; status?: string };
 const emptyGraph = (status: string): Graph => ({ entities: 0, edges: [], status });
@@ -84,19 +84,32 @@ export async function ingestGraphitiOnce() {
 }
 
 /** AIHot is the authority for story membership, Graphiti for knowledge relations. */
-export async function graphForStory(publicId: string): Promise<Graph> {
+export type TemporalView = { asOf: Date; clock: "known" | "valid" };
+export async function graphForStory(publicId: string, temporal?: TemporalView): Promise<Graph> {
   if (!process.env.GRAPHITI_API_URL) return emptyGraph("disabled");
-  const articles = await sql<{ id: string; revision: number }[]>`
-    SELECT DISTINCT a.id, a.revision FROM articles a
-    JOIN fact_articles fa ON fa.article_id=a.id
-    JOIN facts f ON f.id=fa.fact_id
-    JOIN stories st ON st.id=f.story_id
-    WHERE st.public_id=${publicId}::uuid
-    ORDER BY a.id LIMIT 100`;
+  // Historical queries must include ingested revisions, not only today's article revision.
+  const articles = temporal
+    ? await sql<{ id: string; revision: number }[]>`
+        SELECT DISTINCT gi.article_id AS id, gi.revision FROM graphiti_ingestions gi
+        JOIN fact_articles fa ON fa.article_id=gi.article_id
+        JOIN facts f ON f.id=fa.fact_id
+        JOIN stories st ON st.id=f.story_id
+        WHERE st.public_id=${publicId}::uuid AND st.merged_into IS NULL
+        ORDER BY id, revision LIMIT 100`
+    : await sql<{ id: string; revision: number }[]>`
+        SELECT DISTINCT a.id, a.revision FROM articles a
+        JOIN fact_articles fa ON fa.article_id=a.id
+        JOIN facts f ON f.id=fa.fact_id
+        JOIN stories st ON st.id=f.story_id
+        WHERE st.public_id=${publicId}::uuid
+        ORDER BY a.id LIMIT 100`;
   if (!articles.length) return emptyGraph("empty");
   try {
     return await graphiti<Graph>("/relations/by-articles", {
-      method: "POST", body: { articles: articles.map(a => a.id + ":r" + a.revision), limit: 60 },
+      method: "POST", body: {
+        articles: articles.map(a => a.id + ":r" + a.revision), limit: 100,
+        ...(temporal ? { as_of: temporal.asOf.toISOString(), clock: temporal.clock } : {}),
+      },
     });
   } catch (error) {
     console.error("graphiti_story_lookup_failed", error);
