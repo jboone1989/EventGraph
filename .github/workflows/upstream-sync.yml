@@ -60,6 +60,7 @@ jobs:
           mode=clean
           conflicts=""
           if ! git merge --no-ff --no-commit "$upstream_sha"; then
+            git rev-parse -q --verify MERGE_HEAD >/dev/null || { echo 'Merge failed without a merge state'; exit 1; }
             # EventGraph owns its CI. Only those workflow-file conflicts may
             # be resolved automatically, using the trusted default branch.
             conflicts="$(git diff --name-only --diff-filter=U | grep -v '^\.github/workflows/' || true)"
@@ -68,7 +69,7 @@ jobs:
               # Runner checkout is disposable; retain no partial merge or markers.
               git reset --hard origin/develop
               mkdir -p docs
-              printf 'AIHOT upstream %s needs conflict resolution.\\nReview: https://github.com/KKKKhazix/AIHOT/commit/%s\\n' "$upstream_sha" "$upstream_sha" > docs/upstream-sync-pending.md
+              printf 'AIHOT upstream %s needs conflict resolution.\nReview: https://github.com/KKKKhazix/AIHOT/commit/%s\n' "$upstream_sha" "$upstream_sha" > docs/upstream-sync-pending.md
             fi
           fi
 
