@@ -1,34 +1,27 @@
-# Spec Kit 与 Claude 独立验收（EventGraph）
+# EventGraph · Spec Kit 的实际接入与验收
 
-目标是 **让任意开发者（包括普通 ChatGPT）按同一份已批准的需求接受独立 Claude 检视**。Spec Kit 是规格文件和 Agent 命令的提供者；**它本身不是 PR 合并门禁**。保持 Remote 为通用通信通道，复用现有 GitHub Check/E2E/部署，不建立第二套编排器。
+本仓库在 `feature/spec-kit-claude-review` 分支已用 **GitHub 官方 specify-cli 1.2.1** 初始化，不是仿制实现：`.specify/` 提供原生模板、Bash 脚本和工作流；`.agents/skills/speckit-*/` 是 Codex Skills；`.claude/skills/speckit-*/` 是 Claude Code Skills。合并到 `develop` 后，所有后续 feature 分支自然继承它们。**Remote、应用、现有 CI/CD 均不需要改动。**
 
-## 首次在已有仓库初始化（按需）
+官方参考：[现有项目接入](https://github.github.io/spec-kit/guides/existing-projects.html)、[快速开始](https://github.github.io/spec-kit/quickstart.html)。
 
-官方文档：[Adopting Spec Kit in an Existing Project](https://github.github.io/spec-kit/guides/existing-projects.html)、[Core Commands](https://github.github.io/spec-kit/reference/core.html)。
+## 对新开发任务使用
 
-1. 从 `develop` 创建短期 feature 分支，并确认工作区干净。
-2. 在项目根目录安装官方 `specify-cli` 后运行：
-   ```sh
-   specify init --here --force --integration claude --script sh
-   ```
-3. **审查生成的全部 diff 后再提交**：`--force` 可能更新由 Spec Kit 管理的文件，不能盲目覆盖仓库现有的 `AGENTS.md`、`CLAUDE.md` 或 CI。需要 Codex/Pi 时使用官方 `specify integration install <key>` 安装对应集成；不复制改写上游命令。
-4. 保持现有 `feature → develop → main`；无需安装 Spec Kit Git 扩展。这里预先提交的 constitution/指导文档可独立使用，**并不代表已运行 CLI 初始化**。
+- 小 Bug、文案、样式：仍可直接以 Issue 的验收标准修复，不必生成三份文件。
+- 跨模块功能：让开发 Agent 执行 `speckit-specify → speckit-plan → speckit-tasks → speckit-analyze → speckit-implement → speckit-converge`。在 Codex 使用 `$speckit-...`，在 Claude Code 使用 `/speckit-...`（由各自集成安装的 Skills 提供）。
+- **Search Before Build**：先核对 EventGraph 当前代码、AIHOT 上游及官方资料，写入 `plan.md` 的复用依据，禁止另造并行系统。
+- `specs/<feature>/spec.md` 写用户可验证的行为，`plan.md` 写技术方案，`tasks.md` 写任务与测试。只通过 Agent Skills 使用官方流程，不额外部署调度服务。
+- 推荐在实施前通过独立 Spec PR 或用户批准的 Issue 确定规格；实现 PR 写明批准的 `spec.md` **commit SHA + path** 或批准的 Issue 评论。不把实现分支内自行修改的 Spec 当作批准版。
+- 分支策略仍为 `feature → develop → main`，不安装 Spec Kit 可选 Git 扩展；常规开发合并到 `develop`，每周才发布 `main`。
 
-## 规格与实现
+## 任意 Reviewer 的验收方法
 
-- 小 Bug、文案、小样式：可直接使用 Issue 的明确验收条件，不要求生成三份文件。
-- 跨模块功能：`specs/<feature>/spec.md`（用户可验证行为）、`plan.md`（复用与技术路线）、`tasks.md`（操作和测试）；推荐 `/speckit.specify` → `/speckit.plan` → `/speckit.tasks` → `/speckit.implement`。
-- 先核对现有代码、AIHOT 上游、官方文档，写下“复用什么、为什么不新建”。计划中限定可变更范围、不会变更的部分和验收方法。
-- 实施前独立确认/批准 Spec。推荐单独的 spec-only PR 合到 `develop`，实现 PR 在描述里固定 `spec.md @ <approved-sha>`。如果 Spec 通过 Issue 批准，也要附明确批准的评论与原文；不要把修改后的 PR 版本自动认定为批准版。
-- 若 Spec 调整，重新取得批准，并更新固定引用；不能通过同一实现 PR 修改 Spec 以掩盖偏差。
+ChatGPT **也可以**独立核对，不要求必须交给 Claude：
 
-## Claude Review（适用于 ChatGPT / Codex / Pi 的 PR）
+1. 读取固定的已批准 Spec，比较 `spec.md`、`plan.md`、`tasks.md` 与实际 PR diff；逐条列验收条件 → 实现文件 → 测试 → 真实运行结果。
+2. 检查 Search Before Build 证据、范围外重构、重复实现、权限/隐私和兼容性回退。
+3. `speckit-analyze` 是文档一致性检查；`speckit-converge` 在实施后可追加缺失任务，**不是只读 PR diff Review**。Review 仍须直接检查代码和 GitHub CI。
+4. 报告 **PASS / CHANGES REQUESTED / UNVERIFIED** 和可复现的证据；不能把绿灯 CI 当作产品已验收，也不能把 PR 合并等同于开发环境已部署。
 
-让 Claude 读取当前 `CLAUDE.md`（其包含 `@AGENTS.md`）、已批准 Spec 的固定版本、Plan、Tasks、PR diff、Check/E2E 与实际部署证据。用本仓库 `.claude/skills/spec-review/SKILL.md` 的清单复审。
+## 维护
 
-1. **一致性**：逐条映射验收条件 → 代码 → 测试；未覆盖明确列出。
-2. **最小实现**：核对 Search Before Build 证据和上游复用；标明无关重构、重复模块。
-3. **实际验证**：区分 GitHub CI 状态、本地测试、开发部署、真实行为；不能以待运行代替通过。
-4. **结果**：给出 `PASS` / `CHANGES REQUESTED` / `UNVERIFIED`，列阻塞项与可复现证据。若批准 Spec 不可访问，报告 `UNVERIFIED`，不假装核验通过。
-
-**现状边界**：该方案复用已连接的 Claude CLI 独立审查和 GitHub PR 评论，不会仅凭这些文件自动触发 Claude GitHub Action。若以后需要每次 PR 触发自动 Claude Review，可使用 [Anthropic 官方 claude-code-action](https://github.com/anthropics/claude-code-action) 和经确认的密钥/费用方案，不应私自部署新的审查常驻服务。生产发布继续受原有门禁约束。
+CLI 是开发工具，不要求在生产或 Remote 安装。在需要初始化新仓库或升级时，本机可安装 `specify-cli==1.2.1`，并使用 `specify integration status` / `specify integration upgrade <key>`；不要重新 `init --force` 覆盖已管理的文件。当前 PR 仅接入文件与规范，**不会自动触发任何 Claude Review 服务，也不会自动合并/部署**。

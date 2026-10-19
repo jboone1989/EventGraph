@@ -1,12 +1,12 @@
 # EventGraph Constitution
 
-This repository uses GitHub Spec Kit artifacts for substantial feature changes, not as a replacement for `AGENTS.md` or its upstream-derived architecture rules.
+Spec Kit is installed with official 1.2.1 generated artifacts. These principles complement, but never replace, `AGENTS.md`.
 
-1. **Existing work first**: inspect local code, upstream AIHOT, and official docs before creating a new abstraction. Reuse existing implementation wherever adequate.
-2. **Public behavior is testable**: describe what a user or consumer can verify; define acceptance criteria before coding.
-3. **Approved requirements are stable**: reviewers compare against the approved, commit-pinned `spec.md` (or approved Issue evidence), not an implementation PR's modified wording.
-4. **Minimal diff**: one bounded goal per PR; maintain `feature → develop → main`, delete merged branches, and do not add parallel CI/CD, graph, or provider subsystems.
-5. **Truthful verification**: separate tests passed, CI pending, Claude-reviewed, development-deployed, and production-deployed. Missing evidence means unverified.
-6. **Privacy and safety**: retain public-evidence withdrawal/privacy filters, budget gates, and migration review; follow `AGENTS.md` for full project-specific constraints.
+1. **Search Before Build**: inspect EventGraph current code, AIHOT upstream, and official documentation before proposing new modules. Reuse mature existing work.
+2. **Testable requirements**: describe acceptance criteria and observable behavior before implementing non-trivial work.
+3. **Approved requirement baseline**: review code against the approved, commit-pinned `spec.md` or an approved Issue record, not a spec silently edited alongside implementation.
+4. **Minimal implementation**: one bounded goal per PR; maintain `feature → develop → main`. No duplicate CI, graph engine, provider manager or unrelated refactor.
+5. **Truthful evidence**: report separately completed tests, actual GitHub CI, independent review, development deployment and production deployment. Missing evidence is `UNVERIFIED`.
+6. **Existing safeguards**: preserve privacy/withdrawal filters, budget gates, migration safety and all `AGENTS.md` project constraints.
 
-See `docs/spec-review.md` for use and review.
+See `docs/spec-review.md`.
