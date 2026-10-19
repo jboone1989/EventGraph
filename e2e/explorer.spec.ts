@@ -38,3 +38,69 @@ for (const english of [false, true]) {
     expect(problems).toEqual([]);
   });
 }
+
+// Product acceptance regression: unlike a decorative timeline, the selected
+// as-of timestamp controls Cytoscape entities and the facts in the evidence panel.
+test("as-of replay changes the SAME focused atlas and excludes future evidence", async ({page}) => {
+  test.skip(!seeded.story,"No seeded event");
+  await page.addInitScript(()=>localStorage.setItem("livingruntime-language","en"));
+  let latestCutoff:number | null = null;
+  const graphRequests:string[] = [];
+  const unrelatedRequests:string[] = [];
+  const person = (key:string)=>({key,name:"E2E "+key,kind:"organization"});
+  const evidence = (id:string)=>({articleId:id,url:"https://example.com/"+id,
+    source:"Recorded Lab",quote:"Source record",publishedAt:"2026-10-19T08:00:00Z"});
+  const first = {id:"proof-1",subject:person("Alpha"),object:person("Beta"),
+    predicate:"REPORTED",fact:"E2E Alpha reported E2E Beta.",validAt:null,invalidAt:null,
+    evidence:[evidence("source-1")]};
+  const later = {id:"proof-2",subject:person("Beta"),object:person("Gamma"),
+    predicate:"LINKED",fact:"E2E Beta linked E2E Gamma.",validAt:null,invalidAt:null,
+    evidence:[evidence("source-2")]};
+  page.on("request",req=>{
+    const u=new URL(req.url());
+    if(u.pathname.includes("/api/site/knowledge/neighborhood/")||u.pathname.includes("/api/site/knowledge/entities/"))
+      unrelatedRequests.push(u.pathname);
+  });
+  await page.route(/\/api\/site\/knowledge\/stories\/[^?]+\?/,async route=>{
+    const u=new URL(route.request().url());
+    graphRequests.push(u.searchParams.get("asOf")||"");
+    const asOf=Date.parse(u.searchParams.get("asOf")||"");
+    latestCutoff??=asOf;
+    const selected=asOf<latestCutoff?[first]:[first,later];
+    await route.fulfill({json:{entities:selected.length+1,edges:selected,
+      temporalSupport:"bitemporal-v1",fidelity:"bounded"}});
+  });
+  await open(page, "/story/"+seeded.story);
+  const panel=page.getByRole("region",{name:"Event Explorer"});
+  const timeline=page.getByRole("region",{name:"Event report playback"});
+  const graphTab=page.getByRole("tab",{name:"Relations",exact:true});
+  if(await graphTab.isVisible())await graphTab.click();
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("aria-label",/3 entities/);
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-rendered-nodes","3");
+  await expect(panel.locator(".lr-atlas-canvas canvas").first()).toBeAttached();
+  const conn=panel.locator(".lr-atlas-connection").first();
+  await conn.getByRole("button",{name:/Evidence/}).click();
+  await expect(panel.getByTestId("temporal-pair-evidence")).toContainText("Recorded Lab");
+  await panel.getByRole("button",{name:/Close/}).click();
+  const timelineTab=page.getByRole("tab",{name:"Timeline",exact:true});
+  if(await timelineTab.isVisible())await timelineTab.click();
+  const slider=timeline.getByRole("slider");
+  await expect(slider).toHaveAttribute("max",/^[1-9]/);
+  await slider.focus();
+  await slider.press("Home");
+  await expect(slider).toHaveValue("0");
+  if(await graphTab.isVisible())await graphTab.click();
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("aria-label",/2 entities/);
+  // Assert the actual Cytoscape nodes, not just the React aria-label.
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-rendered-nodes","2");
+  await expect(panel.getByText("E2E Gamma")).toHaveCount(0);
+  await expect(panel.getByTestId("temporal-pair-evidence")).toHaveCount(0);
+  if(await timelineTab.isVisible())await timelineTab.click();
+  await slider.focus();
+  await slider.press("End");
+  if(await graphTab.isVisible())await graphTab.click();
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("aria-label",/3 entities/);
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-rendered-nodes","3");
+  expect(new Set(graphRequests).size).toBeGreaterThanOrEqual(2);
+  expect(unrelatedRequests).toEqual([]);
+});

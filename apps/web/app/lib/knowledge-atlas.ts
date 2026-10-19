@@ -73,3 +73,24 @@ export function uniqueAtlasFacts<T extends {
   }
   return [...facts.values()];
 }
+
+// Convert the Graphiti story's *already time-filtered* facts to the existing
+// Cytoscape atlas format. This adapter never fetches today's neighborhood.
+export function temporalAtlasNetwork(edges: readonly {
+  id: string; subject: {key:string;name:string}; object: {key:string;name:string};
+  predicate: string; invalidAt: string | null;
+}[]): AtlasNetwork {
+  const map = new Map<string, AtlasNode>();
+  const links: AtlasLink[] = [];
+  for (const edge of edges) {
+    if (!edge.subject.key || !edge.object.key) continue;
+    for (const entity of [edge.subject, edge.object]) {
+      const old = map.get(entity.key);
+      map.set(entity.key, {key:entity.key,name:entity.name,degree:(old?.degree??0)+1});
+    }
+    links.push({id:edge.id,source:edge.subject.key,target:edge.object.key,
+      predicate:edge.predicate,invalidAt:edge.invalidAt});
+  }
+  return {nodes:[...map.values()].sort((a,b)=>b.degree-a.degree||a.key.localeCompare(b.key)),
+    links, truncated:false};
+}

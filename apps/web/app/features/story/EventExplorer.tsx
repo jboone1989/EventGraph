@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import type { StoryDetail } from "@aihot/contracts/site";
-import { KnowledgeExplorer, type KnowledgeGraph } from "../../components/KnowledgeNetwork";
+import type { KnowledgeGraph } from "../../components/KnowledgeNetwork";
+import { TemporalKnowledgeAtlas } from "./TemporalKnowledgeAtlas";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { englishText } from "../../components/EnglishStory";
 import { EventTimeMachine } from "./EventTimeMachine";
@@ -26,19 +27,21 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     setPosition(Math.max(0, target));
   };
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
+  const scope = clock+":"+(asOf??"none");
+  const [graphScope,setGraphScope] = useState<string|null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (!asOf) { setGraph(null); setLoading(false); return; }
+    if (!asOf) { setGraph(null); setGraphScope(scope); setLoading(false); return; }
     const ctrl = new AbortController();
-    setGraph(null); setLoading(true);
+    setLoading(true);
     const params = new URLSearchParams({asOf, clock});
     fetch("/api/site/knowledge/stories/" + encodeURIComponent(story.publicId) + "?" + params.toString(), {signal:ctrl.signal})
       .then(r => {if (!r.ok) throw Error("historical graph unavailable"); return r.json() as Promise<KnowledgeGraph>;})
-      .then(g => {if (!ctrl.signal.aborted) setGraph(g.status==="unavailable" || g.status==="disabled"?null:g);})
-      .catch(() => {if (!ctrl.signal.aborted) setGraph(null);})
+      .then(g => {if (!ctrl.signal.aborted) {setGraph(g.status==="unavailable" || g.status==="disabled"?null:g);setGraphScope(scope);}})
+      .catch(() => {if (!ctrl.signal.aborted) {setGraph(null);setGraphScope(scope);}})
       .finally(() => {if (!ctrl.signal.aborted) setLoading(false);});
     return () => ctrl.abort();
-  }, [asOf, clock, story.publicId]);
+  }, [asOf, clock, story.publicId, scope]);
   const reports = useMemo(() => story.timeline.filter(r => {
     const at = clock === "known" ? r.discoveredAt : r.publishedAt;
     return !!at && !!asOf && Number.isFinite(Date.parse(at)) && Date.parse(at) <= Date.parse(asOf);
@@ -68,9 +71,13 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
       <div className={tab==="graph"?"min-w-0":"hidden min-w-0 lg:block"}>
         <h3 className="mb-2 text-sm font-semibold">{t("此时的实体关系","Relations at this time")}</h3>
-        {loading ? <p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">{t("正在读取历史关系…","Loading time-scoped relations…")}</p>
-          :graph ? <KnowledgeExplorer key={clock+":"+asOf} graph={graph} compact/>
-          :<p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">{t("历史关系无法验证，不以当前图谱替代。","Historical graph unavailable; no present-day graph substituted.")}</p>}
+        {(loading||graphScope!==scope) && <p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">{t("正在读取历史关系…","Loading time-scoped relations…")}</p>}
+        {graph && <div aria-hidden={graphScope!==scope||loading}
+          className={graphScope===scope&&!loading?"":"invisible h-0 overflow-hidden"}>
+          <TemporalKnowledgeAtlas graph={graph}/>
+        </div>}
+        {!loading && graphScope===scope && !graph && <p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">
+          {t("历史关系无法验证，不以当前图谱替代。","Historical graph unavailable; no present-day graph substituted.")}</p>}
       </div>
       <aside className={tab==="evidence"?"min-w-0":"hidden min-w-0 lg:block"}>
         <h3 className="mb-2 text-sm font-semibold">{t("当时可用的报道来源","Sources at this time")} · {reports.length}</h3>
