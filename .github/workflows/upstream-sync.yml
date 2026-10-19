@@ -1,0 +1,126 @@
+# Only the upstream check is new; all tests and deployments stay in check.yml.
+# Scheduled workflows run from the default branch (main), but changes target develop.
+name: Sync AIHOT upstream
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/upstream-sync.yml']
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: aihot-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: github.repository == 'jboone1989/EventGraph'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          fetch-depth: 0
+      - name: Open upstream update PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # gh otherwise prefers the added 'upstream' remote over 'origin'.
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/KKKKhazix/AIHOT.git
+          git fetch --no-tags upstream main:refs/remotes/upstream/main
+          git fetch --no-tags origin develop:refs/remotes/origin/develop
+          upstream_sha="$(git rev-parse upstream/main)"
+          if git merge-base --is-ancestor "$upstream_sha" origin/develop; then
+            echo "develop already contains AIHOT upstream $upstream_sha"
+            exit 0
+          fi
+          # Keep review/repair work intact; never replace an open sync PR.
+          pending="$(gh pr list --base develop --state open --json headRefName             --jq '[.[] | select(.headRefName | startswith("chore/aihot-upstream-"))] | length')"
+          if [[ "$pending" -gt 0 ]]; then
+            echo "An upstream sync PR is already open; leave it for review."
+            exit 0
+          fi
+
+          branch="chore/aihot-upstream-${upstream_sha:0:12}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch" origin/develop
+          mode=clean
+          conflicts=""
+          # GITHUB_TOKEN has no workflows permission. If any new upstream
+          # commit touches CI, propose a blocked draft instead of pushing it.
+          upstream_workflow_commits="$(git log --full-history --format=%h "$upstream_sha" ^origin/develop -- .github/workflows)"
+          if [[ -n "$upstream_workflow_commits" ]]; then
+            mode=conflict
+            conflicts=".github/workflows (upstream workflow changes require separate review)"
+          elif ! git merge --no-ff --no-commit "$upstream_sha"; then
+            git rev-parse -q --verify MERGE_HEAD >/dev/null || { echo 'Merge failed without a merge state'; exit 1; }
+            # Resolve only workflow conflicts from EventGraph's main.
+            conflicts="$(git -c core.quotepath=false diff --name-only --diff-filter=U | grep -v '^\.github/workflows/' || true)"
+            if [[ -n "$conflicts" ]]; then
+              mode=conflict
+            fi
+          fi
+          if [[ "$mode" == conflict ]]; then
+            # No upstream code or unresolved markers go into a draft PR.
+            git reset --hard origin/develop
+            mkdir -p docs
+            printf 'AIHOT upstream %s needs conflict resolution.\nReview: https://github.com/KKKKhazix/AIHOT/commit/%s\n' "$upstream_sha" "$upstream_sha" > docs/upstream-sync-pending.md
+          fi
+
+          # Never push upstream workflow definitions with GITHUB_TOKEN:
+          # they require an unavailable 'workflows' permission.
+          # Always retain EventGraph's existing CI from the target branch develop.
+          git rm -r -f -- .github/workflows
+          git restore --source=origin/develop --staged --worktree -- .github/workflows
+          if [[ "$mode" == clean ]]; then
+            [[ -z "$(git diff --name-only --diff-filter=U)" ]]
+            git commit -m "chore: merge AIHOT upstream ${upstream_sha:0:12}"
+          else
+            git add docs/upstream-sync-pending.md
+            git commit -m "chore: flag AIHOT upstream merge conflicts ${upstream_sha:0:12}"
+          fi
+          # No open sync PR exists (checked above); replace only an orphan bot branch.
+          git push --force origin "HEAD:refs/heads/$branch"
+          {
+            echo "## AIHOT upstream synchronization"
+            echo ""
+            echo "- Upstream: https://github.com/KKKKhazix/AIHOT/commit/$upstream_sha"
+            echo "- Target: EventGraph \`develop\` (never \`main\`)"
+            echo "- Keep EventGraph-specific features, history and database volumes."
+            echo "- Merge this PR with a **merge commit**, not squash/rebase, so upstream ancestry is retained."
+            echo ""
+            if [[ "$mode" == clean ]]; then
+              echo "Merged cleanly onto develop. Review the diff and CI before merging."
+              echo "Trusted workflow files come from EventGraph develop, never AIHOT upstream."
+              echo "This PR starts as a draft because GITHUB_TOKEN cannot trigger normal PR checks."
+              echo "A maintainer must mark it ready for review; that human ready_for_review event starts check.yml."
+              echo "workflow_dispatch checks do not satisfy branch rulesets; wait for the required PR checks."
+            else
+              echo "**BLOCKED: application merge conflicts.** No upstream app code has been committed."
+              echo "The draft PR records the upstream SHA and conflicting paths, keeping EventGraph operational."
+              echo "Workflow-only changes are also blocked for separate review (GITHUB_TOKEN cannot push workflow history)."
+              echo "Codex must merge upstream/main into this branch, resolve conflicts, retain EventGraph CI from develop, then ask Claude to review."
+              echo "Never merge this PR until the real combined code and CI are verified."
+              echo ""
+              echo "Conflicting files:"
+              echo '~~~'
+              printf '%s\n' "$conflicts"
+              echo '~~~'
+            fi
+          } > "$RUNNER_TEMP/upstream-pr.md"
+          if [[ "$mode" == conflict ]]; then
+            gh pr create --base develop --head "$branch" --draft               --title "chore: sync AIHOT upstream ${upstream_sha:0:12} (conflicts)"               --body-file "$RUNNER_TEMP/upstream-pr.md"
+          else
+            gh pr create --base develop --head "$branch" --draft               --title "chore: sync AIHOT upstream ${upstream_sha:0:12}"               --body-file "$RUNNER_TEMP/upstream-pr.md"
+          fi

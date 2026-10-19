@@ -8,6 +8,8 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [develop, main]
+    # A maintainer marks a bot-created upstream draft ready to run normal PR checks.
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -117,9 +119,8 @@ jobs:
         run: tail -n 60 "$RUNNER_TEMP/api.log" "$RUNNER_TEMP/web.log" 2>/dev/null || true
 
   docker:
-    # Docker integration runs for PRs; the branch push builds the publishable image separately.
-    # Bot-created upstream PRs explicitly dispatch Check; include Docker on those runs.
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'chore/aihot-upstream-'))
+    # PRs test the combined source; push releases also test their actual GHCR digest below.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -138,11 +139,7 @@ jobs:
       - name: Build and start with docker compose
         run: docker compose up -d --build
       - name: Smoke check
-        run: |
-          for i in $(seq 1 90); do curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null && break; sleep 2; done
-          docker compose ps
-          docker compose run --rm --no-deps --entrypoint node setup scripts/smoke.ts --base http://web:3000
-          docker compose exec -T db psql -U aihot -d aihot -Atc "select count(*) from sources" | grep -qx "$(node -p "require('./industry/sources.json').sources.length")"
+        run: bash scripts/ci/smoke-compose.sh
       - name: Logs
         if: failure()
         run: docker compose logs --tail 80
@@ -150,7 +147,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # CI success on develop/main publishes one immutable image; only develop auto-deploys.
+  # Only a digest that passes the existing Compose smoke check reaches development.
   publish:
     needs: check
     if: github.event_name == 'push'
@@ -214,7 +211,42 @@ jobs:
           cache-from: type=gha,scope=eventgraph-app
           cache-to: type=gha,mode=max,scope=eventgraph-app
 
-      - name: Export immutable digest
+      - name: Select published digest for integration test
+        if: steps.current.outputs.publish == 'true'
+        id: candidate
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "EVENTGRAPH_APP_IMAGE=ghcr.io/jboone1989/eventgraph-app@$DIGEST" >> "$GITHUB_ENV"
+          echo "COMPOSE_FILE=docker-compose.yml:docker-compose.dev-image.yml" >> "$GITHUB_ENV"
+
+      - name: Node for the existing smoke test
+        if: steps.current.outputs.publish == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Test the published image in a throwaway Compose stack
+        if: steps.current.outputs.publish == 'true'
+        run: |
+          node scripts/init-env.ts --llm-key ci-not-a-real-key
+          sed -i 's/^COLLECT_ENABLED=.*/COLLECT_ENABLED=false/; s/^MODEL_CALLS_ENABLED=.*/MODEL_CALLS_ENABLED=false/' .env
+          echo "MCP_ALLOWED_HOSTS=web" >> .env
+          docker compose pull db setup api worker web
+          docker compose up -d --no-build --pull never
+          bash scripts/ci/smoke-compose.sh
+
+      - name: Published image logs
+        if: failure() && steps.candidate.outcome == 'success'
+        run: docker compose logs --tail 80
+
+      - name: Stop throwaway stack
+        if: always() && steps.candidate.outcome == 'success'
+        run: docker compose down -v
+
+      - name: Export verified immutable digest
         if: steps.current.outputs.publish == 'true'
         id: ref
         env:
