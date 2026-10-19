@@ -7,11 +7,6 @@ const alpha = { key: "e2e-alpha", name: "E2E Alpha", degree: 2 };
 const beta = { key: "e2e-beta", name: "E2E Beta", degree: 3 };
 const gamma = { key: "e2e-gamma", name: "E2E Gamma", degree: 1 };
 const nodes = [alpha, beta, gamma];
-const links = [
-  { id: "e2e-fact-1", source: alpha.key, target: beta.key, predicate: "SUPPORTS", invalidAt: null },
-  { id: "e2e-fact-2", source: beta.key, target: alpha.key, predicate: "PUBLISHES", invalidAt: null },
-  { id: "e2e-fact-3", source: beta.key, target: gamma.key, predicate: "USES", invalidAt: null },
-];
 const entity = (node: typeof alpha) => ({ key: node.key, name: node.name, kind: "organization" });
 const evidence = (id: string, source: string) => ({
   articleId: id,
@@ -21,16 +16,21 @@ const evidence = (id: string, source: string) => ({
   publishedAt: "2026-10-12T09:00:00.000Z",
 });
 const facts = [
-  { id: links[0].id, subject: entity(alpha), object: entity(beta), predicate: "SUPPORTS",
+  { id: "e2e-fact-1", subject: entity(alpha), object: entity(beta), predicate: "SUPPORTS",
     fact: "E2E Alpha supports E2E Beta.", validAt: "2026-10-12T09:00:00.000Z", invalidAt: null,
     evidence: [evidence("report-one", "Primary Lab")] },
-  { id: links[1].id, subject: entity(beta), object: entity(alpha), predicate: "PUBLISHES",
+  { id: "e2e-fact-2", subject: entity(beta), object: entity(alpha), predicate: "PUBLISHES",
     fact: "E2E Beta publishes an independent response.", validAt: "2026-10-13T09:00:00.000Z", invalidAt: null,
     evidence: [evidence("report-two", "Research Wire")] },
-  { id: links[2].id, subject: entity(beta), object: entity(gamma), predicate: "USES",
+  { id: "e2e-fact-3", subject: entity(beta), object: entity(gamma), predicate: "USES",
     fact: "E2E Beta uses E2E Gamma.", validAt: "2026-10-14T09:00:00.000Z", invalidAt: null,
     evidence: [evidence("report-three", "Research Wire")] },
 ];
+
+// Keep a single source of truth for fact IDs, directions and predicates.
+const links = facts.map(({ id, subject, object, predicate, invalidAt }) => ({
+  id, source: subject.key, target: object.key, predicate, invalidAt,
+}));
 
 async function mockPublicGraph(page: Page, failFirstNeighborhood = false) {
   await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));

@@ -5,7 +5,7 @@
 - `pages.spec.ts`：每个公开页面和 `/en` 英文版页面返回 200、有内容、没有掉进错误页；没有未捕获的脚本错误，站内 `/api/site/` 没有 5xx；手机上不横向滚动。每页的整页截图都放进报告。
 - `english.spec.ts`：选了英文的读者在每个页面、搜索和筛选浮层、热榜参与者名单里看不到中文界面文字，反馈页的截图选择器是英文的。
 - `language.spec.ts`：语言切换在页面和它的 `/en` 地址之间来回，选择会被记住；文章页切到 `/en/items/:id`。
-- `knowledge.spec.ts`：知识页在任何图谱状态下都能打开；接入真实 Graphiti 时验证实体档案的关系跳转和“回到本实体”按钮。
+- `knowledge.spec.ts`：知识页在任何图谱状态下都能打开；有真实 Graphiti 数据时检查图谱渲染和实体档案关系链接。
 - `atlas-interactions.spec.ts`：利用 Playwright 官方 API Mock 在无 Graphiti 的 CI 中**每次执行**图谱交互：选实体、验证 Cytoscape 画布初始化、在侧栏聚合同一实体对的双向事实、逐条查看证据来源、沿关系扩展、返回历史实体、目录、放大/退出、请求失败重试。
 - `story-replay.spec.ts`：实际打开由测试数据库发布的事件页面，验证时间机器的下一阶段、上一阶段、时间轴键盘定位和自动播放；测试文章有刻意错开的发布时间。
 
@@ -33,7 +33,7 @@ DATABASE_URL=postgres://127.0.0.1:5432/aihot_ci node scripts/e2e-seed.ts
 
 ## 在 CI 里
 
-`.github/workflows/check.yml` 的 `e2e` 任务在每个 PR 和 develop/main 的每次推送上运行：构建网站，在全新的 PostgreSQL 上迁移、放入示例内容，起 api 和 web，跑全部浏览器检查。报告（含每页截图）作为 `e2e-report` 产物上传，保留 14 天。这个任务和后端测试分开，后端测试红了也不影响它给出结果。CI 的浏览器任务会设置 `E2E_SEEDED=1`，要求样例事件至少有两个回放阶段；指向开发环境或正式站点时不启用该标记。CI 里没有 Graphiti，因此真实 Neo4j 实体档案和“回到本实体”验收可能跳过；**atlas-interactions.spec.ts 不会因此跳过**，仍会在 Chromium 桌面与手机中使用可复现的 API Mock 验证完整前端交互。此 Mock 仅替代浏览器请求，不证明真实 Graphiti 数据质量和生产图谱内容。
+`.github/workflows/check.yml` 的 `e2e` 任务在每个 PR 和 develop/main 的每次推送上运行：构建网站，在全新的 PostgreSQL 上迁移、放入示例内容，起 api 和 web，跑全部浏览器检查。报告（含每页截图）作为 `e2e-report` 产物上传，保留 14 天。这个任务和后端测试分开，后端测试红了也不影响它给出结果。CI 的浏览器任务会设置 `E2E_SEEDED=1`，要求样例事件至少有两个回放阶段；指向开发环境或正式站点时不启用该标记。CI 里没有 Graphiti，因此依赖真实图谱数据的渲染和实体档案检查可能跳过；**atlas-interactions.spec.ts 不会因此跳过**，仍会在 Chromium 桌面与手机中使用可复现的 API Mock 验证完整前端交互。此 Mock 仅替代浏览器请求，不证明真实 Graphiti 数据质量和生产图谱内容。
 
 ## 开发和测试的循环
 
