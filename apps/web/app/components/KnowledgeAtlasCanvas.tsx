@@ -96,9 +96,22 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
     const root = rootIsNew ? (firstLoad ? { x: 0, y: 0 } : { x: center.x + 230, y: center.y }) : center;
     const ordered = [...newcomers.filter(n => n.key === selected), ...newcomers.filter(n => n.key !== selected)];
     const pairs = groupAtlasPairs(network.links);
+    const incomingKeys = new Set(network.nodes.map(n => n.key));
+    const incomingPairs = new Set(pairs.map(p => p.key));
+    const obsoleteNodes = instance.nodes().filter(n => !incomingKeys.has(n.id()));
+    const obsoletePairs = instance.edges().filter(e => !incomingPairs.has(e.id()));
     const newPairs = pairs.filter(p => !instance.getElementById(p.key).length);
-    if (!ordered.length && !newPairs.length && !pairs.some(p => instance.getElementById(p.key).data("count") !== p.links.length)) return;
+    if (!ordered.length && !newPairs.length && !obsoleteNodes.length && !obsoletePairs.length &&
+        !pairs.some(p => {
+          const edge = instance.getElementById(p.key);
+          return edge.data("count") !== p.links.length ||
+            edge.data("expired") !== p.links.every(l => !!l.invalidAt);
+        })) return;
     instance.batch(() => {
+      // Temporal rewinds remove future facts without rebuilding Cytoscape or
+      // moving the retained nodes. Ordinary Atlas expansion stays additive.
+      obsoletePairs.remove();
+      obsoleteNodes.remove();
       let index = 0;
       for (const n of ordered) {
         const isRoot = rootIsNew && n.key === selected;
@@ -118,7 +131,8 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
         const existingEdge = instance.getElementById(pair.key);
         const count = pair.links.length;
         if (existingEdge.length) {
-          existingEdge.data({ count, label: count > 1 ? String(count) : "" });
+          existingEdge.data({ count, label: count > 1 ? String(count) : "",
+            expired: pair.links.every(l => !!l.invalidAt) });
         } else if (instance.getElementById(pair.a).length && instance.getElementById(pair.b).length) {
           instance.add({ group: "edges", data: {
             id: pair.key, source: pair.a, target: pair.b, count,
