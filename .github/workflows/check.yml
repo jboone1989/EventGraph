@@ -118,7 +118,9 @@ jobs:
 
   docker:
     # Docker integration runs for PRs; the branch push builds the publishable image separately.
-    if: github.event_name == 'pull_request'
+    # GITHUB_TOKEN-created sync PRs do not emit a runnable pull_request event.
+    # Their sync job explicitly dispatches this existing CI on the combined branch.
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'chore/aihot-upstream-'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
