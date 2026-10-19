@@ -54,7 +54,8 @@ export function registerKnowledge(app:FastifyInstance){
     if(parsed.status==="invalid")return reply.code(400).header("Cache-Control","no-store").send({error:"invalid_graph_time"});
     const time=parsed.value;
     const graph=await publicStoryGraph(publicId,new Date(),time ?? undefined);
-    if(graph.status==="unavailable" || graph.status==="disabled")
+    // Keep the pre-existing current-snapshot HTTP contract unchanged for existing consumers.
+    if(time && (graph.status==="unavailable" || graph.status==="disabled"))
       return reply.code(503).header("Cache-Control","no-store").send(graph);
     return reply.header("Cache-Control",time?"public, max-age=30":"public, max-age=120")
       .send({...graph,...(time?{asOf:time.asOf.toISOString(),clock:time.clock,fidelity:"bounded"}:{})});
