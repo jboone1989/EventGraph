@@ -52,7 +52,7 @@ export function EventTimeMachine({ reports, totalReports, clock = "published", p
   }
   const titleOf = (r: StoryReportView) => lang === "zh"
     ? r.title
-    : r.english?.title ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report";
+    : englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report";
 
   return (
     <section aria-label={t("事件时间回放", "Event report playback")} className="space-y-4">

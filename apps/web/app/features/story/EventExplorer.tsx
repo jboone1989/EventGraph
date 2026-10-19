@@ -35,7 +35,7 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     return !!at && !!asOf && Number.isFinite(Date.parse(at)) && Date.parse(at) <= Date.parse(asOf);
   }), [story.timeline, clock, asOf]);
   const reportTitle = (r: StoryDetail["timeline"][number]) => lang === "zh" ? r.title :
-    r.english?.title ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original source";
+    englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original source";
   const tabButton = (v:"time"|"graph"|"evidence", label:string) =>
     <button role="tab" type="button" aria-selected={tab===v} onClick={()=>setTab(v)}
       className={tab===v?"rounded-lg bg-accent px-3 py-2 text-sm text-white":"rounded-lg border border-line px-3 py-2 text-sm"}>{label}</button>;
