@@ -13,7 +13,7 @@ export interface ReplayFrame {
 
 export function buildReplayFrames(timeline: readonly StoryReportView[], clock: "published" | "known" = "published"): ReplayFrame[] {
   const at = (r: StoryReportView) => clock === "known" ? r.discoveredAt : r.publishedAt;
-  const valid = (s?: string) => !!s && /(?:Z|[+-]\\d{2}:\\d{2})$/i.test(s) && Number.isFinite(Date.parse(s));
+  const valid = (s?: string) => !!s && /(?:Z|[+-]\d{2}:\d{2})$/i.test(s) && Number.isFinite(Date.parse(s));
   const ordered = timeline
     .filter(r => valid(at(r)))
     .sort((a,b) => Date.parse(at(a)!) - Date.parse(at(b)!) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

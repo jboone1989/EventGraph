@@ -12,7 +12,6 @@ import { localizedMonthDayTime, monthDay, relativeTime } from "../lib/format";
 import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
-import type { KnowledgeGraph } from "../components/KnowledgeNetwork";
 import { englishText } from "../components/EnglishStory";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
@@ -32,14 +31,9 @@ export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 export async function loader({ params, request }: Route.LoaderArgs) {
   const storyPromise = loadOr404<StoryDetail>(`/api/site/stories/${encodeURIComponent(params.publicId)}`, { signal: request.signal, merged: (id) => `/story/${id}` });
   // Graph availability must never hide an otherwise public event and its source timeline.
-  const graphPromise = apiGet<KnowledgeGraph>(`/api/site/knowledge/stories/${encodeURIComponent(params.publicId)}`, { signal: request.signal, timeoutMs: 2_000 })
-    .catch((error): KnowledgeGraph => {
-      if (request.signal.aborted) throw error;
-      return { entities: 0, edges: [], status: "unavailable" };
-    });
   const marketPromise = apiGet<StoryMarket>(`/api/market/stories/${encodeURIComponent(params.publicId)}`, { signal: request.signal, timeoutMs: 1_500 }).catch(() => null);
-  const [story, graph, market] = await Promise.all([storyPromise, graphPromise, marketPromise]);
-  return cachedPage(120, { story, graph, market });
+  const [story, market] = await Promise.all([storyPromise, marketPromise]);
+  return cachedPage(120, { story, market });
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
