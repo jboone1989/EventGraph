@@ -214,7 +214,7 @@ jobs:
     needs: [check, e2e]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -281,6 +281,61 @@ jobs:
         run: |
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "image_ref=ghcr.io/jboone1989/eventgraph-app@$DIGEST" >> "$GITHUB_OUTPUT"
+
+      # The source checks do not cover the separately built GHCR digest.
+      - name: Node for published-image smoke check
+        if: steps.current.outputs.publish == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Smoke-test published digest with Compose (no rebuild)
+        if: steps.current.outputs.publish == 'true'
+        env:
+          EVENTGRAPH_APP_IMAGE: ${{ steps.ref.outputs.image_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EVENTGRAPH_APP_IMAGE" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[a-f0-9]{64}$ ]]
+          node scripts/init-env.ts --llm-key ci-not-a-real-key
+          sed -i 's/^COLLECT_ENABLED=.*/COLLECT_ENABLED=false/; s/^MODEL_CALLS_ENABLED=.*/MODEL_CALLS_ENABLED=false/' .env
+          echo "MCP_ALLOWED_HOSTS=web" >> .env
+          cat > "$RUNNER_TEMP/ci-published-image.yml" <<'COMPOSE'
+          services:
+            setup:
+              image: ${EVENTGRAPH_APP_IMAGE:?}
+            api:
+              image: ${EVENTGRAPH_APP_IMAGE:?}
+            worker:
+              image: ${EVENTGRAPH_APP_IMAGE:?}
+            web:
+              image: ${EVENTGRAPH_APP_IMAGE:?}
+          COMPOSE
+          docker pull "$EVENTGRAPH_APP_IMAGE"
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" config --quiet
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" up -d --no-build --pull never
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null; then break; fi
+            sleep 2
+          done
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" ps
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" run --rm --no-deps --entrypoint node setup scripts/smoke.ts --base http://web:3000
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" exec -T db psql -U aihot -d aihot -Atc "select count(*) from sources" | grep -qx "$(node -p "require('./industry/sources.json').sources.length")"
+
+      - name: Published-image smoke logs
+        if: ${{ failure() && steps.current.outputs.publish == 'true' }}
+        run: |
+          if test -f "$RUNNER_TEMP/ci-published-image.yml"; then
+            docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" logs --tail 80
+          fi
+
+      - name: Clean published-image smoke environment
+        if: ${{ always() && steps.current.outputs.publish == 'true' }}
+        run: |
+          if test -f "$RUNNER_TEMP/ci-published-image.yml"; then
+            docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" down -v
+          fi
 
   deploy_development:
     needs: publish
