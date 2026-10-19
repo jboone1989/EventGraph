@@ -129,7 +129,9 @@ async def relation_results(rows, as_of=None, clock="known"):
     if ids:
         source_rows, _, _ = await app.state.graph.driver.execute_query(
             "MATCH (e:Episodic) WHERE e.uuid IN $uuids AND e.group_id = 'aihot' "
-            "AND ($as_of IS NULL OR $clock <> 'known' OR (e.created_at IS NOT NULL AND e.created_at <= $as_of)) "
+            "AND ($as_of IS NULL OR "
+            "($clock = 'known' AND e.created_at IS NOT NULL AND e.created_at <= $as_of) OR "
+            "($clock = 'valid' AND e.valid_at IS NOT NULL AND e.valid_at <= $as_of)) "
             "RETURN e.uuid AS uuid, e.name AS name, "
             "e.source_description AS source_description, e.valid_at AS valid_at, e.created_at AS recorded_at",
             uuids=ids, as_of=as_of, clock=clock, routing_="r",
