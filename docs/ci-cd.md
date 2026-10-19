@@ -5,17 +5,16 @@ checks, official Docker Actions, and the Marketplace appleboy/ssh-action.
 
 Feature PR to develop -> Check (including Docker integration).
 Push to develop -> Check -> one SHA-pinned GHCR image -> development rollout.
-Merge develop to main -> main push Check -> GHCR image -> production rollout.
-The develop-to-main PR is not re-tested in parallel with its develop push;
-main is independently tested after merge before publishing. Target hosts only
-pull images and restart app containers, never compile code.
+Develop -> main PR -> CI checks (no deployment).
+Merge develop to main -> main push Check -> GHCR image publish only.
+Production deployment is out of scope until its distinct Compose stack and
+persistent volumes are audited. Target hosts do not compile code.
 
 ## One-time setup
 
-Create GitHub environments named development and production. Restrict the
-development environment to develop, production to main; enable required
-reviews for production if desired. Enable branch protection for main.
-Configure the following repository variables and environment secrets:
+Create a GitHub environment named development, restricted to develop.
+Require successful PR checks and review before merging to main.
+Configure these development repository variables and environment secrets:
 
 Development:
 - Repo vars EVENTGRAPH_DEV_AUTO_DEPLOY=true, EVENTGRAPH_DEV_HOST,
@@ -24,11 +23,10 @@ Development:
 - Environment secrets EVENTGRAPH_DEV_SSH_KEY and
   EVENTGRAPH_DEV_SSH_FINGERPRINT (SHA256 host fingerprint).
 
-Production:
-- Repo vars EVENTGRAPH_PROD_AUTO_DEPLOY=true, EVENTGRAPH_PROD_HOST,
-  EVENTGRAPH_PROD_USER, EVENTGRAPH_PROD_ROOT (required).
-- Environment secrets EVENTGRAPH_PROD_SSH_KEY and
-  EVENTGRAPH_PROD_SSH_FINGERPRINT.
+Production deployment is intentionally disabled. Do not use this development
+script on production. The existing production release requires Compose project
+`livingruntime` plus `docker-compose.production.yml`, knowledge and release
+overlays. Audit and integrate it separately before introducing an automated job.
 
 An environment-specific deploy account must already have Docker/Compose
 permissions and read access to GHCR via the workflow token. Each host must
@@ -45,5 +43,7 @@ Migrations and database backups are a separate, reviewed process; normal image
 rollouts never run migrations or re-create the database. Releases that need a
 new schema must be coordinated separately.
 
-Do not enable either *_AUTO_DEPLOY switch until one-time prerequisites have
-been independently verified. Neither flag requires approval for future pushes.
+Development auto deploy passed real CI, GHCR pull and HTTP smoke on cn-dev
+(2026-10-19, run 39192329068). Production auto deploy is not implemented.
+The SHA-pinned SSH Marketplace Action fetches drone-ssh v1.8.2 at runtime
+without independent checksum verification. Risk is accepted for dev only.

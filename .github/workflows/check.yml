@@ -8,6 +8,7 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [develop, main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,8 +19,6 @@ concurrency:
 
 jobs:
   check:
-    # develop already gets a push check; do not pay for duplicate develop->main PR checks.
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.ref != 'develop' || github.event.pull_request.base.ref != 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -51,8 +50,12 @@ jobs:
       - name: Online migration safety
         # New migrations against the PR base: deployed ones unchanged, no whole-table rewrite or blocking index in a release.
         env:
-          MIGRATION_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
-        run: node scripts/check-migrations.ts --base "$MIGRATION_BASE"
+          MIGRATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ "$MIGRATION_BASE" =~ ^0+$ ]] || [[ -z "$MIGRATION_BASE" ]]; then
+            MIGRATION_BASE="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          node scripts/check-migrations.ts --base "$MIGRATION_BASE"
       - name: PostgreSQL backup tools
         # 恢复测试需要与 PostgreSQL 17 服务匹配的客户端，不能依赖 runner 的默认版本。
         run: |
@@ -115,7 +118,7 @@ jobs:
 
   docker:
     # Docker integration runs for PRs; the branch push builds the publishable image separately.
-    if: ${{ github.event_name == 'pull_request' && !(github.event.pull_request.head.ref == 'develop' && github.event.pull_request.base.ref == 'main') }}
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -146,7 +149,7 @@ jobs:
         if: always()
         run: docker compose down -v
 
-  # CI success on develop/main publishes one immutable image; servers only pull it.
+  # CI success on develop/main publishes one immutable image; only develop auto-deploys.
   publish:
     needs: check
     if: github.event_name == 'push'
@@ -221,6 +224,9 @@ jobs:
 
   deploy_development:
     needs: publish
+    concurrency:
+      group: eventgraph-dev-rollout
+      cancel-in-progress: false
     if: >-
       ${{ needs.publish.outputs.image_ref != '' &&
           github.ref_name == 'develop' &&
@@ -260,47 +266,5 @@ jobs:
           fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
           envs: EVENTGRAPH_IMAGE,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
           command_timeout: 15m
-          script_path: scripts/ci/deploy-image.sh
-
-  deploy_production:
-    needs: publish
-    if: >-
-      ${{ needs.publish.outputs.image_ref != '' &&
-          github.ref_name == 'main' &&
-          vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: production
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.publish.outputs.source_sha }}
-          persist-credentials: false
-      - name: Skip stale release
-        id: current
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
-        run: |
-          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Pull image and restart production app
-        if: steps.current.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
-        env:
-          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
-          EVENTGRAPH_DIR: ${{ vars.EVENTGRAPH_PROD_ROOT }}
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          host: ${{ vars.EVENTGRAPH_PROD_HOST }}
-          username: ${{ vars.EVENTGRAPH_PROD_USER }}
-          key: ${{ secrets.EVENTGRAPH_PROD_SSH_KEY }}
-          fingerprint: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
-          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
-          command_timeout: 15m
+          version: '1.8.2'
           script_path: scripts/ci/deploy-image.sh

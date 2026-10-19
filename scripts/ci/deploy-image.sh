@@ -13,6 +13,9 @@ cd "$EVENTGRAPH_DIR"
 test -f .env
 test -f docker-compose.yml
 umask 077
+# GHCR login is isolated from host-wide Docker credentials.
+dockercfg="$(mktemp -d)"
+export DOCKER_CONFIG="$dockercfg"
 
 # An ephemeral Compose overlay uses the immutable GHCR digest. The original
 # DB, data volumes, networks and Compose project name remain unchanged.
@@ -30,7 +33,7 @@ services:
 OVERLAY
 cleanup() {
   rm -f "$overlay"
-  docker logout ghcr.io >/dev/null 2>&1 || true
+  rm -rf -- "$dockercfg"
 }
 trap cleanup EXIT
 compose() {
@@ -47,7 +50,9 @@ else
     exit 1
   fi
   old_id="$(docker inspect -f '{{.Image}}' "$running")"
-  docker image tag "$old_id" eventgraph-rollback:pre-ci
+  if ! docker image inspect eventgraph-rollback:pre-ci >/dev/null 2>&1; then
+    docker image tag "$old_id" eventgraph-rollback:pre-ci
+  fi
   previous="eventgraph-rollback:pre-ci"
 fi
 export EVENTGRAPH_APP_IMAGE="$EVENTGRAPH_IMAGE"
