@@ -23,6 +23,11 @@ test("report playback steps forward/backward, accepts keyboard scrubbing and aut
   const last = Number(await slider.getAttribute("max"));
   if (last < 1 && !seeded) test.skip(true, "The live event has only one publication stage");
   expect(last, "CI must create at least two distinct report timestamps").toBeGreaterThanOrEqual(1);
+  // Explorer intentionally opens on the latest discovered stage. Rewind before
+  // exercising the timeline's forward/backward and autoplay controls.
+  await expect(slider).toHaveValue(String(last));
+  await slider.focus();
+  await slider.press("Home");
   await expect(slider).toHaveValue("0");
   const firstDate = await replay.locator("time").first().getAttribute("dateTime");
   const firstCount = Number(await replay.locator("dl dd").first().innerText());
