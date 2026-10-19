@@ -11,11 +11,20 @@ import { buildReplayFrames } from "./replay";
 export function EventExplorer({ story }: { story: StoryDetail }) {
   const t = useText(), lang = useUiLanguage();
   const [clock, setClock] = useState<"known" | "valid">("known");
-  const [position, setPosition] = useState(0);
+  // Open at the most recent known point; a reader can then rewind the event.
+  const [position, setPosition] = useState(() => Math.max(0, buildReplayFrames(story.timeline, "known").length - 1));
   const [tab, setTab] = useState<"time" | "graph" | "evidence">("time");
   const frames = useMemo(() => buildReplayFrames(story.timeline, clock === "known" ? "known" : "published"), [story.timeline, clock]);
   const step = Math.min(position, Math.max(0, frames.length - 1));
   const asOf = frames[step]?.publishedAt;
+  const chooseClock = (next: "known" | "valid") => {
+    // Preserve the selected historical neighborhood when changing time semantics.
+    const nextFrames = buildReplayFrames(story.timeline, next === "known" ? "known" : "published");
+    const cutoff = asOf ? Date.parse(asOf) : Date.now();
+    const target = nextFrames.findLastIndex(frame => Date.parse(frame.publishedAt) <= cutoff);
+    setClock(next);
+    setPosition(Math.max(0, target));
+  };
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -43,9 +52,9 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft pb-3">
       <strong className="text-sm">EVENTGRAPH EXPLORER</strong>
       <div className="flex gap-2">
-        <button type="button" aria-pressed={clock==="known"} onClick={()=>{setClock("known");setPosition(0);}}
+        <button type="button" aria-pressed={clock==="known"} onClick={()=>chooseClock("known")}
           className={clock==="known"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("按收录时间重建","Recorded-time reconstruction")}</button>
-        <button type="button" aria-pressed={clock==="valid"} onClick={()=>{setClock("valid");setPosition(0);}}
+        <button type="button" aria-pressed={clock==="valid"} onClick={()=>chooseClock("valid")}
           className={clock==="valid"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("事实生效时间","Valid time")}</button>
       </div>
     </div>
