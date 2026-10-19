@@ -118,7 +118,8 @@ jobs:
 
   docker:
     # Docker integration runs for PRs; the branch push builds the publishable image separately.
-    if: github.event_name == 'pull_request'
+    # Bot-created upstream PRs explicitly dispatch Check; include Docker on those runs.
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'chore/aihot-upstream-'))
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
