@@ -317,6 +317,8 @@ jobs:
               image: ${EVENTGRAPH_APP_IMAGE:?}
           COMPOSE
           docker pull "$EVENTGRAPH_APP_IMAGE"
+          # --pull never applies to the PostgreSQL dependency too; preload its official image.
+          docker pull postgres:17-alpine
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" config --quiet
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" up -d --no-build --pull never
           healthy=0
