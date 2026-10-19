@@ -1,6 +1,6 @@
 import type {FastifyInstance} from "fastify";
 
-import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
+import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicExplorerStory,publicAtlasNeighborhood,publicAtlasCenters,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
 import {timingSafeEqual} from "node:crypto";
 
 export function registerKnowledge(app:FastifyInstance){
@@ -50,6 +50,18 @@ export function registerKnowledge(app:FastifyInstance){
     const {publicId}=req.params;
     if(!/^[a-f0-9-]{36}$/i.test(publicId))return reply.code(400).send({error:"invalid_story"});
     return reply.header("Cache-Control","public, max-age=120").send(await publicStoryGraph(publicId));
+  });
+  app.get<{Params:{publicId:string};Querystring:{asOf?:string;clock?:string}}>("/api/site/explorer/stories/:publicId",async(req,reply)=>{
+    const {publicId}=req.params, {asOf,clock="known"}=req.query;
+    if(!/^[a-f0-9-]{36}$/i.test(publicId))return reply.code(400).send({error:"invalid_story"});
+    // Reject missing timezone, non-ISO, invalid or future time instead of silently
+    // interpreting a local date as UTC or returning a misleading current snapshot.
+    if(!asOf || !/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d+)?(?:Z|[+-]\\d\\d:\\d\\d)$/i.test(asOf) ||
+       !Number.isFinite(Date.parse(asOf)) || new Date(asOf).getTime()>Date.now() ||
+       !["known","valid"].includes(clock))
+      return reply.code(400).header("Cache-Control","no-store").send({error:"invalid_temporal_query"});
+    const view=await publicExplorerStory(publicId,{asOf:new Date(asOf),clock:clock as "known"|"valid"});
+    return reply.header("Cache-Control","no-store").send(view);
   });
   app.get<{Params:{key:string}}>("/api/site/knowledge/entities/:key",async(req,reply)=>{
     const key=req.params.key;
