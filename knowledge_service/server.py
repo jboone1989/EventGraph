@@ -50,6 +50,8 @@ class Query(BaseModel):
 class ArticleRelations(BaseModel):
     articles: list[str] = Field(min_length=1, max_length=100)
     limit: int = Field(default=60, ge=1, le=100)
+    as_of: datetime | None = None
+    clock: str = Field(default="known", pattern="^(known|valid)$")
 
 
 @asynccontextmanager
@@ -120,15 +122,16 @@ def episode_source(row, fact):
     }
 
 
-async def relation_results(rows):
+async def relation_results(rows, as_of=None, clock="known"):
     ids = sorted({u for r in rows for u in (r["episodes"] or [])})
     source_rows = []
     if ids:
         source_rows, _, _ = await app.state.graph.driver.execute_query(
             "MATCH (e:Episodic) WHERE e.uuid IN $uuids AND e.group_id = 'aihot' "
+            "AND ($as_of IS NULL OR $clock <> 'known' OR (e.created_at IS NOT NULL AND e.created_at <= $as_of)) "
             "RETURN e.uuid AS uuid, e.name AS name, "
-            "e.source_description AS source_description, e.valid_at AS valid_at",
-            uuids=ids, routing_="r",
+            "e.source_description AS source_description, e.valid_at AS valid_at, e.created_at AS recorded_at",
+            uuids=ids, as_of=as_of, clock=clock, routing_="r",
         )
     sources = {r["uuid"]: r for r in source_rows}
     edges = []
@@ -145,6 +148,7 @@ async def relation_results(rows):
             "fact": r["fact"],
             "validAt": r["valid_at"].isoformat() if r["valid_at"] else None,
             "invalidAt": r["invalid_at"].isoformat() if r["invalid_at"] else None,
+            "recordedAt": r["recorded_at"].isoformat() if r.get("recorded_at") else None,
             "evidence": evidence,
         })
     keys = {e["subject"]["key"] for e in edges} | {e["object"]["key"] for e in edges}
@@ -155,13 +159,15 @@ EDGE_COLUMNS = (
     "s.uuid AS subject_uuid, s.name AS subject_name, "
     "o.uuid AS object_uuid, o.name AS object_name, "
     "r.uuid AS uuid, r.name AS name, r.fact AS fact, "
-    "r.valid_at AS valid_at, r.invalid_at AS invalid_at, "
+    "r.valid_at AS valid_at, r.invalid_at AS invalid_at, r.created_at AS recorded_at, "
     "r.episodes AS episodes"
 )
 
 
 @app.post("/relations/by-articles")
 async def relations_by_articles(request: ArticleRelations):
+    if request.as_of is not None and request.as_of.utcoffset() is None:
+        raise HTTPException(status_code=400, detail="as_of requires timezone")
     names = ["aihot:" + article for article in request.articles]
     # Each supplied article is "ID:rN". Only Graphiti-owned facts are returned.
     rows, _, _ = await app.state.graph.driver.execute_query(
@@ -169,10 +175,13 @@ async def relations_by_articles(request: ArticleRelations):
         "WITH collect(ep.uuid) AS ids "
         "MATCH (s:Entity)-[r:RELATES_TO]->(o:Entity) "
         "WHERE r.group_id='aihot' AND coalesce(r.editorial_rejected, false)=false AND any(u IN coalesce(r.episodes, []) WHERE u IN ids) "
+        "AND ($as_of IS NULL OR "
+        "($clock = 'known' AND r.created_at IS NOT NULL AND r.created_at <= $as_of AND (r.expired_at IS NULL OR r.expired_at > $as_of)) OR "
+        "($clock = 'valid' AND r.valid_at IS NOT NULL AND r.valid_at <= $as_of AND (r.invalid_at IS NULL OR r.invalid_at > $as_of))) "
         "RETURN " + EDGE_COLUMNS + " ORDER BY r.created_at DESC LIMIT $limit",
-        names=names, limit=request.limit, routing_="r",
+        names=names, limit=request.limit, as_of=request.as_of, clock=request.clock, routing_="r",
     )
-    return await relation_results(rows)
+    return await relation_results(rows, request.as_of, request.clock)
 
 
 @app.get("/entities/{uuid}")

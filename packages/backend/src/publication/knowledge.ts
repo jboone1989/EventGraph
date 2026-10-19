@@ -2,7 +2,7 @@
 // events (stories) those reports belong to. Graphiti owns the relations; this database owns what is
 // public, so a cited report that was withdrawn, held back or never published is left out here.
 import { sql } from "../db.ts";
-import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges } from "../knowledge/graphiti.ts";
+import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges, type GraphTime } from "../knowledge/graphiti.ts";
 export { graphStats, graphSearch } from "../knowledge/graphiti.ts";
 import { cached, cachedByKey } from "../lib/cache.ts";
 import { publicSourceName } from "./rules.ts";
@@ -28,7 +28,7 @@ export interface EntityStory {
 const hasHan = (s: string) => /[㐀-鿿]/u.test(s);
 
 /** The cited reports that are public now, newest first, each with the live story it belongs to (if any). */
-export async function citedReports(articleIds: string[], now = new Date()) {
+export async function citedReports(articleIds: string[], now = new Date(), time?: GraphTime) {
   if (articleIds.length === 0) return { reports: [] as EntityReport[], stories: [] as EntityStory[] };
   const rows = await sql<{
     id: string; title: string; original_title: string | null; at: Date; source_name: string; first_party: boolean;
@@ -42,6 +42,9 @@ export async function citedReports(articleIds: string[], now = new Date()) {
     LEFT JOIN facts f ON f.id = fa.fact_id
     LEFT JOIN stories st ON st.id = f.story_id AND st.merged_into IS NULL
     WHERE p.article_id = ANY(${articleIds}::text[]) AND ${storyReportCondition(now)}
+      AND (${time?.asOf ?? null}::timestamptz IS NULL OR
+        (${time?.clock === "known"} AND p.discovered_at <= ${time?.asOf ?? null}) OR
+        (${time?.clock === "valid"} AND coalesce(p.published_at, p.discovered_at) <= ${time?.asOf ?? null}))
     ORDER BY p.article_id, (fa.role = 'primary') DESC NULLS LAST, (st.id IS NULL), f.id`;
   rows.sort((a, b) => b.at.getTime() - a.at.getTime() || a.id.localeCompare(b.id));
   const reports: EntityReport[] = rows.map((r) => ({
@@ -122,9 +125,9 @@ export async function dailyGraphChanges(key: string, now?: Date) {
 }
 
 /** A public story's relations (site and MCP): Graphiti's, each with evidence that is public now. */
-export async function publicStoryGraph(publicId: string, now = new Date()) {
-  const graph = await graphForStory(publicId);
-  const { reports } = await citedReports(citedArticleIds(graph), now);
+export async function publicStoryGraph(publicId: string, now = new Date(), time?: GraphTime) {
+  const graph = await graphForStory(publicId, time);
+  const { reports } = await citedReports(citedArticleIds(graph), now, time);
   return { ...graph, status: graph.status ?? "ok", edges: withPublicEvidence(graph.edges, new Set(reports.map((r) => r.id))) };
 }
 
