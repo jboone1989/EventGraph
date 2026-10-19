@@ -28,12 +28,8 @@ const facts = [
 ];
 
 // Keep a single source of truth for fact IDs, directions and predicates.
-const links = facts.map((fact) => ({
-  id: fact.id,
-  source: fact.subject.key,
-  target: fact.object.key,
-  predicate: fact.predicate,
-  invalidAt: fact.invalidAt,
+const links = facts.map(({ id, subject, object, predicate, invalidAt }) => ({
+  id, source: subject.key, target: object.key, predicate, invalidAt,
 }));
 
 async function mockPublicGraph(page: Page, failFirstNeighborhood = false) {
