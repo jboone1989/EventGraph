@@ -69,7 +69,7 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
           className="mt-2 w-full cursor-pointer accent-current disabled:opacity-40"/>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" disabled={step === 0}
-            onClick={() => { setPlaying(false); setPosition((n) => Math.max(0, n - 1)); }}
+            onClick={() => { setPlaying(false); setPosition(Math.max(0, step - 1)); }}
             className="rounded-lg border border-line px-3 py-2 text-[12px] text-ink disabled:opacity-40">
             ← {t("上一阶段", "Previous")}
           </button>
@@ -84,7 +84,7 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
             {playing ? t("暂停", "Pause") : t("播放", "Play")} {playing ? "Ⅱ" : "▶"}
           </button>
           <button type="button" disabled={step === last}
-            onClick={() => { setPlaying(false); setPosition((n) => Math.min(last, n + 1)); }}
+            onClick={() => { setPlaying(false); setPosition(Math.min(last, step + 1)); }}
             className="rounded-lg border border-line px-3 py-2 text-[12px] text-ink disabled:opacity-40">
             {t("下一阶段", "Next")} →
           </button>
