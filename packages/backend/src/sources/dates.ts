@@ -49,7 +49,8 @@ export function parseLooseDate(value: string | null | undefined, utcOffset = "+0
   }
   if (!numeric && !english) return null;
   const text = v.replace(/(\d)(st|nd|rd|th)\b/gi, "$1");
-  const displayText = english ? text.slice(english.index ?? 0).replace(/\bSept\.\s/gi, 'Sep ') : text;
+  const englishStart = /\b(?:[a-z]{3,9}\.?\s+\d{1,2}|\d{1,2}\s+[a-z]{3,9})/i.exec(text)?.index ?? 0;
+  const displayText = english ? text.slice(englishStart).replace(/\bSept\.\s/gi, 'Sep ') : text;
   if (EXPLICIT_ZONE.test(v) || /^\d{4}-\d{2}-\d{2}$/.test(v)) {
     const direct = Date.parse(displayText);
     if (Number.isFinite(direct)) return new Date(direct);
