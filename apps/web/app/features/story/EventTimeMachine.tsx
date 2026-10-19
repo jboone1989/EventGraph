@@ -8,14 +8,22 @@ import { buildReplayFrames } from "./replay";
 interface Props {
   reports: StoryReportView[];
   totalReports: number;
+  clock?: "known" | "published";
+  position?: number;
+  onPosition?: (position: number) => void;
 }
 
 /** Client-only controls over already-public source reports; no generative call on page load. */
-export function EventTimeMachine({ reports, totalReports }: Props) {
+export function EventTimeMachine({ reports, totalReports, clock = "published", position: controlledPosition, onPosition }: Props) {
   const t = useText();
   const lang = useUiLanguage();
-  const frames = useMemo(() => buildReplayFrames(reports), [reports]);
-  const [position, setPosition] = useState(0);
+  const frames = useMemo(() => buildReplayFrames(reports, clock), [reports, clock]);
+  const [localPosition, setLocalPosition] = useState(0);
+  const position = controlledPosition ?? localPosition;
+  const setPosition = (next: number | ((previous: number) => number)) => {
+    const value = typeof next === "function" ? next(position) : next;
+    if (onPosition) onPosition(value); else setLocalPosition(value);
+  };
   const [playing, setPlaying] = useState(false);
   const trackId = useId();
   const last = Math.max(0, frames.length - 1);
@@ -37,7 +45,7 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
     }
     const timer = window.setTimeout(() => setPosition((p) => Math.min(p + 1, last)), 1700);
     return () => window.clearTimeout(timer);
-  }, [playing, step, last]);
+  }, [playing, step, last, onPosition]);
 
   if (!frame) {
     return <p className="text-[13px] text-ink-4">{t("暂无带有效发布时间的报道。", "No reports with valid publication times.")}</p>;
@@ -61,7 +69,7 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
             `Replay covers only ${covered} of ${totalReports} reports; the first step may not be the event’s beginning.`)}
         </p>}
         <label htmlFor={trackId} className="mt-4 block text-[12px] text-ink-3">
-          {t("拖动时间轴，查看每一步新增的公开报道", "Move through newly published reports, step by step")}
+          {clock === "known" ? t("按首次收录时间回放：后发现的旧报道不会提前出现", "Replay discovery times; later-discovered reports stay hidden") : t("按来源发布时间回放（事后追溯）", "Replay publication times (retrospective)")}
         </label>
         <input id={trackId} type="range" min={0} max={last} step={1} value={step}
           disabled={frames.length < 2} onChange={(e) => { setPlaying(false); setPosition(Number(e.target.value)); }}
@@ -128,8 +136,8 @@ export function EventTimeMachine({ reports, totalReports }: Props) {
       </div>
       <p className="text-[11.5px] leading-relaxed text-ink-4">
         {t(
-          "只按报道的公开发布时间回放（非当时入库时间）。本面板以外的事件概览、知识图谱和热度均为当前快照，不会回溯；避免用今天的综述解释过去。",
-          "Playback uses publication times, not ingestion times. The overview, graph and activity outside this panel remain current snapshots, not historical ones."
+          clock === "known" ? "按本站首次发现时间回放。历史图谱与证据使用同一时点；完整综述与热度仍是当前视角。" : "按来源发布日期回放。事实有效时间并不代表当时已经知道，属于事后视角。",
+          clock === "known" ? "Discovery-time replay; the linked graph and evidence share this cutoff. The full overview and activity remain current." : "Publication-time replay is retrospective; effective dates do not establish when facts were known."
         )}
       </p>
     </section>

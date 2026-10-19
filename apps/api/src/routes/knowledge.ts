@@ -2,6 +2,7 @@ import type {FastifyInstance} from "fastify";
 
 import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
 import {timingSafeEqual} from "node:crypto";
+import {parseGraphTime} from "@aihot/backend/publication/knowledge";
 
 export function registerKnowledge(app:FastifyInstance){
   app.get<{Querystring:{q?:string;limit?:string}}>("/api/v1/knowledge/search",async(req,reply)=>{
@@ -46,10 +47,22 @@ export function registerKnowledge(app:FastifyInstance){
   });
   app.get("/api/site/knowledge/stats",async(_req,reply)=>
     reply.header("Cache-Control","public, max-age=60").send(await graphStats()));
-  app.get<{Params:{publicId:string}}>("/api/site/knowledge/stories/:publicId",async(req,reply)=>{
+  app.get<{Params:{publicId:string};Querystring:{asOf?:string;clock?:string}}>("/api/site/knowledge/stories/:publicId",async(req,reply)=>{
     const {publicId}=req.params;
     if(!/^[a-f0-9-]{36}$/i.test(publicId))return reply.code(400).send({error:"invalid_story"});
-    return reply.header("Cache-Control","public, max-age=120").send(await publicStoryGraph(publicId));
+    const parsed=parseGraphTime(req.query.asOf, req.query.clock);
+    if(parsed.status==="invalid")return reply.code(400).header("Cache-Control","no-store").send({error:"invalid_graph_time"});
+    const time=parsed.value;
+    const graph=await publicStoryGraph(publicId,new Date(),time ?? undefined);
+    // Keep the pre-existing current-snapshot HTTP contract unchanged for existing consumers.
+    // Graphiti is optional: absence of the knowledge service is a valid, non-error
+    // read result. Keep HTTP 200 with an explicit status, so the story remains usable
+    // and browser telemetry doesn't treat the intended fallback as a page failure.
+    if(graph.status==="unavailable" || graph.status==="disabled")
+      return reply.header("Cache-Control","no-store")
+        .send({...graph,...(time?{asOf:time.asOf.toISOString(),clock:time.clock,fidelity:"bounded"}:{})});
+    return reply.header("Cache-Control",time?"public, max-age=30":"public, max-age=120")
+      .send({...graph,...(time?{asOf:time.asOf.toISOString(),clock:time.clock,fidelity:"bounded"}:{})});
   });
   app.get<{Params:{key:string}}>("/api/site/knowledge/entities/:key",async(req,reply)=>{
     const key=req.params.key;

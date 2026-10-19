@@ -32,3 +32,21 @@ test("invalid and empty dates are ignored", () => {
   assert.deepEqual(buildReplayFrames([report("bad", "not-a-date"), report("local", "2026-10-05T10:00:00")]), []);
   assert.deepEqual(buildReplayFrames([]), []);
 });
+
+test("known-time replay uses discovery timestamps and never backdates newly found old reports", () => {
+  const later = {...report("old-published", "2026-10-01T00:00:00Z"), discoveredAt: "2026-10-10T00:00:00Z"};
+  const earlier = {...report("new-published", "2026-10-04T00:00:00Z"), discoveredAt: "2026-10-05T00:00:00Z"};
+  const known = buildReplayFrames([later, earlier], "known");
+  assert.deepEqual(known.map(f => f.reports.map(r => r.id)), [["new-published"], ["old-published"]]);
+  assert.equal(known[0]?.publishedAt, "2026-10-05T00:00:00Z");
+  assert.deepEqual(buildReplayFrames([report("no-discovery", "2026-10-05T00:00:00Z")], "known"), []);
+});
+
+test("offset-aware dates work in both known and source-publication clocks", () => {
+  const reportWithOffset = {
+    ...report("offset", "2026-10-05T10:00:00+08:00"),
+    discoveredAt: "2026-10-05T12:00:00+08:00",
+  };
+  assert.equal(buildReplayFrames([reportWithOffset]).length, 1);
+  assert.equal(buildReplayFrames([reportWithOffset], "known").length, 1);
+});
