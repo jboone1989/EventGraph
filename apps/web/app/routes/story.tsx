@@ -8,7 +8,7 @@ import { apiGet, cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { breadcrumbLd, localized, pageMeta, storyLd, titled } from "../lib/seo";
 import { beijingDate, beijingTime } from "@aihot/contracts/time";
-import { localizedMonthDayTime, monthDay, relativeTime } from "../lib/format";
+import { localizedMonthDay, localizedMonthDayTime, relativeTime } from "../lib/format";
 import { EventTimeMachine } from "../features/story/EventTimeMachine";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
@@ -159,7 +159,7 @@ function useActiveSection(keys: SectionKey[]): [SectionKey, (k: SectionKey) => v
 function TimelineRow({ r }: { r: StoryReportView }) {
   const lang = useUiLanguage();
   const t = useText();
-  const title = lang === "en" ? (r.english?.title ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
+  const title = lang === "en" ? (englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
   const summary = lang === "en" ? (r.english?.summary ?? englishText(r.summary)) : r.summary;
   const [open, setOpen] = useState(false);
   const [clamped, setClamped] = useState(false);
@@ -226,7 +226,7 @@ export default function StoryPage() {
   }, [entry, filter, order]);
   const status = STATUS[story.status];
   const displayTitle = uiLang === "en" ? (story.english?.title ?? englishText(story.englishTitle) ?? englishText(story.title) ?? "Event timeline") : story.title;
-  const reportTitle = (r: StoryReportView) => uiLang === "en" ? (r.english?.title ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
+  const reportTitle = (r: StoryReportView) => uiLang === "en" ? (englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
   const visibleSummary = (text: string | null | undefined, r?: StoryReportView) => uiLang === "zh" ? text : (r?.english?.summary ?? englishText(text));
   const reportPath = (id: string) => uiLang === "en" ? `/en/items/${id}` : `/items/${id}`;
   // A settled story nobody watched (history pages) has no heat to explain or chart.
@@ -254,7 +254,7 @@ export default function StoryPage() {
     order === "desc" ? Date.parse(b.firstReportAt) - Date.parse(a.firstReportAt) : Date.parse(a.firstReportAt) - Date.parse(b.firstReportAt)
   ), [story.developments, order]);
   const newest = story.latestReport;
-  const latestText = uiLang === "en" ? (story.timeline.find((r) => r.id === newest?.id)?.english?.title ?? englishText(story.latest)) : story.latest;
+  const latestText = uiLang === "en" ? (englishText(story.timeline.find((r) => r.id === newest?.id)?.english?.title) ?? englishText(story.latest)) : story.latest;
   const overview = uiLang === "en"
     ? story.english
       ? { label: "AI overview", text: story.english.digest, note: story.digestUpdatedAt ? `Written with AI from the reporting · updated ${new Date(story.digestUpdatedAt).toLocaleDateString("en-US", { timeZone: "UTC" })}` : "Written with AI from the reporting" }
@@ -277,7 +277,7 @@ export default function StoryPage() {
   return (
     <div className="mx-auto max-w-[var(--page-max-reading)] pb-10">
       <PhoneBar back={inNav("/hot") ? { to: "/hot", label: t("热点","Events") } : { to: "/", label: t("精选","Featured") }} title={displayTitle} />
-      <nav aria-label="位置" className="hidden items-center gap-2.5 pb-5 pt-4 text-[12px] text-ink-4 lg:flex">
+      <nav aria-label={t("位置","Breadcrumb")} className="hidden items-center gap-2.5 pb-5 pt-4 text-[12px] text-ink-4 lg:flex">
         <Link to={inNav("/hot") ? "/hot" : "/"} className="inline-flex items-center gap-1.5 transition-colors hover:text-ink">
           <IconArrowLeft size={15} /> {inNav("/hot") ? t("热点榜","Events") : t("精选","Featured")}
         </Link>
@@ -422,7 +422,7 @@ export default function StoryPage() {
                       {when(d.firstReportAt)} · {d.reportCount} {t("篇报道","reports")}
                     </div>
                     <Link viewTransition to={reportPath(d.representative.id)} className="mt-0.5 block text-[15px] font-semibold leading-snug text-ink transition-colors hover:text-accent">
-                      {d.title}
+                      {uiLang === "en" ? (englishText(d.title) ?? reportTitle(d.representative)) : d.title}
                     </Link>
                     <div className="mt-0.5 truncate text-[12.5px] text-ink-4">
                       {d.representative.source.name}：{reportTitle(d.representative)}
@@ -462,7 +462,7 @@ export default function StoryPage() {
             ) : (
               days.map(({ day, rows }) => (
                 <div key={day}>
-                  <div className="pb-0.5 pt-5 text-[14px] font-semibold text-ink">{monthDay(day)}</div>
+                  <div className="pb-0.5 pt-5 text-[14px] font-semibold text-ink">{localizedMonthDay(day, uiLang)}</div>
                   <ol>
                     {rows.map((r) => (
                       <TimelineRow key={r.id} r={r} />
@@ -491,7 +491,7 @@ export default function StoryPage() {
                   <li key={r.publicId}>
                     <Link viewTransition to={`/story/${r.publicId}`} className="group flex items-baseline gap-3 py-3">
                       <span className="shrink-0 text-[12px] text-ink-4">{r.relation === "storyline" ? t("同一故事线","Same storyline") : t("相关事件","Related event")}</span>
-                      <span className="min-w-0 flex-1 text-[14.5px] font-medium text-ink-2 transition-colors group-hover:text-accent">{r.title}</span>
+                      <span className="min-w-0 flex-1 text-[14.5px] font-medium text-ink-2 transition-colors group-hover:text-accent">{uiLang === "en" ? (englishText(r.title) ?? "Related event") : r.title}</span>
                       <IconChevronRight size={14} className="shrink-0 self-center text-ink-4" />
                     </Link>
                   </li>

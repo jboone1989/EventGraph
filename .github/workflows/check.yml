@@ -168,6 +168,8 @@ jobs:
         with:
           name: e2e-report
           path: .data/e2e/
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 14
       - name: Server logs
         if: failure()
