@@ -36,6 +36,7 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
   const t = useText();
   const focused = useRef<string | null>(null);
   const desiredFocus = useRef(selectedKey);
+  const cameraStale = useRef(false);
   desiredFocus.current = selectedKey;
 
   // Only camera movements respond to focus. New data never triggers another pan.
@@ -70,19 +71,34 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
       // not fix Cytoscape's initial 0x0 camera; fit once on first real exposure.
       let everVisible = container.current.getBoundingClientRect().width > 0 &&
                         container.current.getBoundingClientRect().height > 0;
+      let wasVisible = everVisible;
       resize = new ResizeObserver(() => {
         const el = container.current;
         if (!el) return;
         const rect = el.getBoundingClientRect();
         const visibleNow = rect.width > 0 && rect.height > 0;
         instance.resize();
-        if (!everVisible && visibleNow && instance.nodes().length) {
+        // A time scrub can change a hidden mobile graph at 0x0. Recenter only
+        // on its next exposure; don't reset camera for ordinary tab switches.
+        if (visibleNow && !wasVisible && instance.nodes().length &&
+            (!everVisible || cameraStale.current)) {
           instance.fit(undefined, 45);
           const targetKey = desiredFocus.current;
           const target = targetKey ? instance.getElementById(targetKey) : null;
           if (target?.length) instance.center(target);
+          cameraStale.current = false;
+        }
+        if (visibleNow) {
+          const key = desiredFocus.current;
+          const target = key ? instance.getElementById(key) : null;
+          if (target?.length) {
+            const pos = target.renderedPosition();
+            el.dataset.focusInViewport = String(pos.x >= 0 && pos.y >= 0 &&
+              pos.x <= rect.width && pos.y <= rect.height);
+          }
         }
         if (visibleNow) everVisible = true;
+        wasVisible = visibleNow;
       });
       resize.observe(container.current);
       setReady(true);
@@ -177,6 +193,8 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
     if (container.current) {
       container.current.dataset.renderedNodes = String(instance.nodes().length);
       container.current.dataset.renderedPairs = String(instance.edges().length);
+      const rect = container.current.getBoundingClientRect();
+      if (!rect.width || !rect.height) cameraStale.current = true;
     }
     if (firstLoad && instance.width()>0 && instance.height()>0) instance.fit(undefined, 45);
     if (selected) centerOnce(instance, selected, !firstLoad);

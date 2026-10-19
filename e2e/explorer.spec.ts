@@ -77,6 +77,8 @@ test("as-of replay changes the SAME focused atlas and excludes future evidence",
   if(await graphTab.isVisible())await graphTab.click();
   await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("aria-label",/3 entities/);
   await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-rendered-nodes","3");
+  await expect(panel.getByTestId("atlas-coverage-note")).toContainText("At most 60 relations");
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-focus-in-viewport","true");
   await expect(panel.locator(".lr-atlas-canvas canvas").first()).toBeAttached();
   const conn=panel.locator(".lr-atlas-connection").first();
   await conn.getByRole("button",{name:/Evidence/}).click();
@@ -93,6 +95,7 @@ test("as-of replay changes the SAME focused atlas and excludes future evidence",
   await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("aria-label",/2 entities/);
   // Assert the actual Cytoscape nodes, not just the React aria-label.
   await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-rendered-nodes","2");
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-focus-in-viewport","true");
   await expect(panel.getByText("E2E Gamma")).toHaveCount(0);
   await expect(panel.getByTestId("temporal-pair-evidence")).toHaveCount(0);
   if(await timelineTab.isVisible())await timelineTab.click();
@@ -101,6 +104,7 @@ test("as-of replay changes the SAME focused atlas and excludes future evidence",
   if(await graphTab.isVisible())await graphTab.click();
   await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("aria-label",/3 entities/);
   await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-rendered-nodes","3");
+  await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-focus-in-viewport","true");
   expect(new Set(graphRequests).size).toBeGreaterThanOrEqual(2);
   expect(unrelatedRequests).toEqual([]);
 });

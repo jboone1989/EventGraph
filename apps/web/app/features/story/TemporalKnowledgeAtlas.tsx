@@ -58,6 +58,9 @@ export function TemporalKnowledgeAtlas({graph}:{graph:KnowledgeGraph}) {
         {facts.map(edge=><RelationEvidence key={edge.id} edge={edge}/>)}
       </div>
     </section>}
+    <p className="lr-atlas-caption" data-testid="atlas-coverage-note">{t(
+      "每次最多显示 60 条关系，文章来源数量也有上限；这不是完整历史快照。",
+      "At most 60 relations per query; article coverage is also limited. This is not a complete historical snapshot.")}</p>
     <p className="lr-atlas-caption">{t("只展示当前时点返回的事实与来源，不会自动加载今天的实体档案。",
       "Only facts and sources returned for this time are shown; no present-day entity facts are fetched.")}</p>
   </section>;
