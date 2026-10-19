@@ -1,6 +1,6 @@
 # Checks on GitHub-hosted runners: install, typecheck, web build, the web and backend tests on a fresh
 # PostgreSQL, the built site's smoke check on the empty database, and the Docker image brought up with docker compose.
-# Only GitHub-owned actions, pinned to a full commit SHA.
+# Official build Actions plus one reviewed SSH deployment Action; releases run only after passing checks.
 name: Check
 
 on:
@@ -14,10 +14,12 @@ permissions:
 
 concurrency:
   group: check-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
+    # develop already gets a push check; do not pay for duplicate develop->main PR checks.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.ref != 'develop' || github.event.pull_request.base.ref != 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -113,7 +115,7 @@ jobs:
 
   docker:
     # Docker integration runs for PRs; the branch push builds the publishable image separately.
-    if: github.event_name == 'pull_request'
+    if: ${{ github.event_name == 'pull_request' && !(github.event.pull_request.head.ref == 'develop' && github.event.pull_request.base.ref == 'main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -143,3 +145,162 @@ jobs:
       - name: Stop
         if: always()
         run: docker compose down -v
+
+  # CI success on develop/main publishes one immutable image; servers only pull it.
+  publish:
+    needs: check
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.ref.outputs.image_ref }}
+      source_sha: ${{ github.sha }}
+    steps:
+      - name: Checkout passing SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Skip superseded commits
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_BRANCH" == develop || "$SOURCE_BRANCH" == main ]]
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/$SOURCE_BRANCH" --jq '.commit.sha')"
+          if [[ "$current" == "$SOURCE_SHA" ]]; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::A newer commit exists; skip obsolete build'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push immutable image
+        if: steps.current.outputs.publish == 'true'
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/jboone1989/eventgraph-app:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=eventgraph-app
+          cache-to: type=gha,mode=max,scope=eventgraph-app
+
+      - name: Export immutable digest
+        if: steps.current.outputs.publish == 'true'
+        id: ref
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "image_ref=ghcr.io/jboone1989/eventgraph-app@$DIGEST" >> "$GITHUB_OUTPUT"
+
+  deploy_development:
+    needs: publish
+    if: >-
+      ${{ needs.publish.outputs.image_ref != '' &&
+          github.ref_name == 'develop' &&
+          vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: development
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.source_sha }}
+          persist-credentials: false
+      - name: Skip stale release
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
+        run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Pull image and restart development app
+        if: steps.current.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_DIR: ${{ vars.EVENTGRAPH_DEV_ROOT || '/home/ubuntu/livingruntime-aihot' }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ vars.EVENTGRAPH_DEV_HOST }}
+          username: ${{ vars.EVENTGRAPH_DEV_USER }}
+          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
+          command_timeout: 15m
+          script_path: scripts/ci/deploy-image.sh
+
+  deploy_production:
+    needs: publish
+    if: >-
+      ${{ needs.publish.outputs.image_ref != '' &&
+          github.ref_name == 'main' &&
+          vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.source_sha }}
+          persist-credentials: false
+      - name: Skip stale release
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
+        run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Pull image and restart production app
+        if: steps.current.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_DIR: ${{ vars.EVENTGRAPH_PROD_ROOT }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ vars.EVENTGRAPH_PROD_HOST }}
+          username: ${{ vars.EVENTGRAPH_PROD_USER }}
+          key: ${{ secrets.EVENTGRAPH_PROD_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
+          command_timeout: 15m
+          script_path: scripts/ci/deploy-image.sh

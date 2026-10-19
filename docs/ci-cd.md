@@ -1,13 +1,14 @@
 # EventGraph CI/CD
 
-This uses the existing GitHub Actions Check and dev-image workflows, official
-Docker Actions for GHCR, and Marketplace appleboy/ssh-action for releases.
+One GitHub workflow: `.github/workflows/check.yml`. It composes the existing
+checks, official Docker Actions, and the Marketplace appleboy/ssh-action.
 
 Feature PR to develop -> Check (including Docker integration).
 Push to develop -> Check -> one SHA-pinned GHCR image -> development rollout.
-Merge develop to main -> Check -> GHCR image -> production rollout.
-The release workflow must be present on the default branch to receive
-workflow_run events. It never builds anything on target hosts.
+Merge develop to main -> main push Check -> GHCR image -> production rollout.
+The develop-to-main PR is not re-tested in parallel with its develop push;
+main is independently tested after merge before publishing. Target hosts only
+pull images and restart app containers, never compile code.
 
 ## One-time setup
 
