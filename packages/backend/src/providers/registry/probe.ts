@@ -1,3 +1,4 @@
+import {assertLegacyRegistryWritable} from './connections.ts';
 /** Probe sends the body saved on this exact model Provider; no shared model-specific parameters or timeout. */
 import {sql} from "../../db.ts";
 import {credential} from "../../config.ts";
@@ -34,6 +35,7 @@ function failure(error:unknown){
 }
 export async function probeConfiguredProvider(vendor:string,id:string,capability:string,actor:string,opts:{allowInactive?:boolean;attemptTag?:string}={}):Promise<ProbeResult>{
  if(vendor!=="nvidia"||!isVerifiedFreeTrialProvider(id))return {vendor,modelId:id,capability,status:"unsupported",elapsedMs:null,detail:"Not officially verified as free trial endpoint"};
+ await assertLegacyRegistryWritable();
  const p=await getProvider(vendor,id);
  if(!p)throw Object.assign(new Error("provider not found"),{statusCode:404});
  if(!p.probeSpec||!p.endpoint||p.adapter==="unconfigured"||p.probeSpec.capability!==capability)
