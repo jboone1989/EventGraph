@@ -1,0 +1,37 @@
+name: Upstream merge preflight (temporary)
+on:
+  push:
+    branches: [chore/upstream-merge-preflight-20261019]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Attempt normal upstream merge without writing anything
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "upstream-preflight"
+          git config user.email "ci@invalid.local"
+          git remote add upstream https://github.com/KKKKhazix/AIHOT.git
+          git fetch --no-tags upstream main
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "UPSTREAM=$(git rev-parse FETCH_HEAD)"
+          echo "MERGE_BASE=$(git merge-base HEAD FETCH_HEAD)"
+          if git merge --no-ff --no-commit FETCH_HEAD; then
+            echo "UPSTREAM_MERGE_CLEAN=true"
+            git diff --cached --stat
+          else
+            echo "UPSTREAM_MERGE_CLEAN=false"
+            echo "CONFLICTS_START"
+            git diff --name-only --diff-filter=U
+            echo "CONFLICTS_END"
+            echo "NUM_CONFLICTS=$(git diff --name-only --diff-filter=U | wc -l)"
+            git status --short | tail -150
+            exit 1
+          fi
