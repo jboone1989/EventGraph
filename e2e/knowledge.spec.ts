@@ -24,12 +24,20 @@ test("an entity page lists relations that link on", async ({ page }) => {
 
 test("entity profile keeps the atlas context and returns to its home entity", async ({ page }) => {
   test.skip(!entity, "Graphiti has no published entity; atlas interactions are covered by deterministic mocks");
+  // Wait for the real client-side neighborhood response; the initial empty state is not evidence
+  // that the graph lacks connections.
+  const neighborhood = page.waitForResponse((r) =>
+    r.url().includes("/api/site/knowledge/neighborhood/" + encodeURIComponent(entity!)));
   await open(page, "/knowledge/entity/" + encodeURIComponent(entity!));
-  // A real deployment may have a named entity but no public neighbor. Do not treat that as a UI failure.
-  await expect.poll(async () => (await page.locator(".lr-atlas-connection").count()) +
-    (await page.locator(".lr-atlas-state").count())).toBeGreaterThan(0);
+  const response = await neighborhood;
+  const graph = await response.json().catch(() => null) as {
+    links?: Array<{ source: string; target: string }>;
+  } | null;
+  const hasNeighbor = response.ok() && !!graph?.links?.some((link) =>
+    (link.source === entity || link.target === entity) && link.source !== link.target);
+  test.skip(!hasNeighbor, "This entity has no reachable published neighbor");
   const connection = page.locator(".lr-atlas-connection").first();
-  test.skip(await connection.count() === 0, "This entity has no currently visible relation to traverse");
+  await expect(connection).toBeVisible();
   const home = page.getByTestId("atlas-home");
   await expect(home).toBeVisible();
   await connection.getByRole("button").first().click();
