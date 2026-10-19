@@ -36,6 +36,16 @@ test("no date at all is null", () => {
   assert.equal(iso("yesterday"), null);
 });
 
+test("AIHOT upstream e47bf83: date/time joined by at and dotted English months", () => {
+  assert.equal(iso("Sep 26, 2026 at 10:30"), "2026-09-26T02:30:00.000Z");
+  assert.equal(iso("Published Sep 26, 2026 at 10:30 AM"), "2026-09-26T02:30:00.000Z");
+  assert.equal(iso("2026-09-26 at 10:30"), "2026-09-26T02:30:00.000Z");
+  assert.equal(iso("09/26/2026 at 10:30"), "2026-09-26T02:30:00.000Z");
+  assert.equal(iso("Sept. 26, 2026"), "2026-09-25T16:00:00.000Z");
+  assert.equal(iso("26 Sept. 2026"), "2026-09-25T16:00:00.000Z");
+  assert.equal(iso("Feb. 30, 2026"), null);
+});
+
 test("English wall-clock dates are not shifted by the host's daylight-saving gap", () => {
   const zone = process.env.TZ;
   try {
