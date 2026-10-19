@@ -1,0 +1,147 @@
+name: Build and deploy
+on:
+  workflow_run:
+    workflows: ["Check"]
+    types: [completed]
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target environment (deploy the current branch commit)"
+        type: choice
+        options: [development, production]
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-${{ github.event.workflow_run.head_branch || inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.metadata.outputs.image }}
+      branch: ${{ steps.metadata.outputs.branch }}
+    steps:
+      - name: Choose exact checked source
+        id: metadata
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          SOURCE_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+          DISPATCH_TARGET: ${{ inputs.target }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_run ]; then
+            BRANCH="$SOURCE_BRANCH"
+            SHA="$SOURCE_SHA"
+          else
+            BRANCH="$([ "$DISPATCH_TARGET" = production ] && echo main || echo develop)"
+            test "${GITHUB_REF_NAME}" = "$BRANCH" || { echo "Dispatch must run on $BRANCH"; exit 1; }
+            SHA="$DISPATCH_SHA"
+          fi
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$BRANCH" = develop || "$BRANCH" = main ]]
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${REPOSITORY,,}:$SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83a # v6.18.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.metadata.outputs.image }}
+          provenance: false
+
+  deploy-development:
+    needs: image
+    if: needs.image.outputs.branch == 'develop'
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - name: Deploy immutable image to development host
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+          IMAGE: ${{ needs.image.outputs.image }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for var in HOST USER SSH_KEY KNOWN_HOSTS DEPLOY_DIR IMAGE; do test -n "${!var}" || { echo "Missing $var"; exit 1; }; done
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s' "$GHCR_TOKEN" | ssh -o BatchMode=yes "$USER@$HOST" "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+          ssh -o BatchMode=yes "$USER@$HOST" bash -s -- "$DEPLOY_DIR" "$IMAGE" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          test -f .env && test -f docker-compose.yml && test -f deploy/compose.ghcr.yml
+          export EVENTGRAPH_IMAGE="$2"
+          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml pull setup api worker web
+          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up -d --no-build --no-deps setup
+          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up -d --no-build --no-deps api worker web
+          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml ps
+          REMOTE
+
+  deploy-production:
+    needs: image
+    if: needs.image.outputs.branch == 'main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy immutable image to production host
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+          IMAGE: ${{ needs.image.outputs.image }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for var in HOST USER SSH_KEY KNOWN_HOSTS DEPLOY_DIR IMAGE; do test -n "${!var}" || { echo "Missing $var"; exit 1; }; done
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf '%s' "$GHCR_TOKEN" | ssh -o BatchMode=yes "$USER@$HOST" "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+          ssh -o BatchMode=yes "$USER@$HOST" bash -s -- "$DEPLOY_DIR" "$IMAGE" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          test -f .env && test -f docker-compose.yml && test -f deploy/compose.ghcr.yml
+          export EVENTGRAPH_IMAGE="$2"
+          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml pull setup api worker web
+          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up -d --no-build --no-deps setup
+          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up -d --no-build --no-deps api worker web
+          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml ps
+          REMOTE
