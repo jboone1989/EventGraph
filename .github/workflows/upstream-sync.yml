@@ -68,7 +68,7 @@ jobs:
           elif ! git merge --no-ff --no-commit "$upstream_sha"; then
             git rev-parse -q --verify MERGE_HEAD >/dev/null || { echo 'Merge failed without a merge state'; exit 1; }
             # Resolve only workflow conflicts from EventGraph's main.
-            conflicts="$(git diff --name-only --diff-filter=U | grep -v '^\\.github/workflows/' || true)"
+            conflicts="$(git diff --name-only --diff-filter=U | grep -v '^\.github/workflows/' || true)"
             if [[ -n "$conflicts" ]]; then
               mode=conflict
             fi
@@ -77,7 +77,7 @@ jobs:
             # No upstream code or unresolved markers go into a draft PR.
             git reset --hard origin/develop
             mkdir -p docs
-            printf 'AIHOT upstream %s needs conflict resolution.\\nReview: https://github.com/KKKKhazix/AIHOT/commit/%s\\n' "$upstream_sha" "$upstream_sha" > docs/upstream-sync-pending.md
+            printf 'AIHOT upstream %s needs conflict resolution.\nReview: https://github.com/KKKKhazix/AIHOT/commit/%s\n' "$upstream_sha" "$upstream_sha" > docs/upstream-sync-pending.md
           fi
 
           # Never push upstream workflow definitions with GITHUB_TOKEN:
