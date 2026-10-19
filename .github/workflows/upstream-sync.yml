@@ -32,6 +32,8 @@ jobs:
       - name: Open upstream update PR
         env:
           GH_TOKEN: ${{ github.token }}
+          # gh otherwise prefers the added 'upstream' remote over 'origin'.
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
