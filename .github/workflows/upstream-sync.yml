@@ -59,18 +59,25 @@ jobs:
           git switch -c "$branch" origin/develop
           mode=clean
           conflicts=""
-          if ! git merge --no-ff --no-commit "$upstream_sha"; then
+          # GITHUB_TOKEN has no workflows permission. If any new upstream
+          # commit touches CI, propose a blocked draft instead of pushing it.
+          upstream_workflow_commits="$(git log --format=%h "$upstream_sha" ^origin/develop -- .github/workflows)"
+          if [[ -n "$upstream_workflow_commits" ]]; then
+            mode=conflict
+            conflicts=".github/workflows (upstream workflow changes require separate review)"
+          elif ! git merge --no-ff --no-commit "$upstream_sha"; then
             git rev-parse -q --verify MERGE_HEAD >/dev/null || { echo 'Merge failed without a merge state'; exit 1; }
-            # EventGraph owns its CI. Only those workflow-file conflicts may
-            # be resolved automatically, using the trusted default branch.
-            conflicts="$(git diff --name-only --diff-filter=U | grep -v '^\.github/workflows/' || true)"
+            # Resolve only workflow conflicts from EventGraph's main.
+            conflicts="$(git diff --name-only --diff-filter=U | grep -v '^\\.github/workflows/' || true)"
             if [[ -n "$conflicts" ]]; then
               mode=conflict
-              # Runner checkout is disposable; retain no partial merge or markers.
-              git reset --hard origin/develop
-              mkdir -p docs
-              printf 'AIHOT upstream %s needs conflict resolution.\nReview: https://github.com/KKKKhazix/AIHOT/commit/%s\n' "$upstream_sha" "$upstream_sha" > docs/upstream-sync-pending.md
             fi
+          fi
+          if [[ "$mode" == conflict ]]; then
+            # No upstream code or unresolved markers go into a draft PR.
+            git reset --hard origin/develop
+            mkdir -p docs
+            printf 'AIHOT upstream %s needs conflict resolution.\\nReview: https://github.com/KKKKhazix/AIHOT/commit/%s\\n' "$upstream_sha" "$upstream_sha" > docs/upstream-sync-pending.md
           fi
 
           # Never push upstream workflow definitions with GITHUB_TOKEN:
@@ -78,6 +85,9 @@ jobs:
           # Always retain EventGraph's reviewed CI from default branch main.
           git rm -r -f -- .github/workflows
           git restore --source=origin/main --staged --worktree -- .github/workflows
+          if ! git diff --quiet origin/develop origin/main -- .github/workflows; then
+            echo "::notice::Sync PR changes CI to match main. Review this intentionally before merging to develop."
+          fi
           if [[ "$mode" == clean ]]; then
             [[ -z "$(git diff --name-only --diff-filter=U)" ]]
             git commit -m "chore: merge AIHOT upstream ${upstream_sha:0:12}"
@@ -85,7 +95,8 @@ jobs:
             git add docs/upstream-sync-pending.md
             git commit -m "chore: flag AIHOT upstream merge conflicts ${upstream_sha:0:12}"
           fi
-          git push origin "HEAD:refs/heads/$branch"
+          # No open sync PR exists (checked above); replace only an orphan bot branch.
+          git push --force origin "HEAD:refs/heads/$branch"
           {
             echo "## AIHOT upstream synchronization"
             echo ""
@@ -96,10 +107,12 @@ jobs:
             echo ""
             if [[ "$mode" == clean ]]; then
               echo "Merged cleanly onto develop. Review the diff and CI before merging."
+              echo "Trusted workflow files come from EventGraph main, never AIHOT upstream."
               echo "CI is dispatched explicitly because PRs created with GITHUB_TOKEN do not trigger pull_request workflows."
             else
               echo "**BLOCKED: application merge conflicts.** No upstream app code has been committed."
               echo "The draft PR records the upstream SHA and conflicting paths, keeping EventGraph operational."
+              echo "Workflow-only changes are also blocked for separate review (GITHUB_TOKEN cannot push workflow history)."
               echo "Codex must merge upstream/main into this branch, resolve conflicts, retain EventGraph CI from main, then ask Claude to review."
               echo "Never merge this PR until the real combined code and CI are verified."
               echo ""
