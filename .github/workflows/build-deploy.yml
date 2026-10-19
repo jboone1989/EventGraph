@@ -10,7 +10,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: deploy-${{ github.event.workflow_run.head_branch || inputs.target }}
+  group: deploy-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 jobs:
@@ -97,15 +97,37 @@ jobs:
           cd "$1"
           test -f .env && test -f docker-compose.yml && test -f deploy/compose.ghcr.yml
           export EVENTGRAPH_IMAGE="$2"
-          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml pull setup api worker web
-          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up --no-build --no-deps --abort-on-container-exit --exit-code-from setup setup
-          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up -d --no-build --no-deps api worker web
+          COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml)
+          # All deployment inputs exist on the target; no source checkout or build.
+          PREVIOUS_IMAGE=""
+          if [ -f .eventgraph-last-good-image ]; then
+            PREVIOUS_IMAGE="$(cat .eventgraph-last-good-image)"
+          fi
+          rollback() {
+            if [ -n "$PREVIOUS_IMAGE" ] && [ "$PREVIOUS_IMAGE" != "$EVENTGRAPH_IMAGE" ]; then
+              echo "Release failed; restoring previous application image"
+              export EVENTGRAPH_IMAGE="$PREVIOUS_IMAGE"
+              "${COMPOSE[@]}" up -d --no-build --no-deps api worker web || true
+            fi
+          }
+          trap rollback ERR
+          "${COMPOSE[@]}" pull setup api worker web
+          # Run existing idempotent migrations before rolling application services.
+          # Database and persisted volumes are never recreated by the deployment.
+          "${COMPOSE[@]}" run --rm --no-deps setup
+          "${COMPOSE[@]}" up -d --no-build --no-deps api worker web
+          READY=0
           for i in $(seq 1 30); do
-            if docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml exec -T web node -e 'fetch("http://127.0.0.1:3000/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'; then exit 0; fi
+            if "${COMPOSE[@]}" exec -T web node -e 'fetch("http://127.0.0.1:3000/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'; then READY=1; break; fi
             sleep 2
           done
-          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml ps
-          exit 1
+          if [ "$READY" != 1 ]; then
+            "${COMPOSE[@]}" ps
+            false
+          fi
+          printf '%s\n' "$EVENTGRAPH_IMAGE" > .eventgraph-last-good-image
+          trap - ERR
+          echo "Healthy: $EVENTGRAPH_IMAGE"
           REMOTE
 
   deploy-production:
@@ -138,13 +160,35 @@ jobs:
           cd "$1"
           test -f .env && test -f docker-compose.yml && test -f deploy/compose.ghcr.yml
           export EVENTGRAPH_IMAGE="$2"
-          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml pull setup api worker web
-          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up --no-build --no-deps --abort-on-container-exit --exit-code-from setup setup
-          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up -d --no-build --no-deps api worker web
+          COMPOSE=(docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml)
+          # All deployment inputs exist on the target; no source checkout or build.
+          PREVIOUS_IMAGE=""
+          if [ -f .eventgraph-last-good-image ]; then
+            PREVIOUS_IMAGE="$(cat .eventgraph-last-good-image)"
+          fi
+          rollback() {
+            if [ -n "$PREVIOUS_IMAGE" ] && [ "$PREVIOUS_IMAGE" != "$EVENTGRAPH_IMAGE" ]; then
+              echo "Release failed; restoring previous application image"
+              export EVENTGRAPH_IMAGE="$PREVIOUS_IMAGE"
+              "${COMPOSE[@]}" up -d --no-build --no-deps api worker web || true
+            fi
+          }
+          trap rollback ERR
+          "${COMPOSE[@]}" pull setup api worker web
+          # Run existing idempotent migrations before rolling application services.
+          # Database and persisted volumes are never recreated by the deployment.
+          "${COMPOSE[@]}" run --rm --no-deps setup
+          "${COMPOSE[@]}" up -d --no-build --no-deps api worker web
+          READY=0
           for i in $(seq 1 30); do
-            if docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml exec -T web node -e 'fetch("http://127.0.0.1:3000/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'; then exit 0; fi
+            if "${COMPOSE[@]}" exec -T web node -e 'fetch("http://127.0.0.1:3000/api/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))'; then READY=1; break; fi
             sleep 2
           done
-          docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml ps
-          exit 1
+          if [ "$READY" != 1 ]; then
+            "${COMPOSE[@]}" ps
+            false
+          fi
+          printf '%s\n' "$EVENTGRAPH_IMAGE" > .eventgraph-last-good-image
+          trap - ERR
+          echo "Healthy: $EVENTGRAPH_IMAGE"
           REMOTE
