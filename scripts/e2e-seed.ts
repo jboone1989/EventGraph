@@ -25,10 +25,13 @@ const ARTICLES = [
   { source: "e2e-lab", slug: "agent-toolkit", category: "research", original: "An agent toolkit for browser testing", zh: "面向浏览器测试的智能体工具包", en: "A new agent toolkit automates browser testing for web teams" },
 ];
 const ids: string[] = [];
-for (const a of ARTICLES) {
+for (const [i, a] of ARTICLES.entries()) {
+  // Ensure the two reports in the same story form distinct playback stages.
+  // Use different publication hours instead of loop-speed-dependent milliseconds.
+  const publishedAt = new Date(Date.now() - (3 - i) * 3600_000);
   const body = `${a.original}. `.repeat(30);
   const { articleId } = await upsertMaterial({
-    sourceId: a.source, url: `https://example.com/e2e/${a.slug}`, title: a.original, bodyText: body, bodyHtml: `<p>${body}</p>`, bodyStatus: "ok", via: "fetch", publishedAt: new Date(Date.now() - 3 * 3600_000),
+    sourceId: a.source, url: `https://example.com/e2e/${a.slug}`, title: a.original, bodyText: body, bodyHtml: `<p>${body}</p>`, bodyStatus: "ok", via: "fetch", publishedAt,
   });
   await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, reason_zh, score, selected)
             VALUES (${articleId}, 1, 'rule', 'pass', ${a.category}, ${a.zh}, ${`${a.zh}。这是端到端测试用的示例摘要，用来检查文章页、事件页和热榜是否正常显示。`}, '用于端到端测试。', 90, true)

@@ -15,7 +15,8 @@ export interface KnowledgeEdge {
   fact: string;
   validAt: string | null;
   invalidAt: string | null;
-  evidence: Array<{ articleId: string; url: string; source: string; quote: string; publishedAt: string | null }>;
+  recordedAt?: string | null;
+  evidence: Array<{ articleId: string; url: string; source: string; quote: string; publishedAt: string | null; recordedAt?: string | null }>;
 }
 export interface KnowledgeGraph {
   entities: number;
@@ -146,6 +147,7 @@ export function RelationEvidence({ edge }: { edge: KnowledgeEdge }) {
       <div className="mt-3 flex flex-wrap items-center gap-3 text-[11.5px] text-ink-4">
         <span className="inline-flex items-center gap-1"><IconClock size={13}/> {formatDate(edge.validAt)??t("时间未确定","Date unknown")} {t("起","since")}</span>
         {edge.invalidAt && <span className="text-hot">{t("关系已失效：","Expired: ")}{formatDate(edge.invalidAt)}</span>}
+        {edge.recordedAt && <span>{t("记录于","Recorded")} {formatDate(edge.recordedAt)}</span>}
         <span>{edge.evidence.length} {t("条来源记录","source references")}</span>
       </div>
       <div className="mt-4 border-t border-line-soft pt-3">
@@ -154,7 +156,7 @@ export function RelationEvidence({ edge }: { edge: KnowledgeEdge }) {
           <div key={source.articleId + i} className="flex items-start justify-between gap-2 py-2">
             <div>
               <div className="text-[13px] font-medium text-ink">{lang==="en" ? (source.source&&!hasHan(source.source)?source.source:"Publisher") : (source.source||"未命名来源")}</div>
-              <div className="mt-1 text-[11.5px] text-ink-4">{formatDate(source.publishedAt)??t("时间未确定","Date unknown")} · {t("Graphiti 提取的关系事实，非原文逐字引述","Graphiti-extracted fact, not a verbatim quote")}</div>
+              <div className="mt-1 text-[11.5px] text-ink-4">{formatDate(source.publishedAt)??t("时间未确定","Date unknown")}{source.recordedAt ? " · " + t("入图", "Graph recorded") + " " + formatDate(source.recordedAt) : ""} · {t("Graphiti 提取的关系事实，非原文逐字引述","Graphiti-extracted fact, not a verbatim quote")}</div>
             </div>
             {/^https?:\/\//i.test(source.url) ? (
               <a href={source.url} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open" className="lr-source-link" aria-label={t(`打开${source.source}原文`,`Open original report from ${source.source&&hasHan(source.source)?"publisher":source.source}`)}><IconExternal size={14}/></a>

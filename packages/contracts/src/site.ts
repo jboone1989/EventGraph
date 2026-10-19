@@ -259,6 +259,8 @@ export interface StoryReportView {
   summary: string | null;
   source: SourceRef & { firstParty: boolean };
   publishedAt: string;
+  /** The system first discovered this report; distinct from its original publication time. */
+  discoveredAt?: string;
   selected: boolean;
   english?: EnglishCopy | null;
 }
