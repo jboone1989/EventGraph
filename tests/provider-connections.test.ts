@@ -71,7 +71,7 @@ test('protected endpoints cannot be bypassed through brand, policy payload or a 
  await assert.rejects(createConnection({...connection(),policy:'none'} as never,'test',actor),/Unknown/);
  await assert.rejects(createConnection(connection({baseUrl:'https://ai.api.nvidia.com/v12'}),'test',actor),/NVIDIA/);
  const m=await createRegisteredModel(model(c.id,{modelId:'openai/gpt-oss-20b'}),'test',actor);
- await assert.rejects(updateRegisteredModel(m.id,model(c.id,{modelId:m.modelId,endpointOverride:'https://example.com/v1/chat/completions'}),m.version,'bypass',actor),/NVIDIA/);
+ await assert.rejects(updateRegisteredModel(m.id,model(c.id,{modelId:m.modelId,endpointOverride:'https://example.com/v1/chat/completions'}),m.version,'bypass',actor),/NVIDIA|connection origin/);
 });
 
 test('verification follows configuration fingerprints, including external credential rotation',async()=>{

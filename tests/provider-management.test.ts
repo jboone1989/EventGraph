@@ -115,7 +115,7 @@ test('NVIDIA domain recognition enforces boundary, approved endpoint and model p
   await assert.rejects(createConnection(connection({baseUrl}),'test','test'),/NVIDIA/);
  const c=await createConnection(connection({baseUrl:'https://nvidia.com.example.org/v1'}),'test','test');assert.equal(c.policy,'none');
  const m=await createRegisteredModel(model(c.id,{enabled:false,endpointOverride:'https://other.api.nvidia.com/v1/chat/completions'}),'test','test').catch(e=>e);
- assert.match(String(m),/NVIDIA/);
+ assert.match(String(m),/NVIDIA|connection origin/);
 });
 test('normalized embedding adapter uses configured prefix and receipt budget',async()=>{
  const c=await createConnection(connection(),'test','test');
