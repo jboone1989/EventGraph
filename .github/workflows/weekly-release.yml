@@ -1,0 +1,119 @@
+# Single weekly release window: Sunday 10:00 Asia/Shanghai (02:00 UTC).
+# A manual dispatch is diagnostic only, never a second production release.
+name: Weekly production release
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: eventgraph-weekly-production
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      ${{ github.repository == 'jboone1989/EventGraph' &&
+          github.event_name == 'schedule' &&
+          vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Verify approved development candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main develop
+          dev_sha="$(git rev-parse origin/develop)"
+          if git merge-base --is-ancestor "$dev_sha" origin/main; then
+            echo "No new development commits to release"
+            echo 'RELEASE_SKIP=true' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          # Do not cut a release until the latest develop CI *and actual
+          # development rollout* completed successfully for the exact SHA.
+          run_id="$(gh api "repos/$GH_REPO/actions/workflows/check.yml/runs?branch=develop&event=push&per_page=20" \
+            --jq ".workflow_runs[] | select(.head_sha == \"$dev_sha\" and .conclusion == \"success\") | .id" | head -n 1)"
+          if [[ -z "$run_id" ]]; then
+            echo "::error::No successful Check run for develop $dev_sha"
+            exit 1
+          fi
+          for name in check publish deploy_development; do
+            result="$(gh api "repos/$GH_REPO/actions/runs/$run_id/jobs?per_page=100" \
+              --jq ".jobs[] | select(.name == \"$name\") | .conclusion" | head -n 1)"
+            if [[ "$result" != success ]]; then
+              echo "::error::Develop run $run_id has $name=$result; no release"
+              exit 1
+            fi
+          done
+          # Image-only production updates cannot silently apply schema or
+          # knowledge-service changes. Those need separately approved migration.
+          if ! git diff --quiet origin/main origin/develop -- \
+              database/migrations modules ':(glob)modules/*/migrations/**' \
+              knowledge_service docker-compose.production.yml \
+              docker-compose.knowledge.yml docker-compose.release.yml; then
+            echo "::error::Schema/knowledge/production Compose changed; review release migration separately"
+            exit 1
+          fi
+          echo "Verified development SHA $dev_sha and run $run_id"
+      - name: Check production host without modifying it
+        if: env.RELEASE_SKIP != 'true'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_DIR: ${{ vars.EVENTGRAPH_PROD_ROOT }}
+        with:
+          host: ${{ vars.EVENTGRAPH_PROD_HOST }}
+          username: ${{ vars.EVENTGRAPH_PROD_USER }}
+          key: ${{ secrets.EVENTGRAPH_PROD_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_DIR
+          command_timeout: 2m
+          version: '1.8.2'
+          script_path: scripts/ci/preflight-production.sh
+
+      - name: Promote only the verified develop head to main
+        if: env.RELEASE_SKIP != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main develop
+          dev_sha="$(git rev-parse origin/develop)"
+          current="$(gh api "repos/$GH_REPO/branches/develop" --jq '.commit.sha')"
+          [[ "$dev_sha" == "$current" ]] || { echo "::error::Develop advanced during preflight"; exit 1; }
+          today="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
+          if git log -1 --format=%s origin/main | grep -q "^release(weekly): $today "; then
+            echo "Already released this week; no second release"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B weekly-release origin/main
+          git merge --no-ff --no-commit "$dev_sha"
+          # The built-in GITHUB_TOKEN cannot safely write workflow files.
+          if [[ -n "$(git diff --cached --name-only origin/main -- .github/workflows)" ]]; then
+            echo "::error::CI workflow changes require a separate reviewed bootstrap to main"
+            exit 1
+          fi
+          git commit -m "release(weekly): $today develop@${dev_sha:0:12}"
+          # Never force update main. A concurrent change rejects this push.
+          git push origin HEAD:refs/heads/main
+          # GITHUB_TOKEN pushes do not start another workflow. Explicitly
+          # dispatch existing Check, which will build/publish and deploy by digest.
+          gh workflow run check.yml --ref main -f weekly_release=true
