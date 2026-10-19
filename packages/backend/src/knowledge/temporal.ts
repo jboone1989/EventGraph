@@ -11,3 +11,10 @@ export function parseGraphTime(asOf?:string, clock?:string):ParsedGraphTime {
   if(!Number.isFinite(date.getTime()) || date.getTime()>Date.now())return {status:"invalid"};
   return {status:"ok",value:{asOf:date,clock:clock==="valid"?"valid":"known"}};
 }
+
+/** An older Graphiti service can ignore new as_of fields and return a current graph.
+ * Historical reads must fail closed unless the knowledge service acknowledges its contract.
+ */
+export function supportsTemporalGraph(graph:{temporalSupport?:string}, time?:GraphTime):boolean {
+  return !time || graph.temporalSupport === "bitemporal-v1";
+}

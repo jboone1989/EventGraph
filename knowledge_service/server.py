@@ -186,7 +186,10 @@ async def relations_by_articles(request: ArticleRelations):
         "RETURN " + EDGE_COLUMNS + " ORDER BY r.created_at DESC LIMIT $limit",
         names=names, limit=request.limit, as_of=request.as_of, clock=request.clock, routing_="r",
     )
-    return await relation_results(rows, request.as_of, request.clock)
+    result = await relation_results(rows, request.as_of, request.clock)
+    if request.as_of is not None:
+        result["temporalSupport"] = "bitemporal-v1"
+    return result
 
 
 @app.get("/entities/{uuid}")

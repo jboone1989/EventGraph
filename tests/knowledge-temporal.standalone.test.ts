@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {parseGraphTime} from "../packages/backend/src/knowledge/temporal.ts";
+import {parseGraphTime, supportsTemporalGraph} from "../packages/backend/src/knowledge/temporal.ts";
 
 test("current graph requests preserve legacy current snapshot semantics", () => {
   assert.deepEqual(parseGraphTime(), {status:"ok",value:null});
@@ -23,4 +23,11 @@ test("known and valid clocks both parse UTC and offset times", () => {
   assert.equal(known.value?.clock,"known");
   assert.equal(valid.value?.clock,"valid");
   assert.equal(known.value?.asOf.toISOString(),valid.value?.asOf.toISOString());
+});
+
+test("an old Graphiti instance cannot masquerade as historical knowledge",()=>{
+  const asOf={asOf:new Date("2026-10-01T00:00:00Z"),clock:"known" as const};
+  assert.equal(supportsTemporalGraph({},asOf),false);
+  assert.equal(supportsTemporalGraph({temporalSupport:"bitemporal-v1"},asOf),true);
+  assert.equal(supportsTemporalGraph({},undefined),true);
 });

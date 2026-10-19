@@ -30,3 +30,11 @@ Issue: https://github.com/jboone1989/EventGraph/issues/61
 ## 数据审计待办
 
 双时间过滤是对现有记录的**有界重建**，不等于可还原过去所有版本：Graphiti 的关系可能经后来的 Episode 更新、实体归并，PostgreSQL 的原始发布/修订字段亦可能覆盖旧值。要做金融 Agent 的严格历史决策复盘，需要额外验证历史修订快照或建立追加式变更账本；未经验证不得声称全量点时一致性。
+
+## 混合版本开发环境的兼容性关卡
+
+开发环境的 `develop` 推送工作流发布应用镜像，不一定同步重建独立的
+`knowledge_service` 容器。旧 Graphiti 版本会忽略 POST 请求中的 `as_of` 字段；
+因此时点查询要求 Graphiti 显式返回 `temporalSupport: "bitemporal-v1"`。
+服务未升级时 API 只返回 `status: "unavailable"` 和空关系，绝不可把当前图谱当历史关系。
+完整的图谱时序功能必须在开发机上部署匹配的 Graphiti 服务并验证后才算上线。

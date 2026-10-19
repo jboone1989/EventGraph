@@ -1,5 +1,6 @@
 import { sql } from "../db.ts";
 import { graphitiRetryDelayMs } from "./ingest-backoff.ts";
+import {supportsTemporalGraph} from "./temporal.ts";
 
 type Article = {
   id: string; revision: number; title: string; url: string;
@@ -12,7 +13,7 @@ type Edge = {
   predicate: string; object: { key: string; name: string; kind: string };
   fact: string; validAt: string | null; invalidAt: string | null; evidence: Evidence[];
 };
-type Graph = { entities: number; edges: Edge[]; status?: string };
+type Graph = { entities: number; edges: Edge[]; status?: string; temporalSupport?: string };
 const emptyGraph = (status: string): Graph => ({ entities: 0, edges: [], status });
 
 async function graphiti<T>(path: string, options?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
@@ -100,10 +101,13 @@ export async function graphForStory(publicId: string, time?: GraphTime): Promise
     ORDER BY a.id LIMIT 100`;
   if (!articles.length) return emptyGraph("empty");
   try {
-    return await graphiti<Graph>("/relations/by-articles", {
+    const result = await graphiti<Graph>("/relations/by-articles", {
       method: "POST", body: { articles: articles.map(a => a.id + ":r" + a.revision), limit: 60,
         ...(time ? { as_of: time.asOf.toISOString(), clock: time.clock } : {}) },
     });
+    // Older Graphiti deployments ignore unknown POST fields. Never mistake their
+    // current snapshot for a historical result while the knowledge service is rolling out.
+    return supportsTemporalGraph(result, time) ? result : emptyGraph("unavailable");
   } catch (error) {
     console.error("graphiti_story_lookup_failed", error);
     return emptyGraph("unavailable");
