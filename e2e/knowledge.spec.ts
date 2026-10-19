@@ -21,3 +21,18 @@ test("an entity page lists relations that link on", async ({ page }) => {
   await open(page, `/knowledge/entity/${encodeURIComponent(entity!)}`);
   expect(await page.locator('main a[href^="/knowledge"], main a[href^="/en/knowledge"]').count()).toBeGreaterThan(0);
 });
+
+test("entity profile keeps the atlas context and returns to its home entity", async ({ page }) => {
+  test.skip(!entity, "Graphiti has no published entity; atlas interactions are covered by deterministic mocks");
+  await open(page, "/knowledge/entity/" + encodeURIComponent(entity!));
+  const home = page.getByTestId("atlas-home");
+  await expect(home).toBeVisible();
+  const connection = page.locator(".lr-atlas-connection").first();
+  test.skip(await connection.count() === 0, "The sampled profile has no published neighboring entity");
+  await connection.getByRole("button").first().click();
+  await expect(page).toHaveURL(/\?entity=/);
+  await home.click();
+  await expect(page).toHaveURL(/\?entity=/);
+  await expect(page).toHaveURL(new RegExp("entity=" + encodeURIComponent(entity!) + "(?:&|$)"));
+  await expect(home).toBeVisible();
+});
