@@ -55,8 +55,12 @@ export function registerKnowledge(app:FastifyInstance){
     const time=parsed.value;
     const graph=await publicStoryGraph(publicId,new Date(),time ?? undefined);
     // Keep the pre-existing current-snapshot HTTP contract unchanged for existing consumers.
-    if(time && (graph.status==="unavailable" || graph.status==="disabled"))
-      return reply.code(503).header("Cache-Control","no-store").send(graph);
+    // Graphiti is optional: absence of the knowledge service is a valid, non-error
+    // read result. Keep HTTP 200 with an explicit status, so the story remains usable
+    // and browser telemetry doesn't treat the intended fallback as a page failure.
+    if(graph.status==="unavailable" || graph.status==="disabled")
+      return reply.header("Cache-Control","no-store")
+        .send({...graph,...(time?{asOf:time.asOf.toISOString(),clock:time.clock,fidelity:"bounded"}:{})});
     return reply.header("Cache-Control",time?"public, max-age=30":"public, max-age=120")
       .send({...graph,...(time?{asOf:time.asOf.toISOString(),clock:time.clock,fidelity:"bounded"}:{})});
   });
