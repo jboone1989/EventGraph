@@ -4,6 +4,7 @@
 import { sql } from "../db.ts";
 import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges, type GraphTime } from "../knowledge/graphiti.ts";
 export { graphStats, graphSearch } from "../knowledge/graphiti.ts";
+export { parseGraphTime } from "../knowledge/temporal.ts";
 import { cached, cachedByKey } from "../lib/cache.ts";
 import { publicSourceName } from "./rules.ts";
 import { storyReportCondition } from "./scope.ts";

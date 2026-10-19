@@ -2,7 +2,7 @@ import type {FastifyInstance} from "fastify";
 
 import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
 import {timingSafeEqual} from "node:crypto";
-import {parseGraphTime} from "@aihot/backend/knowledge/temporal";
+import {parseGraphTime} from "@aihot/backend/publication/knowledge";
 
 export function registerKnowledge(app:FastifyInstance){
   app.get<{Querystring:{q?:string;limit?:string}}>("/api/v1/knowledge/search",async(req,reply)=>{
