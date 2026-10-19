@@ -1,0 +1,11 @@
+# Image overlay shared by development and production deployments.
+# The target host retains its own .env, volumes and database.
+services:
+  setup:
+    image: ${EVENTGRAPH_IMAGE:?EVENTGRAPH_IMAGE is required}
+  api:
+    image: ${EVENTGRAPH_IMAGE:?EVENTGRAPH_IMAGE is required}
+  worker:
+    image: ${EVENTGRAPH_IMAGE:?EVENTGRAPH_IMAGE is required}
+  web:
+    image: ${EVENTGRAPH_IMAGE:?EVENTGRAPH_IMAGE is required}
