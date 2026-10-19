@@ -22,6 +22,7 @@ import { recoverStaleWork } from "@aihot/backend/operations/recover";
 import { forwardPendingFeedback } from "@aihot/backend/operations/feedback";
 import { backupConfigured, runBackup } from "@aihot/backend/operations/backup";
 import { sourceHealthWeekly } from "@aihot/backend/operations/reports";
+import { retestExpiringModels, retestEnabled } from "@aihot/backend/providers/registry/retest";
 import { snapshotMarkets } from "@aihot/backend/market-snapshots";
 
 const collecting = process.env.COLLECT_ENABLED === "true";
@@ -33,6 +34,8 @@ const ENGINE_SCHEDULES: Scheduled[] = [
   ...(process.env.NVIDIA_MODEL_POOL_ENABLED === "true" ? [
     { name: "models.nvidia.probe", cron: "*/5 * * * *", run: probeNvidiaPool },
   ] : []),
+  // Paid probes of registered models whose 24 h success is about to expire (both registry and model-call flags).
+  ...(retestEnabled() ? [{ name: "models.registry.retest", cron: "*/30 * * * *", run: () => retestExpiringModels() }] : []),
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
   // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).
   { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },

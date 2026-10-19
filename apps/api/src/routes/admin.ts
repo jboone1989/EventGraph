@@ -1,3 +1,4 @@
+import {registerProviderConnections} from './provider-connections.ts';
 // /api/admin/*: queries are GET, creation POST, edits PATCH, business commands POST.
 // Every route goes through adminHandler (session + CSRF); manual changes are audited in the modules.
 import { readFile } from "node:fs/promises";
@@ -40,6 +41,7 @@ function decodeImage(dataUrl: unknown): Buffer {
 }
 
 export function registerAdmin(app: FastifyInstance) {
+  registerProviderConnections(app);
   app.get("/api/admin/analytics", adminHandler(async () => analyticsOverview()));
   // Sources
   app.get("/api/admin/sources", adminHandler(async (req) => {

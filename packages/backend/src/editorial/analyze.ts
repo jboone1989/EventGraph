@@ -351,7 +351,7 @@ export async function runUnderstand(a: AnalyzeInputArticle, opts: StepOpts = {})
     });
   };
   // Image input is opt-in: an unspecified capability must not become a paid provider probe.
-  const image = modelSupportsVision(model) ? await firstImagePart(a) : null;
+  const image = await modelSupportsVision(model) ? await firstImagePart(a) : null;
   let res: Awaited<ReturnType<typeof call>>;
   try {
     res = await call(image);
