@@ -19,3 +19,7 @@ GitHub only fires scheduled workflows when their definition lives on **default b
 - Production cannot promote pending provider migrations or Graphiti schema changes through the image-only release path.
 
 Sources: GitHub Actions scheduled workflow default branch behavior and built-in GITHUB_TOKEN dispatch exception; Docker Compose native image pull/Compose orchestration.
+
+## Independent review hardening
+
+The manual Check dispatch flag is not a cryptographic proof of a scheduled release. The source-SHA marker and bot author/email checks are defense-in-depth; **GitHub production environment required reviewers and restricted deployment branches are mandatory** before enabling any production rollout. Missing production SSH host/user/root/fingerprint fails closed. Set EVENTGRAPH_PROD_AUTO_DEPLOY as a **repository-level Actions variable**, not solely an environment-level variable (job-level conditions cannot read the latter). On a partial failure after pushing main, the Sunday workflow retries the explicit Check dispatch while the release commit remains the current main head and date. Do not enable unattended production deployment until these repository settings are verified.

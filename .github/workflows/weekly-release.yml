@@ -39,8 +39,17 @@ jobs:
           set -euo pipefail
           git fetch --no-tags origin main develop
           dev_sha="$(git rev-parse origin/develop)"
+          main_subject="$(git log -1 --format=%s origin/main)"
+          main_sha="$(git rev-parse origin/main)"
+          today="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
           if git merge-base --is-ancestor "$dev_sha" origin/main; then
-            echo "No new development commits to release"
+            # An earlier run may have pushed main and then failed to dispatch Check.
+            if [[ "$main_subject" == "release(weekly): $today develop@"* ]]; then
+              echo "Recovering release dispatch for main $main_sha"
+              gh workflow run check.yml --ref main -f weekly_release=true
+            else
+              echo "No new development commits to release"
+            fi
             echo 'RELEASE_SKIP=true' >> "$GITHUB_ENV"
             exit 0
           fi
@@ -70,6 +79,18 @@ jobs:
             exit 1
           fi
           echo "Verified development SHA $dev_sha and run $run_id"
+      - name: Require authenticated production SSH target
+        if: env.RELEASE_SKIP != 'true'
+        env:
+          HOST: ${{ vars.EVENTGRAPH_PROD_HOST }}
+          USER: ${{ vars.EVENTGRAPH_PROD_USER }}
+          ROOT: ${{ vars.EVENTGRAPH_PROD_ROOT }}
+          FINGERPRINT: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          test -n "$HOST" && test -n "$USER" && test -n "$ROOT" && test -n "$FINGERPRINT" ||
+            { echo "::error::Missing production host/user/root or SSH fingerprint"; exit 1; }
+
       - name: Check production host without modifying it
         if: env.RELEASE_SKIP != 'true'
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
@@ -94,6 +115,9 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags origin main develop
+          # Bootstrap check must exist on default main before weekly promotion.
+          git show origin/main:.github/workflows/check.yml | grep -q 'weekly_release:' ||
+            { echo "::error::Bootstrap weekly_release input on main first"; exit 1; }
           dev_sha="$(git rev-parse origin/develop)"
           current="$(gh api "repos/$GH_REPO/branches/develop" --jq '.commit.sha')"
           [[ "$dev_sha" == "$current" ]] || { echo "::error::Develop advanced during preflight"; exit 1; }

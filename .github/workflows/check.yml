@@ -243,6 +243,12 @@ jobs:
           set -euo pipefail
           today="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
           subject="$(git show -s --format=%s HEAD)"
+          author="$(git show -s --format=%an HEAD)"
+          email="$(git show -s --format=%ae HEAD)"
+          [[ "$author" == 'github-actions[bot]' && "$email" == '41898282+github-actions[bot]@users.noreply.github.com' ]] || {
+            echo "::error::Main release commit is not from the scheduled Actions identity"
+            exit 1
+          }
           [[ "$subject" == "release(weekly): $today develop@"* ]] || {
             echo "::error::Production publication requires today's scheduled release commit"
             exit 1
