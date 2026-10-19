@@ -1,14 +1,16 @@
 # Feature specifications
 
-Use GitHub [Spec Kit](https://github.com/github/spec-kit) conventions for non-trivial changes:
+EventGraph uses the official [GitHub Spec Kit](https://github.com/github/spec-kit), initialized at version 1.2.1. See [docs/spec-review.md](../docs/spec-review.md).
+
+For non-trivial feature work, the agent generates:
 
 ```text
 specs/<feature>/
-  spec.md      # Approved, testable requirements
-  plan.md      # Existing implementation / upstream references + minimal design
-  tasks.md     # Concrete work, tests, completion evidence
+  spec.md      # Observable requirements and acceptance criteria
+  plan.md      # Existing-code / upstream evidence and minimal technical plan
+  tasks.md     # Implementation tasks and verification
 ```
 
-The spec must be approved **before** the implementation PR asserts conformance. Pin `spec.md` to an approved Git commit SHA in the PR; Claude reviews that immutable version. For small fixes, a clear Issue is sufficient. Never use an unapproved spec modified in the implementation branch as the authority.
+Get the user's approval before implementing substantial behavior changes. Reference the approved `spec.md` **Git SHA and path** (or approved Issue) in the implementation PR. A spec edited only in an implementation branch is a draft, not proof of approval.
 
-This directory by itself is not a complete Spec Kit CLI initialization; see [docs/spec-review.md](../docs/spec-review.md).
+For a small fix, an Issue with concrete acceptance criteria is sufficient. Either ChatGPT or Claude can review against the approved version.
