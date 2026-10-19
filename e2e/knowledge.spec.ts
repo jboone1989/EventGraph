@@ -25,14 +25,16 @@ test("an entity page lists relations that link on", async ({ page }) => {
 test("entity profile keeps the atlas context and returns to its home entity", async ({ page }) => {
   test.skip(!entity, "Graphiti has no published entity; atlas interactions are covered by deterministic mocks");
   await open(page, "/knowledge/entity/" + encodeURIComponent(entity!));
+  // A real deployment may have a named entity but no public neighbor. Do not treat that as a UI failure.
+  await expect.poll(async () => (await page.locator(".lr-atlas-connection").count()) +
+    (await page.locator(".lr-atlas-state").count())).toBeGreaterThan(0);
+  const connection = page.locator(".lr-atlas-connection").first();
+  test.skip(await connection.count() === 0, "This entity has no currently visible relation to traverse");
   const home = page.getByTestId("atlas-home");
   await expect(home).toBeVisible();
-  const connection = page.locator(".lr-atlas-connection").first();
-  test.skip(await connection.count() === 0, "The sampled profile has no published neighboring entity");
   await connection.getByRole("button").first().click();
-  await expect(page).toHaveURL(/\?entity=/);
+  await expect.poll(() => new URL(page.url()).searchParams.get("entity")).not.toBe(entity);
   await home.click();
-  await expect(page).toHaveURL(/\?entity=/);
-  await expect(page).toHaveURL(new RegExp("entity=" + encodeURIComponent(entity!) + "(?:&|$)"));
+  await expect.poll(() => new URL(page.url()).searchParams.get("entity")).toBe(entity);
   await expect(home).toBeVisible();
 });
