@@ -40,6 +40,7 @@ jobs:
           git remote add upstream https://github.com/KKKKhazix/AIHOT.git
           git fetch --no-tags upstream main:refs/remotes/upstream/main
           git fetch --no-tags origin develop:refs/remotes/origin/develop
+          git fetch --no-tags origin main:refs/remotes/origin/main
           upstream_sha="$(git rev-parse upstream/main)"
           if git merge-base --is-ancestor "$upstream_sha" origin/develop; then
             echo "develop already contains AIHOT upstream $upstream_sha"
@@ -58,17 +59,31 @@ jobs:
           git switch -c "$branch" origin/develop
           mode=clean
           conflicts=""
-          if git merge --no-ff --no-commit "$upstream_sha"; then
-            git commit -m "chore: merge AIHOT upstream ${upstream_sha:0:12}"
-          else
-            mode=conflict
-            conflicts="$(git diff --name-only --diff-filter=U)"
-            git merge --abort
-            # Open a BLOCKED draft PR even with conflicts, so Codex can fix it.
-            # Do not commit conflict markers, choose 'ours', or discard custom changes.
-            git switch -C "$branch" "$upstream_sha"
+          if ! git merge --no-ff --no-commit "$upstream_sha"; then
+            # EventGraph owns its CI. Only those workflow-file conflicts may
+            # be resolved automatically, using the trusted default branch.
+            conflicts="$(git diff --name-only --diff-filter=U | grep -v '^\.github/workflows/' || true)"
+            if [[ -n "$conflicts" ]]; then
+              mode=conflict
+              # Runner checkout is disposable; retain no partial merge or markers.
+              git reset --hard origin/develop
+              mkdir -p docs
+              printf 'AIHOT upstream %s needs conflict resolution.\\nReview: https://github.com/KKKKhazix/AIHOT/commit/%s\\n' "$upstream_sha" "$upstream_sha" > docs/upstream-sync-pending.md
+            fi
           fi
 
+          # Never push upstream workflow definitions with GITHUB_TOKEN:
+          # they require an unavailable 'workflows' permission.
+          # Always retain EventGraph's reviewed CI from default branch main.
+          git rm -r -f -- .github/workflows
+          git restore --source=origin/main --staged --worktree -- .github/workflows
+          if [[ "$mode" == clean ]]; then
+            [[ -z "$(git diff --name-only --diff-filter=U)" ]]
+            git commit -m "chore: merge AIHOT upstream ${upstream_sha:0:12}"
+          else
+            git add docs/upstream-sync-pending.md
+            git commit -m "chore: flag AIHOT upstream merge conflicts ${upstream_sha:0:12}"
+          fi
           git push origin "HEAD:refs/heads/$branch"
           {
             echo "## AIHOT upstream synchronization"
@@ -82,9 +97,10 @@ jobs:
               echo "Merged cleanly onto develop. Review the diff and CI before merging."
               echo "CI is dispatched explicitly because PRs created with GITHUB_TOKEN do not trigger pull_request workflows."
             else
-              echo "**BLOCKED: merge conflicts.** This branch points at upstream/main and is NOT a combined EventGraph build."
-              echo "Codex must merge develop into this branch and resolve conflicts; request Claude review and rerun CI afterwards."
-              echo "Never merge this PR until the conflicts are resolved and EventGraph CI passes."
+              echo "**BLOCKED: application merge conflicts.** No upstream app code has been committed."
+              echo "The draft PR records the upstream SHA and conflicting paths, keeping EventGraph operational."
+              echo "Codex must merge upstream/main into this branch, resolve conflicts, retain EventGraph CI from main, then ask Claude to review."
+              echo "Never merge this PR until the real combined code and CI are verified."
               echo ""
               echo "Conflicting files:"
               echo '~~~'
