@@ -1,0 +1,49 @@
+# Equivalent to GitHub's "Automatically delete head branches" for merged
+# same-repository feature PRs. Never delete long-lived or cross-repo branches.
+name: Prune merged feature branches
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  prune:
+    if: >-
+      ${{ github.event.pull_request.merged == true &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.head.ref != 'develop' &&
+          github.event.pull_request.head.ref != 'main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete merged branch when no other PR uses it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$HEAD_BRANCH" in
+            feat/*|feature/*|fix/*|bugfix/*|chore/*|refactor/*|docs/*|test/*|claude/*|codex/*) ;;
+            *) echo "Skipping non-feature branch: $HEAD_BRANCH"; exit 0 ;;
+          esac
+          # The same head could have another open PR. Do not delete it.
+          other="$(gh pr list --state open --head "$HEAD_BRANCH" --json number --jq length)"
+          if [[ "$other" != "0" ]]; then
+            echo "Skipping: branch is still referenced by $other open PR(s)"
+            exit 0
+          fi
+          if gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$HEAD_BRANCH"; then
+            echo "Deleted merged feature branch: $HEAD_BRANCH"
+          else
+            # Already deleted by GitHub native setting is an acceptable outcome.
+            if gh api "repos/$GH_REPO/git/ref/heads/$HEAD_BRANCH" >/dev/null 2>&1; then
+              echo "::error::Branch still exists but could not be deleted: $HEAD_BRANCH"
+              exit 1
+            fi
+            echo "Merged branch already absent: $HEAD_BRANCH"
+          fi
