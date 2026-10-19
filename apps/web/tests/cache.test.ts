@@ -93,7 +93,14 @@ test("HTML and navigation share freshness; cookies do not personalize public res
   assert.match(plain.headers.get("Cache-Control")!, /^public,/);
   assert.match(plain.headers.get("X-Accel-Expires")!, /^@\d+$/);
   assert.equal(signedIn.headers.get("Set-Cookie"), null);
-  assert.equal(await signedIn.text(), await plain.text());
+  // Rendered data includes a fresh absolute expiry timestamp. Two requests can
+  // straddle a second boundary without differing in public/personalized content.
+  const plainBody = await plain.text();
+  const signedInBody = await signedIn.text();
+  const deadlineField = /("expiresAt",)\d+/g;
+  assert.match(plainBody, /"expiresAt",\d+/);
+  assert.match(signedInBody, /"expiresAt",\d+/);
+  assert.equal(signedInBody.replace(deadlineField, "$1<deadline>"), plainBody.replace(deadlineField, "$1<deadline>"));
   assert.ok(apiCookies.every((cookie) => !cookie));
 });
 
