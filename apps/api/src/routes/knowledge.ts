@@ -57,7 +57,7 @@ export function registerKnowledge(app:FastifyInstance){
     if(graph.status==="unavailable" || graph.status==="disabled")
       return reply.code(503).header("Cache-Control","no-store").send(graph);
     return reply.header("Cache-Control",time?"public, max-age=30":"public, max-age=120")
-      .send({...graph,...(time?{asOf:time.asOf.toISOString(),clock:time.clock}:{})});
+      .send({...graph,...(time?{asOf:time.asOf.toISOString(),clock:time.clock,fidelity:"bounded"}:{})});
   });
   app.get<{Params:{key:string}}>("/api/site/knowledge/entities/:key",async(req,reply)=>{
     const key=req.params.key;

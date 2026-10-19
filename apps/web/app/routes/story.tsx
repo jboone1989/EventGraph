@@ -199,7 +199,7 @@ type Order = "desc" | "asc";
 const viewCache = sessionCache<{ savedAt: number; filter: Filter; order: Order }>("aihot:story-view:", 30 * 60 * 1000);
 
 export default function StoryPage() {
-  const { story, market } = useLoaderData<typeof loader();
+  const { story, market } = useLoaderData<typeof loader>();
   const t=useText();
   const uiLang=useUiLanguage();
   const when = (iso: string) => localizedMonthDayTime(iso, uiLang);

@@ -148,7 +148,9 @@ async def relation_results(rows, as_of=None, clock="known"):
             "object": {"key": r["object_uuid"], "name": r["object_name"], "kind": "entity"},
             "fact": r["fact"],
             "validAt": r["valid_at"].isoformat() if r["valid_at"] else None,
-            "invalidAt": r["invalid_at"].isoformat() if r["invalid_at"] else None,
+            # Graphiti currently stores the latest invalid_at value, which may be a later correction.
+            # Do not leak a future expiry date into a reconstructed historical view.
+            "invalidAt": r["invalid_at"].isoformat() if as_of is None and r["invalid_at"] else None,
             "recordedAt": r["recorded_at"].isoformat() if r.get("recorded_at") else None,
             "evidence": evidence,
         })

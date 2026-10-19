@@ -41,3 +41,12 @@ test("known-time replay uses discovery timestamps and never backdates newly foun
   assert.equal(known[0]?.publishedAt, "2026-10-05T00:00:00Z");
   assert.deepEqual(buildReplayFrames([report("no-discovery", "2026-10-05T00:00:00Z")], "known"), []);
 });
+
+test("offset-aware dates work in both known and source-publication clocks", () => {
+  const reportWithOffset = {
+    ...report("offset", "2026-10-05T10:00:00+08:00"),
+    discoveredAt: "2026-10-05T12:00:00+08:00",
+  };
+  assert.equal(buildReplayFrames([reportWithOffset]).length, 1);
+  assert.equal(buildReplayFrames([reportWithOffset], "known").length, 1);
+});

@@ -44,7 +44,7 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
       <strong className="text-sm">EVENTGRAPH EXPLORER</strong>
       <div className="flex gap-2">
         <button type="button" aria-pressed={clock==="known"} onClick={()=>{setClock("known");setPosition(0);}}
-          className={clock==="known"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("当时已知","Known then")}</button>
+          className={clock==="known"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("按收录时间重建","Recorded-time reconstruction")}</button>
         <button type="button" aria-pressed={clock==="valid"} onClick={()=>{setClock("valid");setPosition(0);}}
           className={clock==="valid"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("事实生效时间","Valid time")}</button>
       </div>
@@ -76,7 +76,7 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
       </aside>
     </div>
     <p className="text-xs leading-relaxed text-ink-4">
-      {clock==="known" ? t("当时已知：首次收录与关系记录时间。未记录的历史无法恢复。","Known then: discovery and relation-record time. Unrecorded history cannot be recovered.")
+      {clock==="known" ? t("历史重建（非精确快照）：按首次收录与关系记录时间筛选；实体名、关系陈述和事件归组可能已经被后来修订，不能将其当作当时原始记录。","Bounded reconstruction, not an exact snapshot: entity names, relationship text and story grouping may include later revisions.")
         : t("有效时间：事后时间视角，不等同当时已知。","Valid time is retrospective, not necessarily known then.")}
       {t(" 下方综述与历史索引仍属于当前视角。"," Overview and full archive below remain current.")}
     </p>
