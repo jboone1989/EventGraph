@@ -2,7 +2,7 @@
 // events (stories) those reports belong to. Graphiti owns the relations; this database owns what is
 // public, so a cited report that was withdrawn, held back or never published is left out here.
 import { sql } from "../db.ts";
-import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges } from "../knowledge/graphiti.ts";
+import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type TemporalView, type GraphChanges } from "../knowledge/graphiti.ts";
 export { graphStats, graphSearch } from "../knowledge/graphiti.ts";
 import { cached, cachedByKey } from "../lib/cache.ts";
 import { publicSourceName } from "./rules.ts";
@@ -28,8 +28,12 @@ export interface EntityStory {
 const hasHan = (s: string) => /[㐀-鿿]/u.test(s);
 
 /** The cited reports that are public now, newest first, each with the live story it belongs to (if any). */
-export async function citedReports(articleIds: string[], now = new Date()) {
+export async function citedReports(articleIds: string[], now = new Date(), temporal?: TemporalView) {
   if (articleIds.length === 0) return { reports: [] as EntityReport[], stories: [] as EntityStory[] };
+  // Current publication rules always apply, even when asking what was known in the past.
+  const at = temporal?.clock === "known"
+    ? sql`p.discovered_at <= ${temporal.asOf}`
+    : temporal ? sql`coalesce(p.published_at, p.discovered_at) <= ${temporal.asOf}` : sql`TRUE`;
   const rows = await sql<{
     id: string; title: string; original_title: string | null; at: Date; source_name: string; first_party: boolean;
     story_public_id: string | null; story_title: string | null;
@@ -41,7 +45,7 @@ export async function citedReports(articleIds: string[], now = new Date()) {
     LEFT JOIN fact_articles fa ON fa.article_id = p.article_id
     LEFT JOIN facts f ON f.id = fa.fact_id
     LEFT JOIN stories st ON st.id = f.story_id AND st.merged_into IS NULL
-    WHERE p.article_id = ANY(${articleIds}::text[]) AND ${storyReportCondition(now)}
+    WHERE p.article_id = ANY(${articleIds}::text[]) AND ${storyReportCondition(now)} AND ${at}
     ORDER BY p.article_id, (fa.role = 'primary') DESC NULLS LAST, (st.id IS NULL), f.id`;
   rows.sort((a, b) => b.at.getTime() - a.at.getTime() || a.id.localeCompare(b.id));
   const reports: EntityReport[] = rows.map((r) => ({
@@ -126,6 +130,36 @@ export async function publicStoryGraph(publicId: string, now = new Date()) {
   const graph = await graphForStory(publicId);
   const { reports } = await citedReports(citedArticleIds(graph), now);
   return { ...graph, status: graph.status ?? "ok", edges: withPublicEvidence(graph.edges, new Set(reports.map((r) => r.id))) };
+}
+
+/** Read-only public Explorer snapshot. The returned report IDs and graph evidence share
+ * one timestamp but retain today's withdrawal/privacy rules; no past visibility is resurrected.
+ * Story membership is today's grouping (its historical revisions are not event-sourced).
+ */
+export async function publicExplorerStory(publicId: string, temporal: TemporalView, now = new Date()) {
+  const cutoff = temporal.clock === "known"
+    ? sql`p.discovered_at <= ${temporal.asOf}`
+    : sql`coalesce(p.published_at, p.discovered_at) <= ${temporal.asOf}`;
+  const rows = await sql<{ id: string }[]>`
+    SELECT DISTINCT p.article_id AS id
+    FROM publications p JOIN sources s ON s.id=p.source_id
+    JOIN fact_articles fa ON fa.article_id=p.article_id
+    JOIN facts f ON f.id=fa.fact_id
+    JOIN stories st ON st.id=f.story_id
+    WHERE st.public_id=${publicId}::uuid AND st.merged_into IS NULL
+      AND ${storyReportCondition(now)} AND ${cutoff}
+    ORDER BY id LIMIT 501`;
+  const graph = await graphForStory(publicId, temporal);
+  const { reports } = await citedReports(citedArticleIds(graph), now, temporal);
+  const edges = withPublicEvidence(graph.edges, new Set(reports.map(r => r.id)));
+  return {
+    asOf: temporal.asOf.toISOString(), clock: temporal.clock,
+    // Current grouping, current visibility, and known ingestion receipts are not a
+    // complete historical edition of story membership or source revisions.
+    coverage: { truncated: rows.length > 500, historicalMembership: false },
+    reportIds: rows.slice(0, 500).map(r => r.id),
+    graph: { ...graph, entities: new Set(edges.flatMap(e => [e.subject.key, e.object.key])).size, edges },
+  };
 }
 
 /** The overview sample (site home and /knowledge): Graphiti's latest relations, each with evidence that is public now. */
