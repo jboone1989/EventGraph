@@ -34,7 +34,7 @@ export function checkConnection(input:ConnectionInput):void {
   } else if('value' in c)fail('credential','Only replacement accepts a credential value');
  }
 }
-const forbidden=new Set(['model','messages','stream','authorization','api_key','apikey','credential','endpoint','url']);
+const forbidden=new Set(['model','messages','stream','authorization','api_key','apikey','credential','endpoint','url','input','prompt','api_base','base_url','baseurl','host','headers']);
 function safeJson(field:string,value:unknown,max:number):void {
  if(!object(value)||JSON.stringify(value).length>max)fail(field,'Enter a JSON object within the size limit');
  function visit(node:unknown):void {
@@ -73,8 +73,11 @@ export function checkModel(input:ModelInput,connection:Pick<ProviderConnection,'
  for(const field of ['documentationUrl','notes'] as const)
   if(input[field]!==null&&(typeof input[field]!=='string'||input[field]!.length>2000))fail(field,'Maximum 2000 characters');
  if(input.documentationUrl)checkApiUrl(input.documentationUrl,'documentationUrl');
- const url=input.endpointOverride?checkApiUrl(input.endpointOverride,'endpointOverride'):new URL(connection.baseUrl);
- if(input.endpointOverride!==null&&typeof input.endpointOverride!=='string')fail('endpointOverride','Enter an API URL or leave empty');
+ if(input.endpointOverride!==null&&(typeof input.endpointOverride!=='string'||!input.endpointOverride.trim()))fail('endpointOverride','Enter an HTTPS API URL or null');
+ const base=checkApiUrl(connection.baseUrl,'baseUrl');
+ const url=input.endpointOverride?checkApiUrl(input.endpointOverride,'endpointOverride'):base;
+ // Credentials belong to one origin. Model URLs may change path, never host.
+ if(url.origin!==base.origin)fail('endpointOverride','Model endpoint must share the connection origin');
  checkModelPolicy(input,connection,url);
  if(input.routeEnabled&&['special','unconfigured'].includes(input.adapter))fail('adapter','Configure a supported adapter before enabling routing');
 }

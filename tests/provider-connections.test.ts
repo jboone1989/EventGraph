@@ -43,6 +43,14 @@ test('credentials support replace, keep and clear, without values in views or au
  assert.ok(!JSON.stringify(await listConnections()).includes('credential_secret'));
 });
 
+test('a credential cannot be retained across different origins, and model overrides cannot redirect it',async()=>{
+ const c=await createConnection(connection({credential:{action:'replace',value:'sensitive-key'}}),'test',actor);
+ await assert.rejects(updateConnection(c.id,connection({baseUrl:'https://unrelated.invalid/v1',credential:{action:'keep'}}),c.version,'host',actor),/Replace or clear the credential/);
+ await assert.rejects(createRegisteredModel(model(c.id,{endpointOverride:'https://unrelated.invalid/v1/chat/completions'}),'test',actor),/share the connection origin/);
+ const changed=await updateConnection(c.id,connection({baseUrl:'https://unrelated.invalid/v1',credential:{action:'clear'}}),c.version,'clear-key',actor);
+ assert.equal(changed.credential.configured,false);
+});
+
 test('same upstream model name is independent across connections; duplicates on one connection conflict',async()=>{
  const a=await createConnection(connection(),'test',actor),b=await createConnection(connection({vendor:'other'}),'test',actor);
  const ma=await createRegisteredModel(model(a.id),'test',actor),mb=await createRegisteredModel(model(b.id),'test',actor);

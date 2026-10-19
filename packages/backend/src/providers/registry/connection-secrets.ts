@@ -9,15 +9,15 @@ function encryptionKey():Buffer {
  return key;
 }
 export function encryptCredential(value:string):string {
- const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',encryptionKey(),iv);
+ const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',encryptionKey(),iv,{authTagLength:16});
  const encrypted=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);
  return [iv,cipher.getAuthTag(),encrypted].map(v=>v.toString('base64')).join('.');
 }
 export function decryptCredential(value:string):string {
  try {
   const parts=value.split('.').map(v=>Buffer.from(v,'base64'));
-  if(parts.length!==3)throw Error();
-  const decipher=createDecipheriv('aes-256-gcm',encryptionKey(),parts[0]!);
+  if(parts.length!==3||parts[0]?.length!==12||parts[1]?.length!==16)throw Error('Invalid AES-GCM envelope');
+  const decipher=createDecipheriv('aes-256-gcm',encryptionKey(),parts[0]!,{authTagLength:16});
   decipher.setAuthTag(parts[1]!);
   return Buffer.concat([decipher.update(parts[2]!),decipher.final()]).toString('utf8');
  } catch {throw new ProviderConfigError('Provider credential cannot be decrypted','credential',503);}

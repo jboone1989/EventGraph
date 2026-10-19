@@ -8,7 +8,7 @@ import {paidRequest,ProviderRejectedError} from '../receipts.ts';
 import {parseSseCompletion} from './adapter.ts';
 import {loadConnection,loadModel,modelInput,connectionView,configurationFingerprint,configurationSnapshot,routingState,type CheckRow,type ModelRow,type ConnectionRow} from './connections.ts';
 import {storedCredential} from './connection-secrets.ts';
-import {checkConnectionPolicy,checkModel} from './connection-validation.ts';
+import {checkApiUrl,checkConnectionPolicy,checkModel} from './connection-validation.ts';
 import {ProviderConfigError} from './connection-types.ts';
 
 export function modelEndpoint(c:ConnectionRow,m?:ModelRow):string {
@@ -28,6 +28,7 @@ async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<strin
  if(!config.modelCallsEnabled)throw new ProviderConfigError('Model calls are disabled','connection',409);
  const key=storedCredential(c);
  if(!key)throw new ProviderConfigError('Configure a credential first','credential');
+ checkApiUrl(c.base_url);
  checkConnectionPolicy(c.base_url,c.policy);
  if(m)checkModel({...modelInput(m),enabled:true,routeEnabled:false},connectionView(c));
  try {
@@ -48,7 +49,7 @@ export async function requestRegisteredModel(id:string,capability:string,body:Re
  // Re-read immediately before transport: a selection made before an edit is not authorization.
  const {m,c,fingerprint}=await registeredRuntime(id,capability);
  if(expectedFingerprint&&fingerprint!==expectedFingerprint)throw new ProviderConfigError('Configuration changed before request; retry selection','model',409);
- return transport(c,m,{...body,...m.request_defaults,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})});
+ return transport(c,m,{...m.request_defaults,...body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})});
 }
 export async function discoverModels(id:string) {
  const c=await loadConnection(id),{data}=await transport(c,undefined);

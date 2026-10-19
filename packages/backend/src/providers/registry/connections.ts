@@ -43,7 +43,7 @@ export function modelInput(r:ModelRow):ModelInput {
 }
 function canonical(value:unknown):unknown {
  if(Array.isArray(value))return value.map(canonical);
- if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)]));
+ if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,v])=>[k,canonical(v)]));
  return value;
 }
 export function configurationSnapshot(c:ConnectionRow,m:ModelRow):Record<string,string> {
@@ -157,6 +157,9 @@ export async function updateConnection(id:string,input:ConnectionInput,version:n
  return sql.begin(async tx=>{
   const [old]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Connection');versionCheck(old.version,version);
+  // Never preserve an API key when changing to an unrelated host.
+  if(new URL(old.base_url).origin!==new URL(input.baseUrl).origin && (old.credential_secret||old.credential_env) && (input.credential?.action??'keep')==='keep')
+   throw new ProviderConfigError('Replace or clear the credential when changing the API origin','credential');
   const policy=connectionPolicy(input.baseUrl,old.policy),key=changedCredential(input,old);
   checkConnectionPolicy(input.baseUrl,policy);
   const next={...old,base_url:input.baseUrl,timeout_ms:input.timeoutMs,policy,...key};
