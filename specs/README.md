@@ -14,3 +14,12 @@ specs/<feature>/
 Get the user's approval before implementing substantial behavior changes. Reference the approved `spec.md` **Git SHA and path** (or approved Issue) in the implementation PR. A spec edited only in an implementation branch is a draft, not proof of approval.
 
 For a small fix, an Issue with concrete acceptance criteria is sufficient. Either ChatGPT or Claude can review against the approved version.
+
+## Product specifications
+
+- [EventGraph Explorer + Story — Draft full product spec](eventgraph-explorer/spec.md)
+- [Minimal reuse/implementation plan](eventgraph-explorer/plan.md)
+- [Agent-sized tasks and acceptance](eventgraph-explorer/tasks.md)
+- [Agent handoff guide](eventgraph-explorer/handoff.md)
+
+The Explorer + Story documents are **DRAFT** until explicitly approved; implementation must pin the approved revision.
