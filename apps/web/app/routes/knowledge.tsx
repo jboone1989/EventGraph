@@ -9,7 +9,7 @@ import { IconArrowRight, IconHistory } from "../components/icons";
 import { type KnowledgeStats } from "../components/KnowledgeNetwork";
 import { KnowledgeAtlas } from "../components/KnowledgeAtlas";
 import { SITE } from "@aihot/site";
-import { useText } from "../components/LanguageSwitch";
+import { useText, useUiLanguage } from "../components/LanguageSwitch";
 
 export const handle: Screen = { tab: "knowledge", name: "知识网络" };
 export { pageHeaders as headers } from "../lib/api.server";
@@ -28,6 +28,7 @@ export function meta({ location }: Route.MetaArgs) {
 export default function KnowledgePage() {
   const { stats } = useLoaderData<typeof loader>();
   const t = useText();
+  const lang = useUiLanguage();
   return (
     <div className="lr-knowledge-page pb-12">
       <PhoneBar title={t("知识网络","Knowledge Graph")} />
@@ -38,7 +39,10 @@ export default function KnowledgePage() {
             <h1 data-page-title className="lr-page-title">{t("让信息形成","Make knowledge")}<span>{t("联系。","connected.")}</span></h1>
             <p className="mt-3 max-w-[720px] text-[14px] leading-[1.9] text-ink-3">{t("事件是短期的，知识可以持续积累。从感兴趣的实体开始，沿着有证据支持的关系逐层探索公司、人物与技术。","News events evolve quickly. Start with an entity and explore its evidence-backed connections to companies, people, and technologies.")}</p>
           </div>
-          <Link to="/hot" className="lr-inline-link">{t("查看新闻事件树","View event timeline")} <IconArrowRight size={16}/></Link>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Link to={lang === "en" ? "/en/explore" : "/explore"} className="lr-inline-link">{t("打开探索工作台","Open the explorer")} <IconArrowRight size={16}/></Link>
+            <Link to="/hot" className="lr-inline-link">{t("查看新闻事件树","View event timeline")} <IconArrowRight size={16}/></Link>
+          </div>
         </div>
         <div className="lr-metric-strip">
           {([{number:stats.episodes,label:t("入图报道","Reports"),code:"EPISODES"},{number:stats.entities,label:t("实体节点","Entities"),code:"ENTITIES"},{number:stats.relations,label:t("事实关系","Facts"),code:"RELATIONS"}] as const).map(m => (

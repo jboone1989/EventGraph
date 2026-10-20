@@ -7,13 +7,19 @@ import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { englishText } from "../../components/EnglishStory";
 import { EventTimeMachine } from "./EventTimeMachine";
 import { buildReplayFrames, developmentsAt } from "./replay";
+import type { ExplorerClock, ExplorerTimeState } from "./explore-state";
 
-/** The selected cutoff drives the source list, event progress and graph query. */
-export function EventExplorer({ story }: { story: StoryDetail }) {
+/** The selected cutoff drives the source list, event progress and graph query. The standalone
+ *  /explore page seeds and mirrors the time state through initialTime/onTimeState (deep links). */
+export function EventExplorer({ story, initialTime, onTimeState }: {
+  story: StoryDetail;
+  initialTime?: { clock: ExplorerClock; position: number };
+  onTimeState?: (time: ExplorerTimeState) => void;
+}) {
   const t = useText(), lang = useUiLanguage();
-  const [clock, setClock] = useState<"known" | "valid">("known");
+  const [clock, setClock] = useState<"known" | "valid">(initialTime?.clock ?? "known");
   // Open at the most recent known point; a reader can then rewind the event.
-  const [position, setPosition] = useState(() => Math.max(0, buildReplayFrames(story.timeline, "known").length - 1));
+  const [position, setPosition] = useState(() => initialTime?.position ?? Math.max(0, buildReplayFrames(story.timeline, "known").length - 1));
   const [tab, setTab] = useState<"time" | "graph" | "evidence">("time");
   const frames = useMemo(() => buildReplayFrames(story.timeline, clock === "known" ? "known" : "published"), [story.timeline, clock]);
   const step = Math.min(position, Math.max(0, frames.length - 1));
@@ -46,6 +52,9 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     const at = clock === "known" ? r.discoveredAt : r.publishedAt;
     return !!at && !!asOf && Number.isFinite(Date.parse(at)) && Date.parse(at) <= Date.parse(asOf);
   }), [story.timeline, clock, asOf]);
+  useEffect(() => {
+    if (onTimeState) onTimeState({ clock, position: step, asOf: asOf ?? null });
+  }, [onTimeState, clock, step, asOf]);
   const developments = useMemo(() => developmentsAt(story.developments, asOf, clock), [story.developments, asOf, clock]);
   const reportTitle = (r: StoryDetail["timeline"][number]) => lang === "zh" ? r.title :
     englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original source";
@@ -53,14 +62,19 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
   const tabButton = (v:"time"|"graph"|"evidence", label:string) =>
     <button role="tab" type="button" aria-selected={tab===v} onClick={()=>setTab(v)}
       className={tab===v?"rounded-lg bg-accent px-3 py-2 text-sm text-white":"rounded-lg border border-line px-3 py-2 text-sm"}>{label}</button>;
+  const explorerHref = (lang === "en" ? "/en" : "") + "/explore?story=" + encodeURIComponent(story.publicId) +
+    (asOf ? `&clock=${clock}&asOf=${encodeURIComponent(asOf)}` : "");
   return <section className="space-y-4" aria-label={t("事件探索工作台","Event Explorer")}>
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft pb-3">
       <strong className="text-sm">EVENTGRAPH EXPLORER</strong>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button type="button" aria-pressed={clock==="known"} onClick={()=>chooseClock("known")}
           className={clock==="known"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("按收录时间重建","Recorded-time reconstruction")}</button>
         <button type="button" aria-pressed={clock==="valid"} onClick={()=>chooseClock("valid")}
           className={clock==="valid"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("事实生效时间","Valid time")}</button>
+        <a href={explorerHref} className="ml-1 inline-flex items-center text-xs font-medium text-accent hover:underline">
+          {t("在独立工作台打开 ↗","Open in the standalone explorer ↗")}
+        </a>
       </div>
     </div>
     <div className="flex gap-2 lg:hidden" role="tablist" aria-label={t("探索视图","Explorer views")}>

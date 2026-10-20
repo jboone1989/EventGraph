@@ -1,7 +1,7 @@
 // The English edition: stable /en addresses for the pages that read fully in English, so search engines
 // can index them (with hreflang to the Chinese page). Elsewhere English stays the reader's preference.
 const COUNTERPARTS = [
-  /^\/$/, /^\/hot$/, /^\/knowledge$/, /^\/knowledge\/entity\/[^/]+$/, /^\/story\/[^/]+$/,
+  /^\/$/, /^\/hot$/, /^\/knowledge$/, /^\/knowledge\/entity\/[^/]+$/, /^\/explore$/, /^\/story\/[^/]+$/,
   /^\/daily$/, /^\/daily\/\d{4}-\d{2}-\d{2}$/, /^\/topics$/, /^\/topics\/[^/]+$/, /^\/items\/[^/]+$/,
 ];
 

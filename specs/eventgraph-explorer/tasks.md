@@ -11,10 +11,14 @@
 
 ## S0 / 入口与基线恢复（最高优先级，先交付读者可打开的页面）
 
-- [ ] **EG-T01 — 核对真正开发入口**（EG-01/02）。使用实际开发服务器入口、外部 HTTP 及 /api/health；检查 80/8080、ingress upstream、web 页面 SSR、API 结果。对照 Docker digest=sha256:3cc0e2f28da6... 和 develop=94bea405；**不要把本地 Git checkout 49451fb 误认为运行镜像旧版**。记录入口 HTTP 状态、URL、时间及失败链路。
-- [ ] **EG-T02 — 确保 ingress 随正常部署保留**（EG-01/16）。核对 aihot-ingress-1、docker-compose.dev-ingress.yml 与 scripts/ci/deploy-image.sh 的现状；仅在能重现消失/重启问题后，补已有 Compose 流程的最小持久化/启动/外网 smoke，不新建服务或 CI 引擎。测试部署后 80/8080 能访问；服务故障不可被内网 /api/health 掩盖。
-- [ ] **EG-T03 — 验证现有 Explorer 可见性**（EG-01/10）。在一个真实公开的事件 /story/{publicId} 和 /en/story/{publicId} 中找 Event Explorer；确认只有 timeline 非空才出现，检视首页/导航是否有入口，记录两张真实屏幕截图（桌面/390×700）、网络请求、被截断的来源范围。
-- [ ] **EG-T04 — 建立真实验收样本清单**（EG-03/09）。用 PostgreSQL 当前公开事件选择至少 3 篇不同来源/不同时间报道，Graphiti 有后继边的真实事件。记录 publicId、可公开来源链接、T1/T2（ISO、时区）、known/valid、预期关系/证据；不能用 E2E fixture 假造真实站事件。若无足够样本，标 BLOCKED-DATA 并提供缺口与安全的补采建议（遵守付费闸）。
+- [x] **EG-T01 — 核对真正开发入口**（EG-01/02）。使用实际开发服务器入口、外部 HTTP 及 /api/health；检查 80/8080、ingress upstream、web 页面 SSR、API 结果。对照 Docker digest=sha256:3cc0e2f28da6... 和 develop=94bea405；**不要把本地 Git checkout 49451fb 误认为运行镜像旧版**。记录入口 HTTP 状态、URL、时间及失败链路。
+  - 证据：[Issue #61 S0 验收报告](https://github.com/jboone1989/EventGraph/issues/61#issuecomment-6285190395)（2026-10-20）：外网入口 http://43.142.127.40:8080/（80 同站）与 /api/health 正常，运行镜像 `sha256:3b987d4f…`（CI run 39376729411 发布）。
+- [x] **EG-T02 — 确保 ingress 随正常部署保留**（EG-01/16）。核对 aihot-ingress-1、docker-compose.dev-ingress.yml 与 scripts/ci/deploy-image.sh 的现状；仅在能重现消失/重启问题后，补已有 Compose 流程的最小持久化/启动/外网 smoke，不新建服务或 CI 引擎。测试部署后 80/8080 能访问；服务故障不可被内网 /api/health 掩盖。
+  - 证据：[PR #74](https://github.com/jboone1989/EventGraph/pull/74) 复现并修复 ingress 在客户端中断响应时的崩溃（develop `ff336c3`），部署后 80/8080 外网 smoke 通过。
+- [x] **EG-T03 — 验证现有 Explorer 可见性**（EG-01/10）。在一个真实公开的事件 /story/{publicId} 和 /en/story/{publicId} 中找 Event Explorer；确认只有 timeline 非空才出现，检视首页/导航是否有入口，记录两张真实屏幕截图（桌面/390×700）、网络请求、被截断的来源范围。
+  - 证据：[Issue #61 S0 验收报告](https://github.com/jboone1989/EventGraph/issues/61#issuecomment-6285190395)：真实事件中英两页 Explorer 可见、桌面/390×700 截图与网络请求齐全；全站无 Explorer 导航入口（由 EG-T05 补 /explore 解决）。
+- [x] **EG-T04 — 建立真实验收样本清单**（EG-03/09）。用 PostgreSQL 当前公开事件选择至少 3 篇不同来源/不同时间报道，Graphiti 有后继边的真实事件。记录 publicId、可公开来源链接、T1/T2（ISO、时区）、known/valid、预期关系/证据；不能用 E2E fixture 假造真实站事件。若无足够样本，标 BLOCKED-DATA 并提供缺口与安全的补采建议（遵守付费闸）。
+  - 证据：[Issue #61 S0 验收报告](https://github.com/jboone1989/EventGraph/issues/61#issuecomment-6285190395)：17 个 ≥3 源真实事件（主样本 `e5fbc143…` Gemini 9 源，备用 `4b6afb0b…`、`c7f5a711…`），含来源链接与时间字段。
 
 **S0 完成判据**：实际外部地址和两条真实 story 深链能打开，可在中英文找到 Explorer，截图和 HTTP 证据附到 PR/Issue；S0 本身不代表历史真实回放完成。
 
