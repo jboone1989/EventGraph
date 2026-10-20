@@ -39,6 +39,11 @@ before(async () => {
     VALUES ('rev-gap-article','rev-gap','rev-gap-article','https://example.org/rev-gap','修订报道','2026-10-01','2026-10-01',2)`;
   await sql`INSERT INTO fact_articles (fact_id,article_id,role) VALUES (${fact!.id},'rev-gap-article','report')`;
   await sql`INSERT INTO graphiti_ingestions (article_id,revision,episode_id) VALUES ('rev-gap-article',1,'ep-rev-gap-r1')`;
+  // A second article whose current revision IS the ingested one must keep asking for it.
+  await sql`INSERT INTO articles (id,source_id,identity_key,url,title,discovered_at,timeline_at,revision)
+    VALUES ('rev-ok-article','rev-gap','rev-ok-article','https://example.org/rev-ok','修订报道二','2026-10-02','2026-10-02',2)`;
+  await sql`INSERT INTO fact_articles (fact_id,article_id,role) VALUES (${fact!.id},'rev-ok-article','report')`;
+  await sql`INSERT INTO graphiti_ingestions (article_id,revision,episode_id) VALUES ('rev-ok-article',2,'ep-rev-ok-r2')`;
 });
 
 after(async () => {
@@ -49,5 +54,6 @@ after(async () => {
 
 test('a story asks for the revision the graph actually holds', { timeout: 10000 }, async () => {
   await graphForStory(publicId);
-  assert.deepEqual([...requests.at(-1)!.articles].sort(), ['rev-gap-article:r1']);
+  assert.deepEqual([...requests.at(-1)!.articles].sort(),
+    ['rev-gap-article:r1', 'rev-ok-article:r2']);
 });
