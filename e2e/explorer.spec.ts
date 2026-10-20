@@ -38,7 +38,7 @@ for (const english of [false, true]) {
     if (await timelineTab.isVisible()) await timelineTab.click();
     await expect(page.getByRole("region",{name:english?"Event report playback":"事件时间回放"})).toBeVisible();
     const progress = page.getByRole("region",{name:english?"Event developments at selected time":"按时点筛选的事件进展"});
-    if (await progress.count()) await expect(progress).toBeVisible();
+    await expect(progress).toBeVisible();
     await expectNoOverflow(page);
     expect(problems).toEqual([]);
   });
@@ -122,20 +122,27 @@ test("an event with no public relations links to the global graph without invent
     await route.fulfill({json:{entities:0,edges:[],status:"ok",temporalSupport:"bitemporal-v1"}});
   });
   await open(page, "/en/story/"+seeded.story);
+  const graphTab = page.getByRole("tab",{name:"Relations",exact:true});
+  if (await graphTab.isVisible()) await graphTab.click();
   await expect(page.getByText("No public relations are linked to this event at the selected time. The current global graph is not substituted for event evidence.")).toBeVisible();
-  await expect(page.getByRole("link",{name:"Explore the global knowledge network separately ↗"})).toHaveAttribute("href","/en/knowledge");
+  const globalLink = page.getByRole("link",{name:"Explore the global knowledge network separately ↗"});
+  await expect(globalLink).toHaveAttribute("href","/en/knowledge");
+  await globalLink.click();
+  await expect(page).toHaveURL(/\/en\/knowledge\/?$/);
+  await expect(page.getByRole("heading",{name:/Unable to load/})).toHaveCount(0);
+  expect((await page.locator("body").innerText()).trim().length).toBeGreaterThan(40);
 });
 
 
 test("event progress follows the selected historical cutoff", async ({page}) => {
   test.skip(!seeded.story, "No seeded event");
   await page.addInitScript(()=>localStorage.setItem("livingruntime-language","en"));
-  const response = await page.request.get(base + "/api/site/stories/" + seeded.story);
-  test.skip(!response.ok(), "Story detail API is unavailable");
+  const response = await page.request.get(new URL("/api/site/stories/" + seeded.story, base).toString());
+  expect(response.ok(), "Story detail API must be available for the seeded event").toBeTruthy();
   const story = await response.json();
   const frames = buildReplayFrames(story.timeline ?? [], "known");
+  expect(frames.length, "Seeded event must have at least one replay frame").toBeGreaterThan(0);
   const expectedCounts = frames.map(frame => developmentsAt(story.developments ?? [], frame.publishedAt, "known").length);
-  test.skip(frames.length < 2 || new Set(expectedCounts).size < 2, "Seeded story has no time-varying progress to assert");
 
   await open(page, "/en/story/" + seeded.story);
   const progress = page.getByRole("region",{name:"Event developments at selected time"});
@@ -143,8 +150,12 @@ test("event progress follows the selected historical cutoff", async ({page}) => 
   const slider = page.getByRole("region",{name:"Event report playback"}).getByRole("slider");
   await slider.focus();
   await slider.press("Home");
-  await expect(count).toHaveAttribute("data-count", String(expectedCounts[0]));
-  await slider.focus();
-  await slider.press("End");
-  await expect(count).toHaveAttribute("data-count", String(expectedCounts[expectedCounts.length - 1]));
+  for (let index = 0; index < frames.length; index++) {
+    if (index > 0) {
+      await slider.focus();
+      await slider.press("ArrowRight");
+    }
+    await expect(count, "Progress count must follow the selected as-of frame " + index)
+      .toHaveAttribute("data-count", String(expectedCounts[index]));
+  }
 });

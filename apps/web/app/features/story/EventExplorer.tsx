@@ -69,14 +69,14 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     <div className={tab==="time"?"space-y-4":"hidden space-y-4 lg:block"}>
       <EventTimeMachine reports={story.timeline} totalReports={story.reportCount}
         clock={clock==="known"?"known":"published"} position={step} onPosition={setPosition}/>
-      {story.developments.length > 0 && <section className="rounded-panel border border-line-soft p-4" aria-label={t("按时点筛选的事件进展","Event developments at selected time")}>
+      <section className="rounded-panel border border-line-soft p-4" aria-label={t("按时点筛选的事件进展","Event developments at selected time")}>
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="text-sm font-semibold">{t("事件进展","Event developments")}</h3>
           <span data-testid="event-development-count" data-count={developments.length} className="text-xs text-ink-4">{developments.length} {t("条进展","developments")}</span>
         </div>
         {developments.length > 0 ? <ol className="mt-3 space-y-3">
           {developments.map(d => {
-            const timestamp = clock === "known" ? d.representative.discoveredAt! : d.firstReportAt;
+            const timestamp = clock === "known" ? d.representative.discoveredAt! : d.representative.publishedAt;
             return <li key={d.factId} className="border-l-2 border-line pl-3">
               <p className="text-xs text-ink-4">{formatTime(timestamp)}</p>
               <Link to={lang==="en"?"/en/items/"+d.representative.id:"/items/"+d.representative.id} className="mt-1 block text-sm font-medium hover:text-accent">
@@ -89,9 +89,9 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
         <p className="mt-3 text-xs text-ink-4">
           {clock === "known"
             ? t("按本站首次收录时间筛选；只显示代表报道在此时点前已收录的进展。当前事件归组可能后来修订，不是完整历史快照。","Filtered by first discovery; only representative reports already discovered by this cutoff are shown. Story grouping may have changed later, so this is not a complete historical snapshot.")
-            : t("按最早报道发布时间筛选；只显示代表报道在此时点前发布的进展。当前事件归组可能后来修订，不是完整历史快照。","Filtered by first report publication; only representative reports published by this cutoff are shown. Story grouping may have changed later, so this is not a complete historical snapshot.")}
+            : t("按最早报道发布时间筛选；列表时间显示代表报道自己的发布时间。当前事件归组可能后来修订，不是完整历史快照。","Filtered by first report publication; the displayed time is the representative report's own publication time. Story grouping may have changed later, so this is not a complete historical snapshot.")}
         </p>
-      </section>}
+      </section>
     </div>
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
       <div className={tab==="graph"?"min-w-0":"hidden min-w-0 lg:block"}>
