@@ -22,7 +22,7 @@ Issue: https://github.com/jboone1989/EventGraph/issues/61
 ## 联动验收
 
 1. 在开发版一个有多篇来源的真实事件里，选中 T1，来源列表只包含 T1 前已发现（或发布）的报道。
-2. 移到 T2，新增来源才显示；关系由 Graphiti 按同一 `asOf` 重新查询，证据可打开原始 URL。
+2. 移到 T2，新增来源与事件进展才显示；关系由 Graphiti 按同一 `asOf` 重新查询，证据可打开原始 URL，并同时区分报道发布时间与本站首次收录时间。
 3. 模拟 Graphiti 不可用，图谱明确降级，事件报道依旧可读。
 4. 移动端（390×700）单页面切换时间、关系与来源，支持键盘和触摸。
 5. 中英文切换行为一致，时间语义不混淆。执行 Typecheck、Web/Backend tests、Python compile 和实际浏览器验收。只允许合并到 develop。

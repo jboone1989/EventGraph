@@ -6,9 +6,9 @@ import { TemporalKnowledgeAtlas } from "./TemporalKnowledgeAtlas";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { englishText } from "../../components/EnglishStory";
 import { EventTimeMachine } from "./EventTimeMachine";
-import { buildReplayFrames } from "./replay";
+import { buildReplayFrames, developmentsAt } from "./replay";
 
-/** The selected cutoff drives the source list and graph query; current graph data never substitutes for history. */
+/** The selected cutoff drives the source list, event progress and graph query. */
 export function EventExplorer({ story }: { story: StoryDetail }) {
   const t = useText(), lang = useUiLanguage();
   const [clock, setClock] = useState<"known" | "valid">("known");
@@ -46,8 +46,10 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     const at = clock === "known" ? r.discoveredAt : r.publishedAt;
     return !!at && !!asOf && Number.isFinite(Date.parse(at)) && Date.parse(at) <= Date.parse(asOf);
   }), [story.timeline, clock, asOf]);
+  const developments = useMemo(() => developmentsAt(story.developments, asOf, clock), [story.developments, asOf, clock]);
   const reportTitle = (r: StoryDetail["timeline"][number]) => lang === "zh" ? r.title :
     englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original source";
+  const formatTime = (value: string) => new Date(value).toLocaleString(lang==="zh"?"zh-CN":"en-US",{timeZone:"Asia/Shanghai"});
   const tabButton = (v:"time"|"graph"|"evidence", label:string) =>
     <button role="tab" type="button" aria-selected={tab===v} onClick={()=>setTab(v)}
       className={tab===v?"rounded-lg bg-accent px-3 py-2 text-sm text-white":"rounded-lg border border-line px-3 py-2 text-sm"}>{label}</button>;
@@ -64,9 +66,32 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     <div className="flex gap-2 lg:hidden" role="tablist" aria-label={t("探索视图","Explorer views")}>
       {tabButton("time",t("时间","Timeline"))}{tabButton("graph",t("关系","Relations"))}{tabButton("evidence",t("来源","Sources"))}
     </div>
-    <div className={tab==="time"?"":"hidden lg:block"}>
+    <div className={tab==="time"?"space-y-4":"hidden space-y-4 lg:block"}>
       <EventTimeMachine reports={story.timeline} totalReports={story.reportCount}
         clock={clock==="known"?"known":"published"} position={step} onPosition={setPosition}/>
+      {story.developments.length > 0 && <section className="rounded-panel border border-line-soft p-4" aria-label={t("按时点筛选的事件进展","Event developments at selected time")}>
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="text-sm font-semibold">{t("事件进展","Event developments")}</h3>
+          <span className="text-xs text-ink-4">{developments.length} / {story.developments.length}</span>
+        </div>
+        {developments.length > 0 ? <ol className="mt-3 space-y-3">
+          {developments.map(d => {
+            const timestamp = clock === "known" ? d.representative.discoveredAt! : d.firstReportAt;
+            return <li key={d.factId} className="border-l-2 border-line pl-3">
+              <p className="text-xs text-ink-4">{formatTime(timestamp)} · {d.reportCount} {t("篇报道","reports")}</p>
+              <Link to={lang==="en"?"/en/items/"+d.representative.id:"/items/"+d.representative.id} className="mt-1 block text-sm font-medium hover:text-accent">
+                {lang === "en" ? (englishText(d.title) ?? reportTitle(d.representative)) : d.title}
+              </Link>
+              <p className="mt-1 text-xs text-ink-4">{d.representative.source.name} · {reportTitle(d.representative)}</p>
+            </li>;
+          })}
+        </ol> : <p className="mt-3 text-sm text-ink-4">{t("这个时点没有带有可核验时间戳的进展记录。","No timestamped developments are available at this cutoff.")}</p>}
+        <p className="mt-3 text-xs text-ink-4">
+          {clock === "known"
+            ? t("按本站首次收录时间筛选；缺失时间戳的进展不会被猜测补入。","Filtered by first discovery; missing timestamps are not inferred.")
+            : t("按最早报道发布时间筛选；这是回顾视角，不代表当时已知。","Filtered by first report publication time; this is retrospective, not what was known then.")}
+        </p>
+      </section>}
     </div>
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
       <div className={tab==="graph"?"min-w-0":"hidden min-w-0 lg:block"}>
@@ -80,12 +105,12 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
           {t("历史关系无法验证，不以当前图谱替代。","Historical graph unavailable; no present-day graph substituted.")}</p>}
       </div>
       <aside className={tab==="evidence"?"min-w-0":"hidden min-w-0 lg:block"}>
-        <h3 className="mb-2 text-sm font-semibold">{t("当时可用的报道来源","Sources at this time")} · {reports.length}</h3>
+        <h3 className="mb-2 text-sm font-semibold">{clock==="known" ? t("当时可用的报道来源","Reports available by this time") : t("该时点之前发布的报道来源","Reports published by this time")} · {reports.length}</h3>
         <ol className="max-h-[620px] divide-y divide-line-soft overflow-auto rounded-panel border border-line-soft px-3">
           {reports.map(r => <li key={r.id} className="py-3">
-            <p className="text-xs text-ink-4">{r.source.name} · {new Date(clock==="known"?r.discoveredAt!:r.publishedAt).toLocaleString(lang==="zh"?"zh-CN":"en-US",{timeZone:"Asia/Shanghai"})}</p>
+            <p className="text-xs text-ink-4">{r.source.name} · {t("发布","Published")} {formatTime(r.publishedAt)} · {r.discoveredAt ? t("收录","First seen") + " " + formatTime(r.discoveredAt) : t("收录时间未知","First-seen time unavailable")}</p>
             <Link to={lang==="en"?"/en/items/"+r.id:"/items/"+r.id} className="mt-1 block text-sm font-medium hover:text-accent">{reportTitle(r)}</Link>
-            {r.originalUrl && /^https?:\/\//i.test(r.originalUrl) && <a href={r.originalUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-accent">{t("核查原文 ↗","Original source ↗")}</a>}
+            {r.originalUrl && /^https?:\/\//i.test(r.originalUrl) && <a href={r.originalUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-accent">{t("核查原文 ↗","Check original source ↗")}</a>}
           </li>)}
         </ol>
         {story.reportCount>story.timeline.length && <p className="mt-2 text-xs text-ink-4">{t("只回放已加载报道；早期资料可能遗漏。","Only loaded reports; early history may be missing.")}</p>}
@@ -93,8 +118,8 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
     </div>
     <p className="text-xs leading-relaxed text-ink-4">
       {clock==="known" ? t("历史重建（非精确快照）：按首次收录与关系记录时间筛选；实体名、关系陈述和事件归组可能已经被后来修订，不能将其当作当时原始记录。","Bounded reconstruction, not an exact snapshot: entity names, relationship text and story grouping may include later revisions.")
-        : t("有效时间：事后时间视角，不等同当时已知。","Valid time is retrospective, not necessarily known then.")}
-      {t(" 下方综述与历史索引仍属于当前视角。"," Overview and full archive below remain current.")}
+        : t("有效时间：关系按 Graphiti 的事实生效/失效时间查询；报道列表仍按报道发布时间截断。这是回顾视角，不等同当时已知。","Valid time queries Graphiti's fact validity intervals; the source list is still limited by publication time. This is retrospective, not what was known then.")}
+      {t(" 下方综述与完整来源索引仍属于当前视角。"," Overview and full source archive below remain current.")}
     </p>
   </section>;
 }

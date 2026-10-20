@@ -30,7 +30,11 @@ for (const english of [false, true]) {
       await expect(page.getByRole("heading",{name:english?"Relations at this time":"此时的实体关系"})).toBeVisible();
       const sourcesTab = page.getByRole("tab",{name:english?"Sources":"来源",exact:true});
       await sourcesTab.click();
-      await expect(page.getByRole("heading",{name:english?/Sources at this time/:/当时可用的报道来源/})).toBeVisible();
+      await expect(page.getByRole("heading",{name:english?/Reports available by this time|Reports published by this time/:/当时可用的报道来源|该时点之前发布的报道来源/})).toBeVisible();
+      await expect(page.getByText(english?/Published/:/发布/).first()).toBeVisible();
+      await expect(page.getByText(english?/First seen|First-seen time unavailable/:/收录/).first()).toBeVisible();
+      const progress = page.getByRole("region",{name:english?"Event developments at selected time":"按时点筛选的事件进展"});
+      if (await progress.count()) await expect(progress).toBeVisible();
       await page.getByRole("tab",{name:english?"Timeline":"时间",exact:true}).click();
       await expect(page.getByRole("region",{name:english?"Event report playback":"事件时间回放"})).toBeVisible();
     }
@@ -107,4 +111,16 @@ test("as-of replay changes the SAME focused atlas and excludes future evidence",
   await expect(panel.locator(".lr-atlas-canvas")).toHaveAttribute("data-focus-in-viewport","true");
   expect(new Set(graphRequests).size).toBeGreaterThanOrEqual(2);
   expect(unrelatedRequests).toEqual([]);
+});
+
+
+test("an event with no public relations links to the global graph without inventing an event edge", async ({page}) => {
+  test.skip(!seeded.story, "No public event available for an Explorer check");
+  await page.addInitScript(()=>localStorage.setItem("livingruntime-language","en"));
+  await page.route(/\/api\/site\/knowledge\/stories\/[^?]+\?/, async route => {
+    await route.fulfill({json:{entities:0,edges:[],status:"ok",temporalSupport:"bitemporal-v1"}});
+  });
+  await open(page, "/en/story/"+seeded.story);
+  await expect(page.getByText("No public relations are linked to this event at the selected time. The current global graph is not substituted for event evidence.")).toBeVisible();
+  await expect(page.getByRole("link",{name:"Explore the global knowledge network separately ↗"})).toHaveAttribute("href","/knowledge");
 });

@@ -244,9 +244,6 @@ export default function StoryPage() {
     }
     return out;
   }, [story.timeline, filter, order]);
-  const developments = useMemo(() => [...story.developments].sort((a, b) =>
-    order === "desc" ? Date.parse(b.firstReportAt) - Date.parse(a.firstReportAt) : Date.parse(a.firstReportAt) - Date.parse(b.firstReportAt)
-  ), [story.developments, order]);
   const newest = story.latestReport;
   const latestText = uiLang === "en" ? (englishText(story.timeline.find((r) => r.id === newest?.id)?.english?.title) ?? englishText(story.latest)) : story.latest;
   const overview = uiLang === "en"
@@ -391,31 +388,6 @@ export default function StoryPage() {
             </p>
           </Panel>
 
-          {story.developments.length > 1 && (
-            <Panel title={t("事件进展","Developments")} sub={`${story.developments.length} ${t("个进展","updates")}`} className="order-3" right={
-              <Select value={order} onChange={(e) => setOrder(e.target.value as "desc" | "asc")} aria-label={t("事件进展排序","Sort developments")}>
-                <option value="desc">{t("最新在前","Newest first")}</option>
-                <option value="asc">{t("最早在前","Oldest first")}</option>
-              </Select>
-            }>
-              <ol className="relative space-y-4 pl-5 before:absolute before:bottom-2 before:left-[3px] before:top-2 before:w-px before:bg-line">
-                {developments.map((d) => (
-                  <li key={d.factId} className="relative">
-                    <span className={`absolute -left-5 top-[7px] size-[7px] rounded-full ring-4 ring-surface ${d.factId === story.developments[0]?.factId ? "bg-accent" : "bg-line-strong"}`} aria-hidden="true" />
-                    <div className="num text-[12px] text-ink-4">
-                      {when(d.firstReportAt)} · {d.reportCount} {t("篇报道","reports")}
-                    </div>
-                    <Link viewTransition to={reportPath(d.representative.id)} className="mt-0.5 block text-[15px] font-semibold leading-snug text-ink transition-colors hover:text-accent">
-                      {uiLang === "en" ? (englishText(d.title) ?? reportTitle(d.representative)) : d.title}
-                    </Link>
-                    <div className="mt-0.5 truncate text-[12.5px] text-ink-4">
-                      {d.representative.source.name}：{reportTitle(d.representative)}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </Panel>
-          )}
 
           <Panel
             id={SECTIONS.reports}
