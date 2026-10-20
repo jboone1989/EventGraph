@@ -121,6 +121,8 @@ test("an event with no public relations links to the global graph without invent
     await route.fulfill({json:{entities:0,edges:[],status:"ok",temporalSupport:"bitemporal-v1"}});
   });
   await open(page, "/en/story/"+seeded.story);
+  const graphTab = page.getByRole("tab",{name:"Relations",exact:true});
+  if (await graphTab.isVisible()) await graphTab.click();
   await expect(page.getByText("No public relations are linked to this event at the selected time. The current global graph is not substituted for event evidence.")).toBeVisible();
   await expect(page.getByRole("link",{name:"Explore the global knowledge network separately ↗"})).toHaveAttribute("href","/knowledge");
 });
