@@ -7,6 +7,9 @@ export interface ExplorerTimeState {
   clock: ExplorerClock;
   position: number;
   asOf: string | null;
+  /** True when the deep link asked for a time before the earliest playable frame; the reader
+   *  must be told earlier material cannot be restored instead of seeing a silent clamp. */
+  clamped?: boolean;
 }
 
 /** Deep-link time state for the standalone explorer: /explore?story=…&clock=…&asOf=….
@@ -17,8 +20,9 @@ export function explorerTimeState(params: URLSearchParams, timeline: StoryDetail
   const frames = buildReplayFrames(timeline, clock === "known" ? "known" : "published");
   if (!frames.length) return { clock, position: 0, asOf: null };
   const requested = Date.parse(params.get("asOf") ?? "");
+  const clamped = Number.isFinite(requested) && requested < Date.parse(frames[0]!.publishedAt);
   const position = Number.isFinite(requested)
     ? Math.max(0, frames.findLastIndex((frame) => Date.parse(frame.publishedAt) <= requested))
     : frames.length - 1;
-  return { clock, position, asOf: frames[position]!.publishedAt };
+  return { clock, position, asOf: frames[position]!.publishedAt, ...(clamped ? { clamped: true } : {}) };
 }

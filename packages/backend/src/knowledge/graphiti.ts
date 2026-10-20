@@ -87,10 +87,27 @@ export async function ingestGraphitiOnce() {
 /** AIHot is the authority for story membership, Graphiti for knowledge relations. */
 export type GraphTime = { asOf: Date; clock: "known" | "valid" };
 
+/** Graphiti keys episodes by ingested revision. When a revised article's newest revision has not
+ * been ingested yet, asking for the current revision matches no episode and silently drops the
+ * relations the graph holds; ask for the newest revision the graph actually holds instead. */
+export async function ingestedRevision(id: string, revision: number): Promise<number> {
+  const [row] = await sql<{ revision: number }[]>`
+    SELECT coalesce(
+      (SELECT g.revision FROM graphiti_ingestions g WHERE g.article_id=${id} AND g.revision=${revision}),
+      (SELECT max(g.revision) FROM graphiti_ingestions g WHERE g.article_id=${id}),
+      ${revision}) AS revision`;
+  return row!.revision;
+}
+
 export async function graphForStory(publicId: string, time?: GraphTime): Promise<Graph> {
   if (!process.env.GRAPHITI_API_URL) return emptyGraph("disabled");
   const articles = await sql<{ id: string; revision: number }[]>`
-    SELECT DISTINCT a.id, a.revision FROM articles a
+    SELECT DISTINCT a.id,
+      coalesce(
+        (SELECT g.revision FROM graphiti_ingestions g WHERE g.article_id=a.id AND g.revision=a.revision),
+        (SELECT max(g.revision) FROM graphiti_ingestions g WHERE g.article_id=a.id),
+        a.revision) AS revision
+    FROM articles a
     JOIN fact_articles fa ON fa.article_id=a.id
     JOIN facts f ON f.id=fa.fact_id
     JOIN stories st ON st.id=f.story_id
@@ -118,7 +135,8 @@ export async function graphForStory(publicId: string, time?: GraphTime): Promise
 export async function graphForArticle(id: string, revision: number): Promise<Graph> {
   if (!process.env.GRAPHITI_API_URL) return emptyGraph("disabled");
   try {
-    return await graphiti<Graph>("/relations/by-articles", { method: "POST", body: { articles: [id + ":r" + revision], limit: 20 }, timeoutMs: 4000 });
+    const held = await ingestedRevision(id, revision);
+    return await graphiti<Graph>("/relations/by-articles", { method: "POST", body: { articles: [id + ":r" + held], limit: 20 }, timeoutMs: 4000 });
   } catch (error) {
     console.error("graphiti_article_lookup_failed", error);
     return emptyGraph("unavailable");

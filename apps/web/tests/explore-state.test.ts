@@ -48,6 +48,15 @@ test("a malformed or impossible as-of falls back without crashing", () => {
   assert.equal(after.position, 2);
 });
 
+test("an as-of before the earliest frame is reported as unrestorable, not silently clamped", () => {
+  const before = explorerTimeState(new URLSearchParams("asOf=2020-01-01T00:00:00Z"), timeline);
+  assert.equal(before.clamped, true);
+  const exact = explorerTimeState(new URLSearchParams("asOf=2026-10-01T12:00:00Z"), timeline);
+  assert.notEqual(exact.clamped, true);
+  const latest = explorerTimeState(new URLSearchParams(""), timeline);
+  assert.notEqual(latest.clamped, true);
+});
+
 test("an event without playable frames yields no cutoff", () => {
   const state = explorerTimeState(new URLSearchParams("clock=valid&asOf=2026-10-04T00:00:00Z"), [report("bad", "nope")]);
   assert.equal(state.asOf, null);

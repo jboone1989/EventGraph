@@ -11,10 +11,11 @@ import type { ExplorerClock, ExplorerTimeState } from "./explore-state";
 
 /** The selected cutoff drives the source list, event progress and graph query. The standalone
  *  /explore page seeds and mirrors the time state through initialTime/onTimeState (deep links). */
-export function EventExplorer({ story, initialTime, onTimeState }: {
+export function EventExplorer({ story, initialTime, onTimeState, standalone }: {
   story: StoryDetail;
   initialTime?: { clock: ExplorerClock; position: number };
   onTimeState?: (time: ExplorerTimeState) => void;
+  standalone?: boolean;
 }) {
   const t = useText(), lang = useUiLanguage();
   const [clock, setClock] = useState<"known" | "valid">(initialTime?.clock ?? "known");
@@ -72,9 +73,9 @@ export function EventExplorer({ story, initialTime, onTimeState }: {
           className={clock==="known"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("按收录时间重建","Recorded-time reconstruction")}</button>
         <button type="button" aria-pressed={clock==="valid"} onClick={()=>chooseClock("valid")}
           className={clock==="valid"?"rounded-lg bg-accent px-3 py-2 text-xs text-white":"rounded-lg border border-line px-3 py-2 text-xs"}>{t("事实生效时间","Valid time")}</button>
-        <a href={explorerHref} className="ml-1 inline-flex items-center text-xs font-medium text-accent hover:underline">
+        {standalone ? null : <a href={explorerHref} className="ml-1 inline-flex items-center text-xs font-medium text-accent hover:underline">
           {t("在独立工作台打开 ↗","Open in the standalone explorer ↗")}
-        </a>
+        </a>}
       </div>
     </div>
     <div className="flex gap-2 lg:hidden" role="tablist" aria-label={t("探索视图","Explorer views")}>

@@ -95,7 +95,12 @@ export default function ExplorePage() {
   // back through syncTime (replaceState) and must not re-seed from the URL.
   const initialTime = useMemo(() => (story ? explorerTimeState(params, story.timeline) : null),
     [story?.publicId]);
+  // EventExplorer reports its state on mount too, so the first report is not a reader move;
+  // the reset effect clears it again when another event is mounted.
+  const [moved, setMoved] = useState(false);
+  useEffect(() => { setMoved(false); }, [story?.publicId]);
   const syncTime = useCallback((time: ExplorerTimeState) => {
+    setMoved(true);
     const url = new URL(window.location.href);
     url.searchParams.set("clock", time.clock);
     if (time.asOf) url.searchParams.set("asOf", time.asOf); else url.searchParams.delete("asOf");
@@ -103,13 +108,17 @@ export default function ExplorePage() {
   }, []);
   if (story) return <div className="pb-8">
     <PhoneBar title={t("探索工作台","Event explorer")} />
+    {initialTime?.clamped && !moved && <p className="mb-3 rounded-panel border border-line-soft bg-bg-sunk/40 px-4 py-3 text-[13px] leading-[1.7] text-ink-3">
+      {t("无法恢复此前资料：请求的时点早于本事件最早的记录，已显示最早的可用时点。",
+        "Earlier material cannot be restored: the requested time predates this event's earliest record, so the earliest available point is shown.")}
+    </p>}
     <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
       <h1 className="text-[22px] font-semibold leading-[1.3] text-ink">{story.title}</h1>
       <Link to={prefix === "/en" ? `/en/story/${story.publicId}` : `/story/${story.publicId}`} className="text-[13px] text-accent hover:underline">
         {t("打开事件页 ↗","Open the event page ↗")}
       </Link>
     </div>
-    <EventExplorer key={story.publicId} story={story} initialTime={initialTime ?? undefined} onTimeState={syncTime} />
+    <EventExplorer key={story.publicId} story={story} initialTime={initialTime ?? undefined} onTimeState={syncTime} standalone />
   </div>;
   const entries = hot?.entries ?? [];
   return <div className="pb-8">

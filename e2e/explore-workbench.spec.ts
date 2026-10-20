@@ -89,6 +89,25 @@ test("the story page links into the standalone workbench with its event", async 
   await expect(page.getByRole("region", {name: "Event Explorer"})).toBeVisible();
 });
 
+test("the workbench itself does not link back to itself as the standalone explorer", async ({page}) => {
+  test.skip(!seeded.story, "No public event available");
+  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
+  await open(page, `/en/explore?story=${seeded.story}`);
+  await expect(page.getByRole("region", {name: "Event Explorer"})).toBeVisible();
+  await expect(page.getByRole("link", {name: /Open in the standalone explorer/})).toHaveCount(0);
+});
+
+test("a deep link before the earliest frame says earlier material cannot be restored", async ({page}) => {
+  test.skip(!seeded.story, "No public event available");
+  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
+  const story = await (await page.request.get("/api/site/stories/" + seeded.story)).json();
+  const frames = buildReplayFrames(story.timeline ?? [], "known");
+  test.skip(frames.length < 1, "No playable frames");
+  const early = new Date(Date.parse(frames[0]!.publishedAt) - 86_400_000).toISOString();
+  await open(page, `/en/explore?story=${seeded.story}&clock=known&asOf=${encodeURIComponent(early)}`);
+  await expect(page.getByText("Earlier material cannot be restored")).toBeVisible();
+});
+
 test("the workbench degrades clearly when the graph service is offline", async ({page}) => {
   test.skip(!seeded.story, "No public event available");
   await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
