@@ -118,7 +118,7 @@ export default function ExplorePage() {
         {t("打开事件页 ↗","Open the event page ↗")}
       </Link>
     </div>
-    <EventExplorer key={story.publicId} story={story} initialTime={initialTime ?? undefined} onTimeState={syncTime} />
+    <EventExplorer key={story.publicId} story={story} initialTime={initialTime ?? undefined} onTimeState={syncTime} standalone />
   </div>;
   const entries = hot?.entries ?? [];
   return <div className="pb-8">
