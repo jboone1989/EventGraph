@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import { KnowledgeAtlasCanvas } from "../../components/KnowledgeAtlasCanvas";
 import { RelationEvidence, type KnowledgeGraph } from "../../components/KnowledgeNetwork";
-import { useText } from "../../components/LanguageSwitch";
+import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { groupAtlasPairs, neighborhood, temporalAtlasNetwork } from "../../lib/knowledge-atlas";
 
 /** A time-scoped view of the SAME Cytoscape atlas canvas used by the knowledge
@@ -9,7 +10,7 @@ import { groupAtlasPairs, neighborhood, temporalAtlasNetwork } from "../../lib/k
  * unscoped entity or neighborhood endpoints.
  */
 export function TemporalKnowledgeAtlas({graph}:{graph:KnowledgeGraph}) {
-  const t = useText();
+  const t = useText(), lang = useUiLanguage();
   const network = useMemo(()=>temporalAtlasNetwork(graph.edges),[graph.edges]);
   const [selected, setSelected] = useState<string|null>(null);
   const [pairKey,setPairKey] = useState<string|null>(null);
@@ -20,8 +21,12 @@ export function TemporalKnowledgeAtlas({graph}:{graph:KnowledgeGraph}) {
   const active = pairs.find(p=>p.key===pairKey);
   const facts = active ? graph.edges.filter(edge=>active.links.some(link=>link.id===edge.id)) : [];
   const names = new Map(network.nodes.map(node=>[node.key,node.name]));
-  if (!network.links.length) return <p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">
-    {t("这个时点没有可公开核查的实体关系。","No supported public relations at this time.")}</p>;
+  if (!network.links.length) return <div role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">
+    <p>{t("这个事件在当前时点没有可公开核查的关系。不会用全局当前图谱替代事件证据。","No public relations are linked to this event at the selected time. The current global graph is not substituted for event evidence.")}</p>
+    <Link to={lang === "en" ? "/en/knowledge" : "/knowledge"} className="mt-3 inline-block font-medium text-accent hover:underline">
+      {t("另行探索全局知识网络 ↗","Explore the global knowledge network separately ↗")}
+    </Link>
+  </div>;
   return <section className="lr-atlas" aria-label={t("历史聚焦知识图谱","Historical focused knowledge atlas")}>
     <div className="lr-atlas-toolbar">
       <strong>KNOWLEDGE ATLAS</strong>
