@@ -21,7 +21,7 @@ function SideLink({ item, dot }: { item: NavItem; dot: boolean }) {
   const { pathname } = useLocation();
   const isActive = sidebarIsActive(item, pathname);
   const language = useUiLanguage();
-  const englishLabels: Record<string,string> = {"/":"Overview","/all":"All News","/hot":"Event Tree","/knowledge":"Knowledge Graph","/daily":"Daily Brief","/topics":"Topics","/starred":"Saved","/agent":"For Agents","/about":"About","/changelog":"Updates","/feedback":"Feedback"};
+  const englishLabels: Record<string,string> = {"/":"Overview","/all":"All News","/hot":"Event Tree","/knowledge":"Knowledge Graph","/explore":"Explorer","/daily":"Daily Brief","/topics":"Topics","/starred":"Saved","/agent":"For Agents","/about":"About","/changelog":"Updates","/feedback":"Feedback"};
   const Icon = item.icon;
   return (
     <Link

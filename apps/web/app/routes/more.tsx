@@ -13,7 +13,7 @@ import { setFontPreference, useFontPreference, useStarred } from "../lib/local-s
 import { Select } from "../components/ui/Controls";
 import { ThemeSwitch } from "../components/shell/ThemeSwitch";
 import { LanguageSwitch, useUiLanguage } from "../components/LanguageSwitch";
-import { IconNetwork, IconBookmark, IconChevronRight, IconGrid, IconHeart, IconMessage, IconMoon, IconPlug, IconSparkles } from "../components/icons";
+import { IconNetwork, IconBookmark, IconChevronRight, IconGrid, IconHeart, IconHistory, IconMessage, IconMoon, IconPlug, IconSparkles } from "../components/icons";
 
 export const handle: Screen = { tab: "me", name: "我的" };
 
@@ -38,6 +38,7 @@ const agentWays = () => [...webModules().flatMap((m) => m.agentWays ?? []), "MCP
 const tools = (): Row[] => [
   ...webModules().flatMap((m) => m.tools ?? []),
   { to: "/knowledge", label: "知识网络", icon: <IconNetwork size={20} />, detail: "实体 · 关系 · 来源" },
+  { to: "/explore", label: "探索工作台", icon: <IconHistory size={20} />, detail: "时点回放 · 关系证据" },
   { to: "/daily", label: "日报与回顾", icon: <IconGrid size={20} /> },
   ...(inNav("/topics") ? [{ to: "/topics", label: "主题", icon: <IconGrid size={20} /> }] : []),
   { to: "/agent", label: "Agent 接入", icon: <IconPlug size={20} />, detail: agentWays().slice(0, 3).join(" · ") },
@@ -96,6 +97,7 @@ export default function MorePage() {
         </Group>
         <Group title="RESEARCH">
           <RowLink row={{to:"/knowledge",label:"Knowledge Graph",icon:<IconNetwork size={20}/>,detail:"Entities · Facts"}} />
+          <RowLink row={{to:"/explore",label:"Event explorer",icon:<IconHistory size={20}/>,detail:"Replay · Evidence"}} />
           <RowLink row={{to:"/hot",label:"Event Timeline",icon:<IconGrid size={20}/>}} />
           <RowLink row={{to:"/starred",label:"Saved reports",icon:<IconBookmark size={20}/>,detail:here&&starred.length?String(starred.length):undefined}} />
           <RowLink row={{to:"/daily",label:"Daily report (Chinese edition)",icon:<IconGrid size={20}/>}} />

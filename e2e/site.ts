@@ -4,11 +4,11 @@ import { expect, type Page, type TestInfo } from "@playwright/test";
 
 /** Pages every site has, data or not. */
 export const PAGES = [
-  "/", "/all", "/hot", "/knowledge", "/daily", "/daily/archive", "/weekly", "/monthly", "/topics", "/starred",
+  "/", "/all", "/hot", "/knowledge", "/explore", "/daily", "/daily/archive", "/weekly", "/monthly", "/topics", "/starred",
   "/agent", "/about", "/changelog", "/feedback", "/terms", "/privacy", "/more", "/admin/login",
 ];
 /** The English edition's stable addresses (apps/web/app/lib/edition.ts). */
-export const EN_PAGES = ["/en", "/en/hot", "/en/knowledge", "/en/daily", "/en/topics"];
+export const EN_PAGES = ["/en", "/en/hot", "/en/knowledge", "/en/explore", "/en/daily", "/en/topics"];
 
 export interface Samples {
   item?: string;
