@@ -7,6 +7,7 @@ function fact(
   factId: string,
   firstReportAt: string,
   discoveredAt?: string,
+  representativePublishedAt = firstReportAt,
 ): StoryFactView {
   return {
     factId,
@@ -18,7 +19,7 @@ function fact(
       title: factId,
       summary: null,
       source: { name: "Test source", firstParty: false },
-      publishedAt: firstReportAt,
+      publishedAt: representativePublishedAt,
       ...(discoveredAt ? { discoveredAt } : {}),
       selected: false,
     },
@@ -50,6 +51,16 @@ test("valid-time progress follows first-report time even if the system discovere
     developmentsAt(rows, "2026-10-19T10:00:00Z", "valid").map(row => row.factId),
     ["reported-early-discovered-late", "known-early", "missing-discovery"],
   );
+});
+
+test("a representative source published after the cutoff is not shown as historical progress", () => {
+  const rows = [
+    fact("future-source-known", "2026-10-19T07:00:00Z", "2026-10-19T09:00:00Z", "2026-10-19T12:00:00Z"),
+    fact("future-source-valid", "2026-10-19T07:00:00Z", "2026-10-19T09:00:00Z", "2026-10-19T12:00:00Z"),
+  ];
+
+  assert.deepEqual(developmentsAt(rows, "2026-10-19T10:00:00Z", "known"), []);
+  assert.deepEqual(developmentsAt(rows, "2026-10-19T10:00:00Z", "valid"), []);
 });
 
 test("historical progress does not guess when the cutoff or its clock timestamp is invalid", () => {

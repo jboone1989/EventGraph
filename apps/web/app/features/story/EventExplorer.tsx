@@ -72,24 +72,24 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
       {story.developments.length > 0 && <section className="rounded-panel border border-line-soft p-4" aria-label={t("按时点筛选的事件进展","Event developments at selected time")}>
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="text-sm font-semibold">{t("事件进展","Event developments")}</h3>
-          <span className="text-xs text-ink-4">{developments.length} / {story.developments.length}</span>
+          <span data-testid="event-development-count" data-count={developments.length} className="text-xs text-ink-4">{developments.length} {t("条进展","developments")}</span>
         </div>
         {developments.length > 0 ? <ol className="mt-3 space-y-3">
           {developments.map(d => {
             const timestamp = clock === "known" ? d.representative.discoveredAt! : d.firstReportAt;
             return <li key={d.factId} className="border-l-2 border-line pl-3">
-              <p className="text-xs text-ink-4">{formatTime(timestamp)} · {d.reportCount} {t("篇报道","reports")}</p>
+              <p className="text-xs text-ink-4">{formatTime(timestamp)}</p>
               <Link to={lang==="en"?"/en/items/"+d.representative.id:"/items/"+d.representative.id} className="mt-1 block text-sm font-medium hover:text-accent">
-                {lang === "en" ? (englishText(d.title) ?? reportTitle(d.representative)) : d.title}
+                {reportTitle(d.representative)}
               </Link>
-              <p className="mt-1 text-xs text-ink-4">{d.representative.source.name} · {reportTitle(d.representative)}</p>
+              <p className="mt-1 text-xs text-ink-4">{d.representative.source.name}</p>
             </li>;
           })}
         </ol> : <p className="mt-3 text-sm text-ink-4">{t("这个时点没有带有可核验时间戳的进展记录。","No timestamped developments are available at this cutoff.")}</p>}
         <p className="mt-3 text-xs text-ink-4">
           {clock === "known"
-            ? t("按本站首次收录时间筛选；缺失时间戳的进展不会被猜测补入。","Filtered by first discovery; missing timestamps are not inferred.")
-            : t("按最早报道发布时间筛选；这是回顾视角，不代表当时已知。","Filtered by first report publication time; this is retrospective, not what was known then.")}
+            ? t("按本站首次收录时间筛选；只显示代表报道在此时点前已收录的进展。当前事件归组可能后来修订，不是完整历史快照。","Filtered by first discovery; only representative reports already discovered by this cutoff are shown. Story grouping may have changed later, so this is not a complete historical snapshot.")
+            : t("按最早报道发布时间筛选；只显示代表报道在此时点前发布的进展。当前事件归组可能后来修订，不是完整历史快照。","Filtered by first report publication; only representative reports published by this cutoff are shown. Story grouping may have changed later, so this is not a complete historical snapshot.")}
         </p>
       </section>}
     </div>
@@ -104,7 +104,7 @@ export function EventExplorer({ story }: { story: StoryDetail }) {
         {!loading && graphScope===scope && !graph && <p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">
           {t("历史关系无法验证，不以当前图谱替代。","Historical graph unavailable; no present-day graph substituted.")}</p>}
       </div>
-      <aside className={tab==="evidence"?"min-w-0":"hidden min-w-0 lg:block"}>
+      <aside aria-label={clock==="known" ? t("当时可用的报道来源","Reports available by this time") : t("该时点之前发布的报道来源","Reports published by this time")} className={tab==="evidence"?"min-w-0":"hidden min-w-0 lg:block"}>
         <h3 className="mb-2 text-sm font-semibold">{clock==="known" ? t("当时可用的报道来源","Reports available by this time") : t("该时点之前发布的报道来源","Reports published by this time")} · {reports.length}</h3>
         <ol className="max-h-[620px] divide-y divide-line-soft overflow-auto rounded-panel border border-line-soft px-3">
           {reports.map(r => <li key={r.id} className="py-3">
