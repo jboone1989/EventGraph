@@ -61,6 +61,8 @@ export function developmentsAt(
   const cutoff = Date.parse(asOf);
   const at = (development: StoryFactView) =>
     clock === "known" ? development.representative.discoveredAt : development.firstReportAt;
+  const displayAt = (development: StoryFactView) =>
+    clock === "known" ? development.representative.discoveredAt : development.representative.publishedAt;
   return developments
     .filter(development =>
       validTimestamp(at(development)) &&
@@ -68,5 +70,5 @@ export function developmentsAt(
       validTimestamp(development.representative.publishedAt) &&
       Date.parse(development.representative.publishedAt) <= cutoff
     )
-    .sort((a, b) => Date.parse(at(a)!) - Date.parse(at(b)!) || a.factId.localeCompare(b.factId));
+    .sort((a, b) => Date.parse(displayAt(a)!) - Date.parse(displayAt(b)!) || a.factId.localeCompare(b.factId));
 }

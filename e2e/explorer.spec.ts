@@ -141,7 +141,7 @@ test("event progress follows the selected historical cutoff", async ({page}) => 
   expect(response.ok(), "Story detail API must be available for the seeded event").toBeTruthy();
   const story = await response.json();
   const frames = buildReplayFrames(story.timeline ?? [], "known");
-  expect(frames.length, "Seeded event must have at least one replay frame").toBeGreaterThan(0);
+  expect(frames.length, "Seeded event must have at least two distinct known-time frames for replay interaction").toBeGreaterThan(1);
   const expectedCounts = frames.map(frame => developmentsAt(story.developments ?? [], frame.publishedAt, "known").length);
 
   await open(page, "/en/story/" + seeded.story);
