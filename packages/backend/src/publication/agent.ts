@@ -342,6 +342,28 @@ const GRAPH_HINTS = [
   NO_INTERNALS,
 ];
 
+/** The structured evidence bundle (MCP get_evidence_bundle): the same object the site API serves. */
+export function evidenceBundleAnswer(bundle: {
+  object: { kind: string; id: string }; status: string; clock: string | null; asOf: string | null;
+  generatedAt: string; fidelity: string | null; limits: { edgeLimit: number | null; truncated: boolean };
+  relations: GraphEdge[]; coverage: { relations: number; sources: number };
+}): string {
+  const kindLabel = bundle.object.kind === "story" ? "事件" : bundle.object.kind === "entity" ? "实体" : "关系";
+  const scoped = bundle.asOf ? `（${bundle.clock === "valid" ? "事实生效时间" : "收录时间"}截至 ${stamp(bundle.asOf)}，有界历史读，生成于 ${stamp(bundle.generatedAt)}）` : `（当前视角，生成于 ${stamp(bundle.generatedAt)}）`;
+  if (bundle.status === "unavailable" || bundle.status === "disabled")
+    return answer([`# ${SITE.name} 证据包：${kindLabel} ${bundle.object.id}`, "", `状态：${bundle.status}${scoped}`], [],
+      ["知识图谱暂时无法访问，如实说明，稍后再试，不要用别的内容冒充。", NO_INTERNALS]);
+  if (!bundle.relations.length)
+    return answer([`# ${SITE.name} 证据包：${kindLabel} ${bundle.object.id}`, "", `这个对象没有有公开来源的关系${scoped}。`], [],
+      ["直接说明没有证据，不要自己推断关系。", NO_INTERNALS]);
+  return answer([
+    `# ${SITE.name} 证据包：${kindLabel} ${bundle.object.id}`,
+    "",
+    `${bundle.relations.length} 条关系 · ${bundle.coverage.sources} 个来源${scoped}`,
+    ...(bundle.limits.truncated ? [`注意：读数达到单次上限 ${bundle.limits.edgeLimit} 条，可能不完整。`] : []),
+  ], relationLines(bundle.relations), GRAPH_HINTS);
+}
+
 /** A public story's knowledge relations (MCP get_story_graph). */
 export function storyGraphAnswer(title: string, publicId: string, graph: { status: string; edges: GraphEdge[] }): string {
   const head = [`# ${SITE.name} 事件关系：${title}`, "", `事件页：${siteUrl(`/story/${publicId}`)}`];
