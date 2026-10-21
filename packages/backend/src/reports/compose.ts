@@ -210,7 +210,7 @@ async function composePeriod(kind: "weekly" | "monthly", key: string, startDate:
   try {
     const res = await chatJson({
       model, purpose: `report_${kind}`, subject: `report:${kind}:${key}`, promptVersion: REPORT_VERSION,
-      ...periodPrompt(kind, startDate, endDateInclusive, groups), schema: PeriodSchema, temperature: 0.3, maxTokens: 2500,
+      ...periodPrompt(kind, startDate, endDateInclusive, groups), schema: PeriodSchema, temperature: 0.3, maxTokens: 8192,
     });
     written = res.data;
     receiptId = res.receiptId;

@@ -60,7 +60,7 @@ async function writeItems(deadline: number, limit: number): Promise<{ written: n
       const res = await chatJson({
         model: await modelFor("english"), purpose: "english_copy", subject: `article:${r.article_id}#${r.hash.slice(0, 8)}`,
         promptVersion: ENGLISH_COPY_PROMPT_VERSION, system: COPY_SYSTEM, user: buildEnglishCopyInput(r), schema: EnglishCopySchema,
-        temperature: 0.3, maxTokens: 900, attemptTag: retry ? `retry-${retry}` : undefined,
+        temperature: 0.3, maxTokens: 4096, attemptTag: retry ? `retry-${retry}` : undefined,
       });
       await sql.begin(async (tx) => {
         await tx`
@@ -98,7 +98,7 @@ async function writeStories(deadline: number, limit: number): Promise<{ written:
         model: await modelFor("english"), purpose: "english_digest", subject: `story:${r.id}#${r.hash.slice(0, 8)}`,
         promptVersion: ENGLISH_DIGEST_PROMPT_VERSION, system: DIGEST_SYSTEM,
         user: JSON.stringify({ chineseTitle: r.title, chineseDigest: r.digest, reports: (r.titles ?? []).slice(0, 30) }),
-        schema: EnglishDigestSchema, temperature: 0.3, maxTokens: 1200, attemptTag: retry ? `retry-${retry}` : undefined,
+        schema: EnglishDigestSchema, temperature: 0.3, maxTokens: 8192, attemptTag: retry ? `retry-${retry}` : undefined,
       });
       await sql.begin(async (tx) => {
         await tx`
