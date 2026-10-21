@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLoaderData, useSearchParams } from "react-router";
 import type { Route } from "./+types/explore";
-import type { HotResponse, StoryDetail } from "@aihot/contracts/site";
+import type { ExploreGalleryResponse, HotResponse, StoryDetail } from "@aihot/contracts/site";
 import { SITE } from "@aihot/site";
 import { apiGet, cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { localized, pageMeta } from "../lib/seo";
+import { localizedRelativeTime } from "../lib/format";
 import { PhoneBar } from "../components/shell/PhoneBar";
 import type { Screen } from "../components/shell/screens";
 import { EmptyState } from "../components/ui/Page";
@@ -30,10 +31,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     const prefix = url.pathname.startsWith("/en") ? "/en" : "";
     const story = await loadOr404<StoryDetail>(`/api/site/stories/${encodeURIComponent(storyId)}`,
       { signal: request.signal, merged: (mergedId) => `${prefix}/explore?story=${mergedId}` });
-    return cachedPage(30, { story, hot: null });
+    return cachedPage(30, { story, hot: null, gallery: null });
   }
-  const hot = await apiGet<HotResponse>("/api/site/hot", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null);
-  return cachedPage(60, { story: null, hot });
+  const [hot, gallery] = await Promise.all([
+    apiGet<HotResponse>("/api/site/hot", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null),
+    apiGet<ExploreGalleryResponse>("/api/site/explore/gallery", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null),
+  ]);
+  return cachedPage(60, { story: null, hot, gallery });
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
@@ -120,7 +124,7 @@ function EntityTimeBar({ clock, asOf, onTime }: {
 }
 
 export default function ExplorePage() {
-  const { story, hot } = useLoaderData<typeof loader>();
+  const { story, hot, gallery } = useLoaderData<typeof loader>();
   const t = useText();
   const lang = useUiLanguage();
   const prefix = lang === "en" ? "/en" : "";
@@ -222,5 +226,36 @@ export default function ExplorePage() {
       </p>
     </section>
     <EntitySearch prefix={prefix} />
+    {gallery?.cards?.length ? <section className="mt-8">
+      <h2 className="text-[18px] font-semibold text-ink">{t("按主题探索","Explore by topic")}</h2>
+      <p className="mt-1 text-[13px] text-ink-4">
+        {t("各主题下最近的公开事件，点开任意一张卡就进入它的时间回放。","Recent public events under each topic; any card opens that event's time replay.")}
+      </p>
+      <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {gallery.cards.map((card) => (
+          <li key={card.story.publicId}>
+            <Link to={`${prefix}/explore?story=${card.story.publicId}`}
+              className="flex h-full flex-col overflow-hidden rounded-panel border border-line-soft hover:border-accent">
+              {card.cover && <img src={card.cover.url} srcSet={card.cover.srcSet}
+                sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, calc(100vw - 74px)"
+                width={card.cover.width ?? undefined} height={card.cover.height ?? undefined}
+                alt="" loading="lazy" decoding="async" className="aspect-[2/1] w-full object-cover" />}
+              <span className="flex flex-1 flex-col gap-1 p-4">
+                <span className="text-[12px] font-medium text-accent">{card.topic.name}</span>
+                <span className="text-[15px] font-semibold leading-snug text-ink">
+                  {lang === "en" ? card.englishTitle ?? card.story.title : card.story.title}
+                </span>
+                {card.summary && <span className="line-clamp-2 text-[13px] leading-[1.7] text-ink-3">{card.summary}</span>}
+                <span className="mt-auto pt-1 text-[12px] text-ink-4">
+                  {t(`${card.stageCount} 个阶段 · ${card.sourceCount} 个来源`,
+                    `${card.stageCount} stages · ${card.sourceCount} sources`)}
+                  {" · "}{localizedRelativeTime(card.latestAt, lang)}
+                </span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section> : null}
   </div>;
 }

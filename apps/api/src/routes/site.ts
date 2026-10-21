@@ -19,6 +19,7 @@ import { FOLLOW_LIMITS, followingItems, followList } from "@aihot/backend/public
 import { loadItemContext } from "@aihot/backend/publication/item-context";
 import { registerFeedback } from "./feedback.ts";
 import { loadHot, loadStoryDetail, resolveStory } from "@aihot/backend/publication/stories";
+import { publicExploreGallery } from "@aihot/backend/publication/gallery";
 import { listReports, loadReport, reportNavigation, loadReportNavigation, loadReportMonth, type ReportKind } from "@aihot/backend/publication/reports";
 import { looseQuery, sendJsonWithEtag, sendProblem } from "../http/respond.ts";
 
@@ -172,6 +173,11 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/hot", siteHandler(async (req, reply) => {
     const data = await loadHot();
     return sendJsonWithEtag(req, reply, data, { etagPrefix: "hot", cacheControl: "public, max-age=30, s-maxage=30" });
+  }));
+
+  app.get("/api/site/explore/gallery", siteHandler(async (req, reply) => {
+    const data = await publicExploreGallery();
+    return sendJsonWithEtag(req, reply, data, { etagPrefix: "explore-gallery", cacheControl: "public, max-age=60, s-maxage=60" });
   }));
 
   app.get("/api/site/stories/:publicId", siteHandler(async (req, reply) => {
