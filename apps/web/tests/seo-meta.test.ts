@@ -4,7 +4,7 @@ import { test } from "node:test";
 import type { MetaDescriptor } from "react-router";
 import { SITE } from "@aihot/site";
 import { resolveRedirect } from "@aihot/contracts/http-policy";
-import { pageMeta } from "../app/lib/seo.ts";
+import { pageMeta, siteUrl } from "../app/lib/seo.ts";
 
 const first = (tags: MetaDescriptor[], pick: (t: MetaDescriptor) => boolean) =>
   tags.find(pick) as { content?: string; href?: string; title?: string };
@@ -17,11 +17,12 @@ test("meta description 折叠换行与连续空白", () => {
 });
 
 test("canonical 与 og:url 去掉尾斜杠，根路径除外", () => {
+  const base = siteUrl();
   for (const path of ["/daily/", "/explore/", "/topics/x/", "/"]) {
     const tags = pageMeta({ title: "标题", path });
     const expected = path === "/" ? path : path.replace(/\/+$/, "");
-    assert.equal(first(tags, (t) => "rel" in t && t.rel === "canonical").href, `http://localhost:3000${expected}`);
-    assert.equal(first(tags, (t) => "property" in t && t.property === "og:url").content, `http://localhost:3000${expected}`, path);
+    assert.equal(first(tags, (t) => "rel" in t && t.rel === "canonical").href, `${base}${expected}`);
+    assert.equal(first(tags, (t) => "property" in t && t.property === "og:url").content, `${base}${expected}`, path);
   }
 });
 
