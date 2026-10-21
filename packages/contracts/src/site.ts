@@ -332,6 +332,47 @@ export interface StoryDetail {
   topics: TopicLink[];
 }
 
+// Structured story route (EG-T17): the deterministic, evidence-backed station path of one event.
+export type StoryRouteReport = {
+  articleId: string;
+  /** Direct original source URL for evidence review. */
+  url: string;
+  source: string;
+  /** The source's stated publication time; null when the source did not state one. */
+  publishedAt: string | null;
+  /** When the system first recorded the report; distinct from publishedAt. */
+  discoveredAt: string;
+  /** Present only when the report was revised (revision above 1). */
+  revision: number | null;
+};
+export type StoryRouteStation = {
+  factId: string;
+  title: string;
+  /** The fact's stated occurrence time; null means the record only knows when it was reported. */
+  timeEffective: string | null;
+  /** When the system first recorded public evidence for this station. */
+  timeRecorded: string;
+  /** Bounded evidence list, selected sources first. */
+  reports: StoryRouteReport[];
+  sourceCount: number;
+  uncertainty: {
+    singleSource: boolean;
+    occurredAtMissing: boolean;
+    revised: boolean;
+  };
+};
+export type StoryRoute = {
+  schemaVersion: 1;
+  story: StoryRef;
+  status: "ok" | "insufficient";
+  /** Why the route breaks off; "no_public_evidence" when no public evidence exists today. */
+  reason: "no_public_evidence" | null;
+  generatedAt: string;
+  limits: { stationLimit: number; reportLimit: number; truncated: boolean };
+  stations: StoryRouteStation[];
+  coverage: { stations: number; reports: number; sources: number };
+};
+
 // Reports (daily / weekly / monthly)
 
 export type ReportKind = "daily" | "weekly" | "monthly";

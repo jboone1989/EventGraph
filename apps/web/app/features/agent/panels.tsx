@@ -73,6 +73,7 @@ export function McpPanel(props: AgentPanelProps) {
             [<Mono>{T.storyGraph}</Mono>, "一个事件在知识图谱里的关系和来源报道", "这件事牵涉到哪些公司和人？"],
             [<Mono>{T.entity}</Mono>, "一个图谱实体的全部关系、生效失效时间和相关事件", "这家公司最近和谁有关系？"],
             [<Mono>{T.evidenceBundle}</Mono>, "一个事件/实体/关系的机器可读证据包：对象、原文链接、时间与读取边界", "把这件事的原始证据整理成结构化数据。"],
+            [<Mono>{T.storyRoute}</Mono>, "一个事件的逐站路线：每站带证据链接、发生/收录两种时间和不确定性标注", "按时间顺序讲讲这件事的经过，附原文出处。"],
             ...AGENT_PARTS.flatMap((a) => a.tools ?? []).map((t) => [<Mono>{t.name}</Mono>, t.does, t.ask]),
           ]}
         />
