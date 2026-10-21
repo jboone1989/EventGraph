@@ -10,6 +10,7 @@ import { edgeTtl } from "../lib/api.server";
 import { webModules } from "../site-modules";
 import { pageMeta } from "../lib/seo";
 import { setFontPreference, useFontPreference, useStarred } from "../lib/local-state";
+import { trackAnalytics } from "../lib/analytics.client";
 import { Select } from "../components/ui/Controls";
 import { ThemeSwitch } from "../components/shell/ThemeSwitch";
 import { LanguageSwitch, useUiLanguage } from "../components/LanguageSwitch";
@@ -109,7 +110,7 @@ export default function MorePage() {
         </Group>
       </div>
       <div className="mt-6 flex justify-center gap-5 text-[12px] text-ink-4">
-        <Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="/feed.xml">RSS</a>
+        <Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="/feed.xml" onClick={() => trackAnalytics("rss_open")}>RSS</a>
       </div>
     </div>
   );
@@ -151,7 +152,7 @@ export default function MorePage() {
       <div className="mt-6 flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12px] leading-[2] text-ink-4">
         <Link viewTransition to="/terms" className="hover:text-ink-2">{POLICY.terms.name}</Link>
         <Link viewTransition to="/privacy" className="hover:text-ink-2">隐私说明</Link>
-        <a href="/feed.xml" className="hover:text-ink-2">RSS</a>
+        <a href="/feed.xml" className="hover:text-ink-2" onClick={() => trackAnalytics("rss_open")}>RSS</a>
         {SITE.github && <a href={SITE.github} target="_blank" rel="noopener noreferrer" className="hover:text-ink-2">GitHub 开源</a>}
         {SITE.icp && <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-ink-2">{SITE.icp}</a>}
       </div>

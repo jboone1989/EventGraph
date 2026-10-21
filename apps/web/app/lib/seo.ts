@@ -74,7 +74,8 @@ export function titled(title: string): string {
 export function pageMeta(input: PageMetaInput): MetaDescriptor[] {
   const base = siteUrl();
   const title = input.title ? (input.rawTitle ? input.title : titled(input.title)) : HOME_TITLE;
-  const description = input.description ?? SITE_DESCRIPTION;
+  // Model-written digests can be multi-paragraph; a raw newline inside the content attribute ends up in the served HTML and search engines truncate the snippet there.
+  const description = (input.description ?? SITE_DESCRIPTION).replace(/\s+/g, " ").trim();
   const url = `${base}${input.path}`;
   const image = input.image ? (input.image.startsWith("http") ? input.image : `${base}${input.image}`) : `${base}/og/site.png`;
   const tags: MetaDescriptor[] = [
@@ -120,9 +121,10 @@ export function localized(tags: MetaDescriptor[], pathname: string, en: { title:
   ];
   if (!isEnglishPath(pathname)) return [...tags, ...alternates];
   const title = titled(en.title);
+  const enDescription = en.description.replace(/\s+/g, " ").trim();
   const replace: Record<string, string> = {
-    description: en.description, "og:title": en.title, "og:description": en.description, "og:url": `${base}${enPath}`,
-    "og:locale": "en_US", "twitter:title": en.title, "twitter:description": en.description,
+    description: enDescription, "og:title": en.title, "og:description": enDescription, "og:url": `${base}${enPath}`,
+    "og:locale": "en_US", "twitter:title": en.title, "twitter:description": enDescription,
   };
   return [
     ...tags.map((t): MetaDescriptor => {

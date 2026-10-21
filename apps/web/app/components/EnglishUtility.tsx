@@ -3,6 +3,7 @@ import {Link,useSearchParams} from "react-router";
 import {PhoneBar} from "./shell/PhoneBar";
 import {IconArrowRight,IconExternal} from "./icons";
 import {removeStar} from "../lib/local-state";
+import {trackAnalytics} from "../lib/analytics.client";
 import {SITE} from "@aihot/site";
 
 function Header({title,subtitle}:{title:string;subtitle:string}) {
@@ -44,7 +45,7 @@ export function EnglishAgent({base,healthy}:{base:string;healthy:boolean}) {
  <span className="mb-4 inline-flex rounded-lg border border-line px-3 py-1 text-[12px] text-ink-3">{healthy?"Service responding":"Service health currently unavailable"}</span>
  <div className="grid gap-4 md:grid-cols-2">{methods.map(([name,path,detail])=><section key={path} className="rounded-xl border border-line bg-surface p-5">
    <h2 className="text-[17px] font-semibold">{name}</h2><p className="mt-2 text-[13px] leading-[1.8] text-ink-3">{detail}</p>
-   <a href={path} className="mt-3 inline-flex items-center gap-1.5 break-all text-[12px] text-accent">{base+path} <IconExternal size={13}/></a>
+   <a href={path} onClick={path==="/feed.xml"?()=>trackAnalytics("rss_open"):undefined} className="mt-3 inline-flex items-center gap-1.5 break-all text-[12px] text-accent">{base+path} <IconExternal size={13}/></a>
  </section>)}</div>
  <p className="mt-6 text-[12px] text-ink-4">If a client gets a 429 response, respect Retry-After. Verify important market and policy claims using original publisher sources.</p>
  </main>;
