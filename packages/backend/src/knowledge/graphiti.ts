@@ -147,8 +147,11 @@ export async function graphForEntity(uuid: string, time?: GraphTime) {
   if (!process.env.GRAPHITI_API_URL) return { entity: null, edges: [], status: "disabled" };
   try {
     const query = time ? `?as_of=${encodeURIComponent(time.asOf.toISOString())}&clock=${time.clock}` : "";
-    return await graphiti<{ entity: {key:string;name:string;kind:string;summary?:string|null}|null; edges:Edge[]; status?: string }>(
+    const result = await graphiti<{ entity: {key:string;name:string;kind:string;summary?:string|null}|null; edges:Edge[]; status?: string; temporalSupport?: string }>(
       "/entities/" + encodeURIComponent(uuid) + query);
+    // Same contract as the story graph: an older knowledge service ignores the time query and
+    // answers with the current graph, which must never pass as a historical read.
+    return supportsTemporalGraph(result, time) ? result : { entity: null, edges: [], status: "unavailable" };
   } catch (error) {
     console.error("graphiti_entity_lookup_failed", error);
     return { entity: null, edges: [], status: "unavailable" };

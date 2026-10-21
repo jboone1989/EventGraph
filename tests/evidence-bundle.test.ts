@@ -30,6 +30,10 @@ before(async () => {
       return;
     }
     if (req.url === '/entities/ent-alpha') return res.end(JSON.stringify({ entity: { key: 'ent-alpha', name: 'Alpha Corp', kind: 'entity' }, edges: [edge('e-entity', ['eb-public'])] }));
+    if (req.url?.startsWith('/entities/ent-scoped')) {
+      const scoped = new URL(req.url, 'http://fake').searchParams.has('as_of');
+      return res.end(JSON.stringify({ entity: { key: 'ent-scoped', name: 'Scoped Corp', kind: 'entity' }, edges: [edge('e-entity', ['eb-public'])], ...(scoped ? { temporalSupport: 'bitemporal-v1' } : {}) }));
+    }
     if (req.url === '/relations/e-public') return res.end(JSON.stringify({ entities: 2, edges: [edge('e-public', ['eb-public'])] }));
     res.end(JSON.stringify({ entity: null, edges: [] }));
   });
@@ -97,4 +101,29 @@ test('unavailable and unknown objects answer with a status, never a substitute',
   const unknownEntity = await publicEvidenceBundle({ kind: 'entity', key: 'ent-unknown' });
   assert.equal(unknownEntity.status, 'ok');
   assert.deepEqual(unknownEntity.relations, []);
+});
+
+test('a scoped entity bundle fails closed when the service does not acknowledge the time contract', { timeout: 10000 }, async () => {
+  // ent-alpha's service ignores the as_of query (no temporalSupport receipt): a current
+  // snapshot must never pass as a bounded historical read.
+  const bundle = await publicEvidenceBundle({ kind: 'entity', key: 'ent-alpha' }, new Date(),
+    { asOf: new Date('2026-10-01T00:00:00Z'), clock: 'known' });
+  assert.equal(bundle.status, 'unavailable');
+  assert.deepEqual(bundle.relations, []);
+});
+
+test('a scoped entity bundle is bounded when the service acknowledges the contract', { timeout: 10000 }, async () => {
+  const bundle = await publicEvidenceBundle({ kind: 'entity', key: 'ent-scoped' }, new Date(),
+    { asOf: new Date(), clock: 'valid' });
+  assert.equal(bundle.status, 'ok');
+  assert.equal(bundle.fidelity, 'bounded');
+  assert.equal(bundle.temporalSupport, 'bitemporal-v1');
+  assert.deepEqual(bundle.relations.map((r) => r.id), ['e-entity']);
+});
+
+test('a scoped relation bundle fails closed; the single-relation endpoint cannot bound a read', { timeout: 10000 }, async () => {
+  const bundle = await publicEvidenceBundle({ kind: 'relation', key: 'e-public' }, new Date(),
+    { asOf: new Date('2026-10-01T00:00:00Z'), clock: 'known' });
+  assert.equal(bundle.status, 'unavailable');
+  assert.deepEqual(bundle.relations, [], "today's snapshot must not pass as a bounded historical read");
 });

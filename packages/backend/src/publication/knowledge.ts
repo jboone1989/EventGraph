@@ -234,7 +234,9 @@ export type EvidenceBundle = {
 export async function publicEvidenceBundle(query: EvidenceBundleQuery, now = new Date(), time?: GraphTime): Promise<EvidenceBundle> {
   const base = query.kind === "story" ? await publicStoryGraph(query.publicId, now, time)
     : query.kind === "entity" ? await entityProfile(query.key, now, time)
-    : await publicGraphRelation(query.key, now);
+    // The single-relation endpoint cannot bound a read to a past moment (no as_of support),
+    // so a scoped relation read fails closed instead of labeling today's snapshot as history.
+    : time ? { edges: [], status: "unavailable" } : await publicGraphRelation(query.key, now);
   const head = {
     schemaVersion: 1 as const,
     object: query.kind === "story" ? { kind: "story" as const, id: query.publicId }
