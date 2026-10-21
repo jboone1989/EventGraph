@@ -244,6 +244,29 @@ export interface HotResponse {
   entries: HotEntryView[];
 }
 
+/** One explore-gallery card: a real public event, discovered through its topic (EG-14). */
+export interface GalleryCard {
+  story: StoryRef;
+  /** The story's English original title, for reader language switching. */
+  englishTitle: string | null;
+  /** The topic that presents the story; a story is claimed once, by its first topic. */
+  topic: TopicLink;
+  /** A picture from the story's public full-text reports; null when there is none — never a placeholder. */
+  cover: { url: string; srcSet?: string; width: number | null; height: number | null } | null;
+  /** Distinct sources among the story's public reports. */
+  sourceCount: number;
+  /** Facts of the story that currently have public evidence. */
+  stageCount: number;
+  latestAt: string;
+  /** A card excerpt of the story's saved summary, still supported by a public report. */
+  summary: string | null;
+}
+
+export interface ExploreGalleryResponse {
+  computedAt: string;
+  cards: GalleryCard[];
+}
+
 export interface HeatPoint {
   hour: string;
   heat: number;

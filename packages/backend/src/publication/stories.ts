@@ -237,10 +237,8 @@ async function sparklines(storyIds: number[], at: Date): Promise<Map<number, Arr
 const hotCovers = cachedByKey((ranking: HotRanking) => String(ranking.id), queryHotCovers, { ...SHARED_ONLY, maxKeys: 4 });
 
 /** A picture per story from its public full-text reports, the representative first, wide enough for a card. */
-async function queryHotCovers({ entries }: HotRanking) {
-  const at = new Date();
-  const ids = entries.map((e) => e.storyId);
-  const reps = entries.map((e) => e.representativeItemId).filter((id): id is string => !!id);
+export async function coversForStories(storyIds: number[], representativeItemIds: Array<string | null>, at = new Date()) {
+  const reps = representativeItemIds.filter((id): id is string => !!id);
   const rows = await sql<{ story_id: number; m: { url: string; width?: number; height?: number } }[]>`
     SELECT DISTINCT ON (p.story_id) p.story_id, img.m
     FROM publications p JOIN articles a ON a.id = p.article_id
@@ -248,14 +246,19 @@ async function queryHotCovers({ entries }: HotRanking) {
       SELECT m FROM jsonb_array_elements(coalesce(a.media, '[]'::jsonb)) m
       WHERE m->>'kind' = 'image' AND coalesce((m->>'width')::numeric, 800) >= 480 LIMIT 1
     ) img
-    WHERE p.story_id = ANY(${ids}::bigint[]) AND ${listedCondition(at)} AND p.body_mode <> 'summary'
+    WHERE p.story_id = ANY(${storyIds}::bigint[]) AND ${listedCondition(at)} AND p.body_mode <> 'summary'
     ORDER BY p.story_id, (p.article_id::text = ANY(${reps}::text[])) DESC, p.first_party DESC, p.selected DESC, coalesce(p.score, 0) DESC, p.article_id`;
   const covers = new Map(rows.map((c) => [Number(c.story_id), { url: c.m.url, width: typeof c.m.width === "number" ? c.m.width : null, height: typeof c.m.height === "number" ? c.m.height : null }]));
   return covers;
 }
 
+/** A picture per story from its public full-text reports, the representative first, wide enough for a card. */
+async function queryHotCovers({ entries }: HotRanking) {
+  return coversForStories(entries.map((e) => e.storyId), entries.map((e) => e.representativeItemId));
+}
+
 /** The card clips its text to a few lines; complete public words belong to the event page. */
-function excerpt(text: string): string {
+export function excerpt(text: string): string {
   const chars = Array.from(text);
   return chars.length > 480 ? chars.slice(0, 480).join("") + "…" : text;
 }
