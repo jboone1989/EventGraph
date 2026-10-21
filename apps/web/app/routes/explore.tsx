@@ -13,6 +13,7 @@ import { IconArrowRight, IconSearch } from "../components/icons";
 import { useText, useUiLanguage } from "../components/LanguageSwitch";
 import { EventExplorer } from "../features/story/EventExplorer";
 import { explorerTimeState, type ExplorerTimeState } from "../features/story/explore-state";
+import { KnowledgeAtlas } from "../components/KnowledgeAtlas";
 import type { AtlasNode } from "../lib/knowledge-atlas";
 
 // The standalone event explorer workbench: one shared time state over the story page's
@@ -64,7 +65,7 @@ function EntitySearch({ prefix }: { prefix: string }) {
   }, [query]);
   return <section className="mt-8">
     <h2 className="text-[18px] font-semibold text-ink">{t("按实体寻找线索","Follow an entity")}</h2>
-    <p className="mt-1 text-[13px] text-ink-4">{t("搜索已公开出现的公司、人物或技术，打开它们的档案与证据。","Search companies, people or technologies that appeared in public reporting, and open their profiles.")}</p>
+    <p className="mt-1 text-[13px] text-ink-4">{t("搜索已公开出现的公司、人物或技术，在工作台里按任意时点探索它们的关系。","Search companies, people or technologies that appeared in public reporting, and explore their relations at any point in time.")}</p>
     <label className="mt-3 flex max-w-[420px] items-center gap-2 rounded-control border border-line bg-bg-sunk/40 px-3 py-2 text-[14px]">
       <IconSearch size={16} className="shrink-0 text-ink-4" />
       <span className="sr-only">{t("搜索实体","Search entities")}</span>
@@ -74,7 +75,7 @@ function EntitySearch({ prefix }: { prefix: string }) {
     {centers.length > 0 && <ul className="mt-3 grid gap-2 sm:grid-cols-2">
       {centers.slice(0, 8).map((node) => (
         <li key={node.key}>
-          <Link to={`${prefix}/knowledge/entity/${encodeURIComponent(node.key)}`}
+          <Link to={`${prefix}/explore?entity=${encodeURIComponent(node.key)}`}
             className="flex min-h-[44px] items-center justify-between gap-2 rounded-control border border-line-soft px-3 text-[14px] font-medium text-ink hover:border-accent hover:text-accent">
             <span className="truncate">{node.name}</span>
             <span className="shrink-0 text-[12px] text-ink-4">{node.degree} {t("条关系","relations")}</span>
@@ -83,6 +84,39 @@ function EntitySearch({ prefix }: { prefix: string }) {
       ))}
     </ul>}
   </section>;
+}
+
+// Entity mode shares the workbench's clock/as-of URL state: the same time semantics as the
+// story view, applied to one entity's public relations.
+function toLocalInput(iso: string | null) {
+  if (!iso || !Number.isFinite(Date.parse(iso))) return "";
+  const d = new Date(iso);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+function EntityTimeBar({ clock, asOf, onTime }: {
+  clock: "known" | "valid";
+  asOf: string | null;
+  onTime: (next: { clock: "known" | "valid"; asOf: string | null }) => void;
+}) {
+  const t = useText();
+  const [draft, setDraft] = useState(() => toLocalInput(asOf));
+  useEffect(() => { setDraft(toLocalInput(asOf)); }, [asOf]);
+  return <div className="mb-4 flex flex-wrap items-center gap-2">
+    <button type="button" aria-pressed={clock === "known"} onClick={() => onTime({ clock: "known", asOf })}
+      className={clock === "known" ? "rounded-lg bg-accent px-3 py-2 text-xs text-white" : "rounded-lg border border-line px-3 py-2 text-xs"}>
+      {t("按收录时间重建","Recorded-time reconstruction")}
+    </button>
+    <button type="button" aria-pressed={clock === "valid"} onClick={() => onTime({ clock: "valid", asOf })}
+      className={clock === "valid" ? "rounded-lg bg-accent px-3 py-2 text-xs text-white" : "rounded-lg border border-line px-3 py-2 text-xs"}>
+      {t("事实生效时间","Valid time")}
+    </button>
+    <input type="datetime-local" aria-label={t("截至时点","As-of time")} value={draft}
+      onChange={(e) => { setDraft(e.target.value); const d = new Date(e.target.value);
+        if (Number.isFinite(d.getTime())) onTime({ clock, asOf: d.toISOString() }); }}
+      className="rounded-lg border border-line px-3 py-2 text-xs" />
+    {asOf && <button type="button" onClick={() => onTime({ clock, asOf: null })}
+      className="rounded-lg border border-line px-3 py-2 text-xs">{t("回到最新","Back to latest")}</button>}
+  </div>;
 }
 
 export default function ExplorePage() {
@@ -106,6 +140,34 @@ export default function ExplorePage() {
     if (time.asOf) url.searchParams.set("asOf", time.asOf); else url.searchParams.delete("asOf");
     window.history.replaceState(null, "", url);
   }, []);
+  // Entity mode: seeded from the deep-link params; the atlas then owns the ?entity= URL as the
+  // reader explores (pushState bypasses React Router, so these stay the seed).
+  const entityParam = params.get("entity")?.trim().slice(0, 180) || null;
+  const [entityTime, setEntityTime] = useState<{ clock: "known" | "valid"; asOf: string | null }>(() => ({
+    clock: params.get("clock") === "valid" ? "valid" : "known",
+    asOf: params.get("asOf"),
+  }));
+  const syncEntityTime = useCallback((next: { clock: "known" | "valid"; asOf: string | null }) => {
+    setEntityTime(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("clock", next.clock);
+    if (next.asOf) url.searchParams.set("asOf", next.asOf); else url.searchParams.delete("asOf");
+    window.history.replaceState(null, "", url);
+  }, []);
+  if (entityParam && !story) {
+    const time = entityTime.asOf && Number.isFinite(Date.parse(entityTime.asOf))
+      ? { asOf: entityTime.asOf, clock: entityTime.clock } : null;
+    return <div className="pb-8">
+      <PhoneBar title={t("探索工作台","Event explorer")} />
+      <EntityTimeBar clock={entityTime.clock} asOf={entityTime.asOf} onTime={syncEntityTime} />
+      <KnowledgeAtlas initialKey={entityParam} time={time} />
+      <p className="mt-3 text-xs leading-relaxed text-ink-4">
+        {entityTime.clock === "known"
+          ? t("实体关系按本站首次收录时间读取有界历史；早于收录时点的关系不显示。切换时点会重新开始探索。","Entity relations replay a bounded history by first discovery; relations recorded after the cutoff are left out. Changing the cutoff restarts the exploration.")
+          : t("实体关系按事实生效/失效时间读取有界历史；这是回顾视角，不等同当时已知。","Entity relations replay a bounded history by fact validity intervals; this is retrospective, not what was known then.")}
+      </p>
+    </div>;
+  }
   if (story) return <div className="pb-8">
     <PhoneBar title={t("探索工作台","Event explorer")} />
     {initialTime?.clamped && !moved && <p className="mb-3 rounded-panel border border-line-soft bg-bg-sunk/40 px-4 py-3 text-[13px] leading-[1.7] text-ink-3">

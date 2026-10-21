@@ -193,9 +193,13 @@ async def relations_by_articles(request: ArticleRelations):
 
 
 @app.get("/entities/{uuid}")
-async def relations_by_entity(uuid: str):
+async def relations_by_entity(uuid: str, as_of: datetime | None = None, clock: str = "known"):
     if len(uuid) > 80:
         return {"entity": None, "edges": []}
+    if as_of is not None and as_of.utcoffset() is None:
+        raise HTTPException(status_code=400, detail="as_of requires timezone")
+    if clock not in ("known", "valid"):
+        raise HTTPException(status_code=400, detail="clock must be known or valid")
     nodes, _, _ = await app.state.graph.driver.execute_query(
         "MATCH (n:Entity {uuid:$uuid,group_id:'aihot'}) "
         "RETURN n.name AS name, n.summary AS summary LIMIT 1", uuid=uuid, routing_="r",
@@ -205,13 +209,19 @@ async def relations_by_entity(uuid: str):
     rows, _, _ = await app.state.graph.driver.execute_query(
         "MATCH (s:Entity)-[r:RELATES_TO]->(o:Entity) "
         "WHERE r.group_id='aihot' AND coalesce(r.editorial_rejected, false)=false AND (s.uuid=$uuid OR o.uuid=$uuid) "
+        "AND ($as_of IS NULL OR "
+        "($clock = 'known' AND r.created_at IS NOT NULL AND r.created_at <= $as_of AND (r.expired_at IS NULL OR r.expired_at > $as_of)) OR "
+        "($clock = 'valid' AND r.valid_at IS NOT NULL AND r.valid_at <= $as_of AND (r.invalid_at IS NULL OR r.invalid_at > $as_of))) "
         "RETURN " + EDGE_COLUMNS + " ORDER BY r.created_at DESC",
-        uuid=uuid, routing_="r",
+        uuid=uuid, as_of=as_of, clock=clock, routing_="r",
     )
     # summary: Graphiti's own entity summary, written when episodes were ingested (not at read time).
-    return {"entity": {"key": uuid, "name": nodes[0]["name"], "kind": "entity",
-                       "summary": nodes[0].get("summary") or None},
-            **(await relation_results(rows))}
+    result = {"entity": {"key": uuid, "name": nodes[0]["name"], "kind": "entity",
+                         "summary": nodes[0].get("summary") or None},
+              **(await relation_results(rows, as_of, clock))}
+    if as_of is not None:
+        result["temporalSupport"] = "bitemporal-v1"
+    return result
 
 
 @app.get("/changes")

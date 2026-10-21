@@ -118,3 +118,91 @@ test("the workbench degrades clearly when the graph service is offline", async (
   if (await graphTab.isVisible()) await graphTab.click();
   await expect(page.getByText("Historical graph unavailable; no present-day graph substituted.")).toBeVisible();
 });
+
+// Entity mode: the same workbench time state drives a focused atlas of one entity's public
+// relations (searched, not guessed), with one-hop growth, pair facts and predicate filters.
+const entity = (key: string, name: string) => ({key, name, kind: "organization"});
+const stubGraphiti = (page: import("@playwright/test").Page) => {
+  page.route(/\/api\/site\/knowledge\/centers\?/, (route) => {
+    const q = new URL(route.request().url()).searchParams.get("q") ?? "";
+    const hit = ["Alpha", "Beta", "Gamma"].filter((n) => n.toLocaleLowerCase().includes(q.toLocaleLowerCase()));
+    return route.fulfill({json: {nodes: hit.map((n) => ({key: "e2e-" + n.toLowerCase(), name: n, degree: 3}))}});
+  });
+  page.route(/\/api\/site\/knowledge\/neighborhood\/[^/]+$/, (route) => route.fulfill({json: {
+    entity: {key: "e2e-alpha", name: "Alpha", kind: "organization"},
+    nodes: [entity("e2e-alpha", "Alpha"), entity("e2e-beta", "Beta"), entity("e2e-gamma", "Gamma")],
+    links: [
+      {id: "r-uses", source: "e2e-alpha", target: "e2e-beta", predicate: "USES", invalidAt: null},
+      {id: "r-works", source: "e2e-gamma", target: "e2e-alpha", predicate: "WORKS_FOR", invalidAt: null},
+    ],
+  }}));
+  page.route(/\/api\/site\/knowledge\/entities\/[^/]+$/, (route) => route.fulfill({json: {
+    entity: {key: "e2e-alpha", name: "Alpha", kind: "organization"},
+    edges: [{id: "r-uses", subject: entity("e2e-alpha", "Alpha"), object: entity("e2e-beta", "Beta"), predicate: "USES",
+      fact: "Alpha uses Beta.", validAt: null, invalidAt: null,
+      evidence: [{articleId: "a1", url: "https://example.com/a1", source: "Wire", quote: "q", publishedAt: "2026-10-01T00:00:00Z"}]}],
+  }}));
+};
+
+test("an entity deep link opens the focused atlas inside the workbench", async ({page}) => {
+  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
+  stubGraphiti(page);
+  const problems = watch(page);
+  await open(page, "/en/explore?entity=e2e-alpha");
+  await expect(page.getByRole("region", {name: "Entity relationship explorer"})).toBeVisible();
+  const canvas = page.locator(".lr-atlas-canvas");
+  await expect(canvas).toHaveAttribute("data-rendered-nodes", "3");
+  // The focused canvas is one hop around the center, never the whole graph.
+  await expect(canvas).toHaveAttribute("aria-label", /3 entities/);
+  // Searching picks a center and stays inside the workbench.
+  await page.getByRole("textbox", {name: "Search entities"}).fill("beta");
+  await page.getByRole("button", {name: /Beta/}).first().click();
+  await expect(page).toHaveURL(/\/en\/explore\?entity=e2e-beta/);
+  await expect(canvas).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+test("entity exploration honors the shared time state", async ({page}) => {
+  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
+  const scoped: string[] = [];
+  page.on("request", (req) => {
+    const url = new URL(req.url());
+    if (url.pathname.startsWith("/api/site/knowledge/neighborhood/")) scoped.push(url.search);
+  });
+  stubGraphiti(page);
+  const problems = watch(page);
+  await open(page, "/en/explore?entity=e2e-alpha");
+  await expect(page.locator(".lr-atlas-canvas")).toBeVisible();
+  // A cutoff scopes the entity's relations, and the URL stays a shareable deep link.
+  const cutoff = "2026-10-15T16:35";
+  await page.getByLabel("As-of time").fill(cutoff);
+  const expected = new Date(cutoff).toISOString();
+  await expect.poll(() => scoped.some((s) => s.includes("clock=known") && s.includes("asOf=" + encodeURIComponent(expected)))).toBe(true);
+  await expect(page).toHaveURL(/asOf=/);
+  // The clock buttons are the same time semantics the story view uses: the same cutoff re-reads.
+  await page.getByRole("button", {name: "Valid time"}).click();
+  await expect.poll(() => scoped.some((s) => s.includes("clock=valid") && s.includes("asOf=" + encodeURIComponent(expected)))).toBe(true);
+  await expect(page).toHaveURL(/clock=valid/);
+  // Back to latest returns to the current, unscoped view (the clock choice is kept).
+  await page.getByRole("button", {name: "Back to latest"}).click();
+  await expect(page).toHaveURL(/entity=e2e-alpha/);
+  await expect(page).not.toHaveURL(/asOf=/);
+  expect(problems).toEqual([]);
+});
+
+test("predicate filters narrow the focused canvas", async ({page}) => {
+  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
+  stubGraphiti(page);
+  const problems = watch(page);
+  await open(page, "/en/explore?entity=e2e-alpha");
+  const canvas = page.locator(".lr-atlas-canvas");
+  await expect(canvas).toHaveAttribute("data-rendered-nodes", "3");
+  const uses = page.getByRole("button", {name: /USES/});
+  await expect(uses).toBeVisible();
+  await uses.click();
+  await expect(canvas).toHaveAttribute("data-rendered-nodes", "2");
+  await expect(canvas).toHaveAttribute("aria-label", /1 relations/);
+  await uses.click();
+  await expect(canvas).toHaveAttribute("data-rendered-nodes", "3");
+  expect(problems).toEqual([]);
+});
