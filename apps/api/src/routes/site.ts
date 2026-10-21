@@ -20,6 +20,7 @@ import { loadItemContext } from "@aihot/backend/publication/item-context";
 import { registerFeedback } from "./feedback.ts";
 import { loadHot, loadStoryDetail, resolveStory } from "@aihot/backend/publication/stories";
 import { publicExploreGallery } from "@aihot/backend/publication/gallery";
+import { publicStoryRoute } from "@aihot/backend/publication/story-route";
 import { listReports, loadReport, reportNavigation, loadReportNavigation, loadReportMonth, type ReportKind } from "@aihot/backend/publication/reports";
 import { looseQuery, sendJsonWithEtag, sendProblem } from "../http/respond.ts";
 
@@ -178,6 +179,17 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/explore/gallery", siteHandler(async (req, reply) => {
     const data = await publicExploreGallery();
     return sendJsonWithEtag(req, reply, data, { etagPrefix: "explore-gallery", cacheControl: "public, max-age=60, s-maxage=60" });
+  }));
+
+  app.get("/api/site/stories/:publicId/route", siteHandler(async (req, reply) => {
+    const publicId = (req.params as { publicId: string }).publicId;
+    const found = await resolveStory(publicId);
+    if (found.kind === "merged") {
+      return reply.code(308).header("Location", `/api/site/stories/${found.target}/route`).header("Cache-Control", "public, max-age=300").send({ mergedInto: found.target });
+    }
+    if (found.kind === "not_found") return sendProblem(req, reply, { status: 404, code: "not_found", detail: "story not found", cacheControl: "public, max-age=60" });
+    const data = await publicStoryRoute(publicId);
+    return sendJsonWithEtag(req, reply, data, { etagPrefix: "story-route", cacheControl: "public, max-age=60, s-maxage=60" });
   }));
 
   app.get("/api/site/stories/:publicId", siteHandler(async (req, reply) => {
