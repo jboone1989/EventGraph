@@ -27,7 +27,7 @@ export const SITE = {
   /** 首页的完整标题（浏览器标签、搜索结果）。 */
   homeTitle: "EventGraph — AI、加密货币、金融与全球事件知识图谱",
   /** 主题目录页（/topics）的标题。 */
-  topicsTitle: "AI、加密货币与金融主题追踪 | EventGraph",
+  topicsTitle: "AI、加密货币与金融主题追踪",
   /** 反馈表单输入框里的示例。 */
   feedbackExample: "例如：我在搜索某个关键词时遇到……我原本想……",
   /** 反馈页标题下面的一句话。 */

@@ -130,7 +130,11 @@ test('hover still fetches article data, touches that move do not, and failed pre
     assert.equal(hits.slice(start).filter(x=>x.startsWith('/api/site/items/')).length,1,'navigation reuses its intent-prefetched response');
     const fresh=await chrome.newContext();const freshPage=await fresh.newPage();
     try{
-      await freshPage.goto(origin+'/');failing='/api/site/items/navigation-fixture';
+      await freshPage.goto(origin+'/');
+      // On a loaded runner the hover can land before hydration has attached the pointer handlers, so the
+      // prefetch never fires; the market section's fallback only appears once hydration effects ran.
+      await expect(freshPage.locator('section[aria-labelledby="market-title"]')).toContainText('行情暂时不可用。');
+      failing='/api/site/items/navigation-fixture';
       const failed=freshPage.waitForResponse(r=>r.url().includes('/items/navigation-fixture.data')&&r.status()===503);
       await freshPage.getByRole('link',{name:'性能检查文章',exact:true}).hover();await failed;
       await expect(freshPage.getByRole('heading',{name:'正在发生的事',exact:true})).toBeVisible();

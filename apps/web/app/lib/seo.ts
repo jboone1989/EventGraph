@@ -76,7 +76,9 @@ export function pageMeta(input: PageMetaInput): MetaDescriptor[] {
   const title = input.title ? (input.rawTitle ? input.title : titled(input.title)) : HOME_TITLE;
   // Model-written digests can be multi-paragraph; a raw newline inside the content attribute ends up in the served HTML and search engines truncate the snippet there.
   const description = (input.description ?? SITE_DESCRIPTION).replace(/\s+/g, " ").trim();
-  const url = `${base}${input.path}`;
+  // Canonical and og:url carry the sitemap's form of the address: no trailing slash except the root, so a slash-suffixed request never self-canonicalizes into a duplicate.
+  const path = input.path.replace(/\/+$/, "") || "/";
+  const url = `${base}${path}`;
   const image = input.image ? (input.image.startsWith("http") ? input.image : `${base}${input.image}`) : `${base}/og/site.png`;
   const tags: MetaDescriptor[] = [
     { title },
