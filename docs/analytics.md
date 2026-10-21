@@ -10,6 +10,7 @@
 - `story_open` / `item_open` 打开事件 / 报道
 - `graph_node_select` / `graph_relation_select` 点击实体或选择关系
 - `source_open` 点击带来源标记的原文链接
+- `rss_open` 点击 RSS 订阅链接
 - `search_submit` 搜索动作（不记录搜索词）
 - `navigation_complete` 客户端页面跳转耗时（ms）
 - `agent_access_open` / `feedback_open` 打开接入或反馈页面
