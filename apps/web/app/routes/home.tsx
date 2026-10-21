@@ -53,8 +53,8 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
     path, noindex: hasFeedFilters(loaderData?.filters),
     jsonLd: path === "/" ? [...siteLd(), itemListLd("/", "事件观察", titles)] : undefined,
   }), location.pathname, {
-    title: "Event intelligence for AI, crypto and finance",
-    description: "Follow AI, crypto and finance events as they develop, with the knowledge-graph relations behind them and links to every original source.",
+    title: "Event intelligence for AI, crypto & global events",
+    description: "Follow AI, crypto, finance and global events as they develop — source-linked timelines and knowledge graphs, published for humans and AI agents.",
   });
 }
 
