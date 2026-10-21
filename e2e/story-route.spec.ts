@@ -12,8 +12,8 @@ test.beforeEach(async ({ context }) => {
 
 test("the route panel's evidence link and explorer jump match the route API", async ({ page }) => {
   test.skip(!story, "No published event is available");
-  const route = await page.request.get(new URL(`/api/site/stories/${story}/route`, base).toString())
-    .then((r) => (r.ok ? r.json() : null));
+  const response = await page.request.get(new URL(`/api/site/stories/${story}/route`, base).toString());
+  const route = response.ok() ? await response.json() : null;
   test.skip(!route || route.status !== "ok" || route.stations.length === 0, "The seeded event has no station route");
 
   await open(page, "/story/" + encodeURIComponent(story!));
