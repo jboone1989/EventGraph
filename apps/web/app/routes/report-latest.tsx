@@ -9,11 +9,10 @@ import { chinesePath } from "../lib/edition";
 import { beijingDate } from "@aihot/contracts/time";
 import { EmptyState } from "../components/ui/Page";
 import { ReportLayout } from "../features/report/ReportLayout";
-import { useUiLanguage } from "../components/LanguageSwitch";
-import { EnglishReport } from "../components/EnglishPages";
+import { useText, useUiLanguage } from "../components/LanguageSwitch";
 import { ReportPaper, reportOutline } from "../features/report/ReportPaper";
 import { GraphChanges, type DailyGraphChanges } from "../features/report/GraphChanges";
-import { KIND_LABEL, feedLink, kindFromPath } from "../features/report/format";
+import { KIND_LABEL, kindLabel, feedLink, kindFromPath } from "../features/report/format";
 import type { Screen } from "../components/shell/screens";
 
 export const handle: Screen = { tab: "daily", name: "日报" };
@@ -34,6 +33,7 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   const description = `${REPORTS.descriptions[kind]}。`;
   const report = loaderData?.report;
   const path = chinesePath(location.pathname);
+  const enKind = kindLabel(kind, "en");
   return [...localized(pageMeta({
     title: withSubject(KIND_LABEL[kind]),
     description,
@@ -42,18 +42,27 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
     // The latest issue, described at this page's own address (its canonical).
     jsonLd: report ? reportLd(report, path, report.lead?.leadParagraph ?? description) : undefined,
   }), location.pathname, {
-    title: "Daily brief",
-    description: "The latest daily brief: the day's most important reports with links to their original sources, and what changed in the knowledge graph.",
+    title: enKind,
+    description: `The latest ${enKind.toLowerCase()}: the period's most important reports with links to their original sources${kind === "daily" ? ", and what changed in the knowledge graph" : ""}.`,
   }), feedLink(kind)];
 }
 
 export default function ReportLatestPage() {
-  const language=useUiLanguage();
+  const language = useUiLanguage();
+  const t = useText();
   const { kind, report, index, graph, today } = useLoaderData<typeof loader>();
-  if(language==="en") return <EnglishReport report={report} kind={kind} graph={<GraphChanges changes={graph} />}/>;
   return (
-    <ReportLayout kind={kind} index={index} current={report?.key ?? null} today={today} outline={report ? reportOutline(report) : []}>
-      {report ? <><ReportPaper report={report} index={index} /><GraphChanges changes={graph} /></> : <EmptyState title={subjectAfter("还没有发布", KIND_LABEL[kind])}>第一期发布后会出现在这里。</EmptyState>}
+    <ReportLayout kind={kind} index={index} current={report?.key ?? null} today={today} outline={report ? reportOutline(report, language) : []}>
+      {report ? (
+        <>
+          <ReportPaper report={report} index={index} lang={language} />
+          <GraphChanges changes={graph} />
+        </>
+      ) : (
+        <EmptyState title={t(subjectAfter("还没有发布", KIND_LABEL[kind]), `No ${kindLabel(kind, "en").toLowerCase()} published yet`)}>
+          {t("第一期发布后会出现在这里。", "The first issue will appear here once it is out.")}
+        </EmptyState>
+      )}
     </ReportLayout>
   );
 }

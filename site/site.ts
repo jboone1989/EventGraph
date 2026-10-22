@@ -172,6 +172,34 @@ export const ABOUT = {
   termsAnchor: null as string | null,
 } as const;
 
+/** 英文版关于页的文案：与 ABOUT 对应槽位的英文说法，英文页面用；数字（信源数、收录数、精选数、日报期数）两种语言相同。 */
+export const ABOUT_EN = {
+  kicker: `About ${SITE.name}`,
+  /** 大标题：第一行正常颜色，第二行强调色。 */
+  headline: ["See what is changing.", "Understand what it means."] as [string, string],
+  /** {sources} 换成实时的信源数，与 ABOUT.lead 同规则。 */
+  lead: `${SITE.name} gathers notable technology and finance reporting from {sources} sources, organizes it into events, and keeps room for original research and independent authors. Reporting and opinion stay apart, and readers can always check the original source.`,
+  sourcesFallback: "many",
+  steps: {
+    collect: "Follows official announcements and independent reporting on AI, digital assets, finance, macro policy and global industry risk, keeping the time and the source.",
+    store: "Brings together what different sources report on the same event, cutting duplication while keeping the facts and their provenance.",
+    select: "Keeps the events with new information; original research and reporting stay apart, with method, evidence and conclusions stated.",
+    publish: "Serves everything through the website, RSS and public interfaces; event updates follow new evidence.",
+  },
+  /** 页面底部的版权与下架说明，中间接“反馈页”的链接，与 ABOUT.copyright 同规则。 */
+  copyright: [
+    "Third-party reporting remains the property of its publisher; this site adds selection, summaries and links to the original. Original articles carry author and source. Independent researchers and AI authors are welcome to propose collaborations via the",
+    "page; a public submission system is not open yet.",
+  ] as [string, string],
+} as const;
+
+/** 英文版反馈页的文案：与 SITE 对应反馈槽位的英文说法。 */
+export const FEEDBACK_EN = {
+  lead: "Report a problem, suggest an improvement, or request correction or removal of a source article.",
+  example: "For example: when I searched for …, I saw …, but I expected …",
+  emailHint: "Leave an email so we can write back",
+} as const;
+
 /** 后台页面上给管理员的提示（选填）。 */
 export const ADMIN = {
   /** “反馈”页标题下的一行。 */
@@ -186,6 +214,11 @@ export const ADMIN = {
 export const AGENT = {
   /** MCP 工具表里“搜索”一行：能搜什么、可以怎么问。 */
   search: { scope: "按 AI、加密货币与金融事件搜索最近 7 天", ask: "稳定币与 AI 基础设施最近有哪些重要变化？" },
+};
+
+/** 英文版 Agent 接入页的示例：与 AGENT 对应槽位的英文说法。 */
+export const AGENT_EN = {
+  search: { scope: "Search AI, crypto and finance events from the last 7 days", ask: "What changed recently in stablecoins and AI infrastructure?" },
 };
 
 /** 日报、周报、月报版面上的说法。 */
@@ -211,6 +244,20 @@ export const REPORTS = {
   shareUnit: "件大事",
   /** 日报时段内有资料经过评判、但没有新大事时的标题与导语。 */
   quiet: { title: "今日安静，无大事发生", paragraph: `${subjectAfter("北京时间 {start} 至 {end}，没有新的", "大事")}。` },
+};
+
+/** 英文版报告页面的文案：与 REPORTS 对应槽位的英文说法，英文页面用；出版者一行（imprint）两种语言相同，不在这里重复。 */
+export const REPORTS_EN = {
+  /** 报头旁边的一个词。 */
+  motto: "AI · CRYPTO · FINANCE",
+  /** 一期里的一条怎么称呼（"4 stories"），与 REPORTS.entry 同槽位。 */
+  entry: { measure: "story", noun: "stories" },
+  /** 报头上其余几个数字后面的说法；主题页、关于页也这样写。 */
+  metricUnits: { sourcesCount: "sources", firstPartyEvents: "first-party posts", selectedCount: "selected reports", reportsCovered: "daily issues" },
+  /** 报告分享图上"共几条"的说法。 */
+  shareUnit: "stories",
+  /** 没有新大事时的标题与导语。 */
+  quiet: { title: "A quiet day — nothing new passed selection", paragraph: "No new stories passed selection between {start} and {end} Beijing time." },
 };
 
 /** 运维告警（只发给站长）里随部署而变的几处说法。 */

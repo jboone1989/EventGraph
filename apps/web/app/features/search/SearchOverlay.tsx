@@ -9,7 +9,7 @@ import { inNav } from "../../components/shell/nav";
 import { addRecentSearch, clearRecentSearches, useRecentSearches } from "../../lib/local-state";
 import { useModal } from "../../components/ui/modal";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
-import { enTopic } from "../../components/EnglishPages";
+import { enTopic } from "../../lib/english";
 
 // One overlay for the whole site, opened from any bar.
 let overlay: HTMLDivElement | null = null;

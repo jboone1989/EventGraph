@@ -15,7 +15,7 @@ test("a wrapping outline settles with classic scrollbars at a limited viewport h
     publishedAt: at, timelineAt: at, discoveredAt: at, category: null, tags: [], score: 80, selected: true,
     channel: "news", x: null, originalTitle: null, links: { original: "https://example.org/article" },
     story: null, readingMode: "full", author: null, outline, relatedStories: [], topics: [], indexable: false,
-    markdownAvailable: false, group: null, hasTranslation: false, bodyLanguage: "zh",
+    markdownAvailable: false, englishIndexable: false, group: null, hasTranslation: false, bodyLanguage: "zh",
     body: { zh: outline.map((o) => `<h2 id="${o.id}">${o.text}</h2><p>${"固定正文。".repeat(100)}</p>`).join(""), original: null, zhKind: "original", complete: true },
   };
   const api = createServer((req, res) => {

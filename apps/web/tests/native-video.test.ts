@@ -37,7 +37,7 @@ const api = createServer((req, res) => {
       publishedAt: at, timelineAt: at, discoveredAt: at, category: "research", tags: [], score: 80, selected: true,
       channel: "news", x: null, originalTitle: "Video fixture", links: { original: "https://example.org/article" },
       story: null, readingMode: "full", author: null, outline: [], relatedStories: [], topics: [], indexable: true,
-      markdownAvailable: true, group: null, hasTranslation: true, bodyLanguage: "zh",
+      markdownAvailable: true, englishIndexable: false, group: null, hasTranslation: true, bodyLanguage: "zh",
       body: { zh: `<p>点击浏览器原生按钮播放视频。</p><video controls playsinline preload="none" width="320" height="320"><source src="${url.origin}/video/unsupported" type="video/not-supported"><source src="${url.origin}/video/clip.webm" type="video/webm"></video>`, original: null, zhKind: "translation", complete: true },
     };
     return res.end(JSON.stringify(detail));

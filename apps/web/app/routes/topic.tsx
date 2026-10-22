@@ -1,4 +1,4 @@
-import { REPORTS, SITE } from "@aihot/site";
+import { REPORTS, REPORTS_EN, SITE } from "@aihot/site";
 import { Link, redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/topic";
 import type { TopicPage } from "@aihot/contracts/site";
@@ -10,10 +10,10 @@ import { BrandMark } from "../components/BrandMark";
 import { EmptyState } from "../components/ui/Page";
 import { IconArrowLeft } from "../components/icons";
 import { beijingDate } from "@aihot/contracts/time";
-import { monthDay, monthDayTime } from "../lib/format";
+import { monthDay, localizedMonthDayTime } from "../lib/format";
+import { enTopic, enDescription, englishOnly, EN_TOPIC_GROUPS } from "../lib/english";
 import { PhoneBar } from "../components/shell/PhoneBar";
-import { useUiLanguage } from "../components/LanguageSwitch";
-import { EnglishTopic, enDescription, enTopic } from "../components/EnglishPages";
+import { useUiLanguage, useText } from "../components/LanguageSwitch";
 import { FollowControls } from "../components/FollowButton";
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
@@ -93,39 +93,40 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
 
 export default function TopicRoute() {
   const language=useUiLanguage();
+  const t=useText();
   const { data } = useLoaderData<typeof loader>();
   const { topic, items, page, pageCount, pageSize } = data;
   const parts = partsOf(data);
   const href = (p: number) => (p <= 1 ? `/topics/${topic.slug}` : `/topics/${topic.slug}/page/${p}`);
   const first = (page - 1) * pageSize + 1;
   const last = first + items.length - 1;
-  if(language==="en") return <EnglishTopic data={data}/>;
+  const num = (n: number) => n.toLocaleString(language === "en" ? "en-US" : "zh-CN");
   return (
     <div className="pb-6">
-      <PhoneBar back={inNav("/topics") ? { to: "/topics", label: "全部主题" } : { to: "/", label: "精选" }} title={topic.name} />
+      <PhoneBar back={inNav("/topics") ? { to: "/topics", label: t("全部主题", "All topics") } : { to: "/", label: t("精选", "Featured") }} title={t(topic.name, enTopic(topic))} />
       <Link to={inNav("/topics") ? "/topics" : "/"} className="hidden items-center gap-1.5 py-2 text-[13px] text-ink-3 transition-colors hover:text-accent lg:inline-flex">
-        <IconArrowLeft size={14} /> {inNav("/topics") ? "返回全部主题" : "返回精选"}
+        <IconArrowLeft size={14} /> {inNav("/topics") ? t("返回全部主题", "Back to all topics") : t("返回精选", "Back to featured")}
       </Link>
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 pb-5 pt-3 lg:pt-1">
         <div className="min-w-0 max-w-[760px]">
-          <p className="text-[12px] font-semibold tracking-[0.08em] text-accent">{topic.groupName}</p>
+          <p className="text-[12px] font-semibold tracking-[0.08em] text-accent">{language === "en" ? EN_TOPIC_GROUPS[topic.group]?.[0] ?? englishOnly(topic.groupName) : topic.groupName}</p>
           <h1 data-page-title="" className="mt-1.5 flex items-center gap-3 text-[24px] font-bold leading-[1.3] tracking-[-0.01em] text-ink lg:text-[26px]">
             {topic.brand && <BrandMark brand={topic.brand} size={34} />}
             <span>
-              {topic.name}{" "}
-              <span className="whitespace-nowrap font-semibold text-ink-4">最新动态</span>
+              {t(topic.name, enTopic(topic))}{" "}
+              <span className="whitespace-nowrap font-semibold text-ink-4">{t("最新动态", "· Latest")}</span>
             </span>
           </h1>
-          <p className="mt-1.5 text-pretty text-[13.5px] leading-relaxed text-ink-3">{topic.definition}</p>
+          <p className="mt-1.5 text-pretty text-[13.5px] leading-relaxed text-ink-3">{language === "en" ? enDescription(topic) : topic.definition}</p>
           <p className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-ink-4">
             <span>
-              <span className="num font-semibold text-ink-2">{topic.total.toLocaleString("zh-CN")}</span>{` ${REPORTS.metricUnits.selectedCount}`}
+              <span className="num font-semibold text-ink-2">{num(topic.total)}</span>{` ${t(REPORTS.metricUnits.selectedCount, REPORTS_EN.metricUnits.selectedCount)}`}
             </span>
             <span>
-              近 30 天 <span className="num font-semibold text-ink-2">{topic.recent.toLocaleString("zh-CN")}</span> 条
+              {t("近 30 天", "In the last 30 days")} <span className="num font-semibold text-ink-2">{num(topic.recent)}</span> {language === "en" ? (topic.recent === 1 ? "report" : "reports") : "条"}
             </span>
             <span>
-              共收录 <span className="num font-semibold text-ink-2">{topic.poolTotal.toLocaleString("zh-CN")}</span> 条
+              {t("共收录", "Indexed")} <span className="num font-semibold text-ink-2">{num(topic.poolTotal)}</span> {language === "en" ? (topic.poolTotal === 1 ? "report" : "reports") : "条"}
             </span>
           </p>
         </div>
@@ -133,7 +134,7 @@ export default function TopicRoute() {
           <FollowControls kind="topic" id={topic.slug} name={topic.name} />
           {topic.latest && (
             <span>
-              <time dateTime={topic.latest.at} className="num">{monthDayTime(topic.latest.at)}</time> 更新
+              <time dateTime={topic.latest.at} className="num">{localizedMonthDayTime(topic.latest.at, language)}</time> {t("更新", "updated")}
             </span>
           )}
         </div>
@@ -145,13 +146,13 @@ export default function TopicRoute() {
         </div>
       ))}
 
-      <h2 className="sr-only">{page === 1 ? `${topic.name}的精选` : `精选归档 · 第 ${page} 页`}</h2>
+      <h2 className="sr-only">{page === 1 ? t(`${topic.name}的精选`, `Selected: ${enTopic(topic)}`) : t(`精选归档 · 第 ${page} 页`, `Selected archive · page ${page}`)}</h2>
       {items.length === 0 ? (
         <div className="lg:card">
-          <EmptyState title="这个主题暂时还没有精选内容" />
+          <EmptyState title={t("这个主题暂时还没有精选内容", "No selected reports in this topic yet")} />
         </div>
       ) : (
-        <DayList items={items} headerAside={<span className="num whitespace-nowrap">第 {first}–{last} 条<span className="hidden sm:inline"> · 共 {topic.total.toLocaleString("zh-CN")} 条</span></span>} />
+        <DayList items={items} headerAside={<span className="num whitespace-nowrap">{t(`第 ${first}–${last} 条`, `Items ${first}–${last}`)}<span className="hidden sm:inline">{t(` · 共 ${num(topic.total)} 条`, ` · ${num(topic.total)} total`)}</span></span>} />
       )}
       <Pagination page={page} pageCount={pageCount} href={href} />
     </div>

@@ -69,6 +69,14 @@ export function PhoneBar({ back, title, large = false, sub, leading, center, act
   );
 }
 
+/** History entries keep the pages' Chinese short names (the route handles); English back buttons translate them. */
+const NAME_EN: Record<string, string> = {
+  观察: "Overview", 全部: "All News", 事件树: "Event Tree", 知识网络: "Knowledge Graph",
+  探索工作台: "Explorer", 日报: "Daily Brief", 往期: "Archive", 主题: "Topics", 收藏: "Saved",
+  "Agent 接入": "For Agents", 关于: "About", 更新日志: "Updates", 反馈: "Feedback", 我的: "More",
+  实体档案: "Entity Profile",
+};
+
 /** "‹ 精选": back through the reader's history, or to the page's parent when it was opened directly. */
 function BackButton({ to, label }: BackTarget) {
   const navigate = useNavigate();
@@ -78,7 +86,7 @@ function BackButton({ to, label }: BackTarget) {
   useIsoLayoutEffect(() => {
     if (historyIndex() === 0) return setText(label);
     const behind = previousScreen();
-    setText(behind ? (language==="en"?({精选:"News",全部:"All",我的:"More",日报:"Daily",事件树:"Events"} as Record<string,string>)[behind]??behind:behind) : language==="en"?"Back":"返回");
+    setText(behind ? (language==="en"?NAME_EN[behind]??behind:behind) : language==="en"?"Back":"返回");
   }, [key, label, language]);
   return (
     <button
