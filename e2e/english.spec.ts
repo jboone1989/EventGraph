@@ -49,9 +49,9 @@ test("English search, filter and hot-board overlays", async ({ page }) => {
 test("English feedback screenshot picker", async ({ page }) => {
   await openEnglish(page, "/feedback");
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Choose screenshot" }).click();
+  await page.getByRole("button", { name: /Add a screenshot of the problem/i }).click();
   await (await chooser).setFiles({ name: "e2e-shot.png", mimeType: "image/png", buffer: Buffer.from("not-an-image") });
   await expect(page.getByText("e2e-shot.png", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Remove selected screenshot" }).click();
-  await expect(page.getByText("No file selected", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Remove screenshot" }).click();
+  await expect(page.getByRole("button", { name: /Add a screenshot of the problem/i })).toBeVisible();
 });

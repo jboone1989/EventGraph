@@ -82,7 +82,7 @@ function Masthead({ report, index, quiet, lang }: { report: ReportDetail; index:
       ) : (
         <div className="flex flex-wrap items-baseline gap-x-8 gap-y-1.5 border-y border-line-strong py-3">
           {metricItems(report.metrics, lang).map((m) => (
-            <span key={m.unit} className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+            <span key={m.key} className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
               <span className="numeral text-[30px] leading-none text-ink @[880px]:text-[34px]">{m.value}</span>
               <span className="text-[12px] text-ink-4">{m.unit}</span>
             </span>

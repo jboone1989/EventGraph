@@ -169,11 +169,11 @@ const METRICS: Array<[key: string, zh: string, en: string | null]> = [
   ["selectedCount", REPORTS.metricUnits.selectedCount, REPORTS_EN.metricUnits.selectedCount],
   ["reportsCovered", REPORTS.metricUnits.reportsCovered, REPORTS_EN.metricUnits.reportsCovered],
 ];
-export function metricItems(metrics: Record<string, number>, lang: DisplayLanguage = "zh"): Array<{ value: number; unit: string }> {
+export function metricItems(metrics: Record<string, number>, lang: DisplayLanguage = "zh"): Array<{ key: string; value: number; unit: string }> {
   return METRICS.filter(([k]) => typeof metrics[k] === "number" && (k !== "modelsReleased" || metrics[k]! > 0))
     .flatMap(([k, zh, en]) => {
       const unit = lang === "en" ? en : zh;
-      return unit ? [{ value: metrics[k]!, unit }] : [];
+      return unit ? [{ key: k, value: metrics[k]!, unit }] : [];
     });
 }
 
