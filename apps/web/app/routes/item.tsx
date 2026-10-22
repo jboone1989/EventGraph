@@ -27,6 +27,7 @@ import { OutlineSheet, scrollToAnchor } from "../components/ui/OutlineSheet";
 import { takePreview } from "../features/item/preview";
 import { IconArrowLeft, IconCopy, IconDownload, IconExternal, IconImage, IconMenu, IconMore, IconShare } from "../components/icons";
 import { BarButton, PhoneBar } from "../components/shell/PhoneBar";
+import { inNav } from "../components/shell/nav";
 import { isPhone, type Screen } from "../components/shell/screens";
 
 export const handle: Screen = { home: "featured", toolbar: true };
@@ -73,6 +74,9 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
  * its own (editorial/english.ts) and an event of several reports (englishIndexable), never on a bare headline.
  */
 export function itemMeta(item: SiteItemDetail, pathname: string) {
+  // A non-selected report lives under 全部动态; with that entry out of the navigation, the crumb reads 精选
+  // as on the other hidden hubs.
+  const feedCrumb = item.selected || !inNav("/all") ? { name: "精选", path: "/" } : { name: "全部动态", path: "/all" };
   const english = item.english ?? null;
   const onEnglish = isEnglishPath(pathname) && english;
   return localized(pageMeta({
@@ -88,7 +92,7 @@ export function itemMeta(item: SiteItemDetail, pathname: string) {
       articleLd({ path: `/items/${item.id}`, headline: item.title, description: item.summary, publishedAt: item.publishedAt, image: `/og/items/${item.id}.png`, basedOn: item.links.original }),
       breadcrumbLd([
         { name: SITE.name, path: "/" },
-        { name: item.selected ? "精选" : "全部动态", path: item.selected ? "/" : "/all" },
+        feedCrumb,
         { name: item.title, path: `/items/${item.id}` },
       ]),
     ],
@@ -267,7 +271,7 @@ function ItemPreview({ preview }: { preview: FeedItemSummary }) {
   const briefHidesForX = isX && !en && preview.summary?.replace(/\s+/g, " ").trim() === preview.title;
   return (
     <div className="mx-auto max-w-[var(--page-max-reading)] pb-8">
-      <PhoneBar back={{ to: preview.selected ? "/" : "/all", label: preview.selected ? t("精选", "Featured") : t("全部", "All") }} title={isX ? preview.x!.authorName : title} />
+      <PhoneBar back={preview.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }} title={isX ? preview.x!.authorName : title} />
       <article className="pb-6 pt-3" aria-busy="true">
         <div className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-ink-3">
           <span className="font-semibold text-ink-2">{isX ? preview.x!.authorName : preview.source.name}</span>
@@ -410,7 +414,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
 
   const back = () => {
     if (window.history.state?.idx > 0) navigate(-1);
-    else navigate(item.selected ? "/" : "/all");
+    else navigate(item.selected || !inNav("/all") ? "/" : "/all");
   };
   const backButton = (
     <button type="button" onClick={back} className="-ml-1.5 inline-flex h-8 items-center gap-1.5 rounded-full px-1.5 text-[13px] text-ink-3 transition-colors hover:text-ink">
@@ -527,7 +531,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
 
       {/* Phones: back to where the reader came from, the title once it has scrolled away, more actions. */}
       <PhoneBar
-        back={{ to: item.selected ? "/" : "/all", label: item.selected ? t("精选", "Featured") : t("全部", "All") }}
+        back={item.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }}
         title={isX ? item.x!.authorName : displayTitle}
         actions={
           <BarButton label={t("更多操作", "More actions")} onClick={() => setActionsOpen(true)}>
