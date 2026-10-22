@@ -4,7 +4,7 @@ import type { StoryDetail } from "@aihot/contracts/site";
 import type { KnowledgeGraph } from "../../components/KnowledgeNetwork";
 import { TemporalKnowledgeAtlas } from "./TemporalKnowledgeAtlas";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
-import { englishText } from "../../components/EnglishStory";
+import { englishText } from "../../lib/english";
 import { EventTimeMachine } from "./EventTimeMachine";
 import { buildReplayFrames, developmentsAt } from "./replay";
 import type { ExplorerClock, ExplorerTimeState } from "./explore-state";

@@ -4,7 +4,7 @@ import type { FeedItemSummary } from "@aihot/contracts/site";
 import { useFollows, type LocalFollow } from "../../lib/local-state";
 import { DayList } from "../feed/DayList";
 import { EmptyState } from "../../components/ui/Page";
-import { enTopic } from "../../components/EnglishPages";
+import { enTopic } from "../../lib/english";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 
 interface FollowingResponse {

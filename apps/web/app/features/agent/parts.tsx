@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { CopyButton } from "./CodeBlock";
 import { IconChevronDown } from "../../components/icons";
+import { useText } from "../../components/LanguageSwitch";
 
 /** A panel's head: the track and version in small mono, the promise, and one line of context. */
 export function PanelHead({ label, title, children }: { label: string; title: string; children?: ReactNode }) {
@@ -53,11 +54,12 @@ export function Ask({ text }: { text: string }) {
 }
 
 /** One address to copy: the MCP server, a feed. */
-export function Address({ url, label = "复制" }: { url: string; label?: string }) {
+export function Address({ url, label }: { url: string; label?: string }) {
+  const t = useText();
   return (
     <div className="mt-2.5 flex items-center gap-2 rounded-tile border border-line bg-surface py-2 pl-3.5 pr-2">
       <code className="mono min-w-0 flex-1 truncate text-[12.5px] text-ink">{url}</code>
-      <CopyButton text={url} label={label} className="shrink-0" />
+      <CopyButton text={url} label={label ?? t("复制", "Copy")} className="shrink-0" />
     </div>
   );
 }

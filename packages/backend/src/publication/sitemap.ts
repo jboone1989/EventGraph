@@ -9,7 +9,7 @@ import { loadChangelog } from "../site/meta.ts";
 import { latestHotRanking } from "./hot.ts";
 import { ITEM_FROM } from "./items.ts";
 import { ENGLISH_STORY_INPUTS } from "./story-text.ts";
-import { INDEXED_MIN_REPORTS } from "./item-context.ts";
+import { INDEXED_MIN_REPORTS } from "./detail.ts";
 import { sql } from "../db.ts";
 import { cached, SHARED_ONLY } from "../lib/cache.ts";
 import { escapeXml } from "../lib/text.ts";
@@ -119,7 +119,7 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
     SELECT p.article_id AS id,
       md5(concat_ws('|', p.revision::text, a.content_hash, tr.title, tr.body_html, tr.body_text, tr.complete::text, qt.text_zh,
         s.name, s.icon_url, st.public_id::text, st.title)) AS revision,
-      -- An English page with English copy and an event of several reports (item-context.ts INDEXED_MIN_REPORTS).
+      -- An English page with English copy and an event of several reports (detail.ts INDEXED_MIN_REPORTS).
       CASE WHEN ec.title IS NOT NULL AND coalesce((SELECT z.n FROM story_sizes z WHERE z.story_id = p.story_id), 0) >= ${INDEXED_MIN_REPORTS}
       THEN md5(concat_ws('|', p.revision::text, a.content_hash, ec.title, ec.summary, ec.reason, s.name)) END AS en_revision
     ${ITEM_FROM}
