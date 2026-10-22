@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { IntentLink } from "./IntentLink";
 import { useEntrance } from "../../lib/hydration";
 
@@ -77,6 +77,7 @@ export function PillTabs({
 }) {
   const links = items.some((t) => t.to);
   const Track = links ? "nav" : "div";
+  const location = useLocation();
   return (
     <div className={`scrollbar-none max-w-full overflow-x-auto ${fill ? "w-full" : ""} ${className}`}>
       <Track
@@ -99,8 +100,11 @@ export function PillTabs({
           );
           const cls = `relative inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap rounded-full font-medium outline-offset-1 transition-colors duration-150 active:scale-[0.98] ${SIZES[size]} ${on ? "text-ink" : "text-ink-3 hover:text-ink"}`;
           const TabLink = t.prefetch === "intent" ? IntentLink : Link;
+          // Clicking the tab already chosen re-navigates to the same address; with resetScroll that
+          // yanks a scrolled page back to the top. It only ever means "stay here", so ignore it.
+          const staysHere = on && t.resetScroll && t.to === location.pathname + location.search;
           return t.to ? (
-            <TabLink key={t.key} to={t.to} replace={t.replace} preventScrollReset={!t.resetScroll} aria-current={on ? "page" : undefined} className={cls}>
+            <TabLink key={t.key} to={t.to} replace={t.replace} preventScrollReset={!t.resetScroll} onClick={staysHere ? (e) => e.preventDefault() : undefined} aria-current={on ? "page" : undefined} className={cls}>
               {inner}
             </TabLink>
           ) : (
