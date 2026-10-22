@@ -70,8 +70,8 @@ export function ScopeTabs({ base }: { base: "/" | "/all" }) {
       label={t("看精选或全部","Featured or all")}
       active={base === "/" ? "featured" : "all"}
       items={[
-        { key: "featured", label: t("精选","Featured"), to: scope("/"), resetScroll: true, prefetch: 'intent' },
-        { key: "all", label: t("全部","All"), to: scope("/all"), resetScroll: true, prefetch: 'intent' },
+        { key: "featured", label: t("精选","Featured"), to: scope("/"), prefetch: 'intent' },
+        { key: "all", label: t("全部","All"), to: scope("/all"), prefetch: 'intent' },
       ]}
     />
   );
@@ -103,8 +103,8 @@ export function FeedBar({ base, category, channel }: { base: "/" | "/all"; categ
             label={t("看精选或全部","Featured or all")}
             active={base === "/" ? "featured" : "all"}
             items={[
-              { key: "featured", label: t("精选","Featured"), to: scope("/"), resetScroll: true, prefetch: 'intent' },
-              { key: "all", label: t("全部","All"), to: scope("/all"), resetScroll: true, prefetch: 'intent' },
+              { key: "featured", label: t("精选","Featured"), to: scope("/"), prefetch: 'intent' },
+              { key: "all", label: t("全部","All"), to: scope("/all"), prefetch: 'intent' },
             ]}
           />
         }
