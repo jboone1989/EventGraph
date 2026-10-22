@@ -44,6 +44,8 @@ test("public sources cover AI, cryptocurrency and finance on their own", () => {
 test("the site has an independent public navigation and topical taxonomy", () => {
   assert.ok(!NAV.hidden.includes("/hot"));
   assert.ok(!NAV.hidden.includes("/topics"));
+  // 全部动态 is reached from the feeds' own 精选 | 全部 switch, not from the sidebar.
+  assert.ok(NAV.hidden.includes("/all"));
   assert.deepEqual(CATEGORIES.map(c => c.key), ["ai", "crypto", "finance", "world", "research"]);
   for (const tag of ["AI Agent", "比特币", "稳定币", "ETF", "利率债券"]) {
     assert.ok(TOPIC_TAGS.some(t => t === tag), tag);

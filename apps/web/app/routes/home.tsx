@@ -8,7 +8,7 @@ import { filterParams, hasFeedFilters, itemListLd, listPath, localized, pageMeta
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
 import { Timeline } from "../features/feed/Timeline";
-import { ActiveFilters, CategoryTabs, FeedBar, SearchField } from "../features/feed/Filters";
+import { ActiveFilters, CategoryTabs, FeedBar, ScopeTabs, SearchField } from "../features/feed/Filters";
 import { IconArrowRight } from "../components/icons";
 import type { KnowledgeGraph, KnowledgeStats } from "../components/KnowledgeNetwork";
 import { useText } from "../components/LanguageSwitch";
@@ -85,14 +85,17 @@ export default function Home() {
             {filtered
               ? <Link to="/all" className="lr-inline-link">{t("全部动态","All news")} <IconArrowRight size={16}/></Link>
               : <div className="lr-feed-switch" role="group" aria-label={t("信息流范围","Feed scope")}>
-                  <button type="button" aria-pressed={!following} onClick={() => setFollowing(false)}>{t("全部","Everything")}</button>
+                  <button type="button" aria-pressed={!following} onClick={() => setFollowing(false)}>{t("精选","Featured")}</button>
                   <button type="button" aria-pressed={following} onClick={() => setFollowing(true)}>{t("我关注的","Following")}{follows.length > 0 && <span className="ml-1 font-mono text-[11px] text-ink-4">{follows.length}</span>}</button>
                 </div>}
           </div>
           {following && !filtered ? <FollowingFeed /> : <>
           <div className="hidden lg:block">
             <div className="mb-5 flex items-center justify-between gap-4">
-              <CategoryTabs base="/" category={filters.category} channel={filters.channel} layoutId="home-cat-desk" className="min-w-0" />
+              <div className="flex min-w-0 items-center gap-3">
+                {!inNav("/all") && <ScopeTabs base="/" />}
+                <CategoryTabs base="/" category={filters.category} channel={filters.channel} layoutId="home-cat-desk" className="min-w-0" />
+              </div>
               <SearchField keep={{category: filters.category}}/>
             </div>
           </div>

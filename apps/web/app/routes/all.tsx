@@ -7,7 +7,8 @@ import { beijingTime } from "@aihot/contracts/time";
 import { cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { filterParams, hasFeedFilters, itemListLd, listPath, pageMeta, readFilters } from "../lib/seo";
-import { ActiveFilters, CategoryTabs, FeedBar, SearchField } from "../features/feed/Filters";
+import { ActiveFilters, CategoryTabs, FeedBar, ScopeTabs, SearchField } from "../features/feed/Filters";
+import { inNav } from "../components/shell/nav";
 import { PillTabs } from "../components/ui/Tabs";
 import { DayList, Pagination } from "../features/feed/DayList";
 import { EmptyState } from "../components/ui/Page";
@@ -117,7 +118,10 @@ export default function AllPage() {
       <div className="hidden lg:block">
         <h1 className="text-[24px] font-semibold leading-[1.3] text-ink">{title ?? t(ALL_TITLE,"All news")}</h1>
         <div className="mb-5 mt-4 flex items-center justify-between gap-4">
-          <CategoryTabs base="/all" category={f.category} channel={f.channel} layoutId="all-cat-desk" className="min-w-0" />
+          <div className="flex min-w-0 items-center gap-3">
+            {!inNav("/all") && <ScopeTabs base="/all" />}
+            <CategoryTabs base="/all" category={f.category} channel={f.channel} layoutId="all-cat-desk" className="min-w-0" />
+          </div>
           <SearchField defaultValue={f.q ?? ""} keep={keep} />
         </div>
       </div>
