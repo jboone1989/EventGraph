@@ -1,5 +1,7 @@
+// The 全部 feed's list: search, sorting, day groups and paging. The page frame — feed bar, filters,
+// heading, aside — lives in routes/feed-layout.tsx; a search keeps its query in the phone bar here.
 import { useEffect } from "react";
-import { Link, redirect, useLoaderData, useNavigation, useSearchParams } from "react-router";
+import { Link, redirect, useLoaderData, useSearchParams } from "react-router";
 import type { Route } from "./+types/all";
 import type { PoolResponse } from "@aihot/contracts/site";
 import { SITE, subjectAfter } from "@aihot/site";
@@ -7,8 +9,6 @@ import { beijingTime } from "@aihot/contracts/time";
 import { cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { filterParams, hasFeedFilters, itemListLd, listPath, pageMeta, readFilters } from "../lib/seo";
-import { ActiveFilters, CategoryTabs, FeedBar, ScopeTabs, SearchField } from "../features/feed/Filters";
-import { inNav } from "../components/shell/nav";
 import { PillTabs } from "../components/ui/Tabs";
 import { DayList, Pagination } from "../features/feed/DayList";
 import { EmptyState } from "../components/ui/Page";
@@ -73,11 +73,7 @@ export default function AllPage() {
   const t=useText();
   const language=useUiLanguage();
   const [params] = useSearchParams();
-  const navigation = useNavigation();
   const f = data.filters;
-  const busy = navigation.state === "loading" && navigation.location?.pathname === "/all";
-  const { channel, category } = filterParams(f);
-  const keep = { channel, category };
   const searchTabHref = (tab: "time" | "relevance") => {
     const sp = new URLSearchParams(params);
     sp.delete("page");
@@ -85,7 +81,6 @@ export default function AllPage() {
     else sp.delete("tab");
     return `/all?${sp}`;
   };
-  const title = f.q ? t(`搜索“${f.q}”`,`Search: ${f.q}`) : f.tag ? `#${f.tag}` : null;
   const updated = beijingTime(data.freshness);
   // Searches are remembered in this browser for the phone search (listed in the privacy notice).
   useEffect(() => {
@@ -97,9 +92,9 @@ export default function AllPage() {
   }, []);
 
   return (
-    <div className="pb-6">
-      {/* Phones: the feed bar, or for a search the query (tap to change it) and back to 全部. */}
-      {f.q ? (
+    <>
+      {/* Phones: for a search the query (tap to change it) and back to 全部; otherwise the layout's feed bar shows. */}
+      {f.q && (
         <PhoneBar
           back={{ to: "/all", label: t("全部","All news") }}
           center={
@@ -109,22 +104,7 @@ export default function AllPage() {
             </button>
           }
         />
-      ) : (
-        <FeedBar base="/all" category={f.category} channel={f.channel} />
       )}
-      <ActiveFilters base="/all" category={f.category} channel={f.channel} tag={f.tag} />
-
-      {/* Desktop, as on 精选: the title, then one filter row with the search field aligned on the right. */}
-      <div className="hidden lg:block">
-        <h1 className="text-[24px] font-semibold leading-[1.3] text-ink">{title ?? t(ALL_TITLE,"All news")}</h1>
-        <div className="mb-5 mt-4 flex items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            {!inNav("/all") && <ScopeTabs base="/all" />}
-            <CategoryTabs base="/all" category={f.category} channel={f.channel} layoutId="all-cat-desk" className="min-w-0" />
-          </div>
-          <SearchField defaultValue={f.q ?? ""} keep={keep} />
-        </div>
-      </div>
 
       {f.q && (
         <div className="mb-3 mt-1 flex flex-wrap items-center justify-between gap-2 lg:mt-0">
@@ -141,28 +121,26 @@ export default function AllPage() {
         </div>
       )}
 
-      <div className={`transition-opacity duration-200 ${busy ? "opacity-50" : ""}`}>
-        {data.items.length === 0 ? (
-          <div className="mt-2 lg:card">
-            <EmptyState
-              title={t("没有找到相关内容","No matching results")}
-              action={
-                f.q && f.tab === "time" ? (
-                  <Link to={searchTabHref("relevance")} className="text-[13px] font-medium text-accent hover:underline">
-                    {t("试试“全文相关”，连正文一起搜","Try full-text relevance search")}
-                  </Link>
-                ) : undefined
-              }
-            >
-              {f.q ? t("换个说法，或者去掉筛选再试。","Try a different query or remove filters.") : t("这个筛选下暂时没有内容。","No news matches these filters.")}
-            </EmptyState>
-          </div>
-        ) : (
-          <DayList items={data.items} todayCount={f.q ? null : data.todayCount} />
-        )}
-      </div>
+      {data.items.length === 0 ? (
+        <div className="mt-2 lg:card">
+          <EmptyState
+            title={t("没有找到相关内容","No matching results")}
+            action={
+              f.q && f.tab === "time" ? (
+                <Link to={searchTabHref("relevance")} className="text-[13px] font-medium text-accent hover:underline">
+                  {t("试试“全文相关”，连正文一起搜","Try full-text relevance search")}
+                </Link>
+              ) : undefined
+            }
+          >
+            {f.q ? t("换个说法，或者去掉筛选再试。","Try a different query or remove filters.") : t("这个筛选下暂时没有内容。","No news matches these filters.")}
+          </EmptyState>
+        </div>
+      ) : (
+        <DayList items={data.items} todayCount={f.q ? null : data.todayCount} />
+      )}
       <Pagination page={data.page} pageCount={data.pageCount} href={(p) => pageHref(params, p)} />
       {data.page >= 50 && <p className="mt-4 text-center text-[12px] text-ink-4">{t("最多提供 50 页，更早的内容请使用搜索或主题页。","Up to 50 pages are available. Search for older reports.")}</p>}
-    </div>
+    </>
   );
 }
