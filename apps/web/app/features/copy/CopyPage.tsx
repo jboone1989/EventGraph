@@ -3,28 +3,37 @@ import { Link } from "react-router";
 import type { CopyDocument, RenderedCopy } from "../../lib/markdown";
 import { ArticleLayout, RailSection } from "../../components/ui/Page";
 import { PhoneBar } from "../../components/shell/PhoneBar";
+import { useText, useUiLanguage } from "../../components/LanguageSwitch";
+import { englishOnly } from "../../lib/english";
+
+/** The meta keys a legal page shows, in the reader's language (the keys themselves stay as stored). */
+const FACT_EN: Record<string, string> = { 版本: "Version", 生效日期: "Effective", 运营主体: "Operator", 联系方式: "Contact", 备案号: "ICP filing" };
 
 /**
  * Legal and policy pages, read like articles: the document on the page in one column, its facts in the
  * left rail and its outline in the right (phones get the facts above the text and no outline).
  */
 export function CopyPage({ doc, rendered, eyebrow, footer, aside }: { doc: CopyDocument; rendered: RenderedCopy; eyebrow?: ReactNode; footer?: ReactNode; aside?: ReactNode }) {
-  const facts = (["版本", "生效日期", "运营主体", "联系方式", "备案号"] as const).filter((k) => doc.meta[k]);
+  const t = useText();
+  const en = useUiLanguage() === "en";
+  // The meta values are the site's own fill-ins and may still be Chinese placeholders; English omits those.
+  const valueOf = (k: string) => (en ? englishOnly(doc.meta[k] ?? "") : doc.meta[k]);
+  const facts = (["版本", "生效日期", "运营主体", "联系方式", "备案号"] as const).filter((k) => valueOf(k));
   const info = facts.length > 0 && (
-    <RailSection title="文档信息">
+    <RailSection title={t("文档信息", "About this document")}>
       <dl className="space-y-2 text-[12.5px]">
         {facts.map((k) => (
           <div key={k}>
-            <dt className="text-ink-4">{k}</dt>
-            <dd className="mt-0.5 text-ink-2">{doc.meta[k]}</dd>
+            <dt className="text-ink-4">{t(k, FACT_EN[k] ?? k)}</dt>
+            <dd className="mt-0.5 text-ink-2">{valueOf(k)}</dd>
           </div>
         ))}
       </dl>
     </RailSection>
   );
   const outline = rendered.outline.length > 2 && (
-    <RailSection title="目录">
-      <nav aria-label="目录">
+    <RailSection title={t("目录", "Contents")}>
+      <nav aria-label={t("目录", "Contents")}>
         <ol className="-ml-px space-y-0.5 border-l border-line">
           {rendered.outline.map((o) => (
             <li key={o.id}>
@@ -39,7 +48,7 @@ export function CopyPage({ doc, rendered, eyebrow, footer, aside }: { doc: CopyD
   );
   return (
     <>
-    <PhoneBar back={{ to: "/more", label: "我的" }} title={doc.title} />
+    <PhoneBar back={{ to: "/more", label: t("我的", "More") }} title={doc.title} />
     <ArticleLayout
       left={
         <>
@@ -62,8 +71,8 @@ export function CopyPage({ doc, rendered, eyebrow, footer, aside }: { doc: CopyD
           <dl className="mt-5 grid grid-cols-1 border-y border-line text-[12.5px] sm:grid-cols-2 lg:hidden">
             {facts.map((k) => (
               <div key={k} className="flex gap-4 border-b border-line-soft py-2.5 last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0">
-                <dt className="w-16 shrink-0 text-ink-4">{k}</dt>
-                <dd className="min-w-0 text-ink-2">{doc.meta[k]}</dd>
+                <dt className="w-16 shrink-0 text-ink-4">{t(k, FACT_EN[k] ?? k)}</dt>
+                <dd className="min-w-0 text-ink-2">{valueOf(k)}</dd>
               </div>
             ))}
           </dl>

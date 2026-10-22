@@ -166,23 +166,12 @@ export interface SiteItemDetail extends ItemSummary {
   /** The topics the report belongs to. */
   topics: TopicLink[];
   indexable: boolean;
+  /** Whether its English page may be indexed: an English copy exists and the event has several reports. */
+  englishIndexable: boolean;
   markdownAvailable: boolean;
   group: GroupInfo | null;
   hasTranslation: boolean;
   bodyLanguage: "zh" | "original";
-}
-
-/** What the site knows around one report, for its English page (publication/item-context.ts). */
-export interface ItemContext {
-  story: { publicId: string; english: { title: string; digest: string } | null; reportCount: number; sourceCount: number } | null;
-  /** Other public reports of the event nearest in time, oldest first; title is English (copy or original) or null. */
-  coverage: Array<{ id: string; source: string; publishedAt: string; title: string | null; earlier: boolean }>;
-  /** Relations Graphiti extracted from this report. */
-  facts: Array<{ subject: string; predicate: string; object: string; fact: string }>;
-  /** Exchange prices around the report for the assets it names. */
-  market: { eventAt: string; assets: Array<{ asset: string; before: { priceUsdt: number; at: string }; after: { priceUsdt: number; at: string; latest: boolean }; changePercent: number }> } | null;
-  /** Whether its English page has context enough to be indexed. */
-  indexable: boolean;
 }
 
 /** A fact's public reports under the list's filters: what "另有 N 家信源报道" opens. */

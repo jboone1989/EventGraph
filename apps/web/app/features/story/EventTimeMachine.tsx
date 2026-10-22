@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import type { StoryReportView } from "@aihot/contracts/site";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
-import { englishText } from "../../components/EnglishStory";
+import { englishText } from "../../lib/english";
 import { buildReplayFrames } from "./replay";
 
 interface Props {

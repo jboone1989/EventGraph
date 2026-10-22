@@ -11,12 +11,15 @@
  * feedLabel 是分类 RSS 标题里的名字（不写就用 label）。公开接口、RSS 和 MCP 里要把一类并进另一类发布，写在站点设置里（site/site.ts 的 PUBLIC_CATEGORIES）。
  */
 export const CATEGORIES = [
-  { key: "ai", label: "AI", feedLabel: "AI 动态", section: "人工智能", guide: "AI 模型、应用、算力、基础设施、研究和产业变化。" },
-  { key: "crypto", label: "加密货币", feedLabel: "加密市场", section: "加密货币", guide: "比特币、区块链、稳定币、交易所、链上金融、数字资产监管与市场结构。" },
-  { key: "finance", label: "金融", feedLabel: "金融市场", section: "金融与宏观", guide: "货币政策、利率、流动性、资本市场、金融机构、ETF 与金融科技。" },
-  { key: "world", label: "全球事件", feedLabel: "国际与地缘", section: "全球政治与产业", guide: "影响金融市场、供应链、能源、贸易或技术产业的重大国际政治、军事和产业事件。排除与市场及技术关系不明的泛社会热点。" },
-  { key: "research", label: "深度研究", feedLabel: "原创研究与解释", section: "独立研究", guide: "有独立分析、可核验的方法、数据比较、实测或可迁移的系统解释；任何作者均可归此类。单纯转述新闻不应归此类。" },
-] as const satisfies ReadonlyArray<{ key: string; label: string; feedLabel?: string; section: string; guide: string; commentary?: true }>;
+  { key: "ai", label: "AI", feedLabel: "AI 动态", section: "人工智能", sectionEn: "AI", guide: "AI 模型、应用、算力、基础设施、研究和产业变化。" },
+  { key: "crypto", label: "加密货币", feedLabel: "加密市场", section: "加密货币", sectionEn: "Crypto", guide: "比特币、区块链、稳定币、交易所、链上金融、数字资产监管与市场结构。" },
+  { key: "finance", label: "金融", feedLabel: "金融市场", section: "金融与宏观", sectionEn: "Finance & macro", guide: "货币政策、利率、流动性、资本市场、金融机构、ETF 与金融科技。" },
+  { key: "world", label: "全球事件", feedLabel: "国际与地缘", section: "全球政治与产业", sectionEn: "Global & industry", guide: "影响金融市场、供应链、能源、贸易或技术产业的重大国际政治、军事和产业事件。排除与市场及技术关系不明的泛社会热点。" },
+  { key: "research", label: "深度研究", feedLabel: "原创研究与解释", section: "独立研究", sectionEn: "Independent research", guide: "有独立分析、可核验的方法、数据比较、实测或可迁移的系统解释；任何作者均可归此类。单纯转述新闻不应归此类。" },
+] as const satisfies ReadonlyArray<{ key: string; label: string; feedLabel?: string; section: string; sectionEn: string; guide: string; commentary?: true }>;
+
+/** 日报版面标题的英文说法，按 section 中文名查；没写的行业在英文页面回退成“Section N”。 */
+export const SECTION_EN: Record<string, string> = Object.fromEntries(CATEGORIES.map((c) => [c.section, c.sectionEn]));
 
 /**
  * 这个行业最受关注的一类发布（AI 行业是新模型）：日报报头的“N 个新模型”、改分类后修订已出的报告都按它数。

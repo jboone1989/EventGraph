@@ -8,10 +8,9 @@ import { localized, pageMeta, reportLd, reportTitle, titled } from "../lib/seo";
 import { beijingDate } from "@aihot/contracts/time";
 import { ReportLayout } from "../features/report/ReportLayout";
 import { useUiLanguage } from "../components/LanguageSwitch";
-import { EnglishReport } from "../components/EnglishPages";
 import { ReportPaper, reportOutline } from "../features/report/ReportPaper";
 import { GraphChanges, type DailyGraphChanges } from "../features/report/GraphChanges";
-import { KIND_LABEL, feedLink, kindFromPath } from "../features/report/format";
+import { KIND_LABEL, kindLabel, feedLink, kindFromPath } from "../features/report/format";
 import type { Screen } from "../components/shell/screens";
 
 export const handle: Screen = { tab: "daily", name: "日报" };
@@ -41,6 +40,7 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   const r = loaderData.report;
   const description = r.lead?.leadParagraph ?? r.overview?.slice(0, 150) ?? `${SITE.name} ${r.key} ${subjectAfter("的", KIND_LABEL[r.kind])}。`;
   const path = `/${r.kind}/${r.key}`;
+  const kind = kindLabel(r.kind, "en").toLowerCase();
   return [...localized(pageMeta({
     title: reportTitle(r),
     description,
@@ -49,18 +49,17 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
     type: "article",
     jsonLd: reportLd(r, path, description),
   }), location.pathname, {
-    title: `Daily brief · ${r.key}`,
-    description: `The ${r.key} daily brief: the day's most important reports with links to their original sources, and what changed in the knowledge graph.`,
+    title: `${kindLabel(r.kind, "en")} · ${r.key}`,
+    description: `The ${r.key} ${kind}: the period's most important reports with links to their original sources${r.kind === "daily" ? ", and what changed in the knowledge graph" : ""}.`,
   }), feedLink(r.kind)];
 }
 
 export default function ReportDetailPage() {
-  const language=useUiLanguage();
+  const language = useUiLanguage();
   const { report, index, graph, today } = useLoaderData<typeof loader>();
-  if(language==="en") return <EnglishReport report={report} graph={<GraphChanges changes={graph} />}/>;
   return (
-    <ReportLayout kind={report.kind} index={index} current={report.key} today={today} outline={reportOutline(report)}>
-      <ReportPaper report={report} index={index} />
+    <ReportLayout kind={report.kind} index={index} current={report.key} today={today} outline={reportOutline(report, language)}>
+      <ReportPaper report={report} index={index} lang={language} />
       <GraphChanges changes={graph} />
     </ReportLayout>
   );

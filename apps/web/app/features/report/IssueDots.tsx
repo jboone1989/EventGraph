@@ -6,15 +6,16 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router";
 import type { ReportNavigationEntry, ReportKind } from "@aihot/contracts/site";
-import { KIND_PATH, periodGrid } from "./format";
+import type { DisplayLanguage } from "../../lib/format";
+import { periodGrid, reportPath } from "./format";
 
 const ROW = 20;
 const TAU = Math.PI * 2;
 const INTRO_MS = 700;
 const easeOutBack = (p: number) => 1 + 2.2 * (p - 1) ** 3 + 1.2 * (p - 1) ** 2;
 
-export function IssueDots({ kind, reportKey, issueNumber, index, className = "" }: { kind: ReportKind; reportKey: string; issueNumber: number; index: ReportNavigationEntry[]; className?: string }) {
-  const grid = useMemo(() => periodGrid(kind, reportKey, index, issueNumber), [kind, reportKey, index, issueNumber]);
+export function IssueDots({ kind, reportKey, issueNumber, index, lang = "zh", className = "" }: { kind: ReportKind; reportKey: string; issueNumber: number; index: ReportNavigationEntry[]; lang?: DisplayLanguage; className?: string }) {
+  const grid = useMemo(() => periodGrid(kind, reportKey, index, issueNumber, lang), [kind, reportKey, index, issueNumber, lang]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const navigate = useNavigate();
   const rows = Math.ceil(grid.cells.length / grid.columns);
@@ -114,7 +115,7 @@ export function IssueDots({ kind, reportKey, issueNumber, index, className = "" 
     };
     const onClick = (e: MouseEvent) => {
       const c = cells[cellAt(e)];
-      if (c?.key && c.state === "issue") navigate(`${KIND_PATH[kind]}/${c.key}`);
+      if (c?.key && c.state === "issue") navigate(reportPath(kind, c.key, lang));
     };
 
     const resize = new ResizeObserver(() => {
@@ -148,7 +149,7 @@ export function IssueDots({ kind, reportKey, issueNumber, index, className = "" 
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("click", onClick);
     };
-  }, [grid, rows, kind, navigate]);
+  }, [grid, rows, kind, lang, navigate]);
 
   return (
     <div className={className}>

@@ -3,6 +3,10 @@
 // and pictures that are not links open in the viewer, stepping through the body's pictures.
 import { useEffect, useRef, useState } from "react";
 import { Lightbox, type LightboxImage } from "../../components/ui/Lightbox";
+import { useText } from "../../components/LanguageSwitch";
+
+/** The code block's words in the reader's language. */
+interface CodeLabels { code: string; copy: string; copied: string; manual: string; copyCode: string }
 
 /** Pictures worth enlarging: not inside a link, not tiny icons. */
 function canZoom(img: HTMLImageElement): boolean {
@@ -13,7 +17,7 @@ function zoomable(root: HTMLElement): HTMLImageElement[] {
   return [...root.querySelectorAll<HTMLImageElement>("img")].filter(canZoom);
 }
 
-function enhanceCode(root: HTMLElement): () => void {
+function enhanceCode(root: HTMLElement, labels: CodeLabels): () => void {
   const blocks = [...root.querySelectorAll<HTMLPreElement>("pre")].filter((pre) => pre.textContent?.trim());
   if (!blocks.length) return () => {};
   let disposed = false;
@@ -51,12 +55,12 @@ function enhanceCode(root: HTMLElement): () => void {
     const head = document.createElement("div");
     head.className = "code-block-head";
     const label = document.createElement("span");
-    label.textContent = "代码";
+    label.textContent = labels.code;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "code-block-copy";
-    button.textContent = "复制";
-    button.setAttribute("aria-label", "复制代码");
+    button.textContent = labels.copy;
+    button.setAttribute("aria-label", labels.copyCode);
     button.addEventListener("click", async () => {
       let ok = true;
       try {
@@ -65,11 +69,11 @@ function enhanceCode(root: HTMLElement): () => void {
         ok = false;
       }
       button.dataset.status = ok ? "copied" : "error";
-      button.textContent = ok ? "已复制" : "请手动复制";
+      button.textContent = ok ? labels.copied : labels.manual;
       const timer = setTimeout(() => {
         timers.delete(timer);
         button.dataset.status = "";
-        button.textContent = "复制";
+        button.textContent = labels.copy;
       }, ok ? 1800 : 2400);
       timers.add(timer);
     });
@@ -87,7 +91,7 @@ function enhanceCode(root: HTMLElement): () => void {
         // highlight.js escapes the text it is given; its output is only that text and its own spans.
         code.innerHTML = coloured.html;
         code.classList.add("hljs");
-        label.textContent = coloured.label;
+        label.textContent = coloured.label ?? labels.code;
       })
       .catch(() => {});
   }
@@ -100,19 +104,21 @@ function enhanceCode(root: HTMLElement): () => void {
 }
 
 export function ArticleBody({ html }: { html: string }) {
+  const t = useText();
   const ref = useRef<HTMLDivElement>(null);
   const [images, setImages] = useState<LightboxImage[]>([]);
   const [open, setOpen] = useState<number | null>(null);
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
-    const cleanCode = enhanceCode(root);
+    const labels: CodeLabels = { code: t("代码", "Code"), copy: t("复制", "Copy"), copied: t("已复制", "Copied"), manual: t("请手动复制", "Copy manually"), copyCode: t("复制代码", "Copy code") };
+    const cleanCode = enhanceCode(root, labels);
     const mark = (img: HTMLImageElement) => {
       if (canZoom(img)) {
         img.classList.add("zoomable");
         img.tabIndex = 0;
         img.setAttribute("role", "button");
-        img.setAttribute("aria-label", img.alt ? `查看大图：${img.alt}` : "查看大图");
+        img.setAttribute("aria-label", img.alt ? t(`查看大图：${img.alt}`, `Zoom in: ${img.alt}`) : t("查看大图", "Zoom in"));
       } else if (img.classList.contains("zoomable")) {
         img.classList.remove("zoomable");
         img.removeAttribute("tabindex");

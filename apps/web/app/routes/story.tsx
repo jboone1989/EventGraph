@@ -12,7 +12,7 @@ import { localizedMonthDay, localizedMonthDayTime, relativeTime } from "../lib/f
 import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
-import { englishText } from "../components/EnglishStory";
+import { englishText } from "../lib/english";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
 import { Badge, SelectedBadge } from "../components/ui/Badge";
