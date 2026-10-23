@@ -70,6 +70,14 @@ fi
 # Keep the existing knowledge image/version. Graphiti is released independently.
 if [[ "$APP_CHANGED" == 1 ]]; then
   echo "[1/5] Pull the already verified develop image (no host build)"
+  # GitHub Actions can supply a read-only ephemeral GHCR token; manual releases can reuse host credentials.
+  if [[ -n "${GHCR_TOKEN:-}" ]]; then
+    dockercfg="$(mktemp -d)"
+    export DOCKER_CONFIG="$dockercfg"
+    trap 'rm -rf "$dockercfg"' EXIT
+    printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-jboone1989}" --password-stdin >/dev/null
+    unset GHCR_TOKEN
+  fi
   docker pull "$IMAGE_REF"
   docker image tag "$IMAGE_REF" "livingruntime-app:$TAG"
   APP_TAG="$TAG"
