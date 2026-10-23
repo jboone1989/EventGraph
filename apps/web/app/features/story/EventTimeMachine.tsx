@@ -11,10 +11,11 @@ interface Props {
   clock?: "known" | "published";
   position?: number;
   onPosition?: (position: number) => void;
+  showDetails?: boolean;
 }
 
 /** Client-only controls over already-public source reports; no generative call on page load. */
-export function EventTimeMachine({ reports, totalReports, clock = "published", position: controlledPosition, onPosition }: Props) {
+export function EventTimeMachine({ reports, totalReports, clock = "published", position: controlledPosition, onPosition, showDetails = true }: Props) {
   const t = useText();
   const lang = useUiLanguage();
   const frames = useMemo(() => buildReplayFrames(reports, clock), [reports, clock]);
@@ -48,7 +49,7 @@ export function EventTimeMachine({ reports, totalReports, clock = "published", p
   }, [playing, step, last, onPosition]);
 
   if (!frame) {
-    return <p className="text-[13px] text-ink-4">{t("暂无带有效发布时间的报道。", "No reports with valid publication times.")}</p>;
+    return <p className="text-[13px] text-ink-4">{clock === "known" ? t("暂无带有效收录时间的报道。", "No reports with valid discovery times.") : t("暂无带有效发布时间的报道。", "No reports with valid publication times.")}</p>;
   }
   const titleOf = (r: StoryReportView) => lang === "zh"
     ? r.title
@@ -64,6 +65,10 @@ export function EventTimeMachine({ reports, totalReports, clock = "published", p
           </span>
         </div>
         <time dateTime={frame.publishedAt} aria-live={playing ? "off" : "polite"} className="mt-2 block text-[19px] font-semibold text-ink">{date(frame.publishedAt)}</time>
+        <p data-testid="replay-current-report" className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-ink-2">
+          <span className="mr-1 font-medium text-accent">{t("此时新增", "New at this step")} ·</span>
+          {frame.reports.length === 1 ? titleOf(frame.reports[0]!) : t(`${frame.reports.length} 篇报道`, `${frame.reports.length} reports`)}
+        </p>
         {partial && <p className="mt-2 rounded-lg bg-bg px-3 py-2 text-[12px] leading-relaxed text-ink-3" role="status">
           {t(`仅回放已加载的 ${covered} / ${totalReports} 篇报道；最早一步不一定是事件真正起点。`,
             `Replay covers only ${covered} of ${totalReports} reports; the first step may not be the event’s beginning.`)}
@@ -110,9 +115,9 @@ export function EventTimeMachine({ reports, totalReports, clock = "published", p
           </div>
         ))}
       </dl>
-      <div>
+      {showDetails && <div>
         <h3 className="text-[14px] font-semibold text-ink">
-          {t("本阶段新增报道", "Reports published at this step")} · {frame.reports.length}
+          {clock === "known" ? t("此时首次收录的报道", "Reports first seen at this step") : t("本阶段发布的报道", "Reports published at this step")} · {frame.reports.length}
         </h3>
         <ul className="mt-2 divide-y divide-line-soft">
           {frame.reports.map((report) => (
@@ -133,13 +138,13 @@ export function EventTimeMachine({ reports, totalReports, clock = "published", p
             </li>
           ))}
         </ul>
-      </div>
-      <p className="text-[11.5px] leading-relaxed text-ink-4">
+      </div>}
+      {showDetails && <p className="text-[11.5px] leading-relaxed text-ink-4">
         {t(
           clock === "known" ? "按本站首次发现时间回放。历史图谱与证据使用同一时点；完整综述与热度仍是当前视角。" : "按来源发布日期回放。事实有效时间并不代表当时已经知道，属于事后视角。",
           clock === "known" ? "Discovery-time replay; the linked graph and evidence share this cutoff. The full overview and activity remain current." : "Publication-time replay is retrospective; effective dates do not establish when facts were known."
         )}
-      </p>
+      </p>}
     </section>
   );
 }
