@@ -49,7 +49,7 @@ export function EventTimeMachine({ reports, totalReports, clock = "published", p
   }, [playing, step, last, onPosition]);
 
   if (!frame) {
-    return <p className="text-[13px] text-ink-4">{t("暂无带有效发布时间的报道。", "No reports with valid publication times.")}</p>;
+    return <p className="text-[13px] text-ink-4">{clock === "known" ? t("暂无带有效收录时间的报道。", "No reports with valid discovery times.") : t("暂无带有效发布时间的报道。", "No reports with valid publication times.")}</p>;
   }
   const titleOf = (r: StoryReportView) => lang === "zh"
     ? r.title
@@ -117,7 +117,7 @@ export function EventTimeMachine({ reports, totalReports, clock = "published", p
       </dl>
       {showDetails && <div>
         <h3 className="text-[14px] font-semibold text-ink">
-          {t("本阶段新增报道", "Reports published at this step")} · {frame.reports.length}
+          {clock === "known" ? t("此时首次收录的报道", "Reports first seen at this step") : t("本阶段发布的报道", "Reports published at this step")} · {frame.reports.length}
         </h3>
         <ul className="mt-2 divide-y divide-line-soft">
           {frame.reports.map((report) => (
