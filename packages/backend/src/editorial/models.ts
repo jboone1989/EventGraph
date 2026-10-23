@@ -39,7 +39,7 @@ export const CAPABILITIES = {
   // Dailies are computed by rule; report_lead and report_daily remain for their older receipts.
   report: { label: "周报月报的总述与主题（日报由规则算出，不用模型）", env: "REPORT_MODEL", default: DEFAULTS.report ?? "default", purposes: ["report_weekly", "report_monthly", "report_lead", "report_daily"] },
   translate: { label: "精选全文翻译（含引用帖）", env: "TRANSLATE_MODEL", default: DEFAULTS.translate ?? "default", purposes: ["translate_body", "translate_quoted"] },
-  english: { label: "英文版文字（精选报道的英文标题、摘要和推荐理由，事件的英文概览）", env: "ENGLISH_MODEL", default: DEFAULTS.english ?? "default", purposes: ["english_copy", "english_digest"] },
+  english: { label: "英文版文字（公开报道的英文标题和摘要、精选报道的推荐理由，事件的英文概览）", env: "ENGLISH_MODEL", default: DEFAULTS.english ?? "default", purposes: ["english_copy", "english_digest"] },
 } satisfies Record<string, Capability>;
 
 export type CapabilityKey = keyof typeof CAPABILITIES;
