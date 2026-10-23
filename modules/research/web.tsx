@@ -6,8 +6,8 @@ import { IconDoc } from "@aihot/web/components/icons";
 export const researchWeb = defineWebModule({
   name: "research",
   sidebar: {
-    section: "研究",
-    items: [{ to: "/research", label: "研究", icon: IconDoc }],
+    section: "更多",
+    items: [{ to: "/research", label: "研究", labelEn: "Research", icon: IconDoc }],
   },
   admin: {
     content: [{ to: "/admin/research", label: "研究稿件" }],

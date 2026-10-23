@@ -10,7 +10,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { Route } from "./+types/root";
 import "./app.css";
 import { Sidebar } from "./components/shell/Sidebar";
-import { LanguageSwitch, setUiLanguage, useText } from "./components/LanguageSwitch";
+import { LanguageSwitch, setUiLanguage, useText, useUiLanguage } from "./components/LanguageSwitch";
 import { ClientLanguageMeta } from "./components/ClientLanguageMeta";
 import { isEnglishPath } from "./lib/edition";
 import { AnalyticsTracker } from "./components/AnalyticsTracker";
@@ -98,21 +98,22 @@ export function meta({ error }: Route.MetaArgs) {
   return [{ title: titled(notFound ? "页面不存在" : "暂时无法加载") }, { name: "robots", content: "noindex" }];
 }
 
-/** The legal footer every public page carries (AdSense reviewers must reach the policies in one click). */
+/** The legal footer every public page carries (AdSense reviewers must reach the policies in one click).
+ *  English serves both the /en edition's server render and a reader's language preference. */
 function SiteFooter({ english }: { english: boolean }) {
-  const t = useText();
+  const en = english || useUiLanguage() === "en";
   const email = SITE.contactEmail;
   return (
     <footer className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-line py-5 text-[12px] text-ink-4">
-      <Link to={english ? "/en/privacy" : "/privacy"} className="transition-colors hover:text-accent">
-        {t("隐私说明", "Privacy")}
+      <Link to={en ? "/en/privacy" : "/privacy"} className="transition-colors hover:text-accent">
+        {en ? "Privacy" : "隐私说明"}
       </Link>
-      <Link to={english ? "/en/terms" : "/terms"} className="transition-colors hover:text-accent">
-        {t(POLICY.terms.name, "Terms")}
+      <Link to={en ? "/en/terms" : "/terms"} className="transition-colors hover:text-accent">
+        {en ? "Terms" : POLICY.terms.name}
       </Link>
       {email && (
         <a href={`mailto:${email}`} className="transition-colors hover:text-accent">
-          {t(`联系 ${email}`, `Contact ${email}`)}
+          {en ? `Contact ${email}` : `联系 ${email}`}
         </a>
       )}
     </footer>

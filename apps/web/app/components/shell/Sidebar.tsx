@@ -35,7 +35,7 @@ function SideLink({ item, dot }: { item: NavItem; dot: boolean }) {
       <span className={`flex w-[22px] shrink-0 justify-center ${isActive ? "text-accent" : ""}`}>
         <Icon size={17} />
       </span>
-      <span className="min-w-0 truncate">{language==="en"?(englishLabels[item.to]??item.label):item.label}</span>
+      <span className="min-w-0 truncate">{language==="en"?(item.labelEn ?? englishLabels[item.to] ?? item.label):item.label}</span>
       {dot && item.changelog && <span className="ml-auto size-1.5 shrink-0 rounded-full bg-hot" aria-label={language==="en"?"New updates":"有新的更新"} />}
     </Link>
   );
