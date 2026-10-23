@@ -13,8 +13,13 @@ const modulePages: RouteConfigEntry[] = MODULES.flatMap((m) =>
 const moduleAdminPages: RouteConfigEntry[] = MODULES.flatMap((m) => (m.adminPages ?? []).map((p) => page(m.name, p)));
 
 export default [
-  index("routes/home.tsx"),
-  route("all", "routes/all.tsx"),
+  // The two feed scopes (/ and /all) render inside one persistent frame (routes/feed-layout.tsx)
+  // so switching 精选/全部 swaps only the list; the ids are asserted by tests/cache.test.ts.
+  layout("routes/feed-layout.tsx", { id: "feed-layout" }, [
+    index("routes/home.tsx", { id: "routes/home" }),
+    route("all", "routes/all.tsx", { id: "routes/all" }),
+    route("en", "routes/home.tsx", { id: "en-home" }),
+  ]),
   route("all/search-busy", "routes/search-busy.tsx", { id: "all-search-busy" }),
   route("search-busy", "routes/search-busy.tsx", { id: "search-busy" }),
   route("items/:id", "routes/item.tsx"),
@@ -43,7 +48,6 @@ export default [
   route("starred", "routes/starred.tsx"),
   route("agent", "routes/agent.tsx"),
   // The English edition (lib/edition.ts): the same pages at stable /en addresses.
-  route("en", "routes/home.tsx", { id: "en-home" }),
   route("en/hot", "routes/hot.tsx", { id: "en-hot" }),
   route("en/knowledge", "routes/knowledge.tsx", { id: "en-knowledge" }),
   route("en/knowledge/entity/:key", "routes/knowledge-entity.tsx", { id: "en-knowledge-entity" }),
