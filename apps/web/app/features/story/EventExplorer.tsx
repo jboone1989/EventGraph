@@ -78,12 +78,13 @@ export function EventExplorer({ story, initialTime, onTimeState, standalone }: {
         </a>}
       </div>
     </div>
+    {/* The time control is shared by every view; on phones it must remain available when inspecting relations or sources. */}
+    <EventTimeMachine reports={story.timeline} totalReports={story.reportCount}
+      clock={clock==="known"?"known":"published"} position={step} onPosition={setPosition} showDetails={tab==="time"} />
     <div className="flex gap-2 lg:hidden" role="tablist" aria-label={t("探索视图","Explorer views")}>
       {tabButton("time",t("时间","Timeline"))}{tabButton("graph",t("关系","Relations"))}{tabButton("evidence",t("来源","Sources"))}
     </div>
     <div className={tab==="time"?"space-y-4":"hidden space-y-4 lg:block"}>
-      <EventTimeMachine reports={story.timeline} totalReports={story.reportCount}
-        clock={clock==="known"?"known":"published"} position={step} onPosition={setPosition}/>
       <section className="rounded-panel border border-line-soft p-4" aria-label={t("按时点筛选的事件进展","Event developments at selected time")}>
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="text-sm font-semibold">{t("事件进展","Event developments")}</h3>
@@ -111,13 +112,20 @@ export function EventExplorer({ story, initialTime, onTimeState, standalone }: {
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
       <div className={tab==="graph"?"min-w-0":"hidden min-w-0 lg:block"}>
         <h3 className="mb-2 text-sm font-semibold">{t("此时的实体关系","Relations at this time")}</h3>
-        {(loading||graphScope!==scope) && <p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">{t("正在读取历史关系…","Loading time-scoped relations…")}</p>}
-        {graph && <div aria-hidden={graphScope!==scope||loading}
-          className={graphScope===scope&&!loading?"":"invisible h-0 overflow-hidden"}>
-          <TemporalKnowledgeAtlas graph={graph}/>
-        </div>}
-        {!loading && graphScope===scope && !graph && <p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">
-          {t("历史关系无法验证，不以当前图谱替代。","Historical graph unavailable; no present-day graph substituted.")}</p>}
+        <div className="relative" data-testid="explorer-graph-stage">
+          {/* Keep Cytoscape's dimensions while loading; collapsing the old canvas to zero
+              causes a camera refit and visible jump after each temporal seek. */}
+          {graph && <div aria-hidden={graphScope!==scope||loading}
+            className={graphScope===scope&&!loading?"":"invisible"}>
+            <TemporalKnowledgeAtlas graph={graph}/>
+          </div>}
+          {(loading||graphScope!==scope) && <p role="status" className={graph
+            ? "absolute inset-0 flex items-center justify-center rounded-panel border border-line-soft bg-surface p-5 text-sm text-ink-4"
+            : "rounded-panel border border-line-soft p-5 text-sm text-ink-4"}>
+            {t("正在读取历史关系…","Loading time-scoped relations…")}</p>}
+          {!loading && graphScope===scope && !graph && <p role="status" className="rounded-panel border border-line-soft p-5 text-sm text-ink-4">
+            {t("历史关系无法验证，不以当前图谱替代。","Historical graph unavailable; no present-day graph substituted.")}</p>}
+        </div>
       </div>
       <aside aria-label={clock==="known" ? t("当时可用的报道来源","Reports available by this time") : t("该时点之前发布的报道来源","Reports published by this time")} className={tab==="evidence"?"min-w-0":"hidden min-w-0 lg:block"}>
         <h3 className="mb-2 text-sm font-semibold">{clock==="known" ? t("当时可用的报道来源","Reports available by this time") : t("该时点之前发布的报道来源","Reports published by this time")} · {reports.length}</h3>
