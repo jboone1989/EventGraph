@@ -65,14 +65,14 @@
 
 - [x] T040 [P] [US4] `site/public/robots.txt`：增 `User-agent: Mediapartners-Google` 与 `User-agent: Google-Display-Ads-Bot` 的空 Disallow 段（contracts/http-surface.md 目标形态）
 - [x] T041 [P] [US4] `scripts/deploy-prod.sh`：把 `LRSITE_RELEASE` 映射到应用读取的 `AIHOT_RELEASE`（修「线上版本不可见」，repo-gap-audit §7.8）
-- [ ] T042 [US4] `docs/adsense-readiness.md` 更新为送审前运维清单：Cloudflare apex/http→https://www 301 + HSTS、CMP（Google Privacy & messaging）、`ADSENSE_VERIFICATION_ENABLED`+ID（含 `production.flags.env.example` 同步与 `--enforce` 说明）、申请节奏；`docs/deploy.md` 交叉引用
+- [x] T042 [US4] `docs/adsense-readiness.md` 更新为送审前运维清单：Cloudflare apex/http→https://www 301 + HSTS、CMP（Google Privacy & messaging）、`ADSENSE_VERIFICATION_ENABLED`+ID（含 `production.flags.env.example` 同步与 `--enforce` 说明）、申请节奏；`docs/deploy.md` 交叉引用
 - [ ] T043 [US4] 运维执行（人工，非代码）：Cloudflare 规则与 CMP 配置；完成前在 PR/验收中标 UNVERIFIED（constitution 第 5 条）
 
 ## Phase 7: Polish & Cross-Cutting
 
 - [ ] T050 全检查链：`npm run typecheck`；`DATABASE_URL=postgres://127.0.0.1:5432/aihot_test npm test`；`npm run build -w @aihot/web && node --test apps/web/tests/*.test.ts`；`node scripts/smoke.ts --base http://localhost:3000`；`node scripts/adsense-smoke.mjs`（默认态）；`node scripts/adsense-preflight.mjs`
 - [ ] T051 按 `specs/002-adsense-readiness/quickstart.md` 逐场景核对并记录结果（AD-01~AD-15 中可本地验证项）
-- [ ] T052 [P] `site/changelog.json` 增加本次读者可见变化条目（政策页补全、页脚联系入口、收录规则调整、研究栏目）；`docs/` 相应更新
+- [x] T052 [P] `site/changelog.json` 增加本次读者可见变化条目（政策页补全、页脚联系入口、收录规则调整、研究栏目）；`docs/` 相应更新
 
 ---
 
