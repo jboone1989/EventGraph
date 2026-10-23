@@ -70,8 +70,8 @@
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [ ] T050 全检查链：`npm run typecheck`；`DATABASE_URL=postgres://127.0.0.1:5432/aihot_test npm test`；`npm run build -w @aihot/web && node --test apps/web/tests/*.test.ts`；`node scripts/smoke.ts --base http://localhost:3000`；`node scripts/adsense-smoke.mjs`（默认态）；`node scripts/adsense-preflight.mjs`
-- [ ] T051 按 `specs/002-adsense-readiness/quickstart.md` 逐场景核对并记录结果（AD-01~AD-15 中可本地验证项）
+- [x] T050 全检查链：`npm run typecheck`；`DATABASE_URL=postgres://127.0.0.1:5432/aihot_test npm test`；`npm run build -w @aihot/web && node --test apps/web/tests/*.test.ts`；`node scripts/smoke.ts --base http://localhost:3000`；`node scripts/adsense-smoke.mjs`（默认态）；`node scripts/adsense-preflight.mjs`
+- [x] T051 按 `specs/002-adsense-readiness/quickstart.md` 逐场景核对并记录结果（AD-01~AD-15 中可本地验证项）
 - [x] T052 [P] `site/changelog.json` 增加本次读者可见变化条目（政策页补全、页脚联系入口、收录规则调整、研究栏目）；`docs/` 相应更新
 
 ---
