@@ -403,10 +403,14 @@ export interface ReportDetail {
   /** The still-public item the front page leads with (its headline links there). */
   leadItemId: string | null;
   overview: string | null;
+  /** A daily's overview in English, written from the Chinese one; null when there is none (English omits the block). */
+  overviewEn: string | null;
   highlights: ReportCitation[];
   /** As edited: daily categories, weekly and monthly themes. */
   sections: Array<{ label: string; summary: string | null; items: ReportCitation[] }>;
   flashes: ReportCitation[];
+  /** A daily's long tail: events below the selection that still clear the understanding floor, best first. */
+  tail: ReportCitation[];
   /**
    * The front page's picture: from the lead item (a daily's lead, a weekly or monthly's first highlight),
    * else from another public report of that event. Captioned with the story when it is not the lead's own.

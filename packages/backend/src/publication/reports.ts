@@ -340,6 +340,7 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
   const entries: Array<Record<string, any>> = [
     ...(c.sections ?? []).flatMap((s: any) => s.items ?? []),
     ...(c.flashes ?? []),
+    ...(c.tail ?? []),
     ...(c.themes ?? []).flatMap((t: any) => t.storyRefs ?? []),
   ];
   const rawItems = [...entries, ...entries.flatMap((e) => e.related ?? [])];
@@ -354,7 +355,7 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
   const highlights = highlightIds.length
     ? highlightIds.map((id) => all.find((x: ReportCitation) => x.itemId === id)).filter((x): x is ReportCitation => !!x)
     : all.slice(0, 3);
-  const text = [c.lead?.leadParagraph ?? "", c.overview ?? "", ...all.flatMap((i: ReportCitation) => [`${i.title}${i.summary ?? ""}`, ...(i.related ?? []).map((r) => r.title)])].join("");
+  const text = [c.lead?.leadParagraph ?? "", c.overview ?? "", ...all.flatMap((i: ReportCitation) => [`${i.title}${i.summary ?? ""}`, ...(i.related ?? []).map((r) => r.title)]), ...(c.tail ?? []).map((t: any) => String(t.title ?? ""))].join("");
   // An issue leads with the item it names (an issue composed by rule records it), or the one standing in
   // for it once withdrawn (issueLead); an earlier daily's lead is matched by title. An earlier weekly or
   // monthly's picture comes from its first highlight, captioned with it.
@@ -368,7 +369,7 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
   const [{ prev, next }, picture] = await Promise.all([neighbors(kind, key), leadItem?.itemId && leadItem.available ? leadCover(leadItem.itemId) : null]);
   const cover = picture && leadItem ? { ...picture, caption: kind === "daily" || c.leadItemId ? null : leadItem.title } : null;
   const headline = kind === "daily" ? null : periodicHeadline(c);
-  const title = kind === "daily" ? `${withSubject("日报")} · ${key}`
+  const title = kind === "daily" ? `日报 · ${key}`
     : String((hasCitedLead && c.title === headline ? named?.title : c.title) ?? (kind === "weekly" ? `${SITE.name} 周报 · ${key}` : `${SITE.name} 月报 · ${key}`));
   return {
     kind,
@@ -382,9 +383,11 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
         : c.lead ? { ...c.lead, leadParagraph: overview ?? "" } : (headline ? { title: headline, leadParagraph: overview ?? "" } : null),
     leadItemId: (kind === "daily" || c.leadItemId) && leadItem?.available ? leadItem.itemId : null,
     overview,
+    overviewEn: kind === "daily" && typeof c.overviewEn === "string" && c.overviewEn ? c.overviewEn : null,
     highlights,
     sections,
     flashes: (c.flashes ?? []).map(cite),
+    tail: kind === "daily" ? (c.tail ?? []).map(cite) : [],
     cover,
     metrics: {
       ...c.metrics,
@@ -525,6 +528,8 @@ export interface FeedIssue {
   headline: string | null;
   /** A daily's lead paragraph; a weekly's or monthly's overview. */
   leadParagraph: string | null;
+  /** The issue's written overview, when it has one and it is not already the lead paragraph. */
+  overview: string | null;
   sections: Array<{ label: string; items: Array<{ title: string; link: string }> }>;
 }
 
@@ -537,6 +542,7 @@ export async function feedIssues(kind: ReportKind, limit: number): Promise<FeedI
     ? await sql<{ key: string; generated_at: Date; content: Record<string, any> }[]>`
       SELECT key, generated_at, jsonb_build_object(
         'lead', content->'lead', 'leadItemId', content->'leadItemId', 'highlights', content->'highlights',
+        'overview', content->'overview',
         'sections', (SELECT coalesce(jsonb_agg(jsonb_build_object('label', s->'label', 'items',
           (SELECT coalesce(jsonb_agg(jsonb_build_object('itemId', i->'itemId', 'title', i->'title') ORDER BY ord), '[]'::jsonb)
            FROM jsonb_array_elements(coalesce(s->'items', '[]'::jsonb)) WITH ORDINALITY AS e(i, ord))) ORDER BY sord), '[]'::jsonb)
@@ -564,6 +570,9 @@ export async function feedIssues(kind: ReportKind, limit: number): Promise<FeedI
       generatedAt: r.generated_at,
       headline: lead?.title ?? null,
       leadParagraph: kind === "daily" ? lead?.leadParagraph ?? null : periodOverview(r.content, kind, gone),
+      overview: kind === "daily"
+        ? typeof r.content.overview === "string" && r.content.overview ? r.content.overview : null
+        : periodOverview(r.content, kind, gone),
       sections: groups.map((g) => ({
         label: String(g.label),
         items: (g.items ?? []).filter((i) => i.itemId && !gone.has(i.itemId)).map((i) => ({ title: String(i.title), link: itemUrl(i.itemId) })),
