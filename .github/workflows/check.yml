@@ -391,6 +391,12 @@ jobs:
             grep -Fxq "$check" "$RUNNER_TEMP/develop-checks" || { echo "::error::Missing successful develop $check"; exit 1; }
           done
           echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR (read only)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Confirm immutable digest exists (no rebuild)
         env:
           IMAGE_REF: ${{ steps.pin.outputs.image_ref }}
