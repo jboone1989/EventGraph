@@ -1,49 +1,24 @@
-# EventGraph CI/CD
+# EventGraph CI/CD — promote, don't rebuild
 
-One GitHub workflow: `.github/workflows/check.yml`. It composes the existing
-checks, official Docker Actions, and the Marketplace appleboy/ssh-action.
+A release uses **one** application image: push to `develop` → Check/E2E → immutable GHCR digest → development deployment; promote the exact successful digest to `main` → VM09 production deployment. No production rebuild.
 
-Feature PR to develop -> Check (including Docker integration).
-Push to develop -> Check -> one SHA-pinned GHCR image -> development rollout.
-Develop -> main PR -> CI checks (no deployment).
-Merge develop to main -> main push Check -> GHCR image publish only.
-Production deployment is out of scope until its distinct Compose stack and
-persistent volumes are audited. Target hosts do not compile code.
+- Feature PRs (including promotion PRs targeting `main`) still run the repository's required `check`, `docker` and browser checks.
+- Only a push to `develop` runs builds and publishes `ghcr.io/jboone1989/eventgraph-app@sha256:...`.
+- A push to `main` runs `promote` only. Its `.github/production-image.env` pins both the successful develop SOURCE_SHA and digest; promotion requires successful `check`, `e2e`, `publish` results for that SHA, unchanged application inputs, and an existing digest. The main push never builds a second image.
+- The `deploy_production` job runs only if `EVENTGRAPH_PROD_AUTO_DEPLOY=true` is configured. It invokes the existing VM09 `scripts/deploy-prod.sh`. With no configured production SSH, run that script on VM09 through an authorized operator; **merging to main by itself does not deploy**.
 
-## One-time setup
+## VM09 (production)
 
-Create a GitHub environment named development, restricted to develop.
-Require successful PR checks and review before merging to main.
-Configure these development repository variables and environment secrets:
+Production is `VM-0-9-ubuntu`, in `/home/ubuntu/livingruntime-prod-source`, Compose project `livingruntime`. This differs from the development project. The production script fetches the exact `main` release, validates the pinned develop SHA, pulls the **same** GHCR digest and tags it locally as `livingruntime-app:<main-SHA>`, then reconciles only `api`, `worker`, `web` with `--no-build --pull never --no-deps`. No transfer/build via cn-dev; no DB or Neo4j restart. The production smoke test verifies real news, graph data and default-off AdSense. Schema migrations retain their existing explicit change detection and preflight behavior.
 
-Development:
-- Repo vars EVENTGRAPH_DEV_AUTO_DEPLOY=true, EVENTGRAPH_DEV_HOST,
-  EVENTGRAPH_DEV_USER, optional EVENTGRAPH_DEV_ROOT
-  (defaults to /home/ubuntu/livingruntime-aihot).
-- Environment secrets EVENTGRAPH_DEV_SSH_KEY and
-  EVENTGRAPH_DEV_SSH_FINGERPRINT (SHA256 host fingerprint).
+Release command on VM09:
 
-Production deployment is intentionally disabled. Do not use this development
-script on production. The existing production release requires Compose project
-`livingruntime` plus `docker-compose.production.yml`, knowledge and release
-overlays. Audit and integrate it separately before introducing an automated job.
+```bash
+cd /home/ubuntu/livingruntime-prod-source
+bash scripts/deploy-prod.sh --check
+bash scripts/deploy-prod.sh
+```
 
-An environment-specific deploy account must already have Docker/Compose
-permissions and read access to GHCR via the workflow token. Each host must
-already have its own .env, docker-compose.yml, DB and persistent volumes.
-Do not initialize or replace production volumes. Inspect existing Compose
-overlays/Neo4j layout before first activation. The script only updates setup,
-api, worker and web images; it does not stop DB/Neo4j.
+Configure the production GitHub environment and `EVENTGRAPH_PROD_HOST`, `EVENTGRAPH_PROD_USER`, `EVENTGRAPH_PROD_SSH_KEY`, `EVENTGRAPH_PROD_SSH_FINGERPRINT` before opting into automatic VM09 deployment. An authorized operator is required when those credentials are absent or an external execution policy blocks the script. Do not use the development `deploy-image.sh` on production.
 
-The container image is referenced by immutable digest. Deploys reject stale
-branch revisions and check the HTTP health endpoint. A failed health check attempts to restore the previous app image. Before the
-first managed release, the script snapshots the image ID from the running web
-container; it aborts instead of deploying without a rollback baseline.
-Migrations and database backups are a separate, reviewed process; normal image
-rollouts never run migrations or re-create the database. Releases that need a
-new schema must be coordinated separately.
-
-Development auto deploy passed real CI, GHCR pull and HTTP smoke on cn-dev
-(2026-10-19, run 39192329068). Production auto deploy is not implemented.
-The SHA-pinned SSH Marketplace Action fetches drone-ssh v1.8.2 at runtime
-without independent checksum verification. Risk is accepted for dev only.
+The development deployment continues to use its pre-existing `EVENTGRAPH_DEV_*` variables and credentials; slow GHCR downloads there do not change the already verified image's release identity.
