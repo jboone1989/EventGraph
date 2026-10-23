@@ -60,8 +60,8 @@ export const SITE = {
    * 改了接口里已有的字段或含义时升主版本，并在部署说明里写清。
    */
   interfaceVersion: "4.0.0",
-  /** 对外联系邮箱（选填）：llms.txt 和给 Agent 的使用说明里会写。 */
-  contactEmail: null as string | null,
+  /** 对外联系邮箱：llms.txt、给 Agent 的使用说明、全站页脚和关于页都会写（AdSense 审核要求公开可核验的联系方式）。 */
+  contactEmail: "login@livingruntime.com" as string | null,
   /** 关于页底部的一行小字（选填）。 */
   footerNote: "AI · Crypto · Finance | 原创研究与公开来源",
   /** 中国大陆网站的 ICP 备案号（选填），填了就显示在侧栏底部和“我的”页底部，并链接到工信部备案系统。 */
@@ -72,7 +72,7 @@ export const SITE = {
   organization: {
     name: "EventGraph",
     /** 创始人（选填）。 */
-    founder: null as null | { name: string; alternateName?: string; jobTitle?: string; description?: string; url?: string },
+    founder: { name: "Jianbo Wang" } as null | { name: string; alternateName?: string; jobTitle?: string; description?: string; url?: string },
   },
   /** 抓取信源时报上的名字和版本（User-Agent 里用），不要冒用别的站。 */
   crawlerName: "EventGraphBot/1.0",
@@ -109,6 +109,18 @@ export const POLICY = {
    * 不算的话总是显示，和标题、摘要一样。
    */
   xPostIsFullText: true,
+} as const;
+
+/**
+ * 搜索收录策略。依据 specs/002-adsense-readiness（FR-006~009）与 Google 发布商政策：不得在
+ * 「未经人工审核或策展的自动生成内容」上放广告——收录（索引/sitemap）只认编辑策展标记，
+ * 模型精选本身不再自动让页面进索引。
+ */
+export const SEO = {
+  /** true：只有后台标记「可收录」（seo_indexed_at）的页面进索引与 sitemap；false：精选仍自动收录（旧行为）。 */
+  curatedIndexOnly: true,
+  /** 事件页收录的薄页门槛：单来源事件的 AI 综述至少这么多字，否则该事件页不收录。 */
+  minSingleSourceDigestChars: 100,
 } as const;
 
 /** 导航（电脑侧栏、手机底栏、“我的”页）。 */

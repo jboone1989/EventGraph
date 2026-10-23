@@ -4,7 +4,7 @@ import {
 } from "react-router";
 import type { SiteMeta } from "@aihot/contracts/site";
 import { adsenseVerificationId } from "@aihot/contracts/adsense";
-import { SITE } from "@aihot/site";
+import { POLICY, SITE } from "@aihot/site";
 import { RingMark } from "@aihot/site/brand/Logo.tsx";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Route } from "./+types/root";
@@ -98,6 +98,27 @@ export function meta({ error }: Route.MetaArgs) {
   return [{ title: titled(notFound ? "页面不存在" : "暂时无法加载") }, { name: "robots", content: "noindex" }];
 }
 
+/** The legal footer every public page carries (AdSense reviewers must reach the policies in one click). */
+function SiteFooter({ english }: { english: boolean }) {
+  const t = useText();
+  const email = SITE.contactEmail;
+  return (
+    <footer className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-line py-5 text-[12px] text-ink-4">
+      <Link to={english ? "/en/privacy" : "/privacy"} className="transition-colors hover:text-accent">
+        {t("隐私说明", "Privacy")}
+      </Link>
+      <Link to={english ? "/en/terms" : "/terms"} className="transition-colors hover:text-accent">
+        {t(POLICY.terms.name, "Terms")}
+      </Link>
+      {email && (
+        <a href={`mailto:${email}`} className="transition-colors hover:text-accent">
+          {t(`联系 ${email}`, `Contact ${email}`)}
+        </a>
+      )}
+    </footer>
+  );
+}
+
 /** Sidebar, main column and phone tab bar around a page (or an error). */
 function SiteShell({ changelogVersion, children }: { changelogVersion: string | null; children: ReactNode }) {
   const navigation = useNavigation();
@@ -122,6 +143,7 @@ function SiteShell({ changelogVersion, children }: { changelogVersion: string | 
         <div className="mx-auto w-full max-w-[640px] pl-[var(--gutter-l)] pr-[var(--gutter-r)] lg:max-w-[var(--page-max-wide)] lg:px-0">
           {webModules().map((m) => m.root?.Top && <m.root.Top key={m.name} />)}
           {children}
+          <SiteFooter english={english} />
         </div>
       </main>
       <div className="fixed bottom-[calc(66px+env(safe-area-inset-bottom))] right-3 z-[55] lg:hidden"><LanguageSwitch compact /></div>

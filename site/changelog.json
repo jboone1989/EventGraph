@@ -1,6 +1,17 @@
 {
-  "latestVersion": "2026-10-01T08:00",
+  "latestVersion": "2026-10-24T08:00",
   "releases": [
+    {
+      "date": "2026-10-24",
+      "time": "08:00",
+      "kind": "公告",
+      "title": "补齐隐私与条款，公开运营者与联系方式",
+      "body": [
+        "隐私说明与使用规则填入运营者（Jianbo Wang）、联系邮箱（login@livingruntime.com）与生效日期，不再留模板占位；英文版有独立地址 /en/privacy 与 /en/terms。",
+        "所有页面页脚新增隐私说明、使用规则与联系入口；关于页写明编辑流程与 AI 使用披露。",
+        "robots.txt 放行 Google 广告爬虫，为广告审核做准备；站内仍不加载任何广告脚本。"
+      ]
+    },
     {
       "date": "2026-10-01",
       "time": "08:00",

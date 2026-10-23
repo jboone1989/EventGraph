@@ -2,13 +2,14 @@ import { POLICY, SITE } from "@aihot/site";
 import copy from "@aihot/site/pages/privacy.md?raw";
 import copyEn from "@aihot/site/pages/privacy.en.md?raw";
 import { edgeTtl } from "../lib/api.server";
-import { pageMeta, siteUrl } from "../lib/seo";
+import { localized, pageMeta, siteUrl } from "../lib/seo";
 import { renderMarkdown, type CopyDocument } from "../lib/markdown";
 import { prepareCopy } from "../lib/site-copy";
 import { CopyPage, LegalFooterLinks } from "../features/copy/CopyPage";
 import { useText, useUiLanguage } from "../components/LanguageSwitch";
 import { englishOnly } from "../lib/english";
 import type { Screen } from "../components/shell/screens";
+import type { Route } from "./+types/privacy";
 
 export const handle: Screen = { tab: "me" };
 
@@ -18,7 +19,7 @@ const PRIVACY_EN = {
   doc: {
     title: "Privacy information",
     meta: PRIVACY.doc.meta,
-    intro: "An English explanation of the site's data-handling design. Operator identity, contact and exact retention details still require completion before commercial launch.",
+    intro: "An English explanation of the site's data handling. Operator: Jianbo Wang · contact: login@livingruntime.com · effective 2026-10-24.",
     body: "",
   } as CopyDocument,
   rendered: renderMarkdown(copyEn, siteUrl()),
@@ -28,8 +29,12 @@ export function headers() {
   return edgeTtl(300);
 }
 
-export function meta() {
-  return pageMeta({ title: "隐私说明", description: POLICY.privacy.description, path: "/privacy", image: "/og/pages/privacy.png" });
+export function meta({ location }: Route.MetaArgs) {
+  return localized(
+    pageMeta({ title: "隐私说明", description: POLICY.privacy.description, path: "/privacy", image: "/og/pages/privacy.png" }),
+    location.pathname,
+    { title: "Privacy information", description: "How EventGraph handles browser data, feedback, server logs and third-party content. Operator: Jianbo Wang; contact: login@livingruntime.com." },
+  );
 }
 
 export default function PrivacyPage() {
@@ -48,7 +53,7 @@ export default function PrivacyPage() {
       footer={
         <LegalFooterLinks
           links={[
-            { to: "/terms", label: en ? "Terms of use" : POLICY.terms.name },
+            { to: en ? "/en/terms" : "/terms", label: en ? "Terms of use" : POLICY.terms.name },
             { to: "/feedback", label: t("反馈页", "Feedback") },
           ]}
           note={en

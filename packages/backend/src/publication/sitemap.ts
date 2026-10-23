@@ -71,7 +71,7 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
     { loc: "/changelog", revision: sha256(stableJson(loadChangelog())), changefreq: "weekly", priority: 0.5 },
   );
   // The English edition's own addresses (the site's /en pages; their Chinese pages carry hreflang to them).
-  for (const loc of ["/", "/hot", "/knowledge", "/daily", "/topics"]) {
+  for (const loc of ["/", "/hot", "/knowledge", "/daily", "/topics", "/privacy", "/terms"]) {
     const zh = entries.find((e) => e.loc === loc);
     entries.push({ loc: loc === "/" ? "/en" : `/en${loc}`, revision: zh?.revision, changefreq: zh?.changefreq ?? "daily", priority: 0.6 });
   }
