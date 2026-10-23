@@ -1,7 +1,7 @@
 // Stories (events) and the hot ranking through the public read layer. The website sees heat values;
 // v1 and MCP only see ranks and counts.
 import type { HeatPoint, HotResponse, StoryDetail, StoryReportView } from "@aihot/contracts/site";
-import { SITE } from "@aihot/site";
+import { SEO, SITE } from "@aihot/site";
 import { sql } from "../db.ts";
 import { cachedByKey, SHARED_ONLY } from "../lib/cache.ts";
 import { proxiedImage, proxiedImageSet } from "../media/imgproxy.ts";
@@ -60,6 +60,7 @@ interface ReportRow extends RepresentativeIdentity {
   summary: string | null;
   url: string;
   selected: boolean;
+  indexable: boolean;
   at: Date;
   discovered_at: Date;
   source_id: string;
@@ -79,7 +80,7 @@ interface ReportRow extends RepresentativeIdentity {
  */
 async function storyReports(storyId: number, now: Date): Promise<ReportRow[]> {
   return sql<ReportRow[]>`
-    SELECT DISTINCT ON (p.article_id) p.article_id AS id, p.title, p.original_title, p.summary, p.url, p.selected,
+    SELECT DISTINCT ON (p.article_id) p.article_id AS id, p.title, p.original_title, p.summary, p.url, p.selected, p.indexable,
       coalesce(p.published_at, p.discovered_at) AS at, p.discovered_at, s.id AS source_id, s.name AS source_name,
       (s.tier = 'T1') AS first_party, f.id AS fact_id,
       CASE WHEN ${compositeCondition()} THEN 'mention' ELSE fa.role END AS role, p.body_mode, p.score, p.timeline_at, ${REPRESENTATIVE_COLUMNS},
@@ -180,9 +181,14 @@ export async function loadStoryDetail(storyId: number, now = new Date()): Promis
   const latestAt = latest.at;
   // Without a digest or a summary of its own, the story opens with its first development's representative report.
   const origin = developments[developments.length - 1]?.representative;
+  // specs/002-adsense-readiness FR-006/FR-009: an event page is indexed only when an editor curated at
+  // least one of its reports, and never as a thin single-source page with a very short digest.
+  const curated = reports.some((r) => r.indexable);
+  const thin = reports.length < 2 && (text.digest?.length ?? 0) < SEO.minSingleSourceDigestChars;
   return {
     publicId: s.public_id,
     title: s.title,
+    indexable: curated && !thin,
     englishTitle: reports.find(r => r.original_title && !/[\u3400-\u9fff]/.test(r.original_title))?.original_title ?? null,
     english: text.english,
     status: storyStatusFor(latestAt, now.getTime()),

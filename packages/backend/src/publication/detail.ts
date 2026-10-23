@@ -166,7 +166,9 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     relatedStories: related,
     topics: topicLinks(row.topics),
     indexable: row.indexable,
-    englishIndexable: !!row.en_title && (event?.n ?? 0) >= INDEXED_MIN_REPORTS,
+    // FR-012: the English page follows the Chinese page's curation decision, then adds its own bar
+    // (English copy of its own, event of several reports).
+    englishIndexable: row.indexable && !!row.en_title && (event?.n ?? 0) >= INDEXED_MIN_REPORTS,
     markdownAvailable: markdownAvailable(row),
     group,
     hasTranslation: reading.hasTranslation,

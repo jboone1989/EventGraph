@@ -62,6 +62,8 @@ export default [
   route("en/monthly/:key", "routes/report-detail.tsx", { id: "en-monthly-detail" }),
   route("en/topics", "routes/topics.tsx", { id: "en-topics" }),
   route("en/topics/:slug", "routes/topic.tsx", { id: "en-topic" }),
+  route("en/privacy", "routes/privacy.tsx", { id: "en-privacy" }),
+  route("en/terms", "routes/terms.tsx", { id: "en-terms" }),
   ...modulePages,
   route("admin/login", "routes/admin-login.tsx"),
   layout("routes/admin/layout.tsx", { id: "admin-layout" }, [

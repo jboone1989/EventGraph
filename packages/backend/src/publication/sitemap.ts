@@ -2,7 +2,7 @@
 // deadline; a saved copy may bridge a restart only for the remainder of that original lifetime.
 import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { ABOUT, ACCESS, AGENT, POLICY, SITE } from "@aihot/site";
+import { ABOUT, ACCESS, AGENT, POLICY, SEO, SITE } from "@aihot/site";
 import { config, REPO_ROOT } from "../config.ts";
 import { sha256, stableJson } from "../lib/ids.ts";
 import { loadChangelog } from "../site/meta.ts";
@@ -71,7 +71,7 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
     { loc: "/changelog", revision: sha256(stableJson(loadChangelog())), changefreq: "weekly", priority: 0.5 },
   );
   // The English edition's own addresses (the site's /en pages; their Chinese pages carry hreflang to them).
-  for (const loc of ["/", "/hot", "/knowledge", "/daily", "/topics"]) {
+  for (const loc of ["/", "/hot", "/knowledge", "/daily", "/topics", "/privacy", "/terms"]) {
     const zh = entries.find((e) => e.loc === loc);
     entries.push({ loc: loc === "/" ? "/en" : `/en${loc}`, revision: zh?.revision, changefreq: zh?.changefreq ?? "daily", priority: 0.6 });
   }
@@ -87,8 +87,10 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
   }
   // A story needs listed evidence of its own. Its identity follows current readable reports as well
   // as the digest, so a correction or regrouping is visible even when latest_at does not advance.
-  const stories = await sql<{ public_id: string; revision: string; en_revision: string | null }[]>`
-    SELECT st.public_id::text, md5(concat_ws('|', st.title, st.summary, st.digest, st.digest_updated_at::text,
+  // FR-006/FR-009: it enters the sitemap only when an editor curated one of its reports (publications
+  // .indexable) and it is not a thin single-source event with a very short digest.
+  const stories = await sql<{ public_id: string; lastmod: Date | null; revision: string; en_revision: string | null }[]>`
+    SELECT st.public_id::text, st.latest_at AS lastmod, md5(concat_ws('|', st.title, st.summary, st.digest, st.digest_updated_at::text,
       st.version::text, members.revision)) AS revision,
       CASE WHEN en.title IS NOT NULL THEN md5(concat_ws('|', en.title, en.digest, members.revision)) END AS en_revision
     FROM stories st LEFT JOIN story_english en ON en.story_id = st.id AND en.outcome = 'written' AND en.inputs_hash = ${ENGLISH_STORY_INPUTS}
@@ -99,24 +101,32 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
       JOIN sources s ON s.id = p.source_id
       WHERE f.story_id = st.id AND ${storyReportCondition(at)}
     ) members ON true
+    JOIN LATERAL (
+      SELECT count(*) FILTER (WHERE p.indexable) AS curated, count(*) AS n
+      FROM publications p JOIN sources s ON s.id = p.source_id
+      WHERE p.story_id = st.id AND ${storyReportCondition(at)}
+    ) sizes ON true
     WHERE st.merged_into IS NULL AND EXISTS (
       SELECT 1 FROM facts f JOIN fact_articles fa ON fa.fact_id = f.id JOIN publications p ON p.article_id = fa.article_id
       WHERE f.story_id = st.id AND ${evidenceCondition()} AND ${listedCondition(at)})
+      AND sizes.curated > 0
+      AND (sizes.n >= 2 OR coalesce(length(st.digest), 0) >= ${SEO.minSingleSourceDigestChars})
     ORDER BY st.latest_at DESC NULLS LAST, st.id DESC ${limits ? sql`LIMIT ${limits.stories}` : sql``}`;
   for (const s of stories) {
-    entries.push({ loc: `/story/${s.public_id}`, revision: s.revision, changefreq: "daily", priority: 0.5 });
-    // The /en edition is indexed only with an English digest of its own (editorial/english.ts).
+    entries.push({ loc: `/story/${s.public_id}`, lastmod: s.lastmod, revision: s.revision, changefreq: "daily", priority: 0.5 });
+    // The /en edition is indexed only with an English digest of its own (editorial/english.ts),
+    // under the same curation decision as the Chinese page (FR-012).
     if (s.en_revision)
-      entries.push({ loc: `/en/story/${s.public_id}`, revision: s.en_revision, changefreq: "daily", priority: 0.4 });
+      entries.push({ loc: `/en/story/${s.public_id}`, lastmod: s.lastmod, revision: s.en_revision, changefreq: "daily", priority: 0.4 });
   }
   for (const m of serverModules()) if (m.sitemap?.entries) entries.push(...(await m.sitemap.entries()));
-  // Material/translation timestamps can also record a retry or a state repair. Hash the content;
-  // without a dedicated public modification clock, omitting lastmod is more accurate than guessing.
-  const items = await sql<{ id: string; revision: string; en_revision: string | null }[]>`
+  // Material/translation timestamps can also record a retry or a state repair. The item's public
+  // timeline slot is its modification clock (FR-010: every sitemap entry carries a lastmod).
+  const items = await sql<{ id: string; lastmod: Date | null; revision: string; en_revision: string | null }[]>`
     WITH story_sizes AS (
       SELECT p.story_id, count(*) AS n FROM publications p JOIN sources s ON s.id = p.source_id
       WHERE p.story_id IS NOT NULL AND ${storyReportCondition(at)} GROUP BY p.story_id)
-    SELECT p.article_id AS id,
+    SELECT p.article_id AS id, p.timeline_at AS lastmod,
       md5(concat_ws('|', p.revision::text, a.content_hash, tr.title, tr.body_html, tr.body_text, tr.complete::text, qt.text_zh,
         s.name, s.icon_url, st.public_id::text, st.title)) AS revision,
       -- An English page with English copy and an event of several reports (detail.ts INDEXED_MIN_REPORTS).
@@ -126,8 +136,8 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
     WHERE ${storyReportCondition(at)} AND p.indexable
     ORDER BY p.timeline_at DESC, p.article_id DESC ${limits ? sql`LIMIT ${Math.max(0, limits.urls - entries.length)}` : sql``}`;
   for (const it of items) {
-    entries.push({ loc: `/items/${it.id}`, revision: it.revision, changefreq: "monthly", priority: 0.5 });
-    if (it.en_revision) entries.push({ loc: `/en/items/${it.id}`, revision: it.en_revision, changefreq: "monthly", priority: 0.4 });
+    entries.push({ loc: `/items/${it.id}`, lastmod: it.lastmod, revision: it.revision, changefreq: "monthly", priority: 0.5 });
+    if (it.en_revision) entries.push({ loc: `/en/items/${it.id}`, lastmod: it.lastmod, revision: it.en_revision, changefreq: "monthly", priority: 0.4 });
   }
   return limits ? entries.slice(0, limits.urls) : entries;
 }
@@ -138,7 +148,9 @@ async function build(at: Date): Promise<string> {
     .slice(0, MAX_URLS)
     .map((e) => {
       const parts = [`<loc>${escapeXml(siteUrl(e.loc))}</loc>`];
-      if (e.lastmod) parts.push(`<lastmod>${e.lastmod.toISOString()}</lastmod>`);
+      // FR-010: every entry states a lastmod; entries without a content clock of their own (collections,
+      // policies) take the build time — they are regenerated within every five-minute cache window.
+      parts.push(`<lastmod>${(e.lastmod ?? at).toISOString()}</lastmod>`);
       if (e.changefreq) parts.push(`<changefreq>${e.changefreq}</changefreq>`);
       if (e.priority !== undefined) parts.push(`<priority>${e.priority}</priority>`);
       return `<url>\n${parts.join("\n")}\n</url>`;

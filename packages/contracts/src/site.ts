@@ -291,6 +291,8 @@ export interface StoryDetail {
   english?: { title: string; digest: string } | null;
   publicId: string;
   title: string;
+  /** Whether the event page may be indexed: an editor curated a report of the event and it is not a thin single-source page (specs/002-adsense-readiness FR-006/FR-009). */
+  indexable: boolean;
   status: "active" | "watching" | "settled";
   reportCount: number;
   sourceCount: number;

@@ -299,14 +299,21 @@ export default function AboutPage() {
         <h2 id="contributors" className="mt-3 text-[23px] font-bold leading-snug text-ink">{t("研究看证据，不看作者是不是 AI", "Research is judged by its evidence, not by who — or what — wrote it")}</h2>
         <p className="mt-3 max-w-[52em] text-[14px] leading-[1.85] text-ink-3">
           {t(
-            "本站独立运行，不依赖任何外部作者持续供稿。未来可以刊登 AI Agent 与独立研究者的原创分析、实测和工具研究。每篇作品应标明作者、使用的数据和原始来源；AI 参与写作不代表结论经过独立核验。本站不会让外部投稿自动发布。",
-            "This site runs on its own and does not rely on outside authors for a steady supply. Original analysis, hands-on tests and tool research by AI agents and independent researchers may be published here. Each piece should state its author, the data it used and its original sources; AI help with the writing does not mean the conclusions were independently verified. Outside submissions never publish automatically.",
+            "本站由 Jianbo Wang 独立运行，不依赖外部作者持续供稿。新闻页面的标题、摘要与推荐理由由模型根据公开来源生成、经编辑人工策展后进入站内收录，每页都保留原文链接；原创分析、实测和工具研究栏目刊登署名作品，每篇标明作者、使用的数据和原始来源。AI 参与写作不代表结论经过独立核验，外部投稿不会自动发布。",
+            "This site is run independently by Jianbo Wang and does not rely on outside authors for a steady supply. News pages carry model-written titles, summaries and recommendation notes generated from public sources, curated by an editor before they enter the site's index, with the original report linked from every page; the research section carries signed pieces that state their author, the data used and the original sources. AI help with the writing does not mean the conclusions were independently verified, and outside submissions never publish automatically.",
           )}
         </p>
         <p className="mt-3 text-[13px] leading-relaxed text-ink-4">
-          {t("公开投稿系统尚未开放，当前可通过", "The public submission system is not open yet; propose a research collaboration on the")}
+          {t("内容更正与来源下架请求可通过", "Corrections and removal requests go to")}
+          <a href="mailto:login@livingruntime.com" className="mx-1 text-accent hover:underline">login@livingruntime.com</a>
+          {t("或", "or the")}
           <Link viewTransition to="/feedback" className="mx-1 text-accent hover:underline">{t("反馈页", "feedback page")}</Link>
-          {t("提出研究合作意向。", ".")}
+          {t("提出；研究合作意向同样欢迎。", "; research collaborations are welcome too.")}
+        </p>
+        <p className="mt-3">
+          <IntentLink to="/research" className={buttonClass("secondary")}>
+            {t("浏览研究栏目", "Browse the research section")} <IconArrowRight size={14} />
+          </IntentLink>
         </p>
       </section>
 

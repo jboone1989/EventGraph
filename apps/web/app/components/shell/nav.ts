@@ -8,6 +8,8 @@ import { IconNetwork, IconBolt, IconDoc, IconFlame, IconUser } from "../icons";
 export interface NavItem {
   to: string;
   label: string;
+  /** The label's English: a module's entry names it so the English edition renders it in English too. */
+  labelEn?: string;
   icon: (p: { size?: number }) => ReactNode;
   /** Match the path exactly (the home page). */
   end?: boolean;
