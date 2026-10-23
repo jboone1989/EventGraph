@@ -67,10 +67,7 @@ if [[ "${1:-}" == "--check" ]]; then
  exit 0
 fi
 # Graphiti/Neo4j has a separate image; an app digest cannot silently replace it.
-if [[ "$KNOWLEDGE_CHANGED" == 1 ]]; then
-  echo "Knowledge image changed; this digest promotes the app only. A separately verified knowledge image is required." >&2
-  exit 1
-fi
+# Keep the existing knowledge image/version. Graphiti is released independently.
 if [[ "$APP_CHANGED" == 1 ]]; then
   echo "[1/5] Pull the already verified develop image (no host build)"
   docker pull "$IMAGE_REF"
@@ -105,8 +102,8 @@ if [[ "$SCHEMA_CHANGED" == 1 ]]; then
 fi
 # Compose compares image/config hashes; no --force-recreate, no --build, and
 # no dependencies => PostgreSQL and Neo4j are never recreated for an app release.
-echo "[4/5] Reconcile only application services and Graphiti config"
-"${COMPOSE[@]}" up -d --no-deps --no-build --pull never api worker web knowledge
+echo "[4/5] Reconcile application containers only; leave Graphiti/Neo4j running"
+"${COMPOSE[@]}" up -d --no-deps --no-build --pull never api worker web
 echo "[5/5] Verify real site content and graph"
 OK=0
 for n in 1 2 3 4 5 6 7 8 9 10; do
