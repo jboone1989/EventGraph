@@ -966,6 +966,30 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false
+    },
+    {
+      "id": "hn-ai",
+      "name": "Hacker News · AI",
+      "kind": "json_list",
+      "config": {
+        "url": "https://hn.algolia.com/api/v1/search_by_date?tags=story&query=AI&hitsPerPage=100",
+        "itemsPath": "hits",
+        "titlePaths": ["title"],
+        "summaryPaths": ["story_text"],
+        "authorPaths": ["author"],
+        "publishedAtPath": "created_at",
+        "externalIdPath": "objectID",
+        "urlTemplate": "https://news.ycombinator.com/item?id={raw:objectID}"
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 60,
+      "tags": [
+        "AI",
+        "社区讨论"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
     }
   ]
 }

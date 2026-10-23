@@ -1,6 +1,7 @@
-// English copy for the /en edition: a selected report's English title, summary and "why it matters", and a
-// story's English title and digest. Written by the worker from the Chinese copy plus the publisher's own
-// title and opening text; a page read never writes. Each copy records the hash of the Chinese copy it was
+// English copy for the /en edition: a public report's English title and summary (a selected report also gets
+// a "why it matters"), and a story's English title and digest. Written by the worker from the Chinese copy plus
+// the publisher's own title and opening text; a page read never writes. Each copy records the hash of the Chinese
+// copy it was
 // written from (publication/items.ts ENGLISH_ITEM_INPUTS, publication/stories.ts ENGLISH_STORY_INPUTS),
 // so a corrected Chinese copy hides the English one until it is written again. An answer with Chinese
 // characters or the wrong shape fails the schema, which leaves its receipt failed so a retry pays for a
@@ -49,7 +50,7 @@ async function writeItems(deadline: number, limit: number): Promise<{ written: n
            coalesce(a.body_text, a.excerpt) AS text
     FROM publications p JOIN sources s ON s.id = p.source_id JOIN articles a ON a.id = p.article_id
     LEFT JOIN english_copies ec ON ec.article_id = p.article_id
-    WHERE p.selected AND p.visibility = 'public' AND p.summary IS NOT NULL AND p.discovered_at > now() - ${WINDOW}
+    WHERE p.visibility = 'public' AND p.summary IS NOT NULL AND p.discovered_at > now() - ${WINDOW}
       AND (ec.article_id IS NULL OR ec.inputs_hash <> ${ENGLISH_ITEM_INPUTS} OR (ec.outcome = 'failed' AND ec.attempts < ${MAX_ATTEMPTS}))
     ORDER BY p.discovered_at DESC LIMIT ${limit}`;
   let written = 0, failed = 0;
@@ -129,7 +130,7 @@ async function recordFailure(tableName: "english_copies" | "story_english", keyN
       outcome = 'failed', inputs_hash = EXCLUDED.inputs_hash, title = NULL, error = EXCLUDED.error, updated_at = now()`;
 }
 
-/** Every few minutes: English copy for selected reports, then English digests for stories, newest first, within a time budget. */
+/** Every few minutes: English copy for public reports, then English digests for stories, newest first, within a time budget. */
 export async function writeEnglishPending(opts: { limit?: number; budgetMs?: number } = {}) {
   const deadline = Date.now() + (opts.budgetMs ?? 4 * 60_000);
   const items = await writeItems(deadline, opts.limit ?? 30);

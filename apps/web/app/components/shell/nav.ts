@@ -1,11 +1,9 @@
 // Site navigation in one place: the desktop sidebar's sections and the phone tab bar's tabs, the engine's
 // and the site's modules'.
 import type { ReactNode } from "react";
-import { NAV, subjectAfter, withSubject } from "@aihot/site";
+import { NAV } from "@aihot/site";
 import { webModules } from "../../site-modules";
-import {
-  IconNetwork, IconBolt, IconBookmark, IconDoc, IconFlame, IconGrid, IconHeart, IconHistory, IconList, IconMessage, IconPlug, IconUser,
-} from "../icons";
+import { IconNetwork, IconBolt, IconDoc, IconFlame, IconUser } from "../icons";
 
 export interface NavItem {
   to: string;
@@ -17,27 +15,16 @@ export interface NavItem {
   changelog?: boolean;
 }
 
+/** The same five entries as the phone tab bar; everything else is reached through 我的. */
 const SECTIONS: Array<{ title: string; items: NavItem[] }> = [
   {
     title: "探索 / EXPLORE",
     items: [
-      { to: "/", label: "事件观察", icon: IconBolt, end: true },
-      { to: "/all", label: subjectAfter("全部", "动态"), icon: IconList },
-      { to: "/hot", label: "事件脉络", icon: IconFlame },
-      { to: "/knowledge", label: "知识网络", icon: IconNetwork },
-      { to: "/explore", label: "探索工作台", icon: IconHistory },
-      { to: "/daily", label: withSubject("日报"), icon: IconDoc },
-      { to: "/topics", label: "主题", icon: IconGrid },
-      { to: "/starred", label: "收藏", icon: IconBookmark },
-    ],
-  },
-  {
-    title: "更多",
-    items: [
-      { to: "/agent", label: "Agent 接入", icon: IconPlug },
-      { to: "/about", label: "关于", icon: IconHeart },
-      { to: "/changelog", label: "更新日志", icon: IconHistory, changelog: true },
-      { to: "/feedback", label: "反馈", icon: IconMessage },
+      { to: "/", label: "观察", icon: IconBolt, end: true },
+      { to: "/hot", label: "事件", icon: IconFlame },
+      { to: "/knowledge", label: "图谱", icon: IconNetwork },
+      { to: "/daily", label: "日报", icon: IconDoc },
+      { to: "/more", label: "我的", icon: IconUser, changelog: true },
     ],
   },
 ];
@@ -51,7 +38,7 @@ export const inNav = (to: string) => !(NAV.hidden as readonly string[]).includes
  */
 export function sidebar(): Array<{ title: string; items: NavItem[] }> {
   const [content, ...rest] = SECTIONS;
-  const more = rest.pop()!;
+  const more = rest.pop();
   const sections = [content!, ...rest].map((s) => ({ ...s, items: s.items.filter((i) => inNav(i.to)) }));
   for (const m of webModules()) {
     if (!m.sidebar) continue;
@@ -59,7 +46,7 @@ export function sidebar(): Array<{ title: string; items: NavItem[] }> {
     if (section) section.items.push(...m.sidebar.items);
     else sections.push({ title: m.sidebar.section, items: [...m.sidebar.items] });
   }
-  return [...sections, more];
+  return more ? [...sections, more] : sections;
 }
 
 /** A sidebar entry is lit on its pages; 日报 also covers weekly and monthly reports. */

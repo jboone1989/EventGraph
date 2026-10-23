@@ -43,6 +43,19 @@ async function selected(slug: string, minutesAhead: number) {
   return id;
 }
 
+// Not picked by the selection: it still gets an English title and summary, but never a reason.
+async function unselected(slug: string, minutesAhead: number) {
+  const { articleId: id } = await upsertMaterial({
+    sourceId: SOURCE, url: `https://example.com/english-${slug}-${T}`, title: `Price update ${slug} ${T}`, language: "en",
+    bodyText: `The price changed (${slug} ${T}).`, bodyHtml: `<p>The price changed (${slug} ${T}).</p>`, bodyStatus: "ok", via: "fetch",
+    publishedAt: new Date(), discoveredAt: new Date(Date.now() + minutesAhead * 60_000),
+  });
+  await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, score, selected)
+            VALUES (${id}, 1, 'rule', 'pass', 'guide', ${`价格更新-${slug}-${T}`}, '价格有变化。', 40, false)`;
+  await publishArticle(id, { releasedAt: new Date(Date.now() - 60_000) });
+  return id;
+}
+
 async function english(id: string) {
   const res = await app.inject({ method: "GET", url: `/api/site/items/${id}` });
   assert.equal(res.statusCode, 200);
@@ -76,6 +89,15 @@ test("a selected report gets English copy, shown while it matches the Chinese co
   assert.equal(await english(id), null, "a copy of the old wording is hidden");
   await writeEnglishPending({ limit: 1 });
   assert.ok((await english(id))?.title.includes("English copy"), "the corrected copy is written again");
+});
+
+test("an unselected report gets English copy too, without a reason", async () => {
+  const id = await unselected("pool", 1600);
+  await writeEnglishPending({ limit: 1 });
+  const copy = await english(id);
+  assert.ok(copy?.title.includes("English copy"), JSON.stringify(copy));
+  assert.ok(copy?.summary.includes("plain English"));
+  assert.equal(copy?.reason, null, "an unselected report shows no recommendation reason");
 });
 
 test("an answer in Chinese is rejected and retried at most three times", async () => {

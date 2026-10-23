@@ -66,8 +66,6 @@ export const SITE = {
   footerNote: "AI · Crypto · Finance | 原创研究与公开来源",
   /** 中国大陆网站的 ICP 备案号（选填），填了就显示在侧栏底部和“我的”页底部，并链接到工信部备案系统。 */
   icp: null as string | null,
-  /** 源码的 GitHub 仓库地址（选填），填了就在侧栏底部和“我的”页底部显示“GitHub 开源”。 */
-  github: "https://github.com/jboone1989/AIHOT" as string | null,
   /** 结构化数据里的网站运营者（搜索引擎用）。 */
   organization: {
     name: "EventGraph",
@@ -114,10 +112,11 @@ export const POLICY = {
 /** 导航（电脑侧栏、手机底栏、“我的”页）。 */
 export const NAV = {
   /**
-   * 不放进导航的引擎入口，目前只支持热点榜（"/hot"）、主题（"/topics"）和全部动态（"/all"）。页面照样能打开；原来回到它的返回按钮和链接改回精选，
-   * 写 "/hot" 时首页也不放当前热点；写 "/all" 时精选和全部动态的桌面筛选行带头部的“精选 | 全部”切换，读者在页面里换范围（手机顶栏本来就有）。
+   * 不放进导航的引擎入口，目前只支持热点榜（"/hot"）、主题（"/topics"）、全部动态（"/all"）和探索工作台（"/explore"）。页面照样能打开；原来回到它的返回按钮和链接改回精选，
+   * 写 "/hot" 时首页也不放当前热点；写 "/all" 时精选和全部动态的桌面筛选行带头部的“精选 | 全部”切换，读者在页面里换范围（手机顶栏本来就有）；
+   * 写 "/explore" 时只从侧栏和“我的”里藏掉，事件页和知识页的“打开探索工作台”深链照旧。
    */
-  hidden: ["/all"] as Array<"/hot" | "/topics" | "/all">,
+  hidden: ["/all", "/explore"] as Array<"/hot" | "/topics" | "/all" | "/explore">,
 };
 
 /** 条目卡片和详情页上的几处说法和显示。 */
@@ -283,7 +282,7 @@ export const SOURCE_DEFAULTS = {
 export const COMMUNITY_FEEDS: { dev: string[]; hn: string[] } = {
   // Count independent DEV authors, not the entire feed as one "participant".
   dev: ["rss-dev-ai", "rss-dev-crypto"],
-  hn: [],
+  hn: ["hn-ai"],
 };
 
 /** 各页分享图（/og/pages/*.png）上的文字。主题目录页的那张按主题数自动生成。 */
@@ -291,7 +290,7 @@ export const CARDS: Record<string, { kicker: string; title: string; subtitle: st
   site: { kicker: subjectAfter("每日", "精选"), title: SITE.tagline, subtitle: SITE.description },
   all: { kicker: subjectAfter("全部", "动态"), title: "所有信源的最新动态，一站看完", subtitle: "按时间汇总各信源的最新动态，可按类别与标签筛选。" },
   hot: { kicker: "热点榜", title: "过去 48 小时，大家在讨论什么", subtitle: "热度指数、趋势与组成热度的公开来源。", accent: "hot" },
-  daily: { kicker: withSubject("日报"), title: subjectAfter(`每天 ${spokenTime(EDITION_TIMES.daily)}，一份读得完的`, "日报"), subtitle: `${subjectAfter("前一天值得关注的", "动态")}。` },
+  daily: { kicker: "日报", title: `每天 ${spokenTime(EDITION_TIMES.daily)}，一份读得完的日报`, subtitle: `${subjectAfter("前一天值得关注的", "动态")}。` },
   weekly: { kicker: withSubject("周报"), title: `一周${REPORTS.entry.noun}，一次看清`, subtitle: "本周的主线、重要发布与值得回看的讨论。" },
   monthly: { kicker: withSubject("月报"), title: "一个月的变化", subtitle: "月度主线与关键事件回顾。" },
   about: { kicker: "关于", title: `关于 ${SITE.name}`, subtitle: SITE.description },

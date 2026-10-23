@@ -16,7 +16,6 @@ export function KnowledgeAtlas({ initialKey = null, time = null }: { initialKey?
   const [query, setQuery] = useState("");
   const [centers, setCenters] = useState<AtlasNode[]>([]);
   const [network, setNetwork] = useState<AtlasNetwork>(empty);
-  const [predicate, setPredicate] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -33,7 +32,7 @@ export function KnowledgeAtlas({ initialKey = null, time = null }: { initialKey?
   // A time-scoped read must not keep facts gathered under another time state.
   const timeKey = time ? `${time.clock}:${time.asOf}` : "current";
   useEffect(() => {
-    setNetwork(empty);setHasNetwork(false);setHistory([]);setActivePairKey(null);setPredicate(null);
+    setNetwork(empty);setHasNetwork(false);setHistory([]);setActivePairKey(null);
   }, [timeKey]);
   useEffect(() => {
     const sharedKey = new URLSearchParams(window.location.search).get("entity");
@@ -74,14 +73,10 @@ export function KnowledgeAtlas({ initialKey = null, time = null }: { initialKey?
       .finally(() => {if(!controller.signal.aborted) setLoading(false);});
     return () => controller.abort();
   }, [selected,attempt,timeKey]);
-  // Predicate chips narrow what the canvas shows; the accumulated network itself is untouched.
-  const predicates = useMemo(() => [...new Set(network.links.map(l => l.predicate))].sort(), [network.links]);
-  useEffect(() => { if (predicate && !predicates.includes(predicate)) setPredicate(null); }, [predicates, predicate]);
-  const visibleLinks = useMemo(() => predicate ? network.links.filter(l => l.predicate === predicate) : network.links, [network.links, predicate]);
   const shown = useMemo<AtlasNetwork>(() => ({
-    nodes: network.nodes.filter(n => n.key === selected || visibleLinks.some(l => l.source === n.key || l.target === n.key)),
-    links: visibleLinks, truncated: network.truncated, status: network.status,
-  }), [network, visibleLinks, selected]);
+    nodes: network.nodes.filter(n => n.key === selected || network.links.some(l => l.source === n.key || l.target === n.key)),
+    links: network.links, truncated: network.truncated, status: network.status,
+  }), [network, selected]);
   const pairs = useMemo(() => groupAtlasPairs(shown.links), [shown.links]);
   const activePair = pairs.find(p => p.key === activePairKey);
   const activePairIds = activePair?.links.map(l => l.id).join("|") ?? "";
@@ -171,11 +166,6 @@ export function KnowledgeAtlas({ initialKey = null, time = null }: { initialKey?
       <aside className="lr-atlas-sidebar">
         <label className="lr-knowledge-search"><IconSearch size={17}/><span className="sr-only">{t("搜索实体","Search entities")}</span>
           <input value={query} onChange={e=>setQuery(e.target.value)} placeholder={t("搜索实体名称…","Search entity names…")}/></label>
-        {predicates.length>1&&<div className="lr-atlas-filters flex flex-wrap gap-1" role="group" aria-label={t("按关系类别过滤","Filter by relation type")}>
-          {predicates.map(p=><button key={p} type="button" aria-pressed={predicate===p}
-            className={predicate===p?"rounded-full bg-accent px-2 py-0.5 text-[11px] text-white":"rounded-full border border-line px-2 py-0.5 text-[11px]"}
-            onClick={()=>setPredicate(v=>v===p?null:p)}>{p}</button>)}
-        </div>}
         {selected&&!query&&center&&<div className="lr-atlas-entity"><span className="lr-eyebrow">{t("当前中心实体","FOCUS ENTITY")}</span><h3>{center.name}</h3>
           <p>{relations.length} {t("条可公开关系","public relations")}</p>
           {center.key!==initialKey&&<Link to={`/knowledge/entity/${encodeURIComponent(center.key)}`} className="lr-inline-link">{t("打开实体档案","Open entity profile")} ↗</Link>}
