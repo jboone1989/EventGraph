@@ -20,37 +20,45 @@ export async function startWebServer(api: Server, env: NodeJS.ProcessEnv = {}): 
   api.listen(0, "127.0.0.1");
   await once(api, "listening");
   // The port is chosen first so the pages' canonical addresses (SITE_URL) name the server they come from.
-  const probe = createServer();
-  probe.listen(0, "127.0.0.1");
-  await once(probe, "listening");
-  const port = (probe.address() as AddressInfo).port;
-  await new Promise<void>((resolve) => probe.close(() => resolve()));
-  const origin = `http://127.0.0.1:${port}`;
-  let logs = "";
-  const web = spawn(process.execPath, [fileURLToPath(new URL("../server.ts", import.meta.url))], {
-    env: { ...process.env, WEB_PORT: String(port), SITE_URL: origin, TRUST_PROXY: "false", API_BASE_URL: `http://127.0.0.1:${(api.address() as AddressInfo).port}`, ...env },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  const stop = async () => {
-    if (web.exitCode === null) {
-      web.kill("SIGTERM");
-      await once(web, "exit");
-    }
-    api.closeAllConnections();
-    await new Promise<void>((resolve) => api.close(() => resolve()));
-  };
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`web did not start: ${logs}`)), 15_000);
-      web.once("exit", () => { clearTimeout(timeout); reject(new Error(`web exited: ${logs}`)); });
-      web.stderr!.on("data", (chunk) => { logs += String(chunk); });
-      web.stdout!.on("data", (chunk) => {
-        if (String(chunk).includes('"msg":"web started"')) { clearTimeout(timeout); resolve(); }
-      });
+  // Between releasing the probe and the server's own bind another concurrent test file can take the
+  // port (EADDRINUSE seen on CI); a fresh probe per attempt keeps that a retry, not a failure.
+  let attempt = 0;
+  for (;;) {
+    attempt++;
+    const probe = createServer();
+    probe.listen(0, "127.0.0.1");
+    await once(probe, "listening");
+    const port = (probe.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+    const origin = `http://127.0.0.1:${port}`;
+    let logs = "";
+    const web = spawn(process.execPath, [fileURLToPath(new URL("../server.ts", import.meta.url))], {
+      env: { ...process.env, WEB_PORT: String(port), SITE_URL: origin, TRUST_PROXY: "false", API_BASE_URL: `http://127.0.0.1:${(api.address() as AddressInfo).port}`, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
     });
-  } catch (error) {
-    await stop();
-    throw error;
+    const stop = async () => {
+      if (web.exitCode === null) {
+        web.kill("SIGTERM");
+        await once(web, "exit");
+      }
+      api.closeAllConnections();
+      await new Promise<void>((resolve) => api.close(() => resolve()));
+    };
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error(`web did not start: ${logs}`)), 15_000);
+        web.once("exit", () => { clearTimeout(timeout); reject(new Error(`web exited: ${logs}`)); });
+        web.stderr!.on("data", (chunk) => { logs += String(chunk); });
+        web.stdout!.on("data", (chunk) => {
+          if (String(chunk).includes('"msg":"web started"')) { clearTimeout(timeout); resolve(); }
+        });
+      });
+      return { origin, port, logs: () => logs, stop };
+    } catch (error) {
+      await new Promise<void>((resolve) => (web.exitCode === null ? web.once("exit", resolve) : resolve()));
+      if (attempt < 3 && logs.includes("EADDRINUSE")) continue;
+      await stop();
+      throw error;
+    }
   }
-  return { origin, port, logs: () => logs, stop };
 }
