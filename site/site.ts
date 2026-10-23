@@ -284,7 +284,7 @@ export const SOURCE_DEFAULTS = {
 export const COMMUNITY_FEEDS: { dev: string[]; hn: string[] } = {
   // Count independent DEV authors, not the entire feed as one "participant".
   dev: ["rss-dev-ai", "rss-dev-crypto"],
-  hn: [],
+  hn: ["hn-ai"],
 };
 
 /** 各页分享图（/og/pages/*.png）上的文字。主题目录页的那张按主题数自动生成。 */
