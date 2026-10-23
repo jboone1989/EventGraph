@@ -379,7 +379,9 @@ export const TAIL_ENTRIES = 40;
 /**
  * The day's long tail: events the selection passed over whose best score still clears the pack's
  * understanding floor (SELECTION.understandFloor), one line each, best scored first. Same window as
- * the selected reports, attributed by arrival — an unselected report has no release gate. The issue's
+ * the selected reports, attributed by arrival: an unselected report has no release of its own — one
+ * whose identity decision is still pending (selected_ready_at set) is not tail material; it goes out
+ * through its release, in the issue readers first see it in. The issue's
  * own events (exclude) and what the week's issues already carried are left out, so an event returns
  * only with a new fact.
  */
@@ -394,6 +396,7 @@ export async function tailEvents(date: string, start: Date, end: Date, exclude: 
         LEFT JOIN facts f ON f.id = p.fact_id AND ${ownFactEvidenceCondition()}
         LEFT JOIN stories st ON st.id = f.story_id
         WHERE p.visibility = 'public' AND p.eligible AND NOT p.selected AND NOT p.backfill AND p.score >= ${SELECTION.understandFloor}
+          AND p.selected_ready_at IS NULL
           AND p.timeline_at >= ${start} AND p.timeline_at < ${end}
           AND p.timeline_at >= ${start}::timestamptz - interval '24 hours'`;
     }),
