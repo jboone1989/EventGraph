@@ -16,7 +16,7 @@ import { chatJson } from "../providers/llm.ts";
 import { completeReceipt } from "../providers/receipts.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
 import { emit } from "../modules.ts";
-import { arrangeDaily, candidates, dailyEdition, periodEntries, sectionOf, SECTION_ORDER, type Candidate, type EditionEntry } from "./edition.ts";
+import { arrangeDaily, candidates, dailyEdition, periodEntries, sectionOf, tailEvents, SECTION_ORDER, type Candidate, type EditionEntry } from "./edition.ts";
 
 export const REPORT_VERSION = promptVersion("report-period", "report-period-sections", "report-period-no-sections");
 
@@ -96,6 +96,9 @@ export async function composeDaily(date: string, reason?: string): Promise<{ key
   if (edition.entries.length === 0 && edition.stats.judgedReports === 0) throw new Error(`daily ${date}: nothing judged in its window`);
   const issue = arrangeDaily(edition.entries);
   const [lead, ...rest] = issue.main;
+  // The day's long tail: events below the selection that still clear the understanding floor, minus
+  // the events this issue carries and what the week's issues already cited.
+  const tail = edition.keys.size === 0 ? [] : await tailEvents(date, start, end, edition.keys);
   const content = {
     date,
     lead: lead
@@ -107,6 +110,7 @@ export async function composeDaily(date: string, reason?: string): Promise<{ key
       .map((label) => ({ label, items: issue.main.filter((e) => sectionOf(e.category) === label).map((e) => e.entry) }))
       .filter((s) => s.items.length > 0),
     flashes: issue.flashes.map((e) => e.entry),
+    ...(tail.length > 0 ? { tail } : {}),
     metrics: dailyMetrics(issue.main),
     windowStart: start.toISOString(),
     windowEnd: end.toISOString(),
