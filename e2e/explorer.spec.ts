@@ -159,3 +159,34 @@ test("event progress follows the selected historical cutoff", async ({page}) => 
       .toHaveAttribute("data-count", String(expectedCounts[index]));
   }
 });
+
+
+test("mobile relation and source views retain the shared replay control", async ({page}, testInfo) => {
+  test.skip(testInfo.project.name !== "phone" || !seeded.story, "Requires the phone project and a public event");
+  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
+  await page.setViewportSize({width: 390, height: 700});
+  const story = await (await page.request.get("/api/site/stories/" + seeded.story)).json();
+  const frames = buildReplayFrames(story.timeline ?? [], "known");
+  test.skip(frames.length < 2, "No multi-step public replay");
+  await open(page, "/en/explore?story=" + seeded.story);
+  const replay = page.getByRole("region", {name: "Event report playback"});
+  const slider = replay.getByRole("slider");
+  await expect(slider).toHaveValue(String(frames.length - 1));
+  await page.getByRole("tab", {name: "Relations", exact: true}).click();
+  await expect(slider, "Scrubbing must remain available beside the relation graph").toBeVisible();
+  await expect(page.getByRole("heading", {name: "Relations at this time"})).toBeVisible();
+  await slider.focus();
+  await slider.press("Home");
+  await expect(slider).toHaveValue("0");
+  await expect(replay.getByTestId("replay-current-report")).toContainText("New at this step");
+  await expect(page).toHaveURL(/asOf=/);
+  await page.getByRole("tab", {name: "Sources", exact: true}).click();
+  await expect(slider, "Scrubbing must remain available beside public sources").toBeVisible();
+  const sources = page.getByRole("complementary", {name: "Reports available by this time"});
+  await expect(sources).toBeVisible();
+  await slider.focus();
+  await slider.press("End");
+  await expect(slider).toHaveValue(String(frames.length - 1));
+  await expect(sources).toBeVisible();
+  await expectNoOverflow(page);
+});
