@@ -1,4 +1,4 @@
-# Tasks: AdSense 审核就绪（AdSense Readiness）
+﻿# Tasks: AdSense 审核就绪（AdSense Readiness）
 
 **Input**: Design documents from `/specs/002-adsense-readiness/`（spec @ `bbae699`，plan @ `8b54b19`）
 
@@ -17,37 +17,37 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 工作区安装依赖并跑基线检查：`npm install`；`npm run typecheck`（记录基线结果，后续对照）
+- [x] T001 工作区安装依赖并跑基线检查：`npm install`；`npm run typecheck`（记录基线结果，后续对照）
 
 ## Phase 2: Foundational（阻塞所有故事）
 
-- [ ] T002 [P] 新增 `scripts/adsense-preflight.mjs`：扫描 `site/pages/*.md`（中英）占位词（`请填写`、`请写明`、`开源框架自带的模板`、`To be filled`、`State a contact address`、`State which uses you allow`），断言 `SITE.contactEmail` 非空；命中即 exit 1；在 `package.json` scripts 挂 `adsense:preflight`
-- [ ] T003 [P] `site/site.ts`：`SITE.contactEmail = "login@livingruntime.com"`；新增 `SEO = { curatedIndexOnly: true }` 配置块（US2 消费；含注释说明依据 spec FR-006 与 AdSense「manual review or curation」条款）
+- [x] T002 [P] 新增 `scripts/adsense-preflight.mjs`：扫描 `site/pages/*.md`（中英）占位词（`请填写`、`请写明`、`开源框架自带的模板`、`To be filled`、`State a contact address`、`State which uses you allow`），断言 `SITE.contactEmail` 非空；命中即 exit 1；在 `package.json` scripts 挂 `adsense:preflight`
+- [x] T003 [P] `site/site.ts`：`SITE.contactEmail = "login@livingruntime.com"`；新增 `SEO = { curatedIndexOnly: true }` 配置块（US2 消费；含注释说明依据 spec FR-006 与 AdSense「manual review or curation」条款）
 
 ## Phase 3: User Story 1 — 合规与身份（P1）🎯 MVP
 
 **Goal**: 审核者打开任意页面都能确认「真实运营、政策完整、可联系」（spec AD-01~AD-04）。
 **Independent Test**: `node scripts/adsense-preflight.mjs` 通过；本地起站后 12 类页面页脚三链接齐全；`/en/privacy`、`/en/terms` 200。
 
-- [ ] T010 [P] [US1] 重写 `site/pages/privacy.md`：`版本=2026-10-24`、`生效日期=2026-10-24`、`运营主体=Jianbo Wang`、`联系方式=login@livingruntime.com`；删除全部「请填写/请写明」；§5「联系我们」写明邮箱与反馈渠道；§6 AdSense 表述与当前实际（仅验证、未投放）一致
-- [ ] T011 [P] [US1] 重写 `site/pages/terms.md`：填齐同上四键；删除「这是开源框架自带的模板」；§3「使用本站的数据」写明允许用途（个人阅读、研究、Agent 匿名只读接口按缓存节奏使用）与需授权用途（商业产品、公开转载、批量再分发）
-- [ ] T012 [P] [US1] 同步 `site/pages/privacy.en.md`、`site/pages/terms.en.md`：intro 去掉 "still require completion/to be finalized"；补 Operator/Contact/Effective 行；英文条款 §3 与中文实际允许范围一致
-- [ ] T013 [US1] `apps/web/app/routes/about.tsx` + `site/site.ts` ABOUT 文案：新增运营者块（Jianbo Wang · login@livingruntime.com）、内容生产与编辑流程、AI 使用披露、更正与下架流程（链接 /feedback 与 /privacy）
-- [ ] T014 [US1] `apps/web/app/root.tsx` SiteShell 主栏底部新增全局页脚：`隐私说明 · 使用规则 · 联系 login@livingruntime.com`（mailto；`/en` 路径英文标签）；admin 早返回不受影响；12 类页面人工核对（quickstart 场景 1）
-- [ ] T015 [US1] 英文政策页地址：`apps/web/app/routes.ts` 增 `en/privacy`、`en/terms` 路由；`apps/web/app/lib/edition.ts` COUNTERPARTS 增两页；`privacy.tsx`/`terms.tsx` 用 `localized()` 输出英文 title/description/canonical + hreflang 成对；`packages/backend/src/publication/sitemap.ts` 静态条目加 `/en/privacy`、`/en/terms`（带 lastmod=构建日或固定日期）
-- [ ] T016 [US1] 测试：`apps/web/tests` 增页脚渲染断言（政策/联系链接出现在 SSR HTML）；`scripts/adsense-preflight.mjs` 的扫描逻辑加最小单测（或并入现有 standalone 测试，`tests/` 下按现有模式）
+- [x] T010 [P] [US1] 重写 `site/pages/privacy.md`：`版本=2026-10-24`、`生效日期=2026-10-24`、`运营主体=Jianbo Wang`、`联系方式=login@livingruntime.com`；删除全部「请填写/请写明」；§5「联系我们」写明邮箱与反馈渠道；§6 AdSense 表述与当前实际（仅验证、未投放）一致
+- [x] T011 [P] [US1] 重写 `site/pages/terms.md`：填齐同上四键；删除「这是开源框架自带的模板」；§3「使用本站的数据」写明允许用途（个人阅读、研究、Agent 匿名只读接口按缓存节奏使用）与需授权用途（商业产品、公开转载、批量再分发）
+- [x] T012 [P] [US1] 同步 `site/pages/privacy.en.md`、`site/pages/terms.en.md`：intro 去掉 "still require completion/to be finalized"；补 Operator/Contact/Effective 行；英文条款 §3 与中文实际允许范围一致
+- [x] T013 [US1] `apps/web/app/routes/about.tsx` + `site/site.ts` ABOUT 文案：新增运营者块（Jianbo Wang · login@livingruntime.com）、内容生产与编辑流程、AI 使用披露、更正与下架流程（链接 /feedback 与 /privacy）
+- [x] T014 [US1] `apps/web/app/root.tsx` SiteShell 主栏底部新增全局页脚：`隐私说明 · 使用规则 · 联系 login@livingruntime.com`（mailto；`/en` 路径英文标签）；admin 早返回不受影响；12 类页面人工核对（quickstart 场景 1）
+- [x] T015 [US1] 英文政策页地址：`apps/web/app/routes.ts` 增 `en/privacy`、`en/terms` 路由；`apps/web/app/lib/edition.ts` COUNTERPARTS 增两页；`privacy.tsx`/`terms.tsx` 用 `localized()` 输出英文 title/description/canonical + hreflang 成对；`packages/backend/src/publication/sitemap.ts` 静态条目加 `/en/privacy`、`/en/terms`（带 lastmod=构建日或固定日期）
+- [x] T016 [US1] 测试：`apps/web/tests` 增页脚渲染断言（政策/联系链接出现在 SSR HTML）；`scripts/adsense-preflight.mjs` 的扫描逻辑加最小单测（或并入现有 standalone 测试，`tests/` 下按现有模式）
 
 ## Phase 4: User Story 2 — 策展与索引（P1）
 
 **Goal**: 被索引的每一页都过人工闸门且非薄页（spec AD-05~AD-10）。
 **Independent Test**: 未策展条目 `noindex, follow` 且不在 sitemap；后台批量确认后进入；抽 40 事件页无「单来源且综述<100字」。
 
-- [ ] T020 [US2] `packages/backend/src/publication/rules.ts` `isIndexable` 消费 `SEO.curatedIndexOnly`：开启时要求 `seo_indexed_at` 非空（selected 不再自动收录）；`publish.ts` 调用点传入配置；更新/新增 `tests/` 单测覆盖两态
-- [ ] T021 [US2] 事件页门槛：`packages/backend/src/publication/detail.ts` 下发 `storyIndexable`（≥1 条策展报道 且 非单来源-短综述：`报道数≥2 或 length(digest)≥100`）；`apps/web/app/routes/story.tsx` 与 `sitemap.ts` 的 story 查询用同一判定；`tests/` 覆盖单来源短页不收录
-- [ ] T022 [US2] 后台按日策展：`apps/api/src/routes/admin.ts` 新增批量端点（一次事务内对一组 articleId 调 `setSeoDecision`，走现有审计）；`apps/web/app/routes/admin/content.tsx` 加「当日待策展」过滤 + 整批确认/排除按钮；`content-item.tsx` 文案同步（「精选自动」→「需策展」）
-- [ ] T023 [US2] 推荐理由去重：`packages/backend/src/publication/publish.ts` 发布时对同一发布日已出现的 reason 文本去重（后到置空）；`tests/` 单测两条同 reason
-- [ ] T024 [US2] sitemap `lastmod` 补齐：`sitemap.ts` stories 用 `latest_at`、items 用发布时间、静态页用固定日期；断言全量条目含 lastmod 的测试
-- [ ] T025 [US2] 英文页同决策：`sitemap.ts` 英文条目跟随中文策展状态；`item.tsx`/`story.tsx` 英文版 noindex 与中文判定一致；契约测试证明 Agent v1 输出不变
+- [x] T020 [US2] `packages/backend/src/publication/rules.ts` `isIndexable` 消费 `SEO.curatedIndexOnly`：开启时要求 `seo_indexed_at` 非空（selected 不再自动收录）；`publish.ts` 调用点传入配置；更新/新增 `tests/` 单测覆盖两态
+- [x] T021 [US2] 事件页门槛：`packages/backend/src/publication/detail.ts` 下发 `storyIndexable`（≥1 条策展报道 且 非单来源-短综述：`报道数≥2 或 length(digest)≥100`）；`apps/web/app/routes/story.tsx` 与 `sitemap.ts` 的 story 查询用同一判定；`tests/` 覆盖单来源短页不收录
+- [x] T022 [US2] 后台按日策展：`apps/api/src/routes/admin.ts` 新增批量端点（一次事务内对一组 articleId 调 `setSeoDecision`，走现有审计）；`apps/web/app/routes/admin/content.tsx` 加「当日待策展」过滤 + 整批确认/排除按钮；`content-item.tsx` 文案同步（「精选自动」→「需策展」）
+- [x] T023 [US2] 推荐理由去重：`packages/backend/src/publication/publish.ts` 发布时对同一发布日已出现的 reason 文本去重（后到置空）；`tests/` 单测两条同 reason
+- [x] T024 [US2] sitemap `lastmod` 补齐：`sitemap.ts` stories 用 `latest_at`、items 用发布时间、静态页用固定日期；断言全量条目含 lastmod 的测试
+- [x] T025 [US2] 英文页同决策：`sitemap.ts` 英文条目跟随中文策展状态；`item.tsx`/`story.tsx` 英文版 noindex 与中文判定一致；契约测试证明 Agent v1 输出不变
 
 ## Phase 5: User Story 3 — 原创研究栏目（P2）
 
@@ -63,8 +63,8 @@
 **Goal**: 三个入口归一、爬虫可抓、验证可开、运维有清单（spec AD-12~AD-17 的代码部分）。
 **Independent Test**: `robots.txt` 含两个 AdSense 爬虫 Allow；`adsense-smoke` 两态通过；部署文档清单更新。
 
-- [ ] T040 [P] [US4] `site/public/robots.txt`：增 `User-agent: Mediapartners-Google` 与 `User-agent: Google-Display-Ads-Bot` 的空 Disallow 段（contracts/http-surface.md 目标形态）
-- [ ] T041 [P] [US4] `scripts/deploy-prod.sh`：把 `LRSITE_RELEASE` 映射到应用读取的 `AIHOT_RELEASE`（修「线上版本不可见」，repo-gap-audit §7.8）
+- [x] T040 [P] [US4] `site/public/robots.txt`：增 `User-agent: Mediapartners-Google` 与 `User-agent: Google-Display-Ads-Bot` 的空 Disallow 段（contracts/http-surface.md 目标形态）
+- [x] T041 [P] [US4] `scripts/deploy-prod.sh`：把 `LRSITE_RELEASE` 映射到应用读取的 `AIHOT_RELEASE`（修「线上版本不可见」，repo-gap-audit §7.8）
 - [ ] T042 [US4] `docs/adsense-readiness.md` 更新为送审前运维清单：Cloudflare apex/http→https://www 301 + HSTS、CMP（Google Privacy & messaging）、`ADSENSE_VERIFICATION_ENABLED`+ID（含 `production.flags.env.example` 同步与 `--enforce` 说明）、申请节奏；`docs/deploy.md` 交叉引用
 - [ ] T043 [US4] 运维执行（人工，非代码）：Cloudflare 规则与 CMP 配置；完成前在 PR/验收中标 UNVERIFIED（constitution 第 5 条）
 

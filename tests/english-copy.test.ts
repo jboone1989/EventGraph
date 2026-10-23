@@ -131,11 +131,13 @@ test("an English page is indexed when a copy is written and its event has severa
     INSERT INTO stories (public_id, title, digest, latest_at) VALUES (gen_random_uuid(), ${`以太坊 ETF-${T}`}, '以太坊 ETF 有了新进展。', now())
     RETURNING id`;
   await sql`UPDATE publications SET story_id = ${story!.id} WHERE article_id IN (${first}, ${second})`;
+  // The editor curated all three (specs/002-adsense-readiness FR-012): what differs below is the event's size.
+  await sql`UPDATE publications SET indexable = true, seo_indexed_at = now() WHERE article_id IN (${first}, ${second}, ${alone})`;
   for (let i = 0; i < 3; i++) await writeEnglishPending({ limit: 3 });
 
   const detail = await loadItemDetail(first);
   assert.ok(detail.kind === "found", "the report has a page");
-  assert.equal(detail.item.englishIndexable, true, "a written copy and an event of several reports");
+  assert.equal(detail.item.englishIndexable, true, "a curated report with English copy and an event of several reports");
   const lone = await loadItemDetail(alone);
   assert.ok(lone.kind === "found");
   assert.equal(lone.item.englishIndexable, false, "a report on its own is not indexed in English");

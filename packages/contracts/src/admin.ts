@@ -151,6 +151,16 @@ export interface AdminContentSearch {
   rows: AdminContentRow[];
 }
 
+/** The daily curation queue: selected public reports no editor has decided on yet (specs/002-adsense-readiness FR-008). */
+export interface AdminCurateQueue {
+  rows: AdminContentRow[];
+}
+
+/** The batch SEO decision's result: which article ids actually flipped. */
+export interface AdminSeoBatchResult {
+  changed: string[];
+}
+
 /** The publications row of an item, as the publish step wrote it. */
 export interface AdminPublication {
   article_id: string;

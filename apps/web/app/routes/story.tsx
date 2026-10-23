@@ -48,6 +48,8 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
     path: `/story/${s.publicId}`,
     image: `/og/stories/${s.publicId}.png`,
     type: "article",
+    // FR-006/FR-009: an uncured or thin single-source event page stays readable but out of the index.
+    noindex: !s.indexable,
     jsonLd: [
       storyLd(s),
       // Under the board only while it is a way in, as the back link.
@@ -56,8 +58,9 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   }), location.pathname, {
     title: english?.title ?? englishText(s.englishTitle) ?? "Event timeline",
     description: english ? english.digest.slice(0, 160) : `${s.reportCount} reports from ${s.sourceCount} sources, with the full timeline, knowledge-graph relations and links to the original reporting.`,
-    // Without an English digest of its own (editorial/english.ts) the English page is headlines only and is not indexed.
-    noindex: !english,
+    // Without an English digest of its own (editorial/english.ts) the English page is headlines only and is not indexed;
+    // the curation decision is the Chinese page's (FR-012).
+    noindex: !english || !s.indexable,
   });
 }
 
