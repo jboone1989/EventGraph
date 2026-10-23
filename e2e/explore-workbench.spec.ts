@@ -12,10 +12,10 @@ test("the workbench is reachable from the sidebar and lists real events", async 
   await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
   await open(page, "/en/explore");
   await expect(page.getByRole("heading", {name: "Event explorer"})).toBeVisible();
-  // The sidebar entry exists where the sidebar exists (desktop); the phone reaches the page
-  // through the More screen and the knowledge page.
+  // The explorer is deliberately off the navigation; readers reach it through deep links
+  // from the event and knowledge pages.
   const sidebar = page.getByRole("navigation", {name: "Main navigation"});
-  if (await sidebar.isVisible()) await expect(sidebar.getByRole("link", {name: "Explorer"})).toHaveAttribute("href", "/explore");
+  if (await sidebar.isVisible()) await expect(sidebar.getByRole("link", {name: "Explorer"})).toHaveCount(0);
   // The landing offers the site's real events, including the seeded one, not invented ones.
   await expect(page.locator(`a[href="/en/explore?story=${seeded.story}"]`).first()).toBeVisible();
   expect(problems).toEqual([]);

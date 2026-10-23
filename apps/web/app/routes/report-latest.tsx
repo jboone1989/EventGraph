@@ -35,7 +35,7 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   const path = chinesePath(location.pathname);
   const enKind = kindLabel(kind, "en");
   return [...localized(pageMeta({
-    title: withSubject(KIND_LABEL[kind]),
+    title: kind === "daily" ? KIND_LABEL[kind] : withSubject(KIND_LABEL[kind]),
     description,
     path,
     image: `/og/pages/${kind}.png`,
@@ -59,7 +59,7 @@ export default function ReportLatestPage() {
           <GraphChanges changes={graph} />
         </>
       ) : (
-        <EmptyState title={t(subjectAfter("还没有发布", KIND_LABEL[kind]), `No ${kindLabel(kind, "en").toLowerCase()} published yet`)}>
+        <EmptyState title={t(kind === "daily" ? "还没有发布日报" : subjectAfter("还没有发布", KIND_LABEL[kind]), `No ${kindLabel(kind, "en").toLowerCase()} published yet`)}>
           {t("第一期发布后会出现在这里。", "The first issue will appear here once it is out.")}
         </EmptyState>
       )}
