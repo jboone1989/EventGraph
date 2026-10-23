@@ -7,7 +7,8 @@
 // sit in rows of two whose rules run across the page, each story as tall as its neighbour.
 // Both editions render this paper. English pages fill each slot with the best English available and
 // omit the slot (never showing Chinese text in its place): entries without an English title drop out,
-// editor-written Chinese prose (overview, section notes, lead paragraphs) leaves the page empty-handed.
+// editor-written Chinese prose (section notes, lead paragraphs) leaves the page empty-handed — except
+// a daily's overview, which travels with its own English stand-in (overviewEn) when there is one.
 import { IntentLink } from "../../components/ui/IntentLink";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -21,7 +22,7 @@ import { SourceAvatar } from "../../components/ui/SourceAvatar";
 import { Halftone } from "./Halftone";
 import { Nameplate } from "./Nameplate";
 import { IssueDots } from "./IssueDots";
-import { localizedMonthDay, monthDay, type DisplayLanguage } from "../../lib/format";
+import { localizedMonthDay, localizedMonthDayTime, monthDay, type DisplayLanguage } from "../../lib/format";
 import { englishText } from "../../lib/english";
 import { KIND_LABEL, KIND_LABEL_EN, dateLine, dateMark, edition, entriesUnit, headline, metricItems, motto, neighbourLabel, reportPath, sectionEn, shortDay } from "./format";
 
@@ -287,13 +288,14 @@ function LeadPicture({ cover, onError, priority = false, className = "", lang }:
 }
 
 /**
- * A weekly's or monthly's overview. Such an issue leading with an event sets the event on its front
- * page as a daily does, so the overview opens the issue above it.
+ * An issue's written overview under its own name: a daily's 今日综述, a weekly's or monthly's 本期导读.
+ * Such an issue leading with an event sets the event on its front page as a daily does, so the
+ * overview opens the issue above it.
  */
-function Overview({ text }: { text: string }) {
+function Overview({ text, title }: { text: string; title: string }) {
   return (
-    <section aria-label="本期导读" className="border-b border-line py-7 @[880px]:py-9">
-      <Kicker>本期导读</Kicker>
+    <section aria-label={title} className="border-b border-line py-7 @[880px]:py-9">
+      <Kicker>{title}</Kicker>
       <p className="mt-4 max-w-[46em] text-[16.5px] leading-[1.9] text-ink-2 @[560px]:text-justify @[880px]:text-[17.5px]">{text}</p>
     </section>
   );
@@ -329,9 +331,12 @@ function FrontPage({ report, pages, leadStory, count, lang }: { report: ReportDe
     : `${daily ? "今日" : report.kind === "weekly" ? "本周" : "本月"}看点`;
   const unit = (n: number) => (en ? `${n} ${entriesUnit(n, "en")}` : `${n} 件`);
   const briefs = (n: number) => (en ? `${n} ${n === 1 ? "brief" : "briefs"}` : `${n} 条`);
+  const lines = (n: number) => (en ? `${n} items` : `${n} 条`);
+  const tail = report.tail.filter((f) => !en || hasEnglish(f));
   const index = [
     ...pages.map((p, i) => ({ id: p.id, label: en ? sectionEn(p.label, i + 1) : p.label, n: unit(p.items.length) })),
     ...(report.flashes.filter((f) => !en || hasEnglish(f)).length > 0 ? [{ id: "s-flash", label: en ? "Briefs" : "快讯", n: briefs(report.flashes.filter((f) => !en || hasEnglish(f)).length) }] : []),
+    ...(tail.length > 0 ? [{ id: "s-tail", label: en ? "Also today" : "当日动态", n: lines(tail.length) }] : []),
   ];
 
   return (
@@ -513,16 +518,18 @@ function History({ report, index, lang }: { report: ReportDetail; index: ReportN
   );
 }
 
-/** The issue's pages for the phone outline: the front page, each page under its number, then 快讯. */
+/** The issue's pages for the phone outline: the front page, each page under its number, then 快讯, then 当日动态. */
 export function reportOutline(report: ReportDetail, lang: DisplayLanguage = "zh"): OutlineEntry[] {
   const en = lang === "en";
   const pages = pagesOf(report, leadStoryOf(report, lang), lang);
   const flashes = report.flashes.filter((f) => !en || hasEnglish(f));
-  if (pages.length === 0 && flashes.length === 0) return [];
+  const tail = report.tail.filter((f) => !en || hasEnglish(f));
+  if (pages.length === 0 && flashes.length === 0 && tail.length === 0) return [];
   return [
     { id: "report-start", text: en ? "Front page" : "头版", level: 2, mark: "" },
     ...pages.map((p, i) => ({ id: p.id, text: en ? sectionEn(p.label, i + 1) : p.label, level: 2, mark: pad(i + 1), note: en ? `${p.items.length} ${entriesUnit(p.items.length, "en")}` : `${p.items.length} 件` })),
     ...(flashes.length > 0 ? [{ id: "s-flash", text: en ? "Briefs" : "快讯", level: 2, mark: pad(pages.length + 1), note: en ? `${flashes.length} ${flashes.length === 1 ? "brief" : "briefs"}` : `${flashes.length} 条` }] : []),
+    ...(tail.length > 0 ? [{ id: "s-tail", text: en ? "Also today" : "当日动态", level: 2, mark: pad(pages.length + 1 + (flashes.length > 0 ? 1 : 0)), note: en ? `${tail.length} items` : `${tail.length} 条` }] : []),
   ];
 }
 
@@ -534,6 +541,8 @@ export function ReportPaper({ report, index, lang = "zh" }: { report: ReportDeta
   const count = pages.reduce((sum, p) => sum + p.items.length, 0) + (leadStory ? 1 : 0);
   // Only a daily comes out with nothing in it: a day the editors judged with nothing new (REPORTS.quiet).
   const quiet = count === 0 && (en ? report.flashes.every((f) => !hasEnglish(f)) : report.flashes.length === 0);
+  const flashShown = report.flashes.filter((f) => !en || hasEnglish(f)).length > 0;
+  const tailShown = report.tail.filter((f) => !en || hasEnglish(f));
   return (
     <article className="@container">
       <Masthead report={report} index={index} quiet={quiet} lang={lang} />
@@ -541,8 +550,10 @@ export function ReportPaper({ report, index, lang = "zh" }: { report: ReportDeta
         !en && report.lead && <QuietFront lead={report.lead} />
       ) : (
         <>
-          {!daily && leadStory && report.overview && !en && <Overview text={report.overview} />}
+          {!daily && leadStory && report.overview && !en && <Overview text={report.overview} title="本期导读" />}
           <FrontPage report={report} pages={pages} leadStory={leadStory} count={count} lang={lang} />
+          {daily && report.overview && !en && <Overview text={report.overview} title="今日综述" />}
+          {daily && report.overviewEn && en && <Overview text={report.overviewEn} title="Today's overview" />}
         </>
       )}
 
@@ -588,6 +599,34 @@ export function ReportPaper({ report, index, lang = "zh" }: { report: ReportDeta
                   </span>
                 </li>
               ))}
+          </ul>
+        </SectionPage>
+      )}
+
+      {tailShown.length > 0 && (
+        <SectionPage id="s-tail" no={pages.length + (flashShown ? 2 : 1)} label={en ? "Also today" : "当日动态"}>
+          <ul className={`${COLUMNS} @[1040px]:columns-3`}>
+            {tailShown.map((t, i) => (
+              <li key={`${keyOf(t)}-${i}`} className="flex break-inside-avoid gap-2.5 border-b border-line py-3 text-[14.5px] leading-[1.65]">
+                <span className="mt-[9px] size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+                <span className="min-w-0">
+                  {!t.available ? (
+                    <span className="text-ink-4">
+                      <span className="line-through">{en ? enTitle(t) : t.title}</span>
+                      <span className="ml-2 text-[12px]">{withdrawnNote(lang)}</span>
+                    </span>
+                  ) : t.itemId ? (
+                    <Link viewTransition to={itemHref(t.itemId, lang)} className="text-ink transition-colors hover:text-accent">
+                      {en ? enTitle(t) : t.title}
+                    </Link>
+                  ) : (
+                    <span className="text-ink">{en ? enTitle(t) : t.title}</span>
+                  )}
+                  {t.available && t.publishedAt && <span className="ml-2 whitespace-nowrap text-[12px] text-ink-4">{localizedMonthDayTime(t.publishedAt, lang)}</span>}
+                  {t.available && <span className="ml-2 text-[12px] text-ink-4">{en ? englishText(t.sourceName) ?? "Publisher" : t.sourceName}</span>}
+                </span>
+              </li>
+            ))}
           </ul>
         </SectionPage>
       )}
