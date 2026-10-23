@@ -416,14 +416,19 @@ jobs:
     environment: production
     permissions:
       contents: read
+      packages: read
     steps:
       - name: Deploy pinned image on VM09
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ vars.EVENTGRAPH_PROD_HOST }}
           username: ${{ vars.EVENTGRAPH_PROD_USER }}
           key: ${{ secrets.EVENTGRAPH_PROD_SSH_KEY }}
           fingerprint: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+          envs: GHCR_TOKEN,GHCR_USER
           command_timeout: 13m
           version: '1.8.2'
           script: |
