@@ -1,5 +1,5 @@
 // Failure cases at the publication → hot-cover boundary: a warmed ranking must drop a withdrawn
-// secondary report's image and a revoked full-text image; another public report may replace it.
+// secondary report's image, while a report demoted to summary mode keeps covering its story.
 // These checks use the real database/read path, with the same ranking kept throughout each change.
 import './setup.ts';
 import assert from 'node:assert/strict';
@@ -11,7 +11,7 @@ import { loadHot } from '@aihot/backend/publication/stories';
 
 after(closeDb);
 
-test('hot covers follow current visibility and full-text rights within one ranking', async () => {
+test('hot covers follow current visibility within one ranking, summary mode keeps the image', async () => {
   const source = 'cover-scope';
   const at = new Date(Date.now() - 60_000);
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
@@ -43,5 +43,5 @@ test('hot covers follow current visibility and full-text rights within one ranki
   await sql`UPDATE publications SET visibility = 'withdrawn' WHERE article_id = 'cover-primary'`;
   assert.equal(await cover(),'https://example.org/fallback.png','a withdrawn secondary report cannot remain the cover');
   await sql`UPDATE publications SET body_mode = 'summary' WHERE article_id = 'cover-fallback'`;
-  assert.equal(await cover(),null,'revoking full-text permission also removes its cover');
+  assert.equal(await cover(),'https://example.org/fallback.png','a summary-mode report still covers its story');
 });

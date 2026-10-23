@@ -5,7 +5,7 @@ import { storePublicAnalyticsEvent } from "@aihot/backend/publication/analytics"
 const EVENT_NAMES = new Set([
   "page_view", "story_open", "item_open", "graph_node_select",
   "graph_relation_select", "source_open", "search_submit",
-  "navigation_complete", "agent_access_open", "feedback_open",
+  "navigation_complete", "agent_access_open", "feedback_open", "rss_open",
 ]);
 const PAGE_TYPES = new Set([
   "home", "all", "story", "item", "hot", "knowledge", "entity",

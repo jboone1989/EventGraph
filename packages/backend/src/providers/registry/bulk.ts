@@ -1,3 +1,4 @@
+import {assertLegacyRegistryWritable} from './connections.ts';
 /** One persisted queue job per Provider. Each worker sends that Provider's own sample.
  * Disabled models are tested independently of production routing.
  */
@@ -26,6 +27,7 @@ export async function latestBulkRun(runId?:string){
  return {runId:recent.run_id,startedAt:recent.created_at.toISOString(),requestedBy:recent.requested_by,summary,finished:summary.queued+summary.running===0,rows:rows.map(present)};
 }
 export async function startBulkRun(actor:string){
+ await assertLegacyRegistryWritable();
  const active=await latestBulkRun();
  if(active&&!active.finished){
   // Recovery is explicit and cheap; never make the HTTP request enqueue dozens of models.

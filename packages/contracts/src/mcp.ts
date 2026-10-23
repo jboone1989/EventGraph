@@ -15,6 +15,8 @@ export const MCP_TOOL_NAMES = {
   monthly: mcpToolName("get_monthly"),
   storyGraph: mcpToolName("get_story_graph"),
   entity: mcpToolName("get_entity"),
+  evidenceBundle: mcpToolName("get_evidence_bundle"),
+  storyRoute: mcpToolName("get_story_route"),
 } as const;
 
 /** The engine's tools, in the order the server lists them. */

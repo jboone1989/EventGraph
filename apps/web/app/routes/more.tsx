@@ -10,10 +10,11 @@ import { edgeTtl } from "../lib/api.server";
 import { webModules } from "../site-modules";
 import { pageMeta } from "../lib/seo";
 import { setFontPreference, useFontPreference, useStarred } from "../lib/local-state";
+import { trackAnalytics } from "../lib/analytics.client";
 import { Select } from "../components/ui/Controls";
 import { ThemeSwitch } from "../components/shell/ThemeSwitch";
 import { LanguageSwitch, useUiLanguage } from "../components/LanguageSwitch";
-import { IconNetwork, IconBookmark, IconChevronRight, IconGrid, IconHeart, IconMessage, IconMoon, IconPlug, IconSparkles } from "../components/icons";
+import { IconNetwork, IconBookmark, IconChevronRight, IconGrid, IconHeart, IconHistory, IconMessage, IconMoon, IconPlug, IconSparkles } from "../components/icons";
 
 export const handle: Screen = { tab: "me", name: "我的" };
 
@@ -38,6 +39,7 @@ const agentWays = () => [...webModules().flatMap((m) => m.agentWays ?? []), "MCP
 const tools = (): Row[] => [
   ...webModules().flatMap((m) => m.tools ?? []),
   { to: "/knowledge", label: "知识网络", icon: <IconNetwork size={20} />, detail: "实体 · 关系 · 来源" },
+  ...(inNav("/explore") ? [{ to: "/explore", label: "探索工作台", icon: <IconHistory size={20} />, detail: "时点回放 · 关系证据" }] : []),
   { to: "/daily", label: "日报与回顾", icon: <IconGrid size={20} /> },
   ...(inNav("/topics") ? [{ to: "/topics", label: "主题", icon: <IconGrid size={20} /> }] : []),
   { to: "/agent", label: "Agent 接入", icon: <IconPlug size={20} />, detail: agentWays().slice(0, 3).join(" · ") },
@@ -85,7 +87,7 @@ export default function MorePage() {
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4 2xl:grid-cols-3">
         <Group title="PREFERENCES">
           <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[15px] text-ink">
-            <span>Language</span><LanguageSwitch compact />
+            <span>Language</span><LanguageSwitch />
           </li>
           <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[15px] text-ink"><span>Appearance</span><ThemeSwitch className="w-[126px]" /></li>
           <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[15px] text-ink">
@@ -96,6 +98,7 @@ export default function MorePage() {
         </Group>
         <Group title="RESEARCH">
           <RowLink row={{to:"/knowledge",label:"Knowledge Graph",icon:<IconNetwork size={20}/>,detail:"Entities · Facts"}} />
+          {inNav("/explore") && <RowLink row={{to:"/explore",label:"Event explorer",icon:<IconHistory size={20}/>,detail:"Replay · Evidence"}} />}
           <RowLink row={{to:"/hot",label:"Event Timeline",icon:<IconGrid size={20}/>}} />
           <RowLink row={{to:"/starred",label:"Saved reports",icon:<IconBookmark size={20}/>,detail:here&&starred.length?String(starred.length):undefined}} />
           <RowLink row={{to:"/daily",label:"Daily report (Chinese edition)",icon:<IconGrid size={20}/>}} />
@@ -107,7 +110,7 @@ export default function MorePage() {
         </Group>
       </div>
       <div className="mt-6 flex justify-center gap-5 text-[12px] text-ink-4">
-        <Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="/feed.xml">RSS</a>
+        <Link to="/privacy">Privacy</Link><Link to="/terms">Terms</Link><a href="/feed.xml" onClick={() => trackAnalytics("rss_open")}>RSS</a>
       </div>
     </div>
   );
@@ -117,7 +120,7 @@ export default function MorePage() {
       <h1 className="hidden pb-4 pt-1 text-[22px] font-bold text-ink lg:block">{"我的"}</h1>
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4 2xl:grid-cols-3">
         <Group>
-          <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[16px] text-ink"><span>{"语言"}</span><LanguageSwitch compact /></li>
+          <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[16px] text-ink"><span>{"语言"}</span><LanguageSwitch /></li>
           <RowLink row={{ to: "/starred", label: "收藏", icon: <IconBookmark size={20} />, detail: here && starred.length > 0 ? <span className="num">{starred.length}</span> : undefined }} />
           <li className="flex min-h-[56px] items-center gap-3 px-4 text-[16px] font-medium text-ink">
             <span className="text-ink-3">
@@ -149,8 +152,7 @@ export default function MorePage() {
       <div className="mt-6 flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12px] leading-[2] text-ink-4">
         <Link viewTransition to="/terms" className="hover:text-ink-2">{POLICY.terms.name}</Link>
         <Link viewTransition to="/privacy" className="hover:text-ink-2">隐私说明</Link>
-        <a href="/feed.xml" className="hover:text-ink-2">RSS</a>
-        {SITE.github && <a href={SITE.github} target="_blank" rel="noopener noreferrer" className="hover:text-ink-2">GitHub 开源</a>}
+        <a href="/feed.xml" className="hover:text-ink-2" onClick={() => trackAnalytics("rss_open")}>RSS</a>
         {SITE.icp && <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-ink-2">{SITE.icp}</a>}
       </div>
     </div>

@@ -8,7 +8,8 @@ import { groupAtlasPairs, uniqueAtlasFacts, mergeAtlasNetworks, type AtlasNetwor
 import { trackAnalytics } from "../lib/analytics.client";
 
 const empty: AtlasNetwork = { nodes: [], links: [], truncated: false };
-export function KnowledgeAtlas({ initialKey = null }: { initialKey?: string | null }) {
+export interface AtlasTime { asOf: string; clock: "known" | "valid" }
+export function KnowledgeAtlas({ initialKey = null, time = null }: { initialKey?: string | null; time?: AtlasTime | null }) {
   const t = useText();
   const [selected, setSelected] = useState<string | null>(initialKey);
   const [hasNetwork, setHasNetwork] = useState(false);
@@ -28,6 +29,11 @@ export function KnowledgeAtlas({ initialKey = null }: { initialKey?: string | nu
   const revealDetails = useRef(false);
   const current = useRef<string | null>(selected);
   current.current = selected;
+  // A time-scoped read must not keep facts gathered under another time state.
+  const timeKey = time ? `${time.clock}:${time.asOf}` : "current";
+  useEffect(() => {
+    setNetwork(empty);setHasNetwork(false);setHistory([]);setActivePairKey(null);
+  }, [timeKey]);
   useEffect(() => {
     const sharedKey = new URLSearchParams(window.location.search).get("entity");
     if (sharedKey) setSelected(sharedKey);
@@ -58,15 +64,20 @@ export function KnowledgeAtlas({ initialKey = null }: { initialKey?: string | nu
   useEffect(() => {
     if(!selected) {setNetwork(empty);setHasNetwork(false);setLoading(false);setError(false);return;}
     const controller = new AbortController();
+    const scoped = time ? `?asOf=${encodeURIComponent(time.asOf)}&clock=${time.clock}` : "";
     setLoading(true);setError(false);
-    fetch("/api/site/knowledge/neighborhood/" + encodeURIComponent(selected), {signal:controller.signal})
+    fetch("/api/site/knowledge/neighborhood/" + encodeURIComponent(selected) + scoped, {signal:controller.signal})
       .then(r => {if(!r.ok) throw Error("neighborhood failed");return r.json() as Promise<AtlasNetwork>;})
       .then(v => {if(!controller.signal.aborted) {setNetwork(previous => mergeAtlasNetworks(previous, v));setHasNetwork(true);}})
       .catch(() => {if(!controller.signal.aborted) setError(true);})
       .finally(() => {if(!controller.signal.aborted) setLoading(false);});
     return () => controller.abort();
-  }, [selected,attempt]);
-  const pairs = useMemo(() => groupAtlasPairs(network.links), [network.links]);
+  }, [selected,attempt,timeKey]);
+  const shown = useMemo<AtlasNetwork>(() => ({
+    nodes: network.nodes.filter(n => n.key === selected || network.links.some(l => l.source === n.key || l.target === n.key)),
+    links: network.links, truncated: network.truncated, status: network.status,
+  }), [network, selected]);
+  const pairs = useMemo(() => groupAtlasPairs(shown.links), [shown.links]);
   const activePair = pairs.find(p => p.key === activePairKey);
   const activePairIds = activePair?.links.map(l => l.id).join("|") ?? "";
   // Fetch all published factual assertions once from the entity profile. No edges inferred.
@@ -74,8 +85,9 @@ export function KnowledgeAtlas({ initialKey = null }: { initialKey?: string | nu
     if (!activePair) {setPairFacts([]);setFactsLoading(false);setFactsError(false);return;}
     const controller = new AbortController();
     const accepted = new Set(activePair.links.map(l=>l.id));
+    const scoped = time ? `?asOf=${encodeURIComponent(time.asOf)}&clock=${time.clock}` : "";
     setPairFacts([]);setFactsLoading(true);setFactsError(false);
-    fetch("/api/site/knowledge/entities/" + encodeURIComponent(activePair.a), {signal:controller.signal})
+    fetch("/api/site/knowledge/entities/" + encodeURIComponent(activePair.a) + scoped, {signal:controller.signal})
       .then(r=>{if(!r.ok)throw Error("pair unavailable");return r.json() as Promise<{edges:KnowledgeEdge[]}>;})
       .then(v=>{
         if(controller.signal.aborted)return;
@@ -88,7 +100,7 @@ export function KnowledgeAtlas({ initialKey = null }: { initialKey?: string | nu
       .catch(()=>{if(!controller.signal.aborted)setFactsError(true);})
       .finally(()=>{if(!controller.signal.aborted)setFactsLoading(false);});
     return ()=>controller.abort();
-  },[activePairKey,activePairIds]);
+  },[activePairKey,activePairIds,timeKey]);
   useEffect(() => {
     if(!expanded)return;
     const close=(e:KeyboardEvent)=>{if(e.key==="Escape")setExpanded(false);};
@@ -126,13 +138,13 @@ export function KnowledgeAtlas({ initialKey = null }: { initialKey?: string | nu
     if(key)choose(key);
     return next;
   });
-  const center=network.nodes.find(n=>n.key===selected);
-  const relations=network.links.filter(l=>l.source===selected||l.target===selected);
+  const center=shown.nodes.find(n=>n.key===selected)??network.nodes.find(n=>n.key===selected);
+  const relations=shown.links.filter(l=>l.source===selected||l.target===selected);
   const adjacentPairs=pairs.filter(p=>p.a===selected||p.b===selected);
   const names=new Map(network.nodes.map(n=>[n.key,n.name]));
   return <section className={`lr-atlas ${expanded?"is-expanded":""}`} aria-label={t("实体关系探索","Entity relationship explorer")}>
     <div className="lr-atlas-toolbar"><div><span className="lr-pulse"/> <strong>KNOWLEDGE ATLAS</strong>
-      <span className="lr-atlas-count">{selected?t(`${network.nodes.length} 个实体 · ${network.links.length} 条关系`,`${network.nodes.length} entities · ${network.links.length} relations`):t("按实体探索","Explore by entity")}</span></div>
+      <span className="lr-atlas-count">{selected?t(`${shown.nodes.length} 个实体 · ${shown.links.length} 条关系`,`${shown.nodes.length} entities · ${shown.links.length} relations`):t("按实体探索","Explore by entity")}</span></div>
       <div className="lr-atlas-actions">
         {history.length>0&&<button type="button" onClick={back}>{t("返回上一实体","Previous entity")}</button>}
         {selected&&<button type="button" onClick={()=>{choose(null);setHistory([]);setActivePairKey(null);}}>{t("实体目录","Directory")}</button>}
@@ -141,7 +153,7 @@ export function KnowledgeAtlas({ initialKey = null }: { initialKey?: string | nu
     </div>
     <div className="lr-atlas-body">
       <div className="lr-atlas-main">
-        {selected&&hasNetwork&&network.nodes.length?<><KnowledgeAtlasCanvas network={network} selectedKey={selected} activePairKey={activePairKey} homeKey={initialKey} onNode={focus} onPair={openPair}/>
+        {selected&&hasNetwork&&shown.nodes.length?<><KnowledgeAtlasCanvas network={shown} selectedKey={selected} activePairKey={activePairKey} homeKey={initialKey} onNode={focus} onPair={openPair}/>
             <div className="lr-atlas-caption" role="status" aria-live="polite" style={{minHeight:"1.5em"}}>
               {error?<>{t("邻近关系读取失败","Unable to update neighbors")} <button type="button" onClick={()=>setAttempt(v=>v+1)}>{t("重试","Retry")}</button></>:loading?t("正在补充邻近关系…","Updating nearby relations…"):"\u00a0"}
             </div></>
@@ -149,6 +161,7 @@ export function KnowledgeAtlas({ initialKey = null }: { initialKey?: string | nu
           :loading?<div className="lr-atlas-state" role="status">{t("正在读取邻近关系…","Loading nearby relationships…")}</div>
           :<div className="lr-atlas-state" role="status">{selected?t("暂无可公开的邻近关系","No public neighbors yet"):t("从右侧搜索或选择一个实体开始探索","Search or select an entity to begin")}</div>}
         <div className="lr-atlas-caption">{t("按需展开实体的全部已公开关系，保留探索过的节点与连线。","Explore all published links of a node; previously discovered relations remain visible.")}</div>
+        {time&&<div className="lr-atlas-caption">{t("正在按选定时点读取有界历史；切换时点会重新开始探索。","Reading a bounded historical view at the selected time; changing the cutoff restarts the exploration.")}</div>}
       </div>
       <aside className="lr-atlas-sidebar">
         <label className="lr-knowledge-search"><IconSearch size={17}/><span className="sr-only">{t("搜索实体","Search entities")}</span>

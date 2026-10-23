@@ -5,13 +5,13 @@ import type { TopicSummary, TopicsResponse } from "@aihot/contracts/site";
 import { apiGet, cachedPage } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { breadcrumbLd, localized, pageMeta, siteUrl } from "../lib/seo";
-import { relativeTime } from "../lib/format";
+import { localizedRelativeTime } from "../lib/format";
+import { enTopic, enDescription, englishText, englishOnly, EN_TOPIC_GROUPS } from "../lib/english";
 import { IconChevronRight } from "../components/icons";
 import { IntentLink } from "../components/ui/IntentLink";
 import { BrandMark } from "../components/BrandMark";
 import { PhoneBar } from "../components/shell/PhoneBar";
-import { useUiLanguage } from "../components/LanguageSwitch";
-import { EnglishTopics } from "../components/EnglishPages";
+import { useUiLanguage, useText } from "../components/LanguageSwitch";
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
 
@@ -59,39 +59,44 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
 }
 
 /** Phones: a row per topic in a grouped list; wider screens: a card per topic. */
-function TopicCard({ t }: { t: TopicSummary }) {
+function TopicCard({ topic }: { topic: TopicSummary }) {
+  const language = useUiLanguage();
+  const t = useText();
+  const summary = language === "en" ? englishText(topic.latest?.title) ?? enDescription(topic) : topic.latest?.title ?? topic.definition;
   return (
     <IntentLink
       viewTransition
-      to={`/topics/${t.slug}`}
+      to={`/topics/${topic.slug}`}
       className="group flex items-center gap-3 py-3 pl-4 pr-3 transition-colors active:bg-bg-sunk lg:card lg:card-hover lg:h-full lg:flex-col lg:items-stretch lg:gap-0 lg:px-5 lg:py-4 lg:active:bg-surface"
     >
-      {t.brand && (
+      {topic.brand && (
         <span className="flex shrink-0 lg:hidden">
-          <BrandMark brand={t.brand} size={30} />
+          <BrandMark brand={topic.brand} size={30} />
         </span>
       )}
       <span className="min-w-0 flex-1 lg:flex lg:flex-col">
         <span className="flex items-center gap-2.5 text-[15.5px] font-semibold text-ink transition-colors group-hover:text-accent lg:text-[15px] lg:font-bold">
-          {t.brand && (
+          {topic.brand && (
             <span className="hidden lg:flex">
-              <BrandMark brand={t.brand} size={22} />
+              <BrandMark brand={topic.brand} size={22} />
             </span>
           )}
-          {t.name}
+          {t(topic.name, enTopic(topic))}
         </span>
         <span className="mt-0.5 line-clamp-1 text-[12.5px] leading-[1.6] text-ink-4 lg:mt-1.5 lg:line-clamp-2 lg:flex-1 lg:text-[13px] lg:leading-[1.65] lg:text-ink-2">
-          {t.latest?.title ?? t.definition}
+          {summary}
         </span>
         <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11.5px] text-ink-4 lg:mt-3 lg:justify-between">
-          {t.latest && <time dateTime={t.latest.at} suppressHydrationWarning>{relativeTime(t.latest.at)}</time>}
+          {topic.latest && <time dateTime={topic.latest.at} suppressHydrationWarning>{localizedRelativeTime(topic.latest.at, language)}</time>}
           <span>
-            {t.recent > 0 ? (
-              <>
-                近 30 天 <span className="num font-semibold text-ink-3">{t.recent}</span> 条
-              </>
+            {topic.recent > 0 ? (
+              language === "en" ? (
+                <><span className="num font-semibold text-ink-3">{topic.recent}</span> in the last 30 days</>
+              ) : (
+                <>近 30 天 <span className="num font-semibold text-ink-3">{topic.recent}</span> 条</>
+              )
             ) : (
-              "近 30 天暂无新精选"
+              t("近 30 天暂无新精选", "No new selections in the last 30 days")
             )}
           </span>
         </span>
@@ -102,38 +107,46 @@ function TopicCard({ t }: { t: TopicSummary }) {
 }
 
 export default function TopicsPage() {
-  const language=useUiLanguage();
+  const language = useUiLanguage();
+  const t = useText();
   const { groups, topics } = useLoaderData<typeof loader>();
-  if(language==="en") return <EnglishTopics groups={groups} topics={topics}/>;
+  const groupNames = groups.map((g) => (language === "en" ? EN_TOPIC_GROUPS[g.key]?.[0] ?? englishOnly(g.name) : g.name)).filter((n) => n !== null).join(language === "en" ? ", " : "、");
   return (
     <div className="pb-10">
-      <PhoneBar back={{ to: "/more", label: "我的" }} title="主题" />
+      <PhoneBar back={{ to: "/more", label: t("我的", "More") }} title={t("主题", "Topics")} />
       <header className="pb-2 pt-3 lg:pt-1">
-        <h1 data-page-title="" className="text-[24px] font-semibold leading-[1.3] text-ink">{subjectAfter("按主题看")}</h1>
+        <h1 data-page-title="" className="text-[24px] font-semibold leading-[1.3] text-ink">{t(subjectAfter("按主题看"), "Explore by topic")}</h1>
         <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">
-          {`按${groups.map((g) => g.name).join("、")}浏览 `}
-          <span className="num">{topics.length}</span> 个主题，追踪最新精选与重要进展。
+          {language === "en" ? "Browse " : `按${groupNames}浏览 `}
+          <span className="num">{topics.length}</span>
+          {language === "en" ? ` topics across ${groupNames}, tracking the latest selections and key developments.` : " 个主题，追踪最新精选与重要进展。"}
         </p>
       </header>
-      {groups.map((g) => (
+      {groups.map((g) => {
+        const heading = language === "en" ? EN_TOPIC_GROUPS[g.key]?.[0] ?? englishOnly(g.name) : g.name;
+        const blurb = language === "en" ? EN_TOPIC_GROUPS[g.key]?.[1] ?? englishOnly(g.blurb) : g.blurb;
+        return (
         <section key={g.key} aria-labelledby={`topics-${g.key}`} className="pt-8">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <h2 id={`topics-${g.key}`} className="text-[15px] font-bold text-ink">
-              {g.name}
-            </h2>
-            <p className="text-[12px] text-ink-4">{g.blurb}</p>
+            {heading && (
+              <h2 id={`topics-${g.key}`} className="text-[15px] font-bold text-ink">
+                {heading}
+              </h2>
+            )}
+            {blurb && <p className="text-[12px] text-ink-4">{blurb}</p>}
           </div>
           <ul className="mt-3 divide-y divide-line-soft overflow-hidden rounded-card border border-line bg-surface lg:mt-3.5 lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent xl:grid-cols-4">
             {topics
               .filter((t) => t.group === g.key)
               .map((t) => (
                 <li key={t.slug}>
-                  <TopicCard t={t} />
+                  <TopicCard topic={t} />
                 </li>
               ))}
           </ul>
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

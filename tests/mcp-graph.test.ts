@@ -75,6 +75,19 @@ test('story graph and entity tools answer with publicly evidenced relations only
     assert.equal((missing.structuredContent as { error: { code: string } }).error.code, 'not_found');
     const noStory = await client.callTool({ name: T.storyGraph, arguments: { public_id: randomUUID() } });
     assert.equal((noStory.structuredContent as { error: { code: string } }).error.code, 'not_found');
+
+    const bundle = await client.callTool({ name: T.evidenceBundle, arguments: { story: publicId } });
+    assert.notEqual(bundle.isError, true);
+    const structured = bundle.structuredContent as { schemaVersion: number; object: { kind: string; id: string }; relations: Array<{ evidence: Array<{ revision: number | null }> }> };
+    assert.equal(structured.schemaVersion, 1);
+    assert.deepEqual(structured.object, { kind: 'story', id: publicId });
+    assert.equal(structured.relations[0]!.evidence[0]!.revision, 1);
+    const scoped = await client.callTool({ name: T.evidenceBundle, arguments: { story: publicId, clock: 'valid', as_of: '2026-09-15T00:00:00Z' } });
+    const scopedBody = scoped.structuredContent as { fidelity: string; temporalSupport: string | null; asOf: string };
+    assert.equal(scopedBody.fidelity, 'bounded');
+    assert.equal(scopedBody.temporalSupport, 'bitemporal-v1');
+    const both = await client.callTool({ name: T.evidenceBundle, arguments: { story: publicId, entity: 'ent-alpha' } });
+    assert.equal((both.structuredContent as { error: { code: string } }).error.code, 'invalid_request');
   } finally {
     await client.close();
     app.server.closeAllConnections();

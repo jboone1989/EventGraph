@@ -69,7 +69,7 @@ export const UNDERSTAND_FLOOR = SELECTION.understandFloor;
 const SCORE_CALL: Record<string, { temperature: number; maxTokens: number; timeoutMs: number }> = {
   "glm-5.3-flash-selection": { temperature: 1, maxTokens: 65_536, timeoutMs: 180_000 },
 };
-const scoreCall = (model: string) => SCORE_CALL[model] ?? { temperature: 0.2, maxTokens: 1024, timeoutMs: 120_000 };
+const scoreCall = (model: string) => SCORE_CALL[model] ?? { temperature: 0.2, maxTokens: 8192, timeoutMs: 120_000 };
 
 /** The score prompt: the industry's taste (industry/prompts/selection-score.md). */
 export const SCORE_SYSTEM = promptText("selection-score");
@@ -248,7 +248,7 @@ async function runPrefilter(a: AnalyzeInputArticle, opts: StepOpts): Promise<Ana
     user: prefilterUser(a),
     schema: PrefilterSchema,
     temperature: 0,
-    maxTokens: 512,
+    maxTokens: 4096,
     attemptTag: opts.attemptTag,
   });
   // A BLOCK without material to back it counts as UNKNOWN (which goes on).
@@ -332,7 +332,7 @@ export async function runStructure(a: AnalyzeInputArticle, opts: StepOpts = {}):
     user: buildMaterial(a),
     schema: StructureSchema,
     temperature: 0.2,
-    maxTokens: 1200,
+    maxTokens: 8192,
     attemptTag: tagged(opts.attemptTag, "structure"),
   });
   return { ...normalizeStructure(res.data, a), model: res.model, receiptId: res.receiptId, reused: res.reused };
@@ -351,7 +351,7 @@ export async function runUnderstand(a: AnalyzeInputArticle, opts: StepOpts = {})
     });
   };
   // Image input is opt-in: an unspecified capability must not become a paid provider probe.
-  const image = modelSupportsVision(model) ? await firstImagePart(a) : null;
+  const image = await modelSupportsVision(model) ? await firstImagePart(a) : null;
   let res: Awaited<ReturnType<typeof call>>;
   try {
     res = await call(image);
@@ -400,7 +400,7 @@ async function mendWording(a: AnalyzeInputArticle, w: NonNullable<AnalysisRun["w
         `中文稿：\n${JSON.stringify({ titleZh: w.titleZh, summaryZh: w.summaryZh, reasonZh: w.reasonZh })}`,
         `问题：\n${problems.map((p) => `- ${p}`).join("\n")}`,
       ].join("\n\n"),
-      schema: MendSchema, temperature: 0.1, maxTokens: 2048, attemptTag: tagged(opts.attemptTag, "wording"),
+      schema: MendSchema, temperature: 0.1, maxTokens: 8192, attemptTag: tagged(opts.attemptTag, "wording"),
     });
   } catch (error) {
     // An answer that is not the copy asked for, or a refusal the same request would meet again (each provider words
@@ -442,7 +442,7 @@ async function runSummarize(a: AnalyzeInputArticle, opts: StepOpts): Promise<Non
     json: false,
     parse: parseTranslateOutput,
     temperature: 0.2,
-    maxTokens: 2048,
+    maxTokens: 8192,
     attemptTag: tagged(opts.attemptTag, "summarize"),
   });
   const p = res.data;

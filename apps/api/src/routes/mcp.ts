@@ -14,11 +14,12 @@ import { isValidDate } from "@aihot/contracts/time";
 import { config } from "@aihot/backend/config";
 import { cachedByKey } from "@aihot/backend/lib/cache";
 import { logError } from "@aihot/backend/lib/log-error";
-import { dailyAnswer, entityAnswer, hotAnswer, latestAnswer, periodAnswer, searchAnswer, searchItems, storyAnswer, storyGraphAnswer } from "@aihot/backend/publication/agent";
-import { entityProfile, publicStoryGraph } from "@aihot/backend/publication/knowledge";
+import { dailyAnswer, entityAnswer, evidenceBundleAnswer, hotAnswer, latestAnswer, periodAnswer, searchAnswer, searchItems, storyAnswer, storyGraphAnswer, storyRouteAnswer } from "@aihot/backend/publication/agent";
+import { entityProfile, parseGraphTime, publicEvidenceBundle, publicStoryGraph } from "@aihot/backend/publication/knowledge";
 import { v1Items } from "@aihot/backend/publication/v1";
 import { SearchBusyError } from "@aihot/backend/publication/pool";
 import { resolveStory, v1HotTopics, v1Story } from "@aihot/backend/publication/stories";
+import { publicStoryRoute } from "@aihot/backend/publication/story-route";
 import { dailyWithNotes, isPeriodKey, v1Period } from "@aihot/backend/publication/reports";
 import { requestNotice, serverModules, type McpNotice } from "@aihot/backend/modules";
 
@@ -32,6 +33,8 @@ const USES = [
   `${T.weekly} and ${T.monthly} for the edited weekly and monthly reports`,
   `${T.storyGraph} for the knowledge-graph relations behind a story`,
   `${T.entity} for one graph entity's relations and events, with a key returned by ${T.storyGraph}`,
+  `${T.evidenceBundle} for one story/entity/relation's machine-readable evidence bundle, with ids returned by ${T.storyGraph} or ${T.entity}`,
+  `${T.storyRoute} for one story's station-by-station route with per-station evidence and uncertainty, with a public_id returned by ${T.hot}`,
 ];
 
 const abilities = () => serverModules().flatMap((m) => m.agent?.abilities ?? []);
@@ -111,6 +114,16 @@ const STORY_GRAPH_INPUT = z.strictObject({
 });
 const ENTITY_INPUT = z.strictObject({
   key: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/).describe(`Entity key as returned by ${T.storyGraph} (key=…); never guess it.`),
+});
+const BUNDLE_INPUT = z.strictObject({
+  story: z.string().regex(/^[a-f0-9-]{36}$/).optional().describe(`Story public_id from ${T.hot}; never guess it.`),
+  entity: ENTITY_INPUT.shape.key.optional().describe(`Entity key as returned by ${T.storyGraph} or ${T.entity}; never guess it.`),
+  relation: z.string().min(1).max(180).optional().describe(`Relation id as returned by ${T.storyGraph} or ${T.entity}; never guess it.`),
+  clock: z.enum(["known", "valid"]).optional().describe("known = when the site recorded it, valid = when the fact took effect; omit for the current view"),
+  as_of: z.string().datetime({ offset: true }).optional().describe("ISO 8601 instant with timezone; replay the evidence as of that time"),
+});
+const ROUTE_INPUT = z.strictObject({
+  public_id: z.string().regex(/^[a-f0-9-]{36}$/).describe(`Story public_id from ${T.hot}; never guess it.`),
 });
 
 // Agents repeat the same calls. Answers are kept 30 s, within the minute the v1 HTTP answers are
@@ -263,6 +276,46 @@ function registerTools(server: McpServer, say: typeof ok) {
           : fail("not_found", `没有这个实体；只使用 ${T.storyGraph} 返回的 key。`);
       }
       return say(entityAnswer(profile), { schemaVersion: 1, entity: profile.entity, relations: profile.edges, stories: profile.stories, reports: profile.reports });
+    }),
+  );
+
+  server.registerTool(
+    T.evidenceBundle,
+    {
+      description: `Get the machine-readable evidence bundle for one public story, entity or relation: object and source ids, original report URLs, effect and end times, and the read's clock/as-of bounds. Pass exactly one of story/entity/relation. Same public filtering as the site: withdrawn reports never appear.`,
+      inputSchema: BUNDLE_INPUT,
+      annotations: ANNOTATIONS,
+    },
+    safe(T.evidenceBundle, async (args) => {
+      const given = [args.story, args.entity, args.relation].filter(Boolean).length;
+      if (given > 1) return fail("invalid_request", "story、entity、relation 只能传一个。");
+      const query = args.story ? { kind: "story" as const, publicId: args.story }
+        : args.entity ? { kind: "entity" as const, key: args.entity }
+        : args.relation ? { kind: "relation" as const, key: args.relation } : null;
+      if (!query) return fail("invalid_request", "传 story、entity 或 relation 之一，不要都空着。");
+      const parsed = parseGraphTime(args.as_of, args.clock);
+      if (parsed.status === "invalid") return fail("invalid_request", "as_of 必须是带时区的 ISO 8601 时刻。");
+      const time = parsed.value ?? undefined;
+      const key = `bundle:${JSON.stringify(query)}:${args.clock ?? ""}:${args.as_of ?? ""}`;
+      const bundle = await recent(key, () => publicEvidenceBundle(query, new Date(), time));
+      return say(evidenceBundleAnswer(bundle), bundle);
+    }),
+  );
+
+  server.registerTool(
+    T.storyRoute,
+    {
+      description: `Get one public story's station-by-station route: each station is a step of the story with its original evidence URLs, the stated occurrence time vs when the site first recorded it, and explicit uncertainty (single source, missing occurrence time, revisions). Same public filtering as the site: withdrawn reports never appear.`,
+      inputSchema: ROUTE_INPUT,
+      annotations: ANNOTATIONS,
+    },
+    safe(T.storyRoute, async (args) => {
+      const publicId = args.public_id.trim();
+      // publicStoryRoute follows merged aliases itself and answers "insufficient" when the
+      // surviving story has no public evidence, like the site page does.
+      const route = await recent(`story-route:${publicId}`, () => publicStoryRoute(publicId));
+      if (!route) return fail("not_found", `没有这个公开事件；只使用 ${T.hot} 返回的 public_id。`);
+      return say(storyRouteAnswer(route), route);
     }),
   );
 
