@@ -1,8 +1,9 @@
 // Daily, weekly and monthly reports. Windows are Beijing calendar based and written into the report;
 // missed schedule points are caught up; regeneration creates a revision. What every issue carries is
-// decided by rule: a daily from edition.ts without a model; a weekly or monthly is compiled from its
+// decided by rule: a daily from edition.ts, plus a model-written overview of the day (and its English
+// stand-in) and a one-line long tail below the selection; a weekly or monthly is compiled from its
 // dailies and a model only writes its overview and introductions, from the brief in the industry pack
-// (industry/prompts/report-period*.md).
+// (industry/prompts/report-*.md).
 import { z } from "zod";
 import { EDITION_TIMES, REPORTS, SITE } from "@aihot/site";
 import { PLAIN_TERMS, RELEASE } from "@aihot/industry/taxonomy";
@@ -80,6 +81,34 @@ function windowPoint(at: Date): string {
   return `${Number(day.slice(5, 7))} 月 ${Number(day.slice(8, 10))} 日 ${beijingTime(at)}`;
 }
 
+/** The longest overview (Chinese and English) a daily prints; the brief asks for less, writers overshoot. */
+const DAILY_OVERVIEW_CHARS = 500;
+const DAILY_OVERVIEW_EN_CHARS = 1600;
+/** The daily writer's version: its own briefs, so rewording them does not re-version the periodicals. */
+export const DAILY_VERSION = promptVersion("report-daily", "report-daily-english");
+
+export const DailySchema = z.object({
+  overview: z.string().max(4000).catch(""),
+});
+
+/** The daily writer's brief: the day's entries as chosen, with each entry's related headlines under it. */
+export function dailyPrompt(date: string, entries: EditionEntry[]) {
+  const list = entries
+    .map((e) => [`- ${e.entry.title}｜${e.entry.summary}`, ...(e.entry.related ?? []).map((r) => `  · 相关：${r.title}`)].join("\n"))
+    .join("\n");
+  return { system: promptText("report-daily"), user: `当日：${date}\n${list}` };
+}
+
+/** The leading whole sentences of an English text that fit in `max` characters; null when not even the first does. */
+export function fittedEn(text: string, max: number): string | null {
+  let out = "";
+  for (const sentence of text.trim().split(/(?<=[.!?])\s+/)) {
+    if ([...out + (out ? " " : "") + sentence].length > max) break;
+    out += `${out ? " " : ""}${sentence}`;
+  }
+  return out.trim() || null;
+}
+
 /**
  * Daily report for Beijing date D covers the 24 hours up to the site's edition time on D (EDITION_TIMES).
  * Its most important entry leads, in its own words, and the next three are today's highlights. A window
@@ -99,6 +128,52 @@ export async function composeDaily(date: string, reason?: string): Promise<{ key
   // The day's long tail: events below the selection that still clear the understanding floor, minus
   // the events this issue carries and what the week's issues already cited.
   const tail = edition.keys.size === 0 ? [] : await tailEvents(date, start, end, edition.keys);
+  // The corpus the writers may name: everything the issue cites, in its own words.
+  const corpus = [
+    date,
+    ...issue.main.map((e) => `${e.entry.title} ${e.entry.summary} ${(e.entry.related ?? []).map((r) => r.title).join(" ")}`),
+    ...issue.flashes.map((e) => `${e.entry.title} ${e.entry.summary}`),
+  ].join("\n");
+  const usable = (text: string | undefined, max: number) => {
+    const fit = fitted(text ?? "", max);
+    return fit && grounded(fit, corpus) ? fit : null;
+  };
+  // The writer adds the day's overview and its English stand-in when there is material to write from;
+  // anything it fails at leaves the issue as it is — the daily never waits for a model.
+  let overview: string | null = null;
+  let overviewEn: string | null = null;
+  let model: string | null = null;
+  const receiptIds: number[] = [];
+  if (issue.main.length > 0) {
+    try {
+      model = await modelFor("report");
+      const res = await chatJson({
+        model, purpose: "report_daily", subject: `report:daily:${date}`, promptVersion: DAILY_VERSION,
+        ...dailyPrompt(date, issue.main), schema: DailySchema, temperature: 0.3, maxTokens: 8192,
+      });
+      receiptIds.push(res.receiptId);
+      overview = usable(res.data.overview, DAILY_OVERVIEW_CHARS);
+      if (overview) {
+        try {
+          const resEn = await chatJson({
+            model, purpose: "report_daily", subject: `report:daily-en:${date}`, promptVersion: DAILY_VERSION,
+            system: promptText("report-daily-english"),
+            user: JSON.stringify({ overview, titles: issue.main.flatMap((e) => [e.entry.title, ...(e.entry.related ?? []).map((r) => r.title)]) }),
+            schema: DailySchema, temperature: 0.3, maxTokens: 8192,
+          });
+          receiptIds.push(resEn.receiptId);
+          const fit = fittedEn(resEn.data.overview, DAILY_OVERVIEW_EN_CHARS);
+          overviewEn = fit && grounded(fit, `${corpus}\n${overview}`) && !/\p{Script=Han}/u.test(fit) ? fit : null;
+        } catch (error) {
+          if (shutdownSignal.signal.aborted) throw error;
+          console.error(JSON.stringify({ level: "warn", msg: "daily english writer failed; the english issue goes out without an overview", report: `daily:${date}`, error: logError(error) }));
+        }
+      }
+    } catch (error) {
+      if (shutdownSignal.signal.aborted) throw error;
+      console.error(JSON.stringify({ level: "warn", msg: "daily writer failed; the issue goes out without its overview", report: `daily:${date}`, error: logError(error) }));
+    }
+  }
   const content = {
     date,
     lead: lead
@@ -111,12 +186,14 @@ export async function composeDaily(date: string, reason?: string): Promise<{ key
       .filter((s) => s.items.length > 0),
     flashes: issue.flashes.map((e) => e.entry),
     ...(tail.length > 0 ? { tail } : {}),
+    ...(overview ? { overview } : {}),
+    ...(overviewEn ? { overviewEn } : {}),
     metrics: dailyMetrics(issue.main),
     windowStart: start.toISOString(),
     windowEnd: end.toISOString(),
-    generator: { version: REPORT_VERSION, ...edition.stats, ...issue.stats },
+    generator: { version: DAILY_VERSION, ...edition.stats, ...issue.stats, ...(model ? { model, written: overview !== null } : {}) },
   };
-  await saveReport("daily", date, start, end, content, reason, null, []);
+  await saveReport("daily", date, start, end, content, reason, model, receiptIds);
   return { key: date, entries: issue.main.length };
 }
 
