@@ -1,3 +1,4 @@
+import {normalizedRegistryActive,listConnections,listRegisteredModels} from './connections.ts';
 import {BudgetExceededError} from "../receipts.ts";
 import {listProviders} from "./repository.ts";
 import type {ProviderProfile} from "./types.ts";
@@ -28,6 +29,15 @@ export function rankStageProviders(rows:ProviderProfile[],stage:Stage,now=Date.n
  });
 }
 export async function selectConfiguredProviderForStage(stage:Stage,needsVision=false):Promise<string>{
+ if(await normalizedRegistryActive()) {
+  const connections=await listConnections(),wanted=needsVision?'vision':'text';
+  const protectedIds=new Set(connections.filter(c=>c.policy==='nvidia-free-trial').map(c=>c.id));
+  const models=(await listRegisteredModels()).filter(m=>protectedIds.has(m.providerId)&&m.adapter==='chat'&&m.routing.eligibleCapabilities.includes(wanted));
+  const intended=levels[weights[stage]??'medium'];
+  models.sort((a,b)=>Math.abs(levels[a.complexity]-intended)-Math.abs(levels[b.complexity]-intended)||a.id.localeCompare(b.id));
+  if(!models[0])throw Error('No eligible configured model for '+stage+'; test the current configuration');
+  return 'model:'+models[0].id;
+ }
  const eligible=rankStageProviders(await listProviders(),stage,Date.now(),needsVision);
  if(!eligible[0])throw new BudgetExceededError("nvidia","waiting_for_verified_provider",300);
  return "nvidia:"+eligible[0].modelId;

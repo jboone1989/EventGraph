@@ -2,7 +2,7 @@
 export type EventName =
   | "page_view" | "story_open" | "item_open" | "graph_node_select"
   | "graph_relation_select" | "source_open" | "search_submit"
-  | "navigation_complete" | "agent_access_open" | "feedback_open";
+  | "navigation_complete" | "agent_access_open" | "feedback_open" | "rss_open";
 export type PageType = "home" | "all" | "story" | "item" | "hot" | "knowledge"
   | "entity" | "search" | "daily" | "weekly" | "monthly" | "topics" | "agent" | "other";
 export type AnalyticsConfig = {

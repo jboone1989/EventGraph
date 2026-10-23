@@ -19,7 +19,7 @@ export const DigestSchema = z.object({
 });
 
 /** Sampling of every digest request. */
-export const DIGEST_SAMPLING = { temperature: 0.3, maxTokens: 1200 };
+export const DIGEST_SAMPLING = { temperature: 0.3, maxTokens: 8192 };
 
 /** Oldest first; reports from the same moment keep the order digestReports returned them in. */
 export const byReportTime = (a: { at: Date }, b: { at: Date }) => a.at.getTime() - b.at.getTime();

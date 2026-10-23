@@ -10,6 +10,7 @@ test("analytics accepts only typed, anonymous, bounded events", () => {
   assert.deepEqual(validAnalyticsEvent(event()), {
     ...event(), contentId: null, durationMs: null, referrerHost: null,
   });
+  assert.ok(validAnalyticsEvent({ ...event(), name: "rss_open", pageType: "other" }));
   assert.equal(validAnalyticsEvent({ ...event(), name: "login_password" }), null);
   assert.equal(validAnalyticsEvent({ ...event(), pageType: "/items/private?token=abc" }), null);
   assert.equal(validAnalyticsEvent({ ...event(), language: "fr" }), null);

@@ -19,6 +19,8 @@ const PROBLEM_TITLES: Record<number, string> = {
 
 export interface ProblemInit {
   status: number;
+  fieldErrors?:Record<string,string>;
+  dependencies?:Array<{kind:string;id:string;name:string}>;
   code: string;
   detail: string;
   type?: string;
@@ -35,6 +37,8 @@ export function sendProblem(req: FastifyRequest, reply: FastifyReply, p: Problem
     detail: p.detail,
     code: p.code,
     requestId: req.id,
+    ...(p.fieldErrors?{fieldErrors:p.fieldErrors}:{}),
+    ...(p.dependencies?{dependencies:p.dependencies}:{}),
   };
   if (p.retryAfter !== undefined) {
     body.retryAfter = p.retryAfter;

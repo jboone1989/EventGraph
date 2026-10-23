@@ -52,7 +52,29 @@ function filterKey(category: CategoryKey | null, channel: ChannelKey): string {
 export function CategoryTabs({ base, category, channel = "all", layoutId, className = "" }: { base: string; category: CategoryKey | null; channel?: ChannelKey; layoutId: string; className?: string }) {
   const [params] = useSearchParams();
   const lang=useUiLanguage();
-  return <PillTabs items={filterOptions(base, params, lang==="en"?"All":"全部", lang).map(o => ({ ...o, prefetch: 'intent' as const }))} active={filterKey(category, channel)} layoutId={layoutId} label={lang==="en"?"Filter":"筛选"} className={className} />;
+  return <PillTabs items={filterOptions(base, params, lang==="en"?"Any":"不限", lang).map(o => ({ ...o, prefetch: 'intent' as const }))} active={filterKey(category, channel)} layoutId={layoutId} label={lang==="en"?"Filter":"筛选"} className={className} />;
+}
+
+/**
+ * Desktop twin of the phone bar's 精选 | 全部 switch, shown beside the filters while 全部动态 has no
+ * sidebar entry of its own. A search in progress stays behind: switching scope drops it, as on phones.
+ */
+export function ScopeTabs({ base }: { base: "/" | "/all" }) {
+  const [params] = useSearchParams();
+  const t = useText();
+  const scope = (to: string) => hrefWith(to, params, { q: null, tab: null, search: null });
+  return (
+    <PillTabs
+      size="sm"
+      layoutId="feed-scope-desk"
+      label={t("看精选或全部","Featured or all")}
+      active={base === "/" ? "featured" : "all"}
+      items={[
+        { key: "featured", label: t("精选","Featured"), to: scope("/"), prefetch: 'intent' },
+        { key: "all", label: t("全部","All"), to: scope("/all"), prefetch: 'intent' },
+      ]}
+    />
+  );
 }
 
 /**
@@ -81,8 +103,8 @@ export function FeedBar({ base, category, channel }: { base: "/" | "/all"; categ
             label={t("看精选或全部","Featured or all")}
             active={base === "/" ? "featured" : "all"}
             items={[
-              { key: "featured", label: t("精选","Featured"), to: scope("/"), resetScroll: true, prefetch: 'intent' },
-              { key: "all", label: t("全部","All"), to: scope("/all"), resetScroll: true, prefetch: 'intent' },
+              { key: "featured", label: t("精选","Featured"), to: scope("/"), prefetch: 'intent' },
+              { key: "all", label: t("全部","All"), to: scope("/all"), prefetch: 'intent' },
             ]}
           />
         }

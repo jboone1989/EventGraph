@@ -166,23 +166,12 @@ export interface SiteItemDetail extends ItemSummary {
   /** The topics the report belongs to. */
   topics: TopicLink[];
   indexable: boolean;
+  /** Whether its English page may be indexed: an English copy exists and the event has several reports. */
+  englishIndexable: boolean;
   markdownAvailable: boolean;
   group: GroupInfo | null;
   hasTranslation: boolean;
   bodyLanguage: "zh" | "original";
-}
-
-/** What the site knows around one report, for its English page (publication/item-context.ts). */
-export interface ItemContext {
-  story: { publicId: string; english: { title: string; digest: string } | null; reportCount: number; sourceCount: number } | null;
-  /** Other public reports of the event nearest in time, oldest first; title is English (copy or original) or null. */
-  coverage: Array<{ id: string; source: string; publishedAt: string; title: string | null; earlier: boolean }>;
-  /** Relations Graphiti extracted from this report. */
-  facts: Array<{ subject: string; predicate: string; object: string; fact: string }>;
-  /** Exchange prices around the report for the assets it names. */
-  market: { eventAt: string; assets: Array<{ asset: string; before: { priceUsdt: number; at: string }; after: { priceUsdt: number; at: string; latest: boolean }; changePercent: number }> } | null;
-  /** Whether its English page has context enough to be indexed. */
-  indexable: boolean;
 }
 
 /** A fact's public reports under the list's filters: what "另有 N 家信源报道" opens. */
@@ -244,6 +233,29 @@ export interface HotResponse {
   entries: HotEntryView[];
 }
 
+/** One explore-gallery card: a real public event, discovered through its topic (EG-14). */
+export interface GalleryCard {
+  story: StoryRef;
+  /** The story's English original title, for reader language switching. */
+  englishTitle: string | null;
+  /** The topic that presents the story; a story is claimed once, by its first topic. */
+  topic: TopicLink;
+  /** A picture from the story's public full-text reports; null when there is none — never a placeholder. */
+  cover: { url: string; srcSet?: string; width: number | null; height: number | null } | null;
+  /** Distinct sources among the story's public reports. */
+  sourceCount: number;
+  /** Facts of the story that currently have public evidence. */
+  stageCount: number;
+  latestAt: string;
+  /** A card excerpt of the story's saved summary, still supported by a public report. */
+  summary: string | null;
+}
+
+export interface ExploreGalleryResponse {
+  computedAt: string;
+  cards: GalleryCard[];
+}
+
 export interface HeatPoint {
   hour: string;
   heat: number;
@@ -259,6 +271,8 @@ export interface StoryReportView {
   summary: string | null;
   source: SourceRef & { firstParty: boolean };
   publishedAt: string;
+  /** The system first discovered this report; distinct from its original publication time. */
+  discoveredAt?: string;
   selected: boolean;
   english?: EnglishCopy | null;
 }
@@ -277,6 +291,8 @@ export interface StoryDetail {
   english?: { title: string; digest: string } | null;
   publicId: string;
   title: string;
+  /** Whether the event page may be indexed: an editor curated a report of the event and it is not a thin single-source page (specs/002-adsense-readiness FR-006/FR-009). */
+  indexable: boolean;
   status: "active" | "watching" | "settled";
   reportCount: number;
   sourceCount: number;
@@ -306,6 +322,47 @@ export interface StoryDetail {
   /** The topics its reports belong to, most reports first. */
   topics: TopicLink[];
 }
+
+// Structured story route (EG-T17): the deterministic, evidence-backed station path of one event.
+export type StoryRouteReport = {
+  articleId: string;
+  /** Direct original source URL for evidence review. */
+  url: string;
+  source: string;
+  /** The source's stated publication time; null when the source did not state one. */
+  publishedAt: string | null;
+  /** When the system first recorded the report; distinct from publishedAt. */
+  discoveredAt: string;
+  /** Present only when the report was revised (revision above 1). */
+  revision: number | null;
+};
+export type StoryRouteStation = {
+  factId: string;
+  title: string;
+  /** The fact's stated occurrence time; null means the record only knows when it was reported. */
+  timeEffective: string | null;
+  /** When the system first recorded public evidence for this station. */
+  timeRecorded: string;
+  /** Bounded evidence list, selected sources first. */
+  reports: StoryRouteReport[];
+  sourceCount: number;
+  uncertainty: {
+    singleSource: boolean;
+    occurredAtMissing: boolean;
+    revised: boolean;
+  };
+};
+export type StoryRoute = {
+  schemaVersion: 1;
+  story: StoryRef;
+  status: "ok" | "insufficient";
+  /** Why the route breaks off; "no_public_evidence" when no public evidence exists today. */
+  reason: "no_public_evidence" | null;
+  generatedAt: string;
+  limits: { stationLimit: number; reportLimit: number; truncated: boolean };
+  stations: StoryRouteStation[];
+  coverage: { stations: number; reports: number; sources: number };
+};
 
 // Reports (daily / weekly / monthly)
 
@@ -346,10 +403,14 @@ export interface ReportDetail {
   /** The still-public item the front page leads with (its headline links there). */
   leadItemId: string | null;
   overview: string | null;
+  /** A daily's overview in English, written from the Chinese one; null when there is none (English omits the block). */
+  overviewEn: string | null;
   highlights: ReportCitation[];
   /** As edited: daily categories, weekly and monthly themes. */
   sections: Array<{ label: string; summary: string | null; items: ReportCitation[] }>;
   flashes: ReportCitation[];
+  /** A daily's long tail: events below the selection that still clear the understanding floor, best first. */
+  tail: ReportCitation[];
   /**
    * The front page's picture: from the lead item (a daily's lead, a weekly or monthly's first highlight),
    * else from another public report of that event. Captioned with the story when it is not the lead's own.

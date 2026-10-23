@@ -74,8 +74,11 @@ export function titled(title: string): string {
 export function pageMeta(input: PageMetaInput): MetaDescriptor[] {
   const base = siteUrl();
   const title = input.title ? (input.rawTitle ? input.title : titled(input.title)) : HOME_TITLE;
-  const description = input.description ?? SITE_DESCRIPTION;
-  const url = `${base}${input.path}`;
+  // Model-written digests can be multi-paragraph; a raw newline inside the content attribute ends up in the served HTML and search engines truncate the snippet there.
+  const description = (input.description ?? SITE_DESCRIPTION).replace(/\s+/g, " ").trim();
+  // Canonical and og:url carry the sitemap's form of the address: no trailing slash except the root, so a slash-suffixed request never self-canonicalizes into a duplicate.
+  const path = input.path.replace(/\/+$/, "") || "/";
+  const url = `${base}${path}`;
   const image = input.image ? (input.image.startsWith("http") ? input.image : `${base}${input.image}`) : `${base}/og/site.png`;
   const tags: MetaDescriptor[] = [
     { title },
@@ -120,9 +123,10 @@ export function localized(tags: MetaDescriptor[], pathname: string, en: { title:
   ];
   if (!isEnglishPath(pathname)) return [...tags, ...alternates];
   const title = titled(en.title);
+  const enDescription = en.description.replace(/\s+/g, " ").trim();
   const replace: Record<string, string> = {
-    description: en.description, "og:title": en.title, "og:description": en.description, "og:url": `${base}${enPath}`,
-    "og:locale": "en_US", "twitter:title": en.title, "twitter:description": en.description,
+    description: enDescription, "og:title": en.title, "og:description": enDescription, "og:url": `${base}${enPath}`,
+    "og:locale": "en_US", "twitter:title": en.title, "twitter:description": enDescription,
   };
   return [
     ...tags.map((t): MetaDescriptor => {
@@ -195,7 +199,7 @@ export function siteLd() {
       "@type": "Dataset",
       "@id": `${base}/#dataset`,
       name: `${SITE.name} — ${withSubject("行业动态数据集")}`,
-      description: `${subjectAfter("持续更新的中文", "行业动态")}：每条附中文摘要、评分与原文出处，${subjectAfter("另有每日精选与", "日报")}，可通过 RSS 与公开 API 获取。`,
+      description: `${subjectAfter("持续更新的中文", "行业动态")}：每条附中文摘要、评分与原文出处，另有每日精选与日报，可通过 RSS 与公开 API 获取。`,
       url: base,
       inLanguage: SITE.locale,
       isAccessibleForFree: true,
@@ -206,7 +210,7 @@ export function siteLd() {
       distribution: [
         { "@type": "DataDownload", name: "精选 RSS", encodingFormat: "application/rss+xml", contentUrl: `${base}/feed.xml` },
         { "@type": "DataDownload", name: "全部动态 RSS", encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/all.xml` },
-        { "@type": "DataDownload", name: `${withSubject("日报")} RSS`, encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/daily.xml` },
+        { "@type": "DataDownload", name: "日报 RSS", encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/daily.xml` },
         { "@type": "DataDownload", name: `${withSubject("周报")} RSS`, encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/weekly.xml` },
         { "@type": "DataDownload", name: `${withSubject("月报")} RSS`, encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/monthly.xml` },
         { "@type": "DataDownload", name: "公开 API v1", encodingFormat: "application/json", contentUrl: `${base}/api/v1/items` },
@@ -277,7 +281,7 @@ const REPORT_NAME = { daily: "日报", weekly: "周报", monthly: "月报" } as 
 /** An issue's date and actual editorial lead, falling back only to a still-public visible highlight. */
 export function reportTitle(report: ReportDetail): string {
   const lead = report.lead?.title.trim() || report.highlights.find((item) => item.available)?.title.trim();
-  const name = `${withSubject(REPORT_NAME[report.kind])} ${report.key}`;
+  const name = `${report.kind === "daily" ? REPORT_NAME[report.kind] : withSubject(REPORT_NAME[report.kind])} ${report.key}`;
   return lead ? `${name}：${lead}` : name;
 }
 

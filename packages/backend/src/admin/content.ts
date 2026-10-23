@@ -213,6 +213,39 @@ export async function setSeoIndexed(id: string, input: { indexed: boolean; reaso
   });
 }
 
+/**
+ * The daily curation queue (specs/002-adsense-readiness FR-008): model-selected public reports from the
+ * last few days that no editor has decided on yet — with curatedIndexOnly these stay out of the index
+ * until an editor marks them here.
+ */
+export async function curatePending(days = 3): Promise<BeforeJson<AdminContentRow>[]> {
+  return sql<BeforeJson<AdminContentRow>[]>`
+    SELECT a.id, coalesce(p.title, a.title) AS title, a.url, s.name AS source, a.discovered_at, a.processing_state,
+           p.visibility, p.selected, p.score
+    FROM articles a JOIN sources s ON s.id = a.source_id JOIN publications p ON p.article_id = a.id
+    WHERE p.selected AND p.visibility = 'public' AND NOT p.indexable AND p.seo_excluded_at IS NULL
+      AND p.timeline_at > now() - (${Math.min(Math.max(days, 1), 14)} || ' days')::interval
+    ORDER BY p.timeline_at DESC LIMIT 200`;
+}
+
+/** One transaction, one audit row per page: the daily review curates a whole batch at once (FR-008). */
+export async function setSeoIndexedBatch(input: { ids: string[]; indexed: boolean; reason: string }, actor: string): Promise<{ changed: string[] }> {
+  const parsed = z.object({ ids: z.array(z.string().min(1)).min(1).max(200), indexed: z.boolean(), reason: z.string().trim().min(1) }).parse(input);
+  const ids = [...new Set(parsed.ids)];
+  return sql.begin(async (tx) => {
+    const changed: string[] = [];
+    for (const id of ids) {
+      await tx`SELECT id FROM articles WHERE id = ${id} FOR UPDATE`;
+      const [before] = await tx<{ indexable: boolean }[]>`SELECT indexable FROM publications WHERE article_id = ${id}`;
+      if (!before || before.indexable === parsed.indexed) continue;
+      await setSeoDecision(tx, id, parsed.indexed);
+      await audit(actor, "content.seo", `content:${id}`, parsed.reason, { indexed: before.indexable }, { indexed: parsed.indexed }, { db: tx });
+      changed.push(id);
+    }
+    return { changed };
+  });
+}
+
 const FieldsSchema = z
   .object({
     title: z.string().min(1).max(300),

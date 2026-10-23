@@ -1,0 +1,22 @@
+CREATE TABLE registered_models (
+ id uuid PRIMARY KEY,
+ provider_id uuid NOT NULL REFERENCES provider_connections(id) ON DELETE RESTRICT,
+ model_id text NOT NULL,
+ adapter text NOT NULL CHECK (adapter IN ('chat','embedding','document','safety','special','unconfigured')),
+ endpoint_override text,
+ timeout_override_ms integer CHECK (timeout_override_ms BETWEEN 1000 AND 600000),
+ capabilities jsonb NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(capabilities)='array'),
+ request_defaults jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(request_defaults)='object'),
+ probe_spec jsonb,
+ stream boolean NOT NULL DEFAULT false,
+ complexity text NOT NULL DEFAULT 'medium' CHECK (complexity IN ('light','medium','heavy')),
+ documentation_url text,
+ notes text,
+ enabled boolean NOT NULL DEFAULT false,
+ route_enabled boolean NOT NULL DEFAULT false CHECK (NOT route_enabled OR enabled),
+ upstream_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+ version integer NOT NULL DEFAULT 1,
+ updated_by text NOT NULL,
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE (provider_id, model_id)
+);

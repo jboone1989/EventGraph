@@ -95,7 +95,7 @@ flowchart LR
 | `/` `/all` `/hot` `/topics` `/daily` `/weekly` `/monthly` | 精选、全部动态、热门事件、主题、日报周报月报 |
 | `/feed.xml` `/feed/full.xml` `/feed/all.xml` `/feed/daily.xml` `/feed/weekly.xml` `/feed/monthly.xml` | RSS：精选、精选全文、全部、日报、周报、月报；另有按分类的 `/feed/category/<key>.xml` 和分类全文版 `/feed/full/category/<key>.xml`，按主题的 `/feed/topic/<slug>.xml`，按图谱实体的 `/feed/entity/<key>.xml` |
 | `/api/v1/` | 公开 API，文档在 `/openapi-v1.json`；给 Agent 读的 Markdown 从 `/api/v1/agent` 开始；说明页在 `/agent` |
-| `/api/mcp` | MCP 服务：最新、搜索、热点、事件、日报、周报、月报各一个工具，另有事件关系（`get_story_graph`）和图谱实体（`get_entity`）两个读知识图谱的工具，工具名前缀是 `site/site.ts` 的 `mcpPrefix` |
+| `/api/mcp` | MCP 服务：最新、搜索、热点、事件、日报、周报、月报各一个工具，另有事件关系（`get_story_graph`）、图谱实体（`get_entity`）和证据包（`get_evidence_bundle`）三个读知识图谱的工具，和事件路线（`get_story_route`，逐站证据与不确定性）一个读事件记录的工具，工具名前缀是 `site/site.ts` 的 `mcpPrefix` |
 | `/llms.txt` `/sitemap.xml` `/robots.txt` | 给大模型和搜索引擎的说明（`robots.txt` 等根目录文件在 `site/public/`） |
 | `/admin` | 后台 |
 
@@ -108,3 +108,5 @@ npm run build -w @aihot/web && node --test apps/web/tests/*.test.ts
 ```
 
 `DATABASE_URL` 指向的库名必须以 `_test` 或 `_ci` 结尾；没有会自动创建并迁移。每个测试文件在它的一份副本上并行运行，所以数据库账号要有建库权限（`CREATEDB`）。测试不访问任何外部服务：模型和付费接口都由本地假服务回答。
+
+Provider 连接和模型管理路由位于 `apps/api/src/routes/provider-connections.ts`，与 `admin.ts` 一样属于私有管理入口，统一经过 `adminHandler` 的身份与 CSRF 校验。

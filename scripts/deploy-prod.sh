@@ -92,7 +92,7 @@ app,knowledge=sys.argv[1:]
 assert all(re.fullmatch(r"[0-9a-f]{12}", tag) for tag in (app,knowledge))
 p=Path(".env")
 data=p.read_text()
-for key,tag in {"LRSITE_APP_RELEASE":app,"LRSITE_KNOWLEDGE_RELEASE":knowledge,"LRSITE_RELEASE":app}.items():
+for key,tag in {"LRSITE_APP_RELEASE":app,"LRSITE_KNOWLEDGE_RELEASE":knowledge,"LRSITE_RELEASE":app,"AIHOT_RELEASE":app}.items():
  if re.search(r"^"+key+r"=",data,re.M):
   data=re.sub(r"^"+key+r"=.*$",key+"="+tag,data,flags=re.M)
  else:data+="\n"+key+"="+tag+"\n"

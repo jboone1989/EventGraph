@@ -7,12 +7,12 @@ import { apiGet, cachedPage } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { pageMeta } from "../lib/seo";
 import { setChangelogSeen } from "../lib/local-state";
+import { englishOnly } from "../lib/english";
 import { AsideCard, ReadingLayout } from "../components/ui/Page";
 import { IconChevronRight } from "../components/icons";
 import { Inline, dateHeading } from "../features/changelog/text";
 import { PhoneBar } from "../components/shell/PhoneBar";
-import { useUiLanguage } from "../components/LanguageSwitch";
-import { EnglishUpdates } from "../components/EnglishPages";
+import { useText, useUiLanguage } from "../components/LanguageSwitch";
 import type { Screen } from "../components/shell/screens";
 
 export const handle: Screen = { tab: "me", name: "更新日志" };
@@ -34,6 +34,20 @@ const KIND_DOT: Record<Release["kind"], string> = {
   优化: "bg-ok",
   公告: "bg-amber",
   下线: "bg-ink-4",
+};
+
+const KIND_EN: Record<Release["kind"], string> = {
+  更新: "Update",
+  优化: "Improvement",
+  公告: "Notice",
+  下线: "Retired",
+};
+
+const MONTH_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** Releases whose record the UI keeps in English: an English title and, when the lines have none, a body. */
+const LAUNCH_EN: Record<string, { title: string; body: string[] }> = {
+  网站上线: { title: "Website launched", body: ["The website launched with source monitoring, curated reporting, event grouping and a daily brief."] },
 };
 
 const KINDS = Object.keys(KIND_DOT) as Release["kind"][];
@@ -68,8 +82,16 @@ function ReleaseBody({ lines }: { lines: string[] }) {
 }
 
 /** One date's releases in a card; `id` is the jump target of the month index. */
-function Day({ date, releases, id }: { date: string; releases: Release[]; id?: string }) {
-  const h = dateHeading(date);
+function Day({ date, releases, id, en }: { date: string; releases: Release[]; id?: string; en: boolean }) {
+  const t = useText();
+  const h = dateHeading(date, en ? "en" : "zh");
+  const entry = (r: Release) => {
+    const body = en ? r.body.map(englishOnly).filter((l): l is string => !!l) : r.body;
+    return {
+      title: en ? englishOnly(r.title) ?? LAUNCH_EN[r.title]?.title ?? `${KIND_EN[r.kind]} · ${r.date}` : r.title,
+      body: body.length > 0 || !en ? body : LAUNCH_EN[r.title]?.body ?? [],
+    };
+  };
   return (
     <section id={id} className="card scroll-mt-[calc(var(--bar-h)+1.5rem)] px-5 lg:px-7">
       <h2 className="flex items-baseline gap-3 border-b border-line-soft py-4">
@@ -79,25 +101,28 @@ function Day({ date, releases, id }: { date: string; releases: Release[]; id?: s
         <span className="text-[12px] text-ink-4">{h.weekday}</span>
       </h2>
       <ol>
-        {releases.map((r) => (
-          <li
-            key={`${r.date}-${r.time}-${r.title}`}
-            className={`grid gap-x-8 gap-y-2 border-b border-line-soft py-5 last:border-b-0 sm:grid-cols-[88px_minmax(0,1fr)] ${r.urgent ? "-mx-5 border-l-4 border-l-hot bg-hot-soft pl-4 pr-5 lg:-mx-7 lg:pl-6 lg:pr-7" : ""}`}
-          >
-            <div className="flex items-center gap-3 sm:block">
-              <span className="mono block text-[12.5px] text-ink-3">{r.time}</span>
-              <span className="inline-flex items-center gap-1.5 text-[11.5px] text-ink-4 sm:mt-1.5">
-                <span className={`size-1.5 rounded-full ${r.urgent ? "bg-hot" : KIND_DOT[r.kind]}`} aria-hidden="true" />
-                {r.kind}
-              </span>
-            </div>
-            <article className={`min-w-0 sm:border-l sm:pl-8 ${r.urgent ? "sm:border-hot/40" : "sm:border-line"}`}>
-              {r.urgent && <span className="mb-2 inline-flex rounded-full bg-hot px-2.5 py-0.5 text-[12px] font-semibold text-white">重要</span>}
-              <h3 className={`text-[15px] font-bold leading-snug ${r.urgent ? "text-hot" : "text-ink"}`}>{r.title}</h3>
-              <ReleaseBody lines={r.body} />
-            </article>
-          </li>
-        ))}
+        {releases.map((r) => {
+          const e = entry(r);
+          return (
+            <li
+              key={`${r.date}-${r.time}-${r.title}`}
+              className={`grid gap-x-8 gap-y-2 border-b border-line-soft py-5 last:border-b-0 sm:grid-cols-[88px_minmax(0,1fr)] ${r.urgent ? "-mx-5 border-l-4 border-l-hot bg-hot-soft pl-4 pr-5 lg:-mx-7 lg:pl-6 lg:pr-7" : ""}`}
+            >
+              <div className="flex items-center gap-3 sm:block">
+                <span className="mono block text-[12.5px] text-ink-3">{r.time}</span>
+                <span className="inline-flex items-center gap-1.5 text-[11.5px] text-ink-4 sm:mt-1.5">
+                  <span className={`size-1.5 rounded-full ${r.urgent ? "bg-hot" : KIND_DOT[r.kind]}`} aria-hidden="true" />
+                  {t(r.kind, KIND_EN[r.kind])}
+                </span>
+              </div>
+              <article className={`min-w-0 sm:border-l sm:pl-8 ${r.urgent ? "sm:border-hot/40" : "sm:border-line"}`}>
+                {r.urgent && <span className="mb-2 inline-flex rounded-full bg-hot px-2.5 py-0.5 text-[12px] font-semibold text-white">{t("重要", "Important")}</span>}
+                <h3 className={`text-[15px] font-bold leading-snug ${r.urgent ? "text-hot" : "text-ink"}`}>{e.title}</h3>
+                {e.body.length > 0 && <ReleaseBody lines={e.body} />}
+              </article>
+            </li>
+          );
+        })}
       </ol>
     </section>
   );
@@ -114,7 +139,7 @@ const SITE_FEATURE = Object.values(import.meta.glob<FeatureDrawing>("../../../..
  * the first one carrying the date's anchor, above a card of the date's other releases; `body` stays the
  * short form.
  */
-function FeatureDay({ date, releases, Drawing }: { date: string; releases: Release[]; Drawing: FeatureDrawing }) {
+function FeatureDay({ date, releases, Drawing, en }: { date: string; releases: Release[]; Drawing: FeatureDrawing; en: boolean }) {
   const features = releases.filter((r) => r.feature);
   const plain = releases.filter((r) => !r.feature);
   return (
@@ -122,13 +147,15 @@ function FeatureDay({ date, releases, Drawing }: { date: string; releases: Relea
       {features.map((r, i) => (
         <Drawing key={`${r.date}-${r.time}`} release={r} id={i === 0 ? `d-${date}` : undefined} />
       ))}
-      {plain.length > 0 && <Day date={date} releases={plain} />}
+      {plain.length > 0 && <Day date={date} releases={plain} en={en} />}
     </>
   );
 }
 
 export default function ChangelogPage() {
-  const language=useUiLanguage();
+  const language = useUiLanguage();
+  const en = language === "en";
+  const t = useText();
   const data = useLoaderData<typeof loader>();
   useEffect(() => setChangelogSeen(data.latestVersion), [data.latestVersion]);
   const [kind, setKind] = useState<Release["kind"] | null>(null);
@@ -144,7 +171,7 @@ export default function ChangelogPage() {
 
   const aside = (
     <>
-      <AsideCard title="按类型看" className="hidden lg:block">
+      <AsideCard title={t("按类型看", "By kind")} className="hidden lg:block">
         <div className="-mx-2 -mb-1">
           {[null, ...KINDS].map((k) => (
             <button
@@ -155,46 +182,46 @@ export default function ChangelogPage() {
               className={`flex w-full items-center gap-2.5 rounded-control px-2 py-2 text-left text-[13.5px] transition-colors ${kind === k ? "bg-bg-sunk font-medium text-ink dark:bg-bg-muted/60" : "text-ink-2 hover:bg-bg-sunk hover:text-ink"}`}
             >
               <span className={`size-1.5 rounded-full ${k ? KIND_DOT[k] : "bg-ink-2"}`} aria-hidden="true" />
-              <span className="flex-1">{k ?? "全部"}</span>
+              <span className="flex-1">{k ? t(k, KIND_EN[k]) : t("全部", "All")}</span>
               <span className="num text-[12px] text-ink-4">{k ? data.releases.filter((r) => r.kind === k).length : data.releases.length}</span>
             </button>
           ))}
         </div>
       </AsideCard>
-      <AsideCard title="按月份" className="hidden lg:block">
-        <nav aria-label="按月份" className="-mx-2 -mb-1">
+      <AsideCard title={t("按月份", "By month")} className="hidden lg:block">
+        <nav aria-label={t("按月份", "By month")} className="-mx-2 -mb-1">
           {[...months.entries()].map(([month, m]) => {
             const [y, mo] = month.split("-").map(Number) as [number, number];
             return (
               <a key={month} href={`#d-${m.first}`} className="flex items-center justify-between rounded-control px-2 py-2 text-[13.5px] text-ink-2 transition-colors hover:bg-bg-sunk hover:text-ink">
-                {y} 年 {mo} 月<span className="num text-[12px] text-ink-4">{m.count} 条</span>
+                {en ? `${MONTH_EN[mo - 1]} ${y}` : `${y} 年 ${mo} 月`}
+                <span className="num text-[12px] text-ink-4">{en ? `${m.count} entries` : `${m.count} 条`}</span>
               </a>
             );
           })}
         </nav>
       </AsideCard>
-      <AsideCard title="有想法或遇到问题">
-        <p className="text-[13px] leading-[1.75] text-ink-3">想要的功能、用着不顺的地方，都可以在反馈页告诉我们。</p>
+      <AsideCard title={t("有想法或遇到问题", "Ideas or problems?")}>
+        <p className="text-[13px] leading-[1.75] text-ink-3">{t("想要的功能、用着不顺的地方，都可以在反馈页告诉我们。", "Missing features and rough edges — tell us on the feedback page.")}</p>
         <IntentLink viewTransition to="/feedback" className="mt-3 inline-flex items-center gap-1 text-[13px] font-medium text-accent hover:underline">
-          去反馈 <IconChevronRight size={14} />
+          {t("去反馈", "Give feedback")} <IconChevronRight size={14} />
         </IntentLink>
       </AsideCard>
     </>
   );
 
-  if(language==="en") return <EnglishUpdates releases={data.releases}/>;
   return (
     <>
-    <PhoneBar back={{ to: "/more", label: "我的" }} title="更新日志" />
+    <PhoneBar back={{ to: "/more", label: t("我的", "More") }} title={t("更新日志", "Updates")} />
     <ReadingLayout aside={aside}>
       <header className="pb-6">
-        <h1 data-page-title="" className="text-[24px] font-semibold leading-[1.3] text-ink">更新日志</h1>
-        <p className="mt-1.5 text-[13px] text-ink-3">新功能、调整、下线，都写在这里。</p>
+        <h1 data-page-title="" className="text-[24px] font-semibold leading-[1.3] text-ink">{t("更新日志", "Updates")}</h1>
+        <p className="mt-1.5 text-[13px] text-ink-3">{t("新功能、调整、下线，都写在这里。", "New features, changes and retirements — all written down here.")}</p>
       </header>
       <div className="space-y-4">
         {[...groups.entries()].map(([date, releases]) => {
-          if (SITE_FEATURE && releases.some((r) => r.feature)) return <FeatureDay key={date} date={date} releases={releases} Drawing={SITE_FEATURE} />;
-          return <Day key={date} id={`d-${date}`} date={date} releases={releases} />;
+          if (SITE_FEATURE && releases.some((r) => r.feature)) return <FeatureDay key={date} date={date} releases={releases} Drawing={SITE_FEATURE} en={en} />;
+          return <Day key={date} id={`d-${date}`} date={date} releases={releases} en={en} />;
         })}
       </div>
     </ReadingLayout>

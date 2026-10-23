@@ -2,8 +2,9 @@
 // events (stories) those reports belong to. Graphiti owns the relations; this database owns what is
 // public, so a cited report that was withdrawn, held back or never published is left out here.
 import { sql } from "../db.ts";
-import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges } from "../knowledge/graphiti.ts";
+import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges, type GraphTime } from "../knowledge/graphiti.ts";
 export { graphStats, graphSearch } from "../knowledge/graphiti.ts";
+export { parseGraphTime } from "../knowledge/temporal.ts";
 import { cached, cachedByKey } from "../lib/cache.ts";
 import { publicSourceName } from "./rules.ts";
 import { storyReportCondition } from "./scope.ts";
@@ -28,7 +29,7 @@ export interface EntityStory {
 const hasHan = (s: string) => /[㐀-鿿]/u.test(s);
 
 /** The cited reports that are public now, newest first, each with the live story it belongs to (if any). */
-export async function citedReports(articleIds: string[], now = new Date()) {
+export async function citedReports(articleIds: string[], now = new Date(), time?: GraphTime) {
   if (articleIds.length === 0) return { reports: [] as EntityReport[], stories: [] as EntityStory[] };
   const rows = await sql<{
     id: string; title: string; original_title: string | null; at: Date; source_name: string; first_party: boolean;
@@ -42,6 +43,9 @@ export async function citedReports(articleIds: string[], now = new Date()) {
     LEFT JOIN facts f ON f.id = fa.fact_id
     LEFT JOIN stories st ON st.id = f.story_id AND st.merged_into IS NULL
     WHERE p.article_id = ANY(${articleIds}::text[]) AND ${storyReportCondition(now)}
+      AND (${time?.asOf ?? null}::timestamptz IS NULL OR
+        (${time?.clock === "known"} AND p.discovered_at <= ${time?.asOf ?? null}) OR
+        (${time?.clock === "valid"} AND coalesce(p.published_at, p.discovered_at) <= ${time?.asOf ?? null}))
     ORDER BY p.article_id, (fa.role = 'primary') DESC NULLS LAST, (st.id IS NULL), f.id`;
   rows.sort((a, b) => b.at.getTime() - a.at.getTime() || a.id.localeCompare(b.id));
   const reports: EntityReport[] = rows.map((r) => ({
@@ -84,9 +88,10 @@ function withPublicEvidence(edges: Edge[], publicIds: Set<string>) {
 
 /** The relations around one Graphiti entity, with the public reports and events behind them; the site and MCP share it.
  * A withdrawn or unreleased article cannot remain as an edge or as one of its visible citations. */
-export async function entityProfile(key: string, now = new Date()) {
-  const graph = await entityGraph(key);
-  const { reports, stories } = await citedReports(citedArticleIds(graph), now);
+export async function entityProfile(key: string, now = new Date(), time?: GraphTime) {
+  // The cached read serves the current view only; a scoped read must not reuse it.
+  const graph = time ? await graphForEntity(key, time) : await entityGraph(key);
+  const { reports, stories } = await citedReports(citedArticleIds(graph), now, time);
   const edges = withPublicEvidence(graph.edges, new Set(reports.map((r) => r.id)));
   return { ...graph, edges, reports: reports.slice(0, 30), stories: stories.slice(0, 12) };
 }
@@ -122,9 +127,9 @@ export async function dailyGraphChanges(key: string, now?: Date) {
 }
 
 /** A public story's relations (site and MCP): Graphiti's, each with evidence that is public now. */
-export async function publicStoryGraph(publicId: string, now = new Date()) {
-  const graph = await graphForStory(publicId);
-  const { reports } = await citedReports(citedArticleIds(graph), now);
+export async function publicStoryGraph(publicId: string, now = new Date(), time?: GraphTime) {
+  const graph = await graphForStory(publicId, time);
+  const { reports } = await citedReports(citedArticleIds(graph), now, time);
   return { ...graph, status: graph.status ?? "ok", edges: withPublicEvidence(graph.edges, new Set(reports.map((r) => r.id))) };
 }
 
@@ -170,12 +175,12 @@ export async function publicGraphRelation(key: string, now = new Date()) {
 }
 
 /** Only publicly sourced neighbors are returned; no full-network serialization. */
-export async function publicAtlasNeighborhood(key: string, now = new Date()) {
-  const graph = await entityGraph(key);
+export async function publicAtlasNeighborhood(key: string, now = new Date(), time?: GraphTime) {
+  const graph = time ? await graphForEntity(key, time) : await entityGraph(key);
   if (graph.status === "unavailable" || graph.status === "disabled")
     return {nodes: [], links: [], truncated: false, status: graph.status};
   if (!graph.entity) return {nodes: [], links: [], truncated: false, status: "not_found"};
-  const {reports} = await citedReports(citedArticleIds(graph), now);
+  const {reports} = await citedReports(citedArticleIds(graph), now, time);
   const publicEdges = withPublicEvidence(graph.edges, new Set(reports.map(r => r.id)));
   const edges = publicEdges;
   const nodes = new Map<string, {key:string;name:string;degree:number}>();
@@ -197,4 +202,74 @@ export async function publicAtlasCenters(q: string, now = new Date()) {
   const allowed = new Set(reports.map(r => r.id));
   return {nodes:candidates.nodes.filter(n => n.articleIds.some(id => allowed.has(id)))
     .slice(0, 20).map(({key,name}) => ({key,name,degree:0})),status:"ok"};
+}
+
+export type EvidenceBundleQuery =
+  | { kind: "story"; publicId: string }
+  | { kind: "entity"; key: string }
+  | { kind: "relation"; key: string };
+
+export type EvidenceBundle = {
+  schemaVersion: 1;
+  object: { kind: "story" | "entity" | "relation"; id: string };
+  status: string;
+  clock: "known" | "valid" | null;
+  asOf: string | null;
+  generatedAt: string;
+  /** Bounded: a historical read can only show what was recorded by then, never a backfilled present. */
+  fidelity: "bounded" | null;
+  temporalSupport: "bitemporal-v1" | null;
+  limits: { edgeLimit: number | null; truncated: boolean };
+  relations: Array<{
+    id: string; predicate: string;
+    subject: { key: string; name: string }; object: { key: string; name: string };
+    fact: string; validAt: string | null; invalidAt: string | null;
+    evidence: Array<{ articleId: string; url: string; source: string; quote: string | null; publishedAt: string | null; revision: number | null }>;
+  }>;
+  coverage: { relations: number; relationsWithEvidence: number; sources: number };
+};
+
+/** The one evidence object site API and MCP both serve (EG-T14): every relation keeps only citations
+ *  that are public now (withPublicEvidence upstream), scoped reads never reuse cached snapshots. */
+export async function publicEvidenceBundle(query: EvidenceBundleQuery, now = new Date(), time?: GraphTime): Promise<EvidenceBundle> {
+  const base = query.kind === "story" ? await publicStoryGraph(query.publicId, now, time)
+    : query.kind === "entity" ? await entityProfile(query.key, now, time)
+    // The single-relation endpoint cannot bound a read to a past moment (no as_of support),
+    // so a scoped relation read fails closed instead of labeling today's snapshot as history.
+    : time ? { edges: [], status: "unavailable" } : await publicGraphRelation(query.key, now);
+  const head = {
+    schemaVersion: 1 as const,
+    object: query.kind === "story" ? { kind: "story" as const, id: query.publicId }
+      : query.kind === "entity" ? { kind: "entity" as const, id: query.key }
+      : { kind: "relation" as const, id: query.key },
+    status: base.status ?? "ok",
+    clock: time?.clock ?? null,
+    asOf: time?.asOf.toISOString() ?? null,
+    generatedAt: now.toISOString(),
+    fidelity: time ? "bounded" as const : null,
+    temporalSupport: time ? "bitemporal-v1" as const : null,
+  };
+  const empty = { ...head, limits: { edgeLimit: null, truncated: false }, relations: [], coverage: { relations: 0, relationsWithEvidence: 0, sources: 0 } };
+  if (base.status === "unavailable" || base.status === "disabled") return empty;
+  const revisions = new Map<string, number>();
+  const ids = citedArticleIds(base);
+  if (ids.length)
+    for (const r of await sql<{ id: string; revision: number }[]>`SELECT id, revision FROM articles WHERE id = ANY(${ids}::text[])`)
+      revisions.set(r.id, r.revision);
+  const edgeLimit = query.kind === "story" ? 60 : null;
+  const sources = new Set<string>();
+  const relations = base.edges.map((e) => ({
+    id: e.id, predicate: e.predicate,
+    subject: { key: e.subject.key, name: e.subject.name },
+    object: { key: e.object.key, name: e.object.name },
+    fact: e.fact, validAt: e.validAt, invalidAt: e.invalidAt,
+    evidence: e.evidence.map((ev) => {
+      sources.add(ev.source);
+      return { articleId: ev.articleId, url: ev.url, source: ev.source, quote: ev.quote, publishedAt: ev.publishedAt, revision: revisions.get(ev.articleId) ?? null };
+    }),
+  }));
+  return { ...head,
+    limits: { edgeLimit, truncated: edgeLimit !== null && base.edges.length >= edgeLimit },
+    relations,
+    coverage: { relations: relations.length, relationsWithEvidence: relations.filter((r) => r.evidence.length > 0).length, sources: sources.size } };
 }

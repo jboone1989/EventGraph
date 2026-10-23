@@ -49,3 +49,14 @@
 - **先找现有的。** 加函数、插口或配置前先搜一遍，常见能力多半已有一份：模块发自己的文件用 `apps/api/src/routes/static.ts` 的 `sendFile`，接中转站填 `LLM_BASE_URL`。再写一份，两处迟早不一致。
 - **测试只证明你想到的情况。** 动了采集、日期、正文清洗、精选或归组的，拿一批公开的真实订阅和网页跑改动前后，在 PR 里写有多少条结果变了、变的是否都对。中文网页的时间常不带时区，按信源时区读（默认 `+08:00`），上面的 “CST” 一般指北京时间；测试结果不能取决于运行机器的时区。
 - **改全。** 新的环境变量写进 `.env.example`，新的站点配置写进 `site/`；改了配置字段的意思，示例配置跟着改，让已部署的站升级后行为不变（比如改成只给声明了 `vision` 的模型附图，本来就能看图的预设要补上声明）；改一个读者看到的名字或入口，出现它的地方一起改。新增或更改导航配置时，分别核对默认配置与非默认配置的电脑侧栏、手机底栏、返回和“我的”入口，入口变少时的标签布局也要在浏览器里看；默认值不变只能证明原行为，不能证明配置可用。
+
+## EventGraph Spec-driven development and independent review
+
+For non-trivial feature work, use the upstream [GitHub Spec Kit](https://github.com/github/spec-kit) artifact names and flow; see [docs/spec-review.md](docs/spec-review.md). Small fixes may use the Issue and PR acceptance criteria instead of creating three documents.
+
+- **Search Before Build**: inspect current repository code, the AIHOT upstream implementation, and relevant official documentation before planning a new implementation. Record the reusable findings and alternatives in the Issue / plan; do not duplicate existing graph, CI, or provider subsystems.
+- **Spec before implementation**: write the user-visible behavior and testable acceptance criteria in `specs/<feature>/spec.md` (or a sufficiently detailed approved Issue), then the implementation plan and tasks as appropriate. Keep `feature → develop → main`; the optional Spec Kit Git extension must not change this policy.
+- **Approval is a reference, not a claim**: PRs doing substantial work identify the approved spec source, its immutable Git commit SHA and path (or the explicitly approved Issue/comment reference), plus the approval evidence. A document newly written on the same implementation branch is a *draft*, not automatically approved. Changes to approved requirements require a separate approval/version.
+- **Implement within scope**: link each acceptance criterion to the affected files, tests, and actual results. Do not mark unrun CI or undeployed features as complete.
+- **Spec-based verification by any reviewer (ChatGPT, Codex, Claude or human)**: compare the approved immutable spec with `spec.md`, `plan.md`, `tasks.md` if present, the PR diff, actual tests and deployment evidence. Look for missing behavior, scope creep, duplicate code, privacy/security regressions and unsupported claims. Report **PASS**, **CHANGES REQUESTED** or **UNVERIFIED** with evidence. `speckit-analyze` checks document consistency; `speckit-converge` checks implementation after `implement` and may append tasks. Neither substitutes for independent PR diff review or GitHub CI.
+- Follow the existing Check/E2E and independent PR review; no new CI/CD engine, no production release outside the weekly `main` policy.

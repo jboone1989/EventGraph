@@ -1,16 +1,15 @@
 import { useLoaderData } from "react-router";
 import { IntentLink } from "../components/ui/IntentLink";
 import type { ReportIndexEntry, ReportIndexResponse } from "@aihot/contracts/site";
-import { SITE, withSubject } from "@aihot/site";
+import { SITE } from "@aihot/site";
 import { apiGet, cachedPage } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { archiveLd, pageMeta } from "../lib/seo";
 import { beijingDate } from "@aihot/contracts/time";
-import { weekdayShort } from "../lib/format";
+import { localizedWeekday } from "../lib/format";
 import { ReportLayout } from "../features/report/ReportLayout";
-import { useUiLanguage } from "../components/LanguageSwitch";
-import { EnglishArchive } from "../components/EnglishPages";
-import { archiveGroups, ENTRIES_UNIT } from "../features/report/format";
+import { useText, useUiLanguage } from "../components/LanguageSwitch";
+import { archiveGroups, entriesUnit } from "../features/report/format";
 import { Rows, SectionPage } from "../features/report/ReportPaper";
 import { Nameplate } from "../features/report/Nameplate";
 import type { Screen } from "../components/shell/screens";
@@ -26,27 +25,28 @@ export async function loader({ request }: { request: Request }) {
 
 export function meta({ loaderData }: { loaderData?: { index: ReportIndexEntry[] } }) {
   const entries = (loaderData?.index ?? []).map((e: ReportIndexEntry) => ({ path: `/daily/${e.key}`, name: e.title ? `${e.key} · ${e.title}` : `${SITE.name} 日报 · ${e.key}` }));
-  return pageMeta({ title: `${withSubject("日报")} · 历史存档`, description: `${SITE.name} 历史日报，按日期归档。`, path: "/daily/archive", image: "/og/pages/daily.png", jsonLd: archiveLd("/daily/archive", `${SITE.name} 日报 · 历史存档`, entries) });
+  return pageMeta({ title: "日报 · 历史存档", description: `${SITE.name} 历史日报，按日期归档。`, path: "/daily/archive", image: "/og/pages/daily.png", jsonLd: archiveLd("/daily/archive", `${SITE.name} 日报 · 历史存档`, entries) });
 }
 
 export default function DailyArchive() {
-  const language=useUiLanguage();
+  const language = useUiLanguage();
+  const t = useText();
+  const en = language === "en";
   const { index, today } = useLoaderData<typeof loader>();
-  const months = archiveGroups("daily", index);
-  if(language==="en") return <EnglishArchive index={index}/>;
+  const months = archiveGroups("daily", index, language);
   return (
-    <ReportLayout kind="daily" index={index} current={null} today={today} back={{ to: "/daily", label: "日报" }} title="日报合订本">
+    <ReportLayout kind="daily" index={index} current={null} today={today} back={{ to: "/daily", label: t("日报", "Daily") }} title={t("日报合订本", "Daily archive")}>
       <div className="@container">
         <header className="pt-5 lg:pt-0">
           <div className="flex items-center justify-between gap-4 text-[12px] text-ink-4">
-            <span>{`${SITE.name} · ${withSubject("日报")}`}</span>
+            <span>{en ? `${SITE.name} · Daily archive` : `${SITE.name} · 日报`}</span>
             <span>
-              共 <span className="num">{index[0]?.issueNumber ?? 0}</span> 期
+              {t("共", "")} <span className="num">{index[0]?.issueNumber ?? 0}</span> {t("期", "issues in total")}
             </span>
           </div>
           <div className="py-6 @[880px]:py-8">
             <h1 id="report-start" data-page-title="">
-              <span className="sr-only">日报合订本</span>
+              <span className="sr-only">{t("日报合订本", "Daily archive")}</span>
               <Nameplate which="archive" className="block h-[50px] w-auto @[520px]:h-[70px] @[880px]:h-[98px]" />
             </h1>
           </div>
@@ -59,13 +59,15 @@ export default function DailyArchive() {
                 <IntentLink viewTransition key={e.key} to={`/daily/${e.key}`} className={`group flex gap-4 py-4 ${cell}`}>
                   <span className="flex w-9 shrink-0 flex-col items-center">
                     <span className="num text-[24px] font-black leading-none tracking-[-0.03em] text-ink transition-colors group-hover:text-accent">{e.key.slice(8, 10)}</span>
-                    <span className="mt-1.5 text-[10.5px] leading-none text-ink-4">{weekdayShort(e.key)}</span>
+                    <span className="mt-1.5 text-[10.5px] leading-none text-ink-4">{localizedWeekday(e.key, language)}</span>
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[15px] font-bold leading-[1.55] text-ink transition-colors group-hover:text-accent">{e.title ?? `${withSubject("日报")} ${e.key}`}</span>
+                    <span className="block text-[15px] font-bold leading-[1.55] text-ink transition-colors group-hover:text-accent">
+                      {e.title ?? (en ? `${SITE.name} Daily brief ${e.key}` : `日报 ${e.key}`)}
+                    </span>
                     {!!e.count && (
                       <span className="mt-1 block text-[12px] text-ink-4">
-                        <span className="num">{e.count}</span>{` ${ENTRIES_UNIT}`}
+                        <span className="num">{e.count}</span>{` ${entriesUnit(e.count ?? 0, language)}`}
                       </span>
                     )}
                   </span>

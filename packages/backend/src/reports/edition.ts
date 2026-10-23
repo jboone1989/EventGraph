@@ -4,9 +4,11 @@
 // the event's other developments listed under it; an event an earlier issue covered comes back only
 // with a new fact; an event with an official post and three or more independent participants is
 // carried even when none of its reports was selected; entries rank by importance (score, the day's
-// independent participants, first-hand), and the first one leads. Sections are the industry pack's
-// (industry/taxonomy.ts CATEGORIES).
+// independent participants, first-hand), and the first one leads. What the selection passed over but
+// still clears the pack's understanding floor lines up below the entries, one line per event
+// (tailEvents). Sections are the industry pack's (industry/taxonomy.ts CATEGORIES).
 import { addDays } from "@aihot/contracts/time";
+import { SELECTION } from "@aihot/industry/selection";
 import { CATEGORIES } from "@aihot/industry/taxonomy";
 import { sql } from "../db.ts";
 import { currentSignals } from "../events/hot.ts";
@@ -197,9 +199,9 @@ export async function periodEntries(startDate: string, endDate: string): Promise
   return { entries: ranked.map((r) => r.candidate), issues: issues.length };
 }
 
-/** Every report an issue cites: its entries, what is listed under them, its flashes. */
+/** Every report an issue cites: its entries, what is listed under them, its flashes and its tail. */
 export function citedIn(content: Record<string, any>): Array<Record<string, any>> {
-  const entries = [...(content.sections ?? []).flatMap((s: any) => s.items ?? []), ...(content.flashes ?? [])];
+  const entries = [...(content.sections ?? []).flatMap((s: any) => s.items ?? []), ...(content.flashes ?? []), ...(content.tail ?? [])];
   return [...entries, ...entries.flatMap((e: any) => e.related ?? [])];
 }
 
@@ -296,7 +298,7 @@ interface Fact { key: string; rows: ReportRow[]; selected: boolean; sources: str
  * The daily's events for the window [start, end), most important first, before the editors' pass:
  * selected reports and missed facts, minus what the week's issues already carried, one entry per event.
  */
-export async function dailyEdition(date: string, start: Date, end: Date): Promise<{ entries: EditionEntry[]; stats: Record<string, number> }> {
+export async function dailyEdition(date: string, start: Date, end: Date): Promise<{ entries: EditionEntry[]; keys: Set<string>; stats: Record<string, number> }> {
   const [memory, selected, missed, judged] = await Promise.all([dailyMemory(date), periodReports(start, end), missedFacts(start, end), judgedReports(start, end)]);
   const raw = [
     ...[...groupBy(selected, factKeyOf)].map(([key, rows]) => ({ key, rows, selected: true })),
@@ -316,7 +318,8 @@ export async function dailyEdition(date: string, start: Date, end: Date): Promis
 
   // One entry per event: its most reported fact leads (then the earliest, as the hot list chooses), and
   // the event's other facts are listed under it.
-  const events = [...groupBy(facts, (f) => (f.rows[0]!.story_id === null ? `f:${f.key}` : `s:${f.rows[0]!.story_id}`)).values()];
+  const eventGroups = [...groupBy(facts, (f) => (f.rows[0]!.story_id === null ? `f:${f.key}` : `s:${f.rows[0]!.story_id}`))];
+  const events = eventGroups.map(([, fs]) => fs);
   const storyIds = [...new Set(events.map((fs) => fs[0]!.rows[0]!.story_id).filter((id): id is number => id !== null))];
   const loose = events.filter((fs) => fs[0]!.rows[0]!.story_id === null).flatMap((fs) => fs.flatMap((f) => f.rows.map((r) => r.id)));
   const [talk, named] = await Promise.all([
@@ -365,8 +368,48 @@ export async function dailyEdition(date: string, start: Date, end: Date): Promis
   entries.sort((a, b) => b.importance - a.importance || a.entry.itemId.localeCompare(b.entry.itemId));
   return {
     entries,
+    keys: new Set(eventGroups.map(([key]) => key)),
     stats: { judgedReports: judged, selectedReports: selected.length, facts: raw.length, repeatsSuppressed: raw.length - kept.length, fillIns: kept.filter((f) => !f.selected).length, events: entries.length },
   };
+}
+
+/** The long tail under a daily's entries: at most this many one-line items. */
+export const TAIL_ENTRIES = 40;
+
+/**
+ * The day's long tail: events the selection passed over whose best score still clears the pack's
+ * understanding floor (SELECTION.understandFloor), one line each, best scored first. Same window as
+ * the selected reports, attributed by arrival: an unselected report has no release of its own — one
+ * whose identity decision is still pending (selected_ready_at set) is not tail material; it goes out
+ * through its release, in the issue readers first see it in. The issue's
+ * own events (exclude) and what the week's issues already carried are left out, so an event returns
+ * only with a new fact.
+ */
+export async function tailEvents(date: string, start: Date, end: Date, exclude: Set<string>): Promise<ReportEntry[]> {
+  const [memory, rows] = await Promise.all([
+    dailyMemory(date),
+    sql.begin("isolation level read committed", async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext('report_candidates'))`;
+      return tx<ReportRow[]>`
+        SELECT ${REPORT_FIELDS}
+        FROM publications p JOIN sources s ON s.id = p.source_id
+        LEFT JOIN facts f ON f.id = p.fact_id AND ${ownFactEvidenceCondition()}
+        LEFT JOIN stories st ON st.id = f.story_id
+        WHERE p.visibility = 'public' AND p.eligible AND NOT p.selected AND NOT p.backfill AND p.score >= ${SELECTION.understandFloor}
+          AND p.selected_ready_at IS NULL
+          AND p.timeline_at >= ${start} AND p.timeline_at < ${end}
+          AND p.timeline_at >= ${start}::timestamptz - interval '24 hours'`;
+    }),
+  ]);
+  const events = [...groupBy(rows, factKeyOf)]
+    .map(([key, members]) => {
+      const row = pickRepresentative(members);
+      return { key, storyKey: row.story_id === null ? `f:${key}` : `s:${row.story_id}`, members, row, score: Math.max(...members.map((m) => m.score ?? 0)) };
+    })
+    .filter((e) => !exclude.has(e.storyKey) && !memory.keys.has(e.key) && !e.members.some((m) => memory.keys.has(`a:${m.id}`)))
+    .sort((a, b) => b.score - a.score || a.row.id.localeCompare(b.row.id))
+    .slice(0, TAIL_ENTRIES);
+  return events.map((e) => reportEntry(e.row));
 }
 
 /**

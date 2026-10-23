@@ -1,5 +1,6 @@
 import { sql } from "../db.ts";
 import { graphitiRetryDelayMs } from "./ingest-backoff.ts";
+import {supportsTemporalGraph} from "./temporal.ts";
 
 type Article = {
   id: string; revision: number; title: string; url: string;
@@ -12,7 +13,7 @@ type Edge = {
   predicate: string; object: { key: string; name: string; kind: string };
   fact: string; validAt: string | null; invalidAt: string | null; evidence: Evidence[];
 };
-type Graph = { entities: number; edges: Edge[]; status?: string };
+type Graph = { entities: number; edges: Edge[]; status?: string; temporalSupport?: string };
 const emptyGraph = (status: string): Graph => ({ entities: 0, edges: [], status });
 
 async function graphiti<T>(path: string, options?: { method?: string; body?: unknown; timeoutMs?: number }): Promise<T> {
@@ -84,41 +85,49 @@ export async function ingestGraphitiOnce() {
 }
 
 /** AIHot is the authority for story membership, Graphiti for knowledge relations. */
-export async function graphForStory(publicId: string): Promise<Graph> {
+export type GraphTime = { asOf: Date; clock: "known" | "valid" };
+
+export async function graphForStory(publicId: string, time?: GraphTime): Promise<Graph> {
   if (!process.env.GRAPHITI_API_URL) return emptyGraph("disabled");
   const articles = await sql<{ id: string; revision: number }[]>`
-    SELECT DISTINCT a.id, a.revision FROM articles a
+    SELECT DISTINCT a.id,
+      coalesce(
+        (SELECT g.revision FROM graphiti_ingestions g WHERE g.article_id=a.id AND g.revision=a.revision),
+        (SELECT max(g.revision) FROM graphiti_ingestions g WHERE g.article_id=a.id),
+        a.revision) AS revision
+    FROM articles a
     JOIN fact_articles fa ON fa.article_id=a.id
     JOIN facts f ON f.id=fa.fact_id
     JOIN stories st ON st.id=f.story_id
     WHERE st.public_id=${publicId}::uuid
+      AND (${time?.asOf ?? null}::timestamptz IS NULL OR
+        (${time?.clock === "known"} AND a.discovered_at <= ${time?.asOf ?? null}) OR
+        (${time?.clock === "valid"} AND coalesce(a.published_at, a.discovered_at) <= ${time?.asOf ?? null}))
     ORDER BY a.id LIMIT 100`;
   if (!articles.length) return emptyGraph("empty");
   try {
-    return await graphiti<Graph>("/relations/by-articles", {
-      method: "POST", body: { articles: articles.map(a => a.id + ":r" + a.revision), limit: 60 },
+    const result = await graphiti<Graph>("/relations/by-articles", {
+      method: "POST", body: { articles: articles.map(a => a.id + ":r" + a.revision), limit: 60,
+        ...(time ? { as_of: time.asOf.toISOString(), clock: time.clock } : {}) },
     });
+    // Older Graphiti deployments ignore unknown POST fields. Never mistake their
+    // current snapshot for a historical result while the knowledge service is rolling out.
+    return supportsTemporalGraph(result, time) ? result : emptyGraph("unavailable");
   } catch (error) {
     console.error("graphiti_story_lookup_failed", error);
     return emptyGraph("unavailable");
   }
 }
 
-/** The relations Graphiti extracted from one article revision. */
-export async function graphForArticle(id: string, revision: number): Promise<Graph> {
-  if (!process.env.GRAPHITI_API_URL) return emptyGraph("disabled");
-  try {
-    return await graphiti<Graph>("/relations/by-articles", { method: "POST", body: { articles: [id + ":r" + revision], limit: 20 }, timeoutMs: 4000 });
-  } catch (error) {
-    console.error("graphiti_article_lookup_failed", error);
-    return emptyGraph("unavailable");
-  }
-}
-
-export async function graphForEntity(uuid: string) {
+export async function graphForEntity(uuid: string, time?: GraphTime) {
   if (!process.env.GRAPHITI_API_URL) return { entity: null, edges: [], status: "disabled" };
   try {
-    return await graphiti<{ entity: {key:string;name:string;kind:string;summary?:string|null}|null; edges:Edge[]; status?: string }>("/entities/" + encodeURIComponent(uuid));
+    const query = time ? `?as_of=${encodeURIComponent(time.asOf.toISOString())}&clock=${time.clock}` : "";
+    const result = await graphiti<{ entity: {key:string;name:string;kind:string;summary?:string|null}|null; edges:Edge[]; status?: string; temporalSupport?: string }>(
+      "/entities/" + encodeURIComponent(uuid) + query);
+    // Same contract as the story graph: an older knowledge service ignores the time query and
+    // answers with the current graph, which must never pass as a historical read.
+    return supportsTemporalGraph(result, time) ? result : { entity: null, edges: [], status: "unavailable" };
   } catch (error) {
     console.error("graphiti_entity_lookup_failed", error);
     return { entity: null, edges: [], status: "unavailable" };
