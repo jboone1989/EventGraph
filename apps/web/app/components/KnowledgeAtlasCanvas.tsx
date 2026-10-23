@@ -37,6 +37,10 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
   const focused = useRef<string | null>(null);
   const desiredFocus = useRef(selectedKey);
   const cameraStale = useRef(false);
+  // Preserve actual node coordinates when a past cutoff hides a node, so seeking
+  // forward to the same evidence restores the same spatial arrangement.
+  const savedPositions = useRef(new Map<string, { x: number; y: number }>());
+  const reducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   desiredFocus.current = selectedKey;
 
   // Only camera movements respond to focus. New data never triggers another pan.
@@ -46,7 +50,7 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
     instance.nodes().removeClass("chosen");
     target.addClass("chosen");
     instance.stop();
-    if (animated) instance.animate({ center: { eles: target }, duration: 320, easing: "ease-in-out" });
+    if (animated && !reducedMotion()) instance.animate({ center: { eles: target }, duration: 320, easing: "ease-in-out" });
     else instance.center(target);
     focused.current = key;
   };
@@ -150,6 +154,10 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
       // Historical rewind must remove facts and entities absent from the new snapshot.
       // Keep positions and camera for surviving nodes; do not rerun layout.
       obsoletePairs.remove();
+      obsoleteNodes.forEach(node => {
+        const position = node.position();
+        savedPositions.current.set(node.id(), { x: position.x, y: position.y });
+      });
       obsoleteNodes.remove();
       if (selected && !desiredNodes.has(selected)) focused.current = null;
       let index = 0;
@@ -157,10 +165,10 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
         const isRoot = rootIsNew && n.key === selected;
         const theta = -Math.PI / 2 + index * Math.PI * (3 - Math.sqrt(5));
         const radius = 140 + Math.sqrt(index) * 47;
-        const position = isRoot ? root : {
+        const position = savedPositions.current.get(n.key) ?? (isRoot ? root : {
           x: root.x + Math.cos(theta) * radius,
           y: root.y + Math.sin(theta) * radius,
-        };
+        });
         if (!isRoot) index += 1;
         instance.add({ group: "nodes", data: {
           id: n.key, name: n.name, size: Math.min(35, 14 + Math.sqrt(n.degree) * 3),
@@ -243,7 +251,8 @@ export function KnowledgeAtlasCanvas({ network, selectedKey, activePairKey, home
     const target = instance?.getElementById(homeKey);
     if (!instance || !target?.length) return;
     instance.stop();
-    instance.animate({ center: { eles: target }, duration: 320, easing: "ease-in-out" });
+    if (reducedMotion()) instance.center(target);
+    else instance.animate({ center: { eles: target }, duration: 320, easing: "ease-in-out" });
   };
   const zoom = (factor: number) => { const instance = cy.current; if (instance) instance.zoom({ level: instance.zoom() * factor, renderedPosition: { x: instance.width() / 2, y: instance.height() / 2 } }); };
   return <div className="lr-atlas-map">
