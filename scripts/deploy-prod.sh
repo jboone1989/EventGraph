@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-# Immutable, incremental release from cn-dev -> VM09. No DB/Neo4j restart, no data import.
+# Promote the develop-verified immutable GHCR digest on VM09. No compile or DB/Neo4j restart.
 set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-DEV="ubuntu@43.142.127.40"
-DEV_ROOT="/home/ubuntu/livingruntime-aihot"
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=12 -o ServerAliveInterval=15 "${DEV}")
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.production.yml
  -f docker-compose.knowledge.yml -f docker-compose.release.yml --profile knowledge)
 START=$SECONDS
@@ -17,6 +14,18 @@ git fetch github main
 NEW_SHA="$(git rev-parse FETCH_HEAD)"
 OLD_SHA="$(git rev-parse HEAD)"
 [[ "$NEW_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+# The release manifest travels with main and pins the previously validated develop image.
+PIN="$(git show "$NEW_SHA:.github/production-image.env")"
+SOURCE_SHA="$(printf '%s\n' "$PIN" | sed -n 's/^SOURCE_SHA=//p')"
+IMAGE_REF="$(printf '%s\n' "$PIN" | sed -n 's/^IMAGE_REF=//p')"
+[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid pinned develop SHA" >&2; exit 1; }
+[[ "$IMAGE_REF" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]] || { echo "Invalid pinned digest" >&2; exit 1; }
+git fetch github "$SOURCE_SHA"
+# Changes outside automation/docs/host-only deployment tools must be the proven build inputs.
+git diff --quiet "$SOURCE_SHA" "$NEW_SHA" -- . \
+  ':(exclude).github/**' ':(exclude)scripts/deploy-prod.sh' \
+  ':(exclude)docs/ci-cd.md' ':(exclude)docs/production-deployment.md' ||
+  { echo "Main contains unverified application changes" >&2; exit 1; }
 TAG="${NEW_SHA:0:12}"
 read_tag() { sed -n "s/^$1=//p" .env | tail -n1; }
 OLD_TAG="$(read_tag LRSITE_RELEASE)"
@@ -53,35 +62,24 @@ if [[ ! "$KNOWLEDGE_TAG" =~ $VALID ]] || ! docker image inspect "livingruntime-k
 if [[ "${1:-}" == "--check" ]]; then
  echo "Source old=$OLD_SHA new=$NEW_SHA rebuild_app=$APP_CHANGED rebuild_knowledge=$KNOWLEDGE_CHANGED migrate=$SCHEMA_CHANGED"
  LRSITE_APP_RELEASE="${APP_TAG:-$TAG}" LRSITE_KNOWLEDGE_RELEASE="${KNOWLEDGE_TAG:-$TAG}" "${COMPOSE[@]}" config --quiet
- "${SSH[@]}" "git -C '$DEV_ROOT' rev-parse --is-inside-work-tree"
+ echo "Promoting develop=$SOURCE_SHA image=$IMAGE_REF"
  python3 scripts/production-smoke.py
  exit 0
 fi
-if [[ "$APP_CHANGED" == 1 || "$KNOWLEDGE_CHANGED" == 1 ]]; then
- echo "[1/5] Build only changed images on cn-dev"
- "${SSH[@]}" "bash -s -- '$NEW_SHA' '$TAG' '$DEV_ROOT' '$APP_CHANGED' '$KNOWLEDGE_CHANGED'" <<'BUILD_ON_DEV'
-set -Eeuo pipefail
-SHA="$1"; TAG="$2"; ROOT="$3"; APP="$4"; KNOWLEDGE="$5"
-git -C "$ROOT" fetch https://github.com/jboone1989/AIHOT.git main
-[[ "$(git -C "$ROOT" rev-parse FETCH_HEAD)" == "$SHA" ]] || { echo "Source mismatch" >&2; exit 1; }
-TMP="$(mktemp -d /tmp/livingruntime-build.XXXXXXXX)"
-trap 'rm -rf "$TMP"' EXIT
-git -C "$ROOT" archive "$SHA" | tar -xf - -C "$TMP"
-if [[ "$APP" == 1 ]]; then docker build -t "livingruntime-app:$TAG" -f "$TMP/Dockerfile" "$TMP"; fi
-if [[ "$KNOWLEDGE" == 1 ]]; then docker build -t "livingruntime-knowledge:$TAG" -f "$TMP/knowledge_service/Dockerfile" "$TMP"; fi
-BUILD_ON_DEV
- echo "[2/5] Transfer only changed image(s)"
- if [[ "$APP_CHANGED" == 1 ]]; then
-  "${SSH[@]}" "docker image save livingruntime-app:$TAG | gzip -1" | gzip -dc | docker image load
-  APP_TAG="$TAG"
- fi
- if [[ "$KNOWLEDGE_CHANGED" == 1 ]]; then
-  "${SSH[@]}" "docker image save livingruntime-knowledge:$TAG | gzip -1" | gzip -dc | docker image load
-  KNOWLEDGE_TAG="$TAG"
- fi
-else
- echo "[1–2/5] No image changes: reuse existing app and knowledge images"
+# Graphiti/Neo4j has a separate image; an app digest cannot silently replace it.
+if [[ "$KNOWLEDGE_CHANGED" == 1 ]]; then
+  echo "Knowledge image changed; this digest promotes the app only. A separately verified knowledge image is required." >&2
+  exit 1
 fi
+if [[ "$APP_CHANGED" == 1 ]]; then
+  echo "[1/5] Pull the already verified develop image (no host build)"
+  docker pull "$IMAGE_REF"
+  docker image tag "$IMAGE_REF" "livingruntime-app:$TAG"
+  APP_TAG="$TAG"
+else
+  echo "[1/5] Application image unchanged; keep existing release"
+fi
+echo "[2/5] Reuse existing Graphiti image and persistent data"
 echo "[3/5] Advance checkout and pin per-service release image"
 git merge --ff-only "$NEW_SHA"
 [[ "$(git rev-parse HEAD)" == "$NEW_SHA" ]] || exit 1
