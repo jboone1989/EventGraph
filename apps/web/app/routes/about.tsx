@@ -310,6 +310,11 @@ export default function AboutPage() {
           <Link viewTransition to="/feedback" className="mx-1 text-accent hover:underline">{t("反馈页", "feedback page")}</Link>
           {t("提出；研究合作意向同样欢迎。", "; research collaborations are welcome too.")}
         </p>
+        <p className="mt-3">
+          <IntentLink to="/research" className={buttonClass("secondary")}>
+            {t("浏览研究栏目", "Browse the research section")} <IconArrowRight size={14} />
+          </IntentLink>
+        </p>
       </section>
 
       {ABOUT.maker && <Maker maker={ABOUT.maker} contact={contact} en={en} />}

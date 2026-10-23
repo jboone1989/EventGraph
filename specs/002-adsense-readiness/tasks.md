@@ -54,8 +54,8 @@
 **Goal**: 站内有署名、有方法、可索引的原创分析（spec AD-11）。
 **Independent Test**: `/research` 列表 ≥1 篇已发布；文章页含作者/时间/方法与 `Article` JSON-LD；进 sitemap。
 
-- [ ] T030 [US3] `modules/research/` 模块骨架：module 声明（`site/modules/index.ts` 注册）、`modules/research/migrations/` 建表（data-model §2 字段与状态约束 draft/published/retired）、后台 CRUD 页（草稿/发布/下线，审计）
-- [ ] T031 [US3] 公开面：`/research` 列表与 `/research/:slug` 文章页（复用 `CopyPage`/`renderMarkdown` 风格）、`/en/research/:slug`（仅 title_en 非空）、`Article` JSON-LD（author/datePublished/dateModified）、publication 读层集成与 sitemap 条目
+- [x] T030 [US3] `modules/research/` 模块骨架：module 声明（`site/modules/index.ts` 注册）、`modules/research/migrations/` 建表（data-model §2 字段与状态约束 draft/published/retired）、后台 CRUD 页（草稿/发布/下线，审计）
+- [x] T031 [US3] 公开面：`/research` 列表与 `/research/:slug` 文章页（复用 `CopyPage`/`renderMarkdown` 风格）、`/en/research/:slug`（仅 title_en 非空）、`Article` JSON-LD（author/datePublished/dateModified）、publication 读层集成与 sitemap 条目
 - [ ] T032 [US3] `about.tsx` 原创研究块链接 `/research`；由运营者撰写首批 3 篇（本任务产出为栏目与占位草稿，正文内容标注由使用者提供——spec FR-014 送审前完成）
 
 ## Phase 6: User Story 4 — 技术就绪（P2）
