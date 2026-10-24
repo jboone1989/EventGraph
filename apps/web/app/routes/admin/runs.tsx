@@ -58,6 +58,17 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         <Stat label="投递待核实" value={num(r.deliveries.filter((d) => d.status === "unknown").length)} tone={r.deliveries.some((d) => d.status === "unknown") ? "bad" : "ok"} />
       </div>
 
+      <Card className="mb-5" title="内容处理 · 实际文章状态"
+        right={<Link className="text-[12px] text-accent hover:underline" to="/admin/models">检查工作流模型与能力测试 →</Link>}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="等待首次处理" value={num(r.articleProcessing.waiting)} hint="new，尚未计入失败" />
+          <Stat label="等待恢复" value={num(r.articleProcessing.retrying)} tone={r.articleProcessing.retrying ? "warn" : undefined} hint="已尝试，等待重试时间" />
+          <Stat label="处理失败" value={num(r.articleProcessing.failed)} tone={r.articleProcessing.failed ? "bad" : undefined} hint="需要检查原因或重新入队" />
+          <Stat label="模型不可路由" value={num(r.articleProcessing.unavailableModel)} tone={r.articleProcessing.unavailableModel ? "bad" : undefined} hint="包含在等待或失败中，非额外总量" />
+        </div>
+        <p className="mt-3 text-[12px] text-ink-4">预筛过滤的 {num(r.articleProcessing.filtered)} 条属于正常内容筛选，不计作积压。模型连接已添加也不代表工作流已选择或通过能力测试。</p>
+      </Card>
+
       {r.grouping.waiting > 0 && (
         <Card className="mb-5" title="等待去重确认的精选" right={<span>{num(r.grouping.waiting)} 条等待 · {num(r.grouping.needsAttention)} 条超过 10 分钟</span>} pad={false} scrollable>
           <p className="px-4 py-3 text-[13px] text-ink-3">这些新闻已达到精选条件，确认是否重复后才会进入精选。最多展示等待最久的 30 条。</p>
