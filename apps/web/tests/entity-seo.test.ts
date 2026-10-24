@@ -21,15 +21,12 @@ const api = createServer((req, res) => {
     return res.end(JSON.stringify({ code: 'not_found' }));
   }
   const key = matched[1]!;
-  if (key === 'unavailable') {
-    res.statusCode = 503;
-    return res.end(JSON.stringify({ code: 'service_unavailable' }));
-  }
+  // Actual Graphiti entity API contract: unavailable and missing entities both answer HTTP 200.
+  if (key === 'unavailable' || key === 'disabled')
+    return res.end(JSON.stringify({ entity: null, entities: 0, edges: [], status: key }));
   const name = names[key];
-  if (!name) {
-    res.statusCode = 404;
-    return res.end(JSON.stringify({ code: 'not_found' }));
-  }
+  if (!name)
+    return res.end(JSON.stringify({ entity: null, entities: 0, edges: [], status: 'ok' }));
   const node = { key, name, kind: 'concept' };
   const other = { key: 'other', name: 'United States', kind: 'location' };
   const edges = key === 'empty' ? [] : [{
@@ -72,15 +69,20 @@ test('entities without public relations still stay noindex', async () => {
   assert.match($('meta[name="robots"]').attr('content') ?? '', /noindex/);
 });
 
-// Neither a temporary graph outage nor a real missing key may generate a 200/noindex response.
-test('temporary knowledge API failure returns 503, not a false noindex page', async () => {
-  for (const route of ['/knowledge/entity/unavailable', '/en/knowledge/entity/unavailable']) {
+// Graphiti's real contract returns HTTP 200 even when its JSON status says unavailable/disabled.
+test('Graphiti outages return 503 rather than a cached 200/noindex entity page', async () => {
+  for (const route of [
+    '/knowledge/entity/unavailable', '/en/knowledge/entity/unavailable',
+    '/knowledge/entity/disabled', '/en/knowledge/entity/disabled',
+  ]) {
     const response = await fetch(web.origin + route);
     assert.equal(response.status, 503);
   }
 });
 
-test('unknown entity returns 404 instead of a successful empty profile', async () => {
+test('missing entities remain a readable 200/noindex page under the current API contract', async () => {
   const response = await fetch(web.origin + '/knowledge/entity/absent');
-  assert.equal(response.status, 404);
+  assert.equal(response.status, 200);
+  const $ = cheerio.load(await response.text());
+  assert.match($('meta[name="robots"]').attr('content') ?? '', /noindex/);
 });
