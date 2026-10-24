@@ -58,6 +58,12 @@ test("the daily shows the editor's note only where one is written", async () => 
   assert.ok(!noNote('body').text().includes('编辑手记'), 'a day without a note shows no placeholder');
 });
 
+test("a daily's page cache stays within the api's freshness so a saved note lands soon", async () => {
+  const res = await fetch(`${web.origin}/daily/2026-10-24`);
+  const maxAge = Number(/max-age=(\d+)/.exec(res.headers.get('cache-control') ?? '')?.[1] ?? 0);
+  assert.ok(maxAge > 0 && maxAge <= 120, `daily page max-age ${maxAge}s is bounded by the api's 120s`);
+});
+
 test('every configured topic carries a brief; an unconfigured one does not', async () => {
   // The six topics the spec names all render the brief; bitcoin has none configured (spec CA-05).
   for (const slug of Object.keys(TOPIC_BRIEFS)) {

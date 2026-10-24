@@ -16,7 +16,7 @@
 
 ### 2.1 编辑手记后台编辑（FR-001）
 
-- 后台「内容」组新增「编辑手记」页：按日期列出最近 60 天的日报；每天可编辑中文手记（必填）与英文手记（选填），保存即生效，写进审计日志。
+- 后台「内容」组新增「编辑手记」页：按日期列出最近 60 天的日报；每天可编辑中文手记（必填）与英文手记（选填），保存后**两分钟内**对读者可见（日报页缓存与接口同为 120 秒），写进审计日志。
 - 日报页（当日与往期）显示的手记改为读数据库；`site/editor-notes.ts` 降级为**种子数据**：部署种子把文件里已有日期插入库（`ON CONFLICT DO NOTHING`，不覆盖后台编辑），此后文件不再参与渲染。
 - API：`GET /api/admin/notes?days=60`、`POST /api/admin/notes`（day/note/noteEn），仅管理员（沿用 sessionPrincipal + CSRF）。
 - 日报读取层（`loadReport`）为 `kind=daily` 附带 `editorNote: { note, noteEn } | null`；非日报恒为 null。缓存与既有报告 ETag 一致。

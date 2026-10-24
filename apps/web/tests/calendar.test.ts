@@ -34,6 +34,9 @@ test('the calendar page lists upcoming entries in both editions', async () => {
   const enText = en('body').text();
   assert.ok(enText.includes('Policy & data calendar'), 'the English edition renders');
   for (const e of upcoming) assert.ok(enText.includes(e.titleEn), `${e.date} English entry renders`);
+  // The standing rhythm states the official split (petroleum Wednesday, gas Thursday), 10:30 ET.
+  assert.ok(zhText.includes('周三') && zhText.includes('周四'), 'the EIA rhythm names both weekdays');
+  assert.ok(enText.includes('Wednesday') && enText.includes('Thursday'), 'the English rhythm names both weekdays');
 });
 
 test('the subscription answers as text/calendar with well-formed ICS', async () => {

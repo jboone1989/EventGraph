@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { SITE } from "@aihot/site";
+import { beijingDate } from "@aihot/contracts/time";
 import type { Route } from "./+types/notes";
 import { adminGet } from "../../lib/admin.server";
 import { useAdminAction } from "../../features/admin/action";
@@ -26,7 +27,9 @@ const BLANK = { day: "", note: "", noteEn: "" };
 export default function AdminNotes({ loaderData }: Route.ComponentProps) {
   const rows = loaderData?.rows ?? [];
   const { run, pending } = useAdminAction();
-  const [form, setForm] = useState<typeof BLANK>({ ...BLANK, day: new Date().toISOString().slice(0, 10) });
+  // The day a note belongs to is a Beijing-time day (the daily's key); UTC's would pick yesterday
+  // during Beijing's 0–8 AM hours.
+  const [form, setForm] = useState<typeof BLANK>({ ...BLANK, day: beijingDate(Date.now()) });
 
   const save = async () => {
     if (!form.day || !form.note.trim()) return;

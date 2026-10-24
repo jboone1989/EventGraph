@@ -25,7 +25,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const graph = kind === "daily" && report
     ? await apiGet<DailyGraphChanges>(`/api/site/knowledge/daily/${report.key}`, { signal: request.signal, timeoutMs: 2_000 }).catch(() => null)
     : null;
-  return cachedPage(600, { kind, report, index, graph, today: beijingDate(Date.now()) });
+  // The daily's editor note rides here too (FR-001): cap its page cache at the api's 120s freshness.
+  return cachedPage(kind === "daily" ? 120 : 600, { kind, report, index, graph, today: beijingDate(Date.now()) });
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {

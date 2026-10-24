@@ -37,7 +37,11 @@ export const CALENDAR_NOTES = {
   updated: "2026-10-24",
   /** 有固定节奏、但没有单条日期的发布：写在页面说明区，不进日历与订阅。 */
   rhythms: [
-    { source: "eia" as const, text: "EIA 周度石油与天然气报告每周三（美东 10:30）发布。", textEn: "EIA weekly petroleum and natural gas reports: every Wednesday, 10:30 AM ET." },
+    {
+      source: "eia" as const,
+      text: "EIA 周度报告：石油状况报告通常在周三、天然气库存通常在周四发布（均为美东 10:30，节假日顺延）。",
+      textEn: "EIA weekly reports: petroleum status usually Wednesday, natural gas storage usually Thursday (10:30 AM ET; holidays shift a day).",
+    },
   ],
   /** 常见机构发布日历的官方入口，方便编辑核对与读者自查。 */
   references: [
