@@ -61,6 +61,8 @@ interface ReportRow extends RepresentativeIdentity {
   url: string;
   selected: boolean;
   indexable: boolean;
+  /** When an editor marked this report for indexing (specs/003-content-assets FR-001); null when not curated. */
+  seo_indexed_at: Date | null;
   at: Date;
   discovered_at: Date;
   source_id: string;
@@ -80,7 +82,7 @@ interface ReportRow extends RepresentativeIdentity {
  */
 async function storyReports(storyId: number, now: Date): Promise<ReportRow[]> {
   return sql<ReportRow[]>`
-    SELECT DISTINCT ON (p.article_id) p.article_id AS id, p.title, p.original_title, p.summary, p.url, p.selected, p.indexable,
+    SELECT DISTINCT ON (p.article_id) p.article_id AS id, p.title, p.original_title, p.summary, p.url, p.selected, p.indexable, p.seo_indexed_at,
       coalesce(p.published_at, p.discovered_at) AS at, p.discovered_at, s.id AS source_id, s.name AS source_name,
       (s.tier = 'T1') AS first_party, f.id AS fact_id,
       CASE WHEN ${compositeCondition()} THEN 'mention' ELSE fa.role END AS role, p.body_mode, p.score, p.timeline_at, ${REPRESENTATIVE_COLUMNS},
@@ -109,7 +111,7 @@ function reportView(r: ReportRow): StoryReportView {
 
 /** The story's reports newest first, its developments, and its latest and first non-mention reports. */
 async function storyContent(storyId: number, now: Date) {
-  const [s] = await sql<{ public_id: string; title: string }[]>`SELECT public_id::text, title FROM stories WHERE id = ${storyId}`;
+  const [s] = await sql<{ public_id: string; title: string; digest_len: number }[]>`SELECT public_id::text, title, length(digest) AS digest_len FROM stories WHERE id = ${storyId}`;
   if (!s) return null;
   const reports = await storyReports(storyId, now);
   if (reports.length === 0) return null;
@@ -184,11 +186,17 @@ export async function loadStoryDetail(storyId: number, now = new Date()): Promis
   // specs/002-adsense-readiness FR-006/FR-009: an event page is indexed only when an editor curated at
   // least one of its reports, and never as a thin single-source page with a very short digest.
   const curated = reports.some((r) => r.indexable);
-  const thin = reports.length < 2 && (text.digest?.length ?? 0) < SEO.minSingleSourceDigestChars;
+  // The stored digest's length is the same clock the sitemap's thin-page rule reads (sitemap.ts).
+  const thin = reports.length < 2 && (s.digest_len ?? 0) < SEO.minSingleSourceDigestChars;
+  // specs/003-content-assets FR-001/FR-003: show who curated the event and when (the newest editor mark
+  // among its reports), and label a thin single-report page as a quick note instead of an event.
+  const curatedAt = reports.reduce<Date | null>((latest, r) => (r.seo_indexed_at && (!latest || r.seo_indexed_at > latest) ? r.seo_indexed_at : latest), null);
   return {
     publicId: s.public_id,
     title: s.title,
     indexable: curated && !thin,
+    curatedAt: curatedAt?.toISOString() ?? null,
+    note: thin,
     englishTitle: reports.find(r => r.original_title && !/[\u3400-\u9fff]/.test(r.original_title))?.original_title ?? null,
     english: text.english,
     status: storyStatusFor(latestAt, now.getTime()),
