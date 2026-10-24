@@ -94,6 +94,10 @@ docker compose run --rm setup && docker compose up -d
 
 下面按时间从新到旧列出每次更新要注意的事。
 
+#### EventGraph：编辑手记入库（2026 年 10 月 24 日）
+
+一个新迁移 `0112_editor_notes.sql`（新表 `editor_notes`，不动已有数据）。按既有顺序更新：备份、停止旧 API 和 worker、`scripts/migrate.ts`、`scripts/seed.ts`、启动——种子会把 `site/editor-notes.ts` 里已写日期的手记插入一次（`ON CONFLICT DO NOTHING`，不覆盖后台编辑），此后手记全部在后台「内容 → 编辑手记」维护。镜像部署脚本的迁移一致性检查会拒绝带着未执行迁移的镜像，属预期保护：先在目标库跑迁移再部署新镜像。
+
 #### Provider 连接与模型管理
 
 `0106`–`0110` 只新增连接、模型、验证记录和引用映射表，不删除旧数据。新管理页、API、运行时和数据迁移必须一起交付。

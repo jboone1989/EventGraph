@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IntentLink } from "../components/ui/IntentLink";
-import { Link, useLoaderData, useLocation } from "react-router";
+import { Link, redirect, useLoaderData, useLocation } from "react-router";
 import type { Route } from "./+types/story";
 import type { StoryDetail, StoryReportView, StoryRoute } from "@aihot/contracts/site";
 import { SITE } from "@aihot/site";
@@ -13,6 +13,7 @@ import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
 import { englishText } from "../lib/english";
+import { isEnglishPath } from "../lib/edition";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
 import { Badge, SelectedBadge } from "../components/ui/Badge";
@@ -35,6 +36,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   // The story route is derived from the story itself; its absence hides one panel, not the page.
   const routePromise = apiGet<StoryRoute>(`/api/site/stories/${encodeURIComponent(params.publicId)}/route`, { signal: request.signal, timeoutMs: 4_000 }).catch(() => null);
   const [story, market, route] = await Promise.all([storyPromise, marketPromise, routePromise]);
+  // A quick note (a single short-digest source) has no event page of its own (specs/004-editorial-ops
+  // FR-003): its one report's page carries everything, so the address forwards there, 302 to stay reversible.
+  const note = story.note && story.reportCount === 1 ? story.timeline[0] ?? null : null;
+  if (note) throw redirect(`${isEnglishPath(new URL(request.url).pathname) ? "/en" : ""}/items/${encodeURIComponent(note.id)}`);
   return cachedPage(120, { story, market, route });
 }
 
@@ -354,6 +359,13 @@ export default function StoryPage() {
             <span className="inline-flex items-center gap-1.5" suppressHydrationWarning>
               <IconClock size={15} className="text-ink-4" />
               {uiLang === "en" ? `${new Date(story.latestAt).toLocaleDateString("en-US", {timeZone:"UTC"})} updated` : `${relativeTime(story.latestAt)}更新`}
+            </span>
+          )}
+          {story.curatedAt && (
+            <span className="inline-flex items-center gap-1.5">
+              <IconDoc size={15} className="text-ink-4" />
+              {t("编辑策展于", "Curated by the editor on")}
+              <time dateTime={story.curatedAt} className="mono font-semibold text-ink">{story.curatedAt.slice(0, 10)}</time>
             </span>
           )}
         </div>

@@ -487,6 +487,11 @@ function ItemView({ item }: { item: SiteItemDetail }) {
       <div className="mt-0.5 text-[12px] text-ink-4" suppressHydrationWarning>
         {localizedRelativeTime(shownAt, preference)}
       </div>
+      {item.curatedAt && (
+        <div className="mt-3 border-t border-line-soft pt-2 text-[12px] leading-relaxed text-ink-4">
+          {t("编辑策展于", "Curated by the editor on")} <time dateTime={item.curatedAt} className="mono text-ink-3">{item.curatedAt.slice(0, 10)}</time>
+        </div>
+      )}
     </RailSection>
   );
   const outline = showOutline && <ArticleOutline outline={item.outline} />;

@@ -30,6 +30,8 @@ export interface ItemRow {
   visibility: string;
   body_mode: "full" | "summary";
   indexable: boolean;
+  /** When an editor marked this page for indexing (specs/003-content-assets FR-001); null when not curated. */
+  curated_at: Date | null;
   fact_id: number | null;
   source_name: string;
   /** The source's tier (T1, T1_5, T2); read by the item lists. */
@@ -59,7 +61,7 @@ export const ENGLISH_ITEM_INPUTS = sql`md5(concat_ws(chr(31), p.title, p.origina
 export const ITEM_COLUMNS = sql`
   p.article_id AS id, p.title, p.original_title, p.summary, p.reason, p.category, p.tags, p.score,
   p.selected, p.seat, p.channel, p.url, p.published_at, p.discovered_at, p.timeline_at, p.visibility,
-  p.body_mode, p.indexable, p.fact_id, s.name AS source_name, s.tier AS source_tier, s.participation_mode AS source_mode,
+  p.body_mode, p.indexable, p.seo_indexed_at AS curated_at, p.fact_id, s.name AS source_name, s.tier AS source_tier, s.participation_mode AS source_mode,
   a.x_post, a.author, a.language,
   CASE WHEN s.kind = 'x_search' AND ${sourceOwnsPost(sql`s.name`, sql`a.x_post->>'handle'`)} THEN s.icon_url END AS author_avatar_url,
   st.public_id::text AS story_public_id, st.title AS story_title,

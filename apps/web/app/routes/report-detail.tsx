@@ -32,7 +32,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     apiGet<ReportNavigationResponse>(`/api/site/reports/${kind}/navigation/${key}`, { signal: request.signal }),
     kind === "daily" ? apiGet<DailyGraphChanges>(`/api/site/knowledge/daily/${key}`, { signal: request.signal, timeoutMs: 2_000 }).catch(() => null) : null,
   ]);
-  return cachedPage(3600, { report, index, graph, today: beijingDate(Date.now()) });
+  // A daily carries the editor's note (FR-001): its page cache matches the api's 120s freshness so a
+  // saved note reaches readers within two minutes; weekly and monthly keep the longer archive cache.
+  return cachedPage(kind === "daily" ? 120 : 3600, { report, index, graph, today: beijingDate(Date.now()) });
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
@@ -57,9 +59,11 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
 export default function ReportDetailPage() {
   const language = useUiLanguage();
   const { report, index, graph, today } = useLoaderData<typeof loader>();
+  // The editor's own note for this daily, written in the admin (specs/004-editorial-ops FR-001).
+  const editorNote = report.kind === "daily" && report.editorNote ? { note: report.editorNote.note, noteEn: report.editorNote.noteEn ?? undefined } : null;
   return (
     <ReportLayout kind={report.kind} index={index} current={report.key} today={today} outline={reportOutline(report, language)}>
-      <ReportPaper report={report} index={index} lang={language} />
+      <ReportPaper report={report} index={index} lang={language} editorNote={editorNote} />
       <GraphChanges changes={graph} />
     </ReportLayout>
   );

@@ -369,6 +369,10 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
   const [{ prev, next }, picture] = await Promise.all([neighbors(kind, key), leadItem?.itemId && leadItem.available ? leadCover(leadItem.itemId) : null]);
   const cover = picture && leadItem ? { ...picture, caption: kind === "daily" || c.leadItemId ? null : leadItem.title } : null;
   const headline = kind === "daily" ? null : periodicHeadline(c);
+  // The editor's note rides with the daily it belongs to (specs/004-editorial-ops FR-001).
+  const [editorNote] = kind === "daily"
+    ? await sql<{ note: string; note_en: string | null }[]>`SELECT note, note_en FROM editor_notes WHERE day = ${key}`
+    : [];
   const title = kind === "daily" ? `日报 · ${key}`
     : String((hasCitedLead && c.title === headline ? named?.title : c.title) ?? (kind === "weekly" ? `${SITE.name} 周报 · ${key}` : `${SITE.name} 月报 · ${key}`));
   return {
@@ -384,6 +388,7 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
     leadItemId: (kind === "daily" || c.leadItemId) && leadItem?.available ? leadItem.itemId : null,
     overview,
     overviewEn: kind === "daily" && typeof c.overviewEn === "string" && c.overviewEn ? c.overviewEn : null,
+    editorNote: editorNote ? { note: editorNote.note, noteEn: editorNote.note_en } : null,
     highlights,
     sections,
     flashes: (c.flashes ?? []).map(cite),

@@ -63,6 +63,10 @@ test('discovery dates follow page content and publication scope', async () => {
   assert.ok(entries.some(e => e.loc === '/items/dates-visible'));
   assert.ok(!entries.some(e => e.loc === '/items/dates-future'));
   assert.ok(!entries.some(e => e.loc === '/items/dates-signal'));
+  // The Chinese knowledge page is part of discovery (specs/003-content-assets FR-007).
+  assert.ok(entries.some(e => e.loc === '/knowledge'));
+  // The curated release calendar is a public page (specs/004-editorial-ops FR-002, EO-06).
+  assert.ok(entries.some(e => e.loc === '/calendar'));
 });
 
 test('dry runs leave changes pending, corrections and disappeared URLs are submitted again', async () => {

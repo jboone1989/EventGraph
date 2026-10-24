@@ -990,6 +990,68 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false
+    },
+    {
+      "id": "nbs-data-release",
+      "name": "国家统计局 · 数据发布",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.stats.gov.cn/sj/zxfb/rss.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 8
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "宏观",
+        "官方数据"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "nbs-latest-releases-en",
+      "name": "NBS · Latest Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.stats.gov.cn/english/PressRelease/rss.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 8
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "宏观",
+        "官方数据"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "fca-news",
+      "name": "FCA · News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.fca.org.uk/news/rss.xml",
+        "_aihot": {
+          "initialBackfillLimit": 8
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "监管",
+        "金融"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
     }
   ]
 }

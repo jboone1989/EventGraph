@@ -6,6 +6,7 @@ import path from "node:path";
 import { REPO_ROOT } from "@aihot/backend/config";
 import { closeDb, sql } from "@aihot/backend/db";
 import { assertSupportedConfig } from "@aihot/backend/sources/config-keys";
+import { EDITOR_NOTES } from "@aihot/site/editor-notes";
 
 interface SeedSource {
   id: string;
@@ -37,6 +38,19 @@ for (const s of sources) {
   added += inserted.length;
 }
 console.log(`sources: ${added} added, ${sources.length - added} already there`);
+// PR #97 may have already inserted these feeds before their wall-clock timezone was specified.
+// Fill only the missing key; preserve all other settings and explicit admin timezones.
+await sql`
+  UPDATE sources
+  SET config = config || jsonb_build_object('publishedAtUtcOffset', '+08:00')
+  WHERE id IN ('nbs-data-release', 'nbs-latest-releases-en')
+    AND kind = 'rss' AND NOT (config ? 'publishedAtUtcOffset')`;
+// The editor notes file seeds its rows once (specs/004-editorial-ops FR-001); after that the admin
+// owns them and a deploy never overwrites what was written there.
+for (const [day, note] of Object.entries(EDITOR_NOTES)) {
+  await sql`INSERT INTO editor_notes (day, note, note_en, updated_by) VALUES (${day}, ${note.note}, ${note.noteEn ?? null}, 'seed')
+    ON CONFLICT (day) DO NOTHING`;
+}
 // NVIDIA Developer Program endpoint: default conservative request budget, not a money limit.
 // An administrator can adjust this; setup never overwrites an existing setting.
 await sql`INSERT INTO budgets (service, per_minute, per_hour, per_day, note)

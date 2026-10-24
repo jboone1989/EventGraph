@@ -13,6 +13,9 @@
     "./modules/server": "./modules/server.ts",
     "./modules/web": "./modules/web.ts",
     "./pages/*": "./pages/*",
-    "./brand/*": "./brand/*"
+    "./brand/*": "./brand/*",
+    "./editor-notes": "./editor-notes.ts",
+    "./topic-briefs": "./topic-briefs.ts",
+    "./calendar": "./calendar.ts"
   }
 }

@@ -17,6 +17,8 @@ const pages: Record<string, string> = {
   "/fallback": feed(entry('<link rel="related" href="article-1"/>')),
   "/missing": feed(entry("") + entry('<link rel="alternate"/>')),
   "/fragments": feed(entry('<link href="notes#first"/>') + entry('<link href="notes#second"/>'), ' xml:base="https://publisher.example/"'),
+  "/nbs-clock.xml": '<rss version="2.0"><channel><title>NBS</title><item><title>Release</title><link>https://example.org/nbs-release</link><pubDate>2026-10-24 09:30:00</pubDate></item></channel></rss>',
+  "/zoned-clock.xml": '<rss version="2.0"><channel><title>Global</title><item><title>Release</title><link>https://example.org/zoned-release</link><pubDate>Sat, 24 Oct 2026 09:30:00 GMT</pubDate></item></channel></rss>',
 };
 const server = http.createServer((req, res) => {
   if (req.url === "/old/feed.xml") {
@@ -35,8 +37,8 @@ after(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-async function read(path: string) {
-  return (await fetchRss({ config: { feedUrl: root + path }, participation_mode: "editorial" } as never)).candidates;
+async function read(path: string, config: Record<string, string> = {}) {
+  return (await fetchRss({ config: { feedUrl: root + path, ...config }, participation_mode: "editorial" } as never)).candidates;
 }
 
 test("Atom article links honor absolute xml:base on feed, entry and link", async () => {
@@ -59,6 +61,13 @@ test("absolute alternate links and the first-link fallback keep working", async 
   assert.equal((await read("/absolute"))[0]!.url, "https://publisher.example/article-1");
   assert.equal((await read("/fallback"))[0]!.url, root + "/article-1");
   assert.deepEqual(await read("/missing"), []);
+});
+
+test("RSS dates without zones use the configured publisher offset, not the host timezone", async () => {
+  const nbs = await read("/nbs-clock.xml", { publishedAtUtcOffset: "+08:00" });
+  assert.equal(nbs[0]?.publishedAt?.toISOString(), "2026-10-24T01:30:00.000Z");
+  const zoned = await read("/zoned-clock.xml", { publishedAtUtcOffset: "+08:00" });
+  assert.equal(zoned[0]?.publishedAt?.toISOString(), "2026-10-24T09:30:00.000Z", "explicit GMT must win");
 });
 
 test("resolved Atom article URLs keep their fragments, which sources of page sections use as identity", async () => {

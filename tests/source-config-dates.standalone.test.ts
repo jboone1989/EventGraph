@@ -12,6 +12,10 @@ test("ordinary listing sources accept an exact UTC publication boundary", () => 
   }
 });
 
+test("RSS sources may configure their publication clock offset", () => {
+  assert.deepEqual(unsupportedConfig("rss", { feedUrl: "https://example.org/rss", publishedAtUtcOffset: "+08:00" }), []);
+});
+
 test("a publication boundary rejects missing zones, incomplete and impossible dates, and non-string values", () => {
   for (const publishedAfter of ["2026-09-28", "2026-09-28T00:00:00", "September 28, 2026", "2026-02-30T00:00:00Z", "2026-09-28T24:00:00Z", "2026-13-01T00:00:00Z", "", null, 1790553600000]) {
     assert.deepEqual(unsupportedConfig("web_list", { publishedAfter }), ["publishedAfter"], String(publishedAfter));
