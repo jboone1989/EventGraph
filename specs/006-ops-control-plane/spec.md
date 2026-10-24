@@ -21,7 +21,7 @@
 
 ## P1 · 有效信源实际进入内容链路
 
-- `industry/sources.json` 从 52 个配置开始，本轮只加入有官方可追溯 URL 的 **BOJ** `https://www.boj.or.jp/en/rss/whatsnew.xml` 和 **RBI** `https://rbi.org.in/pressreleases_rss.xml`，初始回填 3 条/源、只保留摘要和原文链接。
+- `industry/sources.json` 从 52 个配置开始，本轮加入官方可追溯 RSS：**BOJ、RBI、BOK（韩国央行英文稿）、日本 FSA**。原定 BOJ `https://www.boj.or.jp/en/rss/whatsnew.xml` 和 **RBI** `https://rbi.org.in/pressreleases_rss.xml`，初始回填 3 条/源、只保留摘要和原文链接。
 - 新增配置不等于已在开发/生产 DB 中采集成功；验收必须逐一预览并核对成功/失败、实际发现、文章入库、是否入事件，以及 worker 运行和 `COLLECT_ENABLED`。
 - 当前没有在 `develop` 与生产库证实“最近大量亚洲源已接入”；继续找来源清单/历史分支并核对，不要把用户记忆当作错误。
 - 可补日本 METI、韩国 BOK、MAS 新加坡等**官方提供稳定 RSS/API 且能够成功采集**的来源；拒绝臆造 URL/直接复制所有媒体 feed；重大金融/AI/加密公告优先一手来源。
