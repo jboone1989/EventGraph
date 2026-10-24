@@ -66,6 +66,16 @@ Docker 路径确认：`docker-compose.yml` 的 `setup` 服务即 `node scripts/m
 
 （另：develop 最近一次自动部署失败为开发机拉 GHCR 超时，属既有环境问题，与本 PR 无关。）
 
+## 开发库实际执行（2026-10-24 15:55，第三轮复审第 1 项闭环）
+
+在开发环境（`ubuntu@43.142.127.40`，`/home/ubuntu/livingruntime-aihot`，compose 库 `aihot`）上实际执行迁移与种子，全部输出留档于 PR #102 评论：
+
+- 执行前账本：89 条（含 `0111_research_articles.sql`，缺 `0112`）——与「develop 部署自 #97 起失败、镜像偏旧」的解释一致
+- 执行方式：现有镜像的 runner + 挂载 PR 的引擎迁移目录（`docker compose run --rm -v …:/app/database/migrations api node scripts/migrate.ts`）→ `applied 0112_editor_notes.sql (25ms, transaction)`；种子用与 `seed.ts` 相同的一条 `INSERT … ON CONFLICT DO NOTHING`
+- 执行后账本：90 条；`editor_notes` 出现 `2026-10-24 | seed`；引擎文件 89 ⊆ 已应用 90，**无缺失**——合并后新镜像的部署一致性检查将直接通过
+- 幂等重跑：`database is up to date`、种子 `INSERT 0 1` 仅首次生效
+- VM 与本地临时文件已清理，未触碰 VM 上的活动检出（`fix/61-valid-time-evidence`）
+
 ## 未验证项
 
 - 生产部署后的表现（含 301/308 归一，见 specs/003 validation）——UNVERIFIED。
