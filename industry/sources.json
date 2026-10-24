@@ -974,9 +974,15 @@
       "config": {
         "url": "https://hn.algolia.com/api/v1/search_by_date?tags=story&query=AI&hitsPerPage=100",
         "itemsPath": "hits",
-        "titlePaths": ["title"],
-        "summaryPaths": ["story_text"],
-        "authorPaths": ["author"],
+        "titlePaths": [
+          "title"
+        ],
+        "summaryPaths": [
+          "story_text"
+        ],
+        "authorPaths": [
+          "author"
+        ],
         "publishedAtPath": "created_at",
         "externalIdPath": "objectID",
         "urlTemplate": "https://news.ycombinator.com/item?id={raw:objectID}"
@@ -1059,12 +1065,19 @@
       "kind": "rss",
       "config": {
         "feedUrl": "https://www.boj.or.jp/en/rss/whatsnew.xml",
-        "_aihot": { "initialBackfillLimit": 3 }
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
       },
       "tier": "T1",
       "participation_mode": "editorial",
       "interval_minutes": 180,
-      "tags": ["亚洲", "日本", "金融", "官方公告"],
+      "tags": [
+        "亚洲",
+        "日本",
+        "金融",
+        "官方公告"
+      ],
       "site_fulltext": false,
       "syndicate_fulltext": false
     },
@@ -1074,12 +1087,63 @@
       "kind": "rss",
       "config": {
         "feedUrl": "https://rbi.org.in/pressreleases_rss.xml",
-        "_aihot": { "initialBackfillLimit": 3 }
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
       },
       "tier": "T1",
       "participation_mode": "editorial",
       "interval_minutes": 180,
-      "tags": ["亚洲", "印度", "金融", "官方公告"],
+      "tags": [
+        "亚洲",
+        "印度",
+        "金融",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-bank-of-korea-english",
+      "name": "Bank of Korea · English Press Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.bok.or.kr/eng/bbs/E0000634/news.rss?menuNo=400069",
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "亚洲",
+        "韩国",
+        "金融",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-japan-fsa-english",
+      "name": "Japan FSA · English News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.fsa.go.jp/fsaEnNewsList_rss2.xml",
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "亚洲",
+        "日本",
+        "金融监管",
+        "官方公告"
+      ],
       "site_fulltext": false,
       "syndicate_fulltext": false
     }
