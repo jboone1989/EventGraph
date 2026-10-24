@@ -2,6 +2,7 @@ import { useLoaderData } from "react-router";
 import type { Route } from "./+types/report-latest";
 import type { ReportLatestPage } from "@aihot/contracts/site";
 import { REPORTS, subjectAfter, withSubject } from "@aihot/site";
+import { EDITOR_NOTES } from "@aihot/site/editor-notes";
 import { apiGet, cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { localized, pageMeta, reportLd } from "../lib/seo";
@@ -51,11 +52,13 @@ export default function ReportLatestPage() {
   const language = useUiLanguage();
   const t = useText();
   const { kind, report, index, graph, today } = useLoaderData<typeof loader>();
+  // The editor's own note for this daily, written in site/editor-notes.ts (specs/003-content-assets FR-004).
+  const editorNote = kind === "daily" && report ? EDITOR_NOTES[report.key] ?? null : null;
   return (
     <ReportLayout kind={kind} index={index} current={report?.key ?? null} today={today} outline={report ? reportOutline(report, language) : []}>
       {report ? (
         <>
-          <ReportPaper report={report} index={index} lang={language} />
+          <ReportPaper report={report} index={index} lang={language} editorNote={editorNote} />
           <GraphChanges changes={graph} />
         </>
       ) : (

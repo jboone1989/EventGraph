@@ -1,4 +1,5 @@
-import { REPORTS, REPORTS_EN, SITE } from "@aihot/site";
+﻿import { REPORTS, REPORTS_EN, SITE } from "@aihot/site";
+import { TOPIC_BRIEFS } from "@aihot/site/topic-briefs";
 import { Link, redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/topic";
 import type { TopicPage } from "@aihot/contracts/site";
@@ -93,6 +94,7 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
 
 export default function TopicRoute() {
   const language=useUiLanguage();
+  const en = language === "en";
   const t=useText();
   const { data } = useLoaderData<typeof loader>();
   const { topic, items, page, pageCount, pageSize } = data;
@@ -139,6 +141,30 @@ export default function TopicRoute() {
           )}
         </div>
       </header>
+
+      {(() => {
+        // The topic's evergreen brief: what it follows, what matters, common misreads (FR-005).
+        // English shows it only when the brief has English; an unconfigured topic shows nothing.
+        const brief = TOPIC_BRIEFS[topic.slug];
+        if (!brief) return null;
+        const headline = en ? brief.headlineEn : brief.headline;
+        const bullets = (en ? brief.bulletsEn : brief.bullets) ?? [];
+        if (!headline || bullets.length === 0) return null;
+        return (
+          <section aria-label={t("主题简报", "Topic brief")} className="mb-6 rounded-card border border-line bg-surface px-5 py-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h2 className="text-[13px] font-semibold text-ink">{t("本主题跟踪什么", "What this topic follows")}</h2>
+              <span className="mono text-[11px] text-ink-4">{t("更新", "updated")} {brief.updated}</span>
+            </div>
+            <p className="mt-2 text-[15px] font-medium leading-[1.8] text-ink-2">{headline}</p>
+            <ul className="mt-2.5 grid gap-x-5 gap-y-1.5 text-[13.5px] leading-[1.8] text-ink-3 sm:grid-cols-3">
+              {bullets.map((b) => (
+                <li key={b} className="border-t border-line-soft pt-2 sm:border-t-0 sm:pt-0">{b}</li>
+              ))}
+            </ul>
+          </section>
+        );
+      })()}
 
       {parts.map((p) => (
         <div key={`${p.key}:${topic.slug}`} className="mb-8">
