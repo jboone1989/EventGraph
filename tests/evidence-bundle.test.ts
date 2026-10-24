@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { sql, closeDb } from '@aihot/backend/db';
 import { publicEvidenceBundle } from '@aihot/backend/publication/knowledge';
-import { graphForStory } from '../packages/backend/src/knowledge/graphiti.ts';
+import { graphForStory, graphForEntity } from '../packages/backend/src/knowledge/graphiti.ts';
 
 const edge = (id: string, articleIds: string[]) => ({
   id, subject: { key: 'ent-alpha', name: 'Alpha Corp', kind: 'entity' }, predicate: 'PARTNERED_WITH', object: { key: 'ent-beta', name: 'Beta Labs', kind: 'entity' },
@@ -35,7 +35,7 @@ before(async () => {
     if (req.url === '/entities/ent-alpha') return res.end(JSON.stringify({ entity: { key: 'ent-alpha', name: 'Alpha Corp', kind: 'entity' }, edges: [edge('e-entity', ['eb-public'])] }));
     if (req.url?.startsWith('/entities/ent-scoped')) {
       const scoped = new URL(req.url, 'http://fake').searchParams.has('as_of');
-      return res.end(JSON.stringify({ entity: { key: 'ent-scoped', name: 'Scoped Corp', kind: 'entity' }, edges: [edge('e-entity', ['eb-public'])], ...(scoped ? { temporalSupport: 'bitemporal-v1' } : {}) }));
+      return res.end(JSON.stringify({ entity: { key: 'ent-scoped', name: 'Scoped Corp', kind: 'entity', summary: 'Future-only private detail' }, edges: [edge('e-entity', ['eb-public'])], ...(scoped ? { temporalSupport: 'bitemporal-v1' } : {}) }));
     }
     if (req.url === '/relations/e-public') return res.end(JSON.stringify({ entities: 2, edges: [edge('e-public', ['eb-public'])] }));
     res.end(JSON.stringify({ entity: null, edges: [] }));
@@ -146,4 +146,12 @@ test('known-time graph chooses ingested revision as of selected time, not curren
   assert.ok(!lastGraphRequest?.articles.includes('eb-public:r3'), 'later revision must not appear early');
   await graphForStory(publicId, {asOf: new Date(second.getTime() + 1000), clock: 'known'});
   assert.ok(lastGraphRequest?.articles.includes('eb-public:r3'), 'later revision appears after ingestion');
+});
+
+test('historical entity graph never shows the current Graphiti summary even with temporal receipt', async () => {
+  const scoped = await graphForEntity('ent-scoped', {asOf: new Date('2026-10-01T00:00:00Z'), clock: 'known'});
+  assert.equal(scoped.status, undefined);
+  assert.equal(scoped.entity?.summary, null);
+  const current = await graphForEntity('ent-scoped');
+  assert.equal(current.entity?.summary, 'Future-only private detail');
 });
