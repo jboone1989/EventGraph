@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { sql, closeDb } from '@aihot/backend/db';
 import { publicEvidenceBundle } from '@aihot/backend/publication/knowledge';
+import { graphForStory } from '../packages/backend/src/knowledge/graphiti.ts';
 
 const edge = (id: string, articleIds: string[]) => ({
   id, subject: { key: 'ent-alpha', name: 'Alpha Corp', kind: 'entity' }, predicate: 'PARTNERED_WITH', object: { key: 'ent-beta', name: 'Beta Labs', kind: 'entity' },
@@ -16,6 +17,7 @@ const edge = (id: string, articleIds: string[]) => ({
 });
 let graphiti: http.Server;
 let publicId = '';
+let lastGraphRequest: { articles: string[]; as_of?: string; clock?: string } | null = null;
 
 before(async () => {
   graphiti = http.createServer((req, res) => {
@@ -24,7 +26,8 @@ before(async () => {
       let body = '';
       req.on('data', (chunk) => (body += chunk));
       req.on('end', () => {
-        const scoped = Boolean(JSON.parse(body).as_of);
+        lastGraphRequest = JSON.parse(body);
+        const scoped = Boolean(lastGraphRequest!.as_of);
         res.end(JSON.stringify({ entities: 2, edges: scoped ? [] : [edge('e-public', ['eb-public', 'eb-withdrawn']), edge('e-hidden', ['eb-withdrawn'])], ...(scoped ? { temporalSupport: 'bitemporal-v1' } : {}) }));
       });
       return;
@@ -126,4 +129,21 @@ test('a scoped relation bundle fails closed; the single-relation endpoint cannot
     { asOf: new Date('2026-10-01T00:00:00Z'), clock: 'known' });
   assert.equal(bundle.status, 'unavailable');
   assert.deepEqual(bundle.relations, [], "today's snapshot must not pass as a bounded historical read");
+});
+
+test('known-time graph chooses ingested revision as of selected time, not current revision', async () => {
+  const [article] = await sql<{discovered_at: Date}[]>`
+    SELECT discovered_at FROM articles WHERE id = 'eb-public'`;
+  const first = new Date(article!.discovered_at.getTime() + 1000);
+  const second = new Date(first.getTime() + 5000);
+  const asOf = new Date(first.getTime() + 1000);
+  await sql`
+    INSERT INTO graphiti_ingestions(article_id,revision,episode_id,ingested_at)
+    VALUES ('eb-public',1,'episode-eb-r1',${first}),
+           ('eb-public',3,'episode-eb-r3',${second})`;
+  await graphForStory(publicId, {asOf, clock: 'known'});
+  assert.ok(lastGraphRequest?.articles.includes('eb-public:r1'), 'previously ingested revision remains available');
+  assert.ok(!lastGraphRequest?.articles.includes('eb-public:r3'), 'later revision must not appear early');
+  await graphForStory(publicId, {asOf: new Date(second.getTime() + 1000), clock: 'known'});
+  assert.ok(lastGraphRequest?.articles.includes('eb-public:r3'), 'later revision appears after ingestion');
 });
