@@ -138,7 +138,11 @@ export async function graphForEntity(uuid: string, time?: GraphTime) {
       "/entities/" + encodeURIComponent(uuid) + query);
     // Same contract as the story graph: an older knowledge service ignores the time query and
     // answers with the current graph, which must never pass as a historical read.
-    return supportsTemporalGraph(result, time) ? result : { entity: null, edges: [], status: "unavailable" };
+    if (!supportsTemporalGraph(result, time)) return { entity: null, edges: [], status: "unavailable" };
+    // Compatibility guard for older Graphiti services which label a response
+    // bitemporal but still include the mutable present-day entity summary.
+    if (time && result.entity) result.entity.summary = null;
+    return result;
   } catch (error) {
     console.error("graphiti_entity_lookup_failed", error);
     return { entity: null, edges: [], status: "unavailable" };
