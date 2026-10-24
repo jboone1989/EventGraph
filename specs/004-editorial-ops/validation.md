@@ -53,6 +53,19 @@
 3. **EIA 事实**：节奏文案改为「石油通常周三、天然气库存通常周四（美东 10:30，节假日顺延）」，中英同步；测试断言两个星期名都出现。
 4. **后台默认日期**：`new Date().toISOString()`（UTC）改为 `beijingDate(Date.now())`，北京时间 0–8 点不再默认到前一天。
 
+## 迁移部署演练（2026-10-24，第二轮复审第 1 项闭环）
+
+在本地 Postgres（15432）以 `aihot_deploy_drill_test` 完整演练现有发布顺序，证据为实际命令输出：
+
+1. **造出「今天的开发库」**：全新库跑 `migrate.ts` + `seed.ts`（90 个迁移、52 个源），随后仅回退 `0112`（DROP TABLE editor_notes + 删账本行）——与 develop 当前库等价。
+2. **部署前一致性检查（复刻 deploy-image.sh 的只读检查）**：`expected 90 / applied 89 / missing ["0112_editor_notes.sql"]`，退出码 1 —— **自动部署按设计拦截**。
+3. **按 runbook 执行**：`node --env-file=.env scripts/migrate.ts` → `1 migration(s) applied`（增量、在线安全）；`node --env-file=.env scripts/seed.ts` → `sources: 0 added, 52 already there`（既有配置未动），`editor_notes` 出现 `2026-10-24` 行（`updated_by=seed`，来自 `site/editor-notes.ts`）。
+4. **复检**：`expected 90 / applied 90 / missing []`，退出码 0 —— **部署放行**；种子第二次运行未重复插入（幂等）。
+
+Docker 路径确认：`docker-compose.yml` 的 `setup` 服务即 `node scripts/migrate.ts && node scripts/seed.ts`，标准更新命令 `docker compose run --rm setup && docker compose up -d` 原样覆盖 0112 与手记种子，无需改 CI/CD。目标库（开发/生产）的执行在部署时由部署人完成，本演练证明该序列真实可执行且拦截行为符合设计。
+
+（另：develop 最近一次自动部署失败为开发机拉 GHCR 超时，属既有环境问题，与本 PR 无关。）
+
 ## 未验证项
 
 - 生产部署后的表现（含 301/308 归一，见 specs/003 validation）——UNVERIFIED。
