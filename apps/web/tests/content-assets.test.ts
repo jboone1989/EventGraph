@@ -1,10 +1,11 @@
-﻿// The content-assets layer (specs/003-content-assets): the daily's editor note, the topic briefs, the
+// The content-assets layer (specs/003-content-assets): the daily's editor note, the topic briefs, the
 // knowledge page's graph-changes text, and the phone entry to the research section.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
 import * as cheerio from 'cheerio';
 import { startWebServer, type WebServer } from './web-server.ts';
+import { TOPIC_BRIEFS } from '@aihot/site/topic-briefs';
 
 const at = '2026-10-24T08:00:00.000Z';
 const item = { id: 'asset-item', title: '可核实的测试报道', summary: '报道摘要', reason: null, source: { name: 'Fixture' }, links: { original: 'https://example.org/report' }, publishedAt: at, timelineAt: at, category: 'research', tags: [], score: 80, selected: true, channel: 'news', x: null };
@@ -37,8 +38,8 @@ const api = createServer((req, res) => {
   if (daily) return res.end(JSON.stringify({ ...report, key: daily[1] }));
   if (url === '/api/site/knowledge/daily/2026-10-24') return res.end(JSON.stringify(changes));
   if (url === '/api/site/knowledge/stats') return res.end(JSON.stringify({ episodes: 1, entities: 1, relations: 1, status: 'ok' }));
-  if (url === '/api/site/topics/ai-models') return res.end(JSON.stringify(topic('ai-models', 'AI 模型')));
-  if (url === '/api/site/topics/bitcoin') return res.end(JSON.stringify(topic('bitcoin', '比特币')));
+  const topicRoute = /^\/api\/site\/topics\/([a-z0-9-]+)$/.exec(url);
+  if (topicRoute) return res.end(JSON.stringify(topic(topicRoute[1]!, topicRoute[1]!)));
   res.statusCode = 404;
   res.end(JSON.stringify({ code: 'not_found' }));
 });
@@ -53,10 +54,12 @@ test("the daily shows the editor's note only where one is written", async () => 
   assert.ok(!noNote('body').text().includes('编辑手记'), 'a day without a note shows no placeholder');
 });
 
-test('configured topics carry a brief; unconfigured topics do not', async () => {
-  const briefed = cheerio.load(await (await fetch(`${web.origin}/topics/ai-models`)).text());
-  assert.ok(briefed('body').text().includes('本主题跟踪什么'), 'the brief card renders');
-  assert.ok(briefed('body').text().includes('跟踪模型发布'), 'the brief content renders');
+test('every configured topic carries a brief; an unconfigured one does not', async () => {
+  // The six topics the spec names all render the brief; bitcoin has none configured (spec CA-05).
+  for (const slug of Object.keys(TOPIC_BRIEFS)) {
+    const page = cheerio.load(await (await fetch(`${web.origin}/topics/${slug}`)).text());
+    assert.ok(page('body').text().includes('本主题跟踪什么'), `${slug} shows its brief`);
+  }
   const plain = cheerio.load(await (await fetch(`${web.origin}/topics/bitcoin`)).text());
   assert.ok(!plain('body').text().includes('本主题跟踪什么'), 'no brief for an unconfigured topic');
 });

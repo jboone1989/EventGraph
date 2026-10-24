@@ -1,4 +1,4 @@
-﻿// Discovery failure modes, specified before the implementation:
+// Discovery failure modes, specified before the implementation:
 // - news activity invents lastmod dates for static pages, while corrections keep an old report date;
 // - existing stories, translations, report corrections, withdrawals and merges are never notified;
 // - unreleased selections or non-editorial sources leak into search discovery;

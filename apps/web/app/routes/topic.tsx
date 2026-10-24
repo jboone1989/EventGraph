@@ -1,4 +1,4 @@
-﻿import { REPORTS, REPORTS_EN, SITE } from "@aihot/site";
+import { REPORTS, REPORTS_EN, SITE } from "@aihot/site";
 import { TOPIC_BRIEFS } from "@aihot/site/topic-briefs";
 import { Link, redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/topic";

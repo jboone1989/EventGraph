@@ -1,4 +1,4 @@
-﻿# Tasks: 内容资产与知识层增强
+# Tasks: 内容资产与知识层增强
 
 **Input**: `specs/003-content-assets/`（spec @ 本分支首个提交）
 
@@ -10,5 +10,5 @@
 - [x] CA6 手机研究入口：`modules/research/web.tsx` tools + web 测试
 - [x] CA7 守护：CI preflight；production-smoke 增项；`scripts/curation-report.ts` + npm 脚本
 - [x] CA8 信源：统计局中/英、FCA 写入 sources.json + 探测记录
-- [x] CA9 文档：`docs/adsense-readiness.md`/`deploy.md` 相关说明；`site/changelog.json` 条目
+- [x] CA9 文档：`docs/adsense-readiness.md`（运维清单；`deploy.md` 无需改，seed 行为已在其更新说明里）；`site/changelog.json` 条目
 - [x] CA10 终检：typecheck、web 构建+测试、全量 DB 套件、preflight、production-smoke（本地）、curation:report，记录到 `validation.md`
