@@ -997,6 +997,7 @@
       "kind": "rss",
       "config": {
         "feedUrl": "https://www.stats.gov.cn/sj/zxfb/rss.xml",
+        "publishedAtUtcOffset": "+08:00",
         "_aihot": {
           "initialBackfillLimit": 8
         }
@@ -1017,6 +1018,7 @@
       "kind": "rss",
       "config": {
         "feedUrl": "https://www.stats.gov.cn/english/PressRelease/rss.xml",
+        "publishedAtUtcOffset": "+08:00",
         "_aihot": {
           "initialBackfillLimit": 8
         }
