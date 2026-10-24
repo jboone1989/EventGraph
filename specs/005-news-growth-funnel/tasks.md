@@ -7,9 +7,9 @@ Status is evidence-backed; editing a file or opening a PR is not equivalent to r
 - [x] Research First: inspect actual `develop` code; independent challenge (prior completed Claude), official Google Search Console/Ads policies and open-source alternatives. Evidence: `research.md`.
 - [x] Preserve approved product decisions in `spec.md`; link from repository `AGENTS.md` for future sessions.
 - [x] Record implementation architecture, scope limits and metrics in `plan.md`.
-- [ ] Implement actual page-type grouping of current Search Console page data, preserve original totals and Top 10.
-- [ ] Add focused unit tests covering normalized URL paths and zero/ambiguous rows.
-- [ ] Render grouped statistics in existing admin Analytics only (no new route/dashboard).
+- [x] Implement actual page-type grouping of current Search Console page data, preserve original totals and Top 10. See `search-page-types.ts`, `search-console-analytics.ts`.
+- [x] Add focused unit tests covering normalized URL paths and zero/ambiguous rows. See `tests/search-page-types.standalone.test.ts` (execution requires CI).
+- [x] Render grouped statistics in existing admin Analytics only (no new route/dashboard). See `ExternalAnalytics.tsx`.
 - [ ] Verify typecheck / tests and PR diff against specs.
 - [ ] Submit PR to `develop`, obtain GitHub Check/E2E + independent Claude PR review; merge only if passes.
 - [ ] Verify development deployment and existing authenticated admin report, with actual proof. **Production not in scope.**
