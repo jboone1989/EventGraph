@@ -26,7 +26,6 @@ export type DetailResult =
   | { kind: "not_found" };
 
 /** An English page is indexed when its report is one of several on its event: the page then has an event to stand in. */
-export const INDEXED_MIN_REPORTS = 2;
 
 /** Adds stable ids to h2–h4 and returns the outline. */
 function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
@@ -169,9 +168,8 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     indexable: row.indexable,
     // FR-001/FR-002: the editor's index mark is shown on the page as the curation date.
     curatedAt: row.curated_at?.toISOString() ?? null,
-    // FR-012: the English page follows the Chinese page's curation decision, then adds its own bar
-    // (English copy of its own, event of several reports).
-    englishIndexable: row.indexable && !!row.en_title && (event?.n ?? 0) >= INDEXED_MIN_REPORTS,
+    // English pages with their own current translated copy may appear in search even for single-report events.
+    englishIndexable: row.indexable && !!row.en_title,
     markdownAvailable: markdownAvailable(row),
     group,
     hasTranslation: reading.hasTranslation,
