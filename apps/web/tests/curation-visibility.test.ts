@@ -31,6 +31,7 @@ const api = createServer((req, res) => {
   if (url === '/api/site/meta') return res.end(JSON.stringify({ changelogVersion: '2026-01-01T00:00' }));
   if (url === '/api/site/changelog') return res.end(JSON.stringify({ releases: [], latestVersion: '2026-01-01T00:00' }));
   if (url === '/api/site/stories/curated-note') return res.end(JSON.stringify(storyDetail('curated-note', { curatedAt: at, note: true, indexable: false })));
+  if (url === '/api/site/stories/curated-story') return res.end(JSON.stringify(storyDetail('curated-story', { curatedAt: at, note: false, indexable: true })));
   if (url === '/api/site/stories/plain-story') return res.end(JSON.stringify(storyDetail('plain-story', { curatedAt: null, note: false, indexable: true })));
   if (url === '/api/site/items/curated-item') return res.end(JSON.stringify(itemDetail('curated-item', at)));
   if (url === '/api/site/items/plain-item') return res.end(JSON.stringify(itemDetail('plain-item', null)));
@@ -42,7 +43,7 @@ before(async () => { web = await startWebServer(api); });
 after(() => web.stop());
 
 test('CA-01: a curated event names its curation date; an uncurated one does not', async () => {
-  const curated = cheerio.load(await (await fetch(`${web.origin}/story/curated-note`)).text());
+  const curated = cheerio.load(await (await fetch(`${web.origin}/story/curated-story`)).text());
   assert.ok(curated('body').text().includes('编辑策展于'), 'the curation line renders');
   assert.ok(curated('body').text().includes('2026-10-24'), 'with its date');
   const plain = cheerio.load(await (await fetch(`${web.origin}/story/plain-story`)).text());
@@ -56,9 +57,11 @@ test('CA-02: a curated item names its curation date; an uncurated one does not',
   assert.ok(!plain('body').text().includes('编辑策展于'), 'no curation line without a mark');
 });
 
-test('CA-03: a thin single-source event is labelled a quick note and stays noindex', async () => {
-  const $ = cheerio.load(await (await fetch(`${web.origin}/story/curated-note`)).text());
-  assert.ok($('body').text().includes('快讯'), 'the note badge renders');
-  const robots = $('meta[name="robots"]').attr('content') ?? '';
-  assert.match(robots, /noindex/, 'the note page is not indexed');
+test('EO/FR-003: a quick note event forwards to its one report, reversibly', async () => {
+  const res = await fetch(`${web.origin}/story/curated-note`, { redirect: 'manual' });
+  assert.equal(res.status, 302, 'the thin single-source event page redirects');
+  assert.equal(res.headers.get('location'), '/items/curated-note-r', 'to its only report');
+  // A regular event keeps its own page.
+  const kept = await fetch(`${web.origin}/story/plain-story`);
+  assert.equal(kept.status, 200, 'a multi-report event does not redirect');
 });

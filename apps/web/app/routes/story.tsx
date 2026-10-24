@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IntentLink } from "../components/ui/IntentLink";
-import { Link, useLoaderData, useLocation } from "react-router";
+import { Link, redirect, useLoaderData, useLocation } from "react-router";
 import type { Route } from "./+types/story";
 import type { StoryDetail, StoryReportView, StoryRoute } from "@aihot/contracts/site";
 import { SITE } from "@aihot/site";
@@ -13,6 +13,7 @@ import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
 import { englishText } from "../lib/english";
+import { isEnglishPath } from "../lib/edition";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
 import { Badge, SelectedBadge } from "../components/ui/Badge";
@@ -35,6 +36,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   // The story route is derived from the story itself; its absence hides one panel, not the page.
   const routePromise = apiGet<StoryRoute>(`/api/site/stories/${encodeURIComponent(params.publicId)}/route`, { signal: request.signal, timeoutMs: 4_000 }).catch(() => null);
   const [story, market, route] = await Promise.all([storyPromise, marketPromise, routePromise]);
+  // A quick note (a single short-digest source) has no event page of its own (specs/004-editorial-ops
+  // FR-003): its one report's page carries everything, so the address forwards there, 302 to stay reversible.
+  const note = story.note && story.reportCount === 1 ? story.timeline[0] ?? null : null;
+  if (note) throw redirect(`${isEnglishPath(new URL(request.url).pathname) ? "/en" : ""}/items/${encodeURIComponent(note.id)}`);
   return cachedPage(120, { story, market, route });
 }
 
@@ -339,7 +344,6 @@ export default function StoryPage() {
         <div className="flex items-center gap-2 text-[12px] text-ink-4">
           EVENT / {t("热点事件","TOPIC")}
           <Badge tone={status.tone}>{t(status.label, story.status === "active" ? "Active" : story.status === "watching" ? "Watching" : "Historical")}</Badge>
-          {story.note && <Badge tone="neutral">{t("快讯", "Note")}</Badge>}
         </div>
         <h1 data-page-title="" className="mt-2.5 text-[27px] font-bold leading-[1.5] tracking-[-0.01em] text-ink lg:mt-3 lg:text-[36px] lg:font-[730]">{displayTitle}</h1>
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px] text-ink-3">
