@@ -28,27 +28,25 @@ export const headers: Route.HeadersFunction = () => ({ "Cache-Control": "no-stor
 /** The admin navigation: the modules' own groups first, their content entries after 信源. */
 const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
   ...webModules().flatMap((m) => m.admin?.groups ?? []),
-  {
-    group: "内容",
-    items: [
+  { group: "运营", items: [
+      { to: "/admin/runs", label: "运行与积压", count: "runs", tone: "bad" },
+      { to: "/admin/analytics", label: "流量与效果" },
+    ] },
+  { group: "内容", items: [
+      { to: "/admin/sources", label: "新闻信源", count: "sources", tone: "bad" },
       { to: "/admin/content", label: "内容诊断" },
       { to: "/admin/notes", label: "编辑手记" },
-      { to: "/admin/sources", label: "信源", count: "sources", tone: "bad" },
       ...webModules().flatMap((m) => m.admin?.content ?? []),
+    ] },
+  { group: "模型", items: [
+      { to: "/admin/models", label: "Provider 与工作流模型" },
+      { to: "/admin/selectbench", label: "模型评测" },
+    ] },
+  { group: "其他", items: [
       { to: "/admin/feedback", label: "反馈", count: "feedback", tone: "accent" },
-      { to: "/admin/analytics", label: "流量与行为" },
-    ],
-  },
-  {
-    group: "系统",
-    items: [
-      { to: "/admin/runs", label: "运行", count: "runs", tone: "bad" },
-      { to: "/admin/models", label: "模型与评测" },
-      { to: "/admin/selectbench", label: "SelectBench" },
       { to: "/admin/settings", label: "设置" },
       { to: "/admin/audit", label: "审计记录" },
-    ],
-  },
+    ] },
 ];
 
 type Counts = Pick<Route.ComponentProps["loaderData"], "counts" | "countsKey">;
@@ -84,6 +82,9 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
   const location = useLocation();
   const groups = nav();
   const flat = groups.flatMap((g) => g.items);
+  const primary = new Set(["/admin/runs", "/admin/models", "/admin/sources", "/admin/content", "/admin/analytics"]);
+  const mobileMain = flat.filter(i => primary.has(i.to));
+  const mobileMore = flat.filter(i => !primary.has(i.to));
   return (
     <div className="flex min-h-dvh bg-bg">
       <NavigationProgress active={navigation.state === "loading"} />
@@ -121,8 +122,8 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
             <span className="text-[14px] font-semibold text-ink">{`${SITE.name} 后台`}</span>
             {me.dev && <span className="rounded bg-amber/15 px-1.5 text-[11px] font-medium text-amber">开发</span>}
           </div>
-          <nav className="no-scrollbar flex gap-1 overflow-x-auto px-3 py-2">
-            {flat.map((i) => {
+          <nav aria-label="后台主要操作" className="no-scrollbar flex gap-1 overflow-x-auto px-3 py-2">
+            {mobileMain.map((i) => {
               const active = location.pathname === i.to || location.pathname.startsWith(`${i.to}/`);
               return (
                 <NavLink key={i.to} to={i.to} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[13px] ${active ? "bg-ink text-bg" : "text-ink-3"}`}>
@@ -131,6 +132,12 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
                 </NavLink>
               );
             })}
+            <details className="group relative shrink-0">
+              <summary className="cursor-pointer list-none whitespace-nowrap rounded-full px-3 py-1 text-[13px] text-ink-3 hover:bg-surface">更多 <span aria-hidden="true">▾</span></summary>
+              <div className="absolute right-0 top-full z-50 mt-2 max-h-[65vh] w-48 overflow-y-auto rounded-panel border border-line bg-bg p-2 shadow-lg">
+                {mobileMore.map(i => <NavLink key={i.to} to={i.to} className="block rounded-control px-3 py-2 text-[13px] text-ink hover:bg-bg-sunk">{i.label}</NavLink>)}
+              </div>
+            </details>
           </nav>
         </div>
         <main className="min-w-0 flex-1">
