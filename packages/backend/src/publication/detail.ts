@@ -7,7 +7,7 @@ import { stripTagMarkup } from "../lib/text.ts";
 import { proxyBodyImages } from "../media/imgproxy.ts";
 import { textToHtml } from "../content/sanitize.ts";
 import { exportTranslation, isChineseBody, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
-import { evidenceCondition, listedCondition, storyReportCondition } from "./scope.ts";
+import { evidenceCondition, listedCondition } from "./scope.ts";
 import { itemUrl, siteUrl } from "./links.ts";
 import { hasItemPage, publicSourceName } from "./rules.ts";
 import { topicLinks, topicMembership } from "./topics.ts";
@@ -152,9 +152,6 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
 
   // The reason goes with the seat; a report yielding it points to the one holding it.
   const sameEvent = (await seatHolders([row], now)).get(row.id) ?? null;
-  const [event] = row.story_public_id ? await sql<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM publications p JOIN sources s ON s.id = p.source_id
-    WHERE p.story_id = (SELECT id FROM stories WHERE public_id = ${row.story_public_id}) AND ${storyReportCondition(now)}` : [];
   const item: SiteItemDetail = {
     ...summary,
     x,
