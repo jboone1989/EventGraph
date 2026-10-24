@@ -215,9 +215,11 @@ async def relations_by_entity(uuid: str, as_of: datetime | None = None, clock: s
         "RETURN " + EDGE_COLUMNS + " ORDER BY r.created_at DESC",
         uuid=uuid, as_of=as_of, clock=clock, routing_="r",
     )
-    # summary: Graphiti's own entity summary, written when episodes were ingested (not at read time).
+    # Graphiti overwrites entity summaries in place; they have no historical versions.
+    # Never return the current summary as though it were known at a past as_of.
+    # The retained, time-filtered relations are the only supported historical evidence.
     result = {"entity": {"key": uuid, "name": nodes[0]["name"], "kind": "entity",
-                         "summary": nodes[0].get("summary") or None},
+                         "summary": (nodes[0].get("summary") or None) if as_of is None else None},
               **(await relation_results(rows, as_of, clock))}
     if as_of is not None:
         result["temporalSupport"] = "bitemporal-v1"
