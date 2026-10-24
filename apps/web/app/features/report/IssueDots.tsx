@@ -159,8 +159,8 @@ export function IssueDots({ kind, reportKey, issueNumber, index, lang = "zh", cl
       </div>
       {grid.heads && (
         <div className="mt-2 grid text-center text-[10px] leading-none text-ink-4" style={{ gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))` }}>
-          {grid.heads.map((h) => (
-            <span key={h}>{h}</span>
+          {grid.heads.map((h, i) => (
+            <span key={`${h}-${i}`}>{h}</span>
           ))}
         </div>
       )}

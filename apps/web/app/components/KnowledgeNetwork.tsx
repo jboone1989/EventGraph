@@ -42,7 +42,10 @@ function layout(edges: KnowledgeEdge[]) {
     const angle = -Math.PI / 2 + 2 * Math.PI * index / Math.max(1, count) + orbit * 0.17;
     const radiusX = orbit * 195;
     const radiusY = orbit * 135;
-    return [node.key, { x: 390 + Math.cos(angle) * radiusX, y: 225 + Math.sin(angle) * radiusY }] as const;
+    // Round after the trig: server and browser V8 builds can differ by 1 ulp on cos/sin,
+    // and React hydration compares the rendered coordinate strings verbatim.
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+    return [node.key, { x: round2(390 + Math.cos(angle) * radiusX), y: round2(225 + Math.sin(angle) * radiusY) }] as const;
   }));
   return { nodes, coords, visibleEdges: edges.filter(e => coords.has(e.subject.key) && coords.has(e.object.key)) };
 }
