@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   check:
+    if: github.event_name != 'push' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -121,6 +122,7 @@ jobs:
         run: tail -n 60 "$RUNNER_TEMP/api.log" "$RUNNER_TEMP/web.log" 2>/dev/null || true
 
   e2e:
+    if: github.event_name != 'push' || github.ref_name == 'develop'
     # Its own job, so a red backend test does not hide what the browser checks find.
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -217,7 +219,7 @@ jobs:
   # CI success on develop/main publishes one immutable image; only develop auto-deploys.
   publish:
     needs: [check, e2e]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref_name == 'develop'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -355,6 +357,87 @@ jobs:
           if test -f "$RUNNER_TEMP/ci-published-image.yml"; then
             docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" down -v
           fi
+
+  # Main consumes exactly the already tested develop image digest, never rebuilds.
+  promote:
+    if: github.event_name == 'push' && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: read
+      checks: read
+    outputs:
+      image_ref: ${{ steps.pin.outputs.image_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate pinned develop release
+        id: pin
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source .github/production-image.env
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE_REF" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]]
+          git fetch origin "$SOURCE_SHA"
+          # Source equivalence except automation and host-only deployment files.
+          git diff --quiet "$SOURCE_SHA" HEAD -- . \
+            ':(exclude).github/**' ':(exclude)scripts/deploy-prod.sh' \
+            ':(exclude)docs/ci-cd.md' ':(exclude)docs/production-deployment.md'
+          gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100" \
+            --jq '.check_runs[] | select(.conclusion == "success") | .name' > "$RUNNER_TEMP/develop-checks"
+          for check in check e2e publish; do
+            grep -Fxq "$check" "$RUNNER_TEMP/develop-checks" || { echo "::error::Missing successful develop $check"; exit 1; }
+          done
+          echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR (read only)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Confirm immutable digest exists (no rebuild)
+        env:
+          IMAGE_REF: ${{ steps.pin.outputs.image_ref }}
+        run: docker buildx imagetools inspect "$IMAGE_REF"
+
+  # VM09 production deployment is opt-in until host SSH credentials are configured.
+  deploy_production:
+    needs: promote
+    if: >-
+      ${{ needs.promote.outputs.image_ref != '' &&
+          vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: eventgraph-prod-rollout
+      cancel-in-progress: false
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Deploy pinned image on VM09
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ vars.EVENTGRAPH_PROD_HOST }}
+          username: ${{ vars.EVENTGRAPH_PROD_USER }}
+          key: ${{ secrets.EVENTGRAPH_PROD_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+          envs: GHCR_TOKEN,GHCR_USER
+          command_timeout: 13m
+          version: '1.8.2'
+          script: |
+            cd /home/ubuntu/livingruntime-prod-source
+            bash scripts/deploy-prod.sh
 
   deploy_development:
     needs: publish
