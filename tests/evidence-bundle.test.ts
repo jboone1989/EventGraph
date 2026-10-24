@@ -139,8 +139,8 @@ test('known-time graph chooses ingested revision as of selected time, not curren
   const asOf = new Date(first.getTime() + 1000);
   await sql`
     INSERT INTO graphiti_ingestions(article_id,revision,episode_id,ingested_at)
-    VALUES ('eb-public',1,'episode-eb-r1',${first}),
-           ('eb-public',3,'episode-eb-r3',${second})`;
+    VALUES ('eb-public',1,${randomUUID()},${first}),
+           ('eb-public',3,${randomUUID()},${second})`;
   await graphForStory(publicId, {asOf, clock: 'known'});
   assert.ok(lastGraphRequest?.articles.includes('eb-public:r1'), 'previously ingested revision remains available');
   assert.ok(!lastGraphRequest?.articles.includes('eb-public:r3'), 'later revision must not appear early');
