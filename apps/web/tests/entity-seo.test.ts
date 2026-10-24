@@ -21,11 +21,12 @@ const api = createServer((req, res) => {
     return res.end(JSON.stringify({ code: 'not_found' }));
   }
   const key = matched[1]!;
+  // Actual Graphiti entity API contract: unavailable and missing entities both answer HTTP 200.
+  if (key === 'unavailable' || key === 'disabled')
+    return res.end(JSON.stringify({ entity: null, entities: 0, edges: [], status: key }));
   const name = names[key];
-  if (!name) {
-    res.statusCode = 404;
-    return res.end(JSON.stringify({ code: 'not_found' }));
-  }
+  if (!name)
+    return res.end(JSON.stringify({ entity: null, entities: 0, edges: [], status: 'ok' }));
   const node = { key, name, kind: 'concept' };
   const other = { key: 'other', name: 'United States', kind: 'location' };
   const edges = key === 'empty' ? [] : [{
@@ -65,5 +66,23 @@ test('named entities with sourced relations remain indexable in both languages',
 
 test('entities without public relations still stay noindex', async () => {
   const $ = await tags('/knowledge/entity/empty');
+  assert.match($('meta[name="robots"]').attr('content') ?? '', /noindex/);
+});
+
+// Graphiti's real contract returns HTTP 200 even when its JSON status says unavailable/disabled.
+test('Graphiti outages return 503 rather than a cached 200/noindex entity page', async () => {
+  for (const route of [
+    '/knowledge/entity/unavailable', '/en/knowledge/entity/unavailable',
+    '/knowledge/entity/disabled', '/en/knowledge/entity/disabled',
+  ]) {
+    const response = await fetch(web.origin + route);
+    assert.equal(response.status, 503);
+  }
+});
+
+test('missing entities remain a readable 200/noindex page under the current API contract', async () => {
+  const response = await fetch(web.origin + '/knowledge/entity/absent');
+  assert.equal(response.status, 200);
+  const $ = cheerio.load(await response.text());
   assert.match($('meta[name="robots"]').attr('content') ?? '', /noindex/);
 });
