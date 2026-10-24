@@ -37,6 +37,13 @@ for (const s of sources) {
   added += inserted.length;
 }
 console.log(`sources: ${added} added, ${sources.length - added} already there`);
+// PR #97 may have already inserted these feeds before their wall-clock timezone was specified.
+// Fill only the missing key; preserve all other settings and explicit admin timezones.
+await sql`
+  UPDATE sources
+  SET config = config || jsonb_build_object('publishedAtUtcOffset', '+08:00')
+  WHERE id IN ('nbs-data-release', 'nbs-latest-releases-en')
+    AND kind = 'rss' AND NOT (config ? 'publishedAtUtcOffset')`;
 // NVIDIA Developer Program endpoint: default conservative request budget, not a money limit.
 // An administrator can adjust this; setup never overwrites an existing setting.
 await sql`INSERT INTO budgets (service, per_minute, per_hour, per_day, note)
