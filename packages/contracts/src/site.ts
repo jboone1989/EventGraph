@@ -411,6 +411,8 @@ export interface ReportDetail {
   overview: string | null;
   /** A daily's overview in English, written from the Chinese one; null when there is none (English omits the block). */
   overviewEn: string | null;
+  /** The editor's own note above a daily (specs/004-editorial-ops FR-001); absent on non-dailies and unwritten days. */
+  editorNote?: { note: string; noteEn: string | null } | null;
   highlights: ReportCitation[];
   /** As edited: daily categories, weekly and monthly themes. */
   sections: Array<{ label: string; summary: string | null; items: ReportCitation[] }>;

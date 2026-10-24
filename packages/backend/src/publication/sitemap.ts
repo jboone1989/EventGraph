@@ -3,6 +3,7 @@
 import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ABOUT, ACCESS, AGENT, POLICY, SEO, SITE } from "@aihot/site";
+import { CALENDAR } from "@aihot/site/calendar";
 import { config, REPO_ROOT } from "../config.ts";
 import { sha256, stableJson } from "../lib/ids.ts";
 import { loadChangelog } from "../site/meta.ts";
@@ -65,6 +66,8 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
     { loc: "/topics", revision: sha256(stableJson(topics)), changefreq: "daily", priority: 0.7 },
     // The Chinese knowledge page carries the latest issue's graph changes as text (specs/003-content-assets FR-007).
     { loc: "/knowledge", changefreq: "daily", priority: 0.6 },
+    // The curated release calendar (specs/004-editorial-ops FR-002); its revision is the data itself.
+    { loc: "/calendar", revision: sha256(stableJson(CALENDAR)), changefreq: "weekly", priority: 0.5 },
     ...serverModules().flatMap((m) => m.sitemap?.pages ?? []),
     { loc: "/agent", revision: sha256(stableJson([SITE, ACCESS, AGENT])), changefreq: "weekly", priority: 0.7 },
     { loc: "/about", revision: sha256(stableJson(ABOUT)), changefreq: "monthly", priority: 0.5 },
@@ -73,7 +76,7 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
     { loc: "/changelog", revision: sha256(stableJson(loadChangelog())), changefreq: "weekly", priority: 0.5 },
   );
   // The English edition's own addresses (the site's /en pages; their Chinese pages carry hreflang to them).
-  for (const loc of ["/", "/hot", "/knowledge", "/daily", "/topics", "/privacy", "/terms"]) {
+  for (const loc of ["/", "/hot", "/knowledge", "/daily", "/topics", "/calendar", "/privacy", "/terms"]) {
     const zh = entries.find((e) => e.loc === loc);
     entries.push({ loc: loc === "/" ? "/en" : `/en${loc}`, revision: zh?.revision, changefreq: zh?.changefreq ?? "daily", priority: 0.6 });
   }

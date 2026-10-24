@@ -32,6 +32,7 @@ const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
     group: "内容",
     items: [
       { to: "/admin/content", label: "内容诊断" },
+      { to: "/admin/notes", label: "编辑手记" },
       { to: "/admin/sources", label: "信源", count: "sources", tone: "bad" },
       ...webModules().flatMap((m) => m.admin?.content ?? []),
       { to: "/admin/feedback", label: "反馈", count: "feedback", tone: "accent" },

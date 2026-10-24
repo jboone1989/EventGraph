@@ -2,7 +2,6 @@ import { useLoaderData } from "react-router";
 import type { Route } from "./+types/report-latest";
 import type { ReportLatestPage } from "@aihot/contracts/site";
 import { REPORTS, subjectAfter, withSubject } from "@aihot/site";
-import { EDITOR_NOTES } from "@aihot/site/editor-notes";
 import { apiGet, cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { localized, pageMeta, reportLd } from "../lib/seo";
@@ -26,7 +25,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const graph = kind === "daily" && report
     ? await apiGet<DailyGraphChanges>(`/api/site/knowledge/daily/${report.key}`, { signal: request.signal, timeoutMs: 2_000 }).catch(() => null)
     : null;
-  return cachedPage(600, { kind, report, index, graph, today: beijingDate(Date.now()) });
+  // The daily's editor note rides here too (FR-001): cap its page cache at the api's 120s freshness.
+  return cachedPage(kind === "daily" ? 120 : 600, { kind, report, index, graph, today: beijingDate(Date.now()) });
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
@@ -52,8 +52,8 @@ export default function ReportLatestPage() {
   const language = useUiLanguage();
   const t = useText();
   const { kind, report, index, graph, today } = useLoaderData<typeof loader>();
-  // The editor's own note for this daily, written in site/editor-notes.ts (specs/003-content-assets FR-004).
-  const editorNote = kind === "daily" && report ? EDITOR_NOTES[report.key] ?? null : null;
+  // The editor's own note for this daily, written in the admin (specs/004-editorial-ops FR-001).
+  const editorNote = kind === "daily" && report?.editorNote ? { note: report.editorNote.note, noteEn: report.editorNote.noteEn ?? undefined } : null;
   return (
     <ReportLayout kind={kind} index={index} current={report?.key ?? null} today={today} outline={report ? reportOutline(report, language) : []}>
       {report ? (

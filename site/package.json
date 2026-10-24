@@ -15,6 +15,7 @@
     "./pages/*": "./pages/*",
     "./brand/*": "./brand/*",
     "./editor-notes": "./editor-notes.ts",
-    "./topic-briefs": "./topic-briefs.ts"
+    "./topic-briefs": "./topic-briefs.ts",
+    "./calendar": "./calendar.ts"
   }
 }

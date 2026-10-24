@@ -9,7 +9,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 
 base=os.environ.get("LRSITE_SMOKE_URL","http://127.0.0.1:3000").rstrip("/")
-pages=["/","/all","/hot","/knowledge","/topics","/daily","/daily/archive","/feedback","/about","/privacy","/terms","/robots.txt","/sitemap.xml"]
+pages=["/","/all","/hot","/knowledge","/topics","/daily","/daily/archive","/feedback","/about","/privacy","/terms","/calendar","/robots.txt","/sitemap.xml"]
 failure=[]
 PLACEHOLDERS=(b"\xe8\xaf\xb7\xe5\xa1\xab\xe5\x86\x99",b"\xe8\xaf\xb7\xe5\x86\x99\xe6\x98\x8e")  # 请填写 / 请写明
 def get(path,url=None,max_bytes=400000):
@@ -25,6 +25,11 @@ for path in pages:
     status,html,_=get(path)
     if status!=200 or not html:failure.append(path+" status="+str(status))
     print(path,status,len(html))
+# The calendar subscription answers as a calendar, not as a page (specs/004-editorial-ops FR-002).
+status,ics,ctype=get("/calendar.ics")
+print("/calendar.ics",status,ctype,len(ics))
+if status!=200 or not ics.startswith(b"BEGIN:VCALENDAR"):failure.append("/calendar.ics is not a calendar")
+if "text/calendar" not in (ctype or ""):failure.append("/calendar.ics content-type is not text/calendar")
 status,home,_=get("/")
 if b"EventGraph" not in home or b"adsbygoogle.js" in home or b"google-adsense-account" in home:
     failure.append("Home title or AdSense verification is incorrect")

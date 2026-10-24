@@ -14,6 +14,7 @@ import {isVerifiedFreeTrialProvider} from "@aihot/backend/providers/registry/typ
 import {probeConfiguredProvider} from "@aihot/backend/providers/registry/probe";
 import {startBulkRun,latestBulkRun} from "@aihot/backend/providers/registry/bulk";
 import { contentChain, curatePending, overrideFields, rerun, searchContent, setSeoIndexed, setSeoIndexedBatch, setVisibility } from "@aihot/backend/admin/content";
+import { listNotes, saveNote } from "@aihot/backend/admin/notes";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
 import { banSource, eraseFeedback, feedbackScreenshot, listFeedback, unbanSource, updateFeedback } from "@aihot/backend/admin/feedback";
 import { requeueFailedArticles, runsOverview } from "@aihot/backend/admin/runs";
@@ -63,6 +64,9 @@ export function registerAdmin(app: FastifyInstance) {
   // The daily curation queue and its batch decision (specs/002-adsense-readiness FR-008).
   app.get("/api/admin/content/curate-pending", adminHandler(async (req) => ({ rows: await curatePending(Number(q(req).days ?? 3) || 3) })));
   app.post("/api/admin/content/seo-batch", adminHandler(async (req, _reply, admin) => setSeoIndexedBatch(body(req) as never, actorOf(admin))));
+  // The editor's daily notes (specs/004-editorial-ops FR-001): listed and saved from the admin.
+  app.get("/api/admin/notes", adminHandler(async (req) => ({ rows: await listNotes(Number(q(req).days ?? 60) || 60) })));
+  app.post("/api/admin/notes", adminHandler(async (req, _reply, admin) => saveNote(body(req) as never, actorOf(admin))));
   app.get("/api/admin/content/:id", adminHandler(async (req, reply) => orNotFound(req, reply, await contentChain(param(req, "id")))));
   app.post("/api/admin/content/:id/visibility", adminHandler(async (req, _reply, admin) => setVisibility(param(req, "id"), body(req) as never, actorOf(admin))));
   app.post("/api/admin/content/:id/seo", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await setSeoIndexed(param(req, "id"), body(req) as never, actorOf(admin)))));
