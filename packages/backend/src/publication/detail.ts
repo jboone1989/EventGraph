@@ -101,6 +101,7 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
       relatedStories: [],
       topics: [],
       indexable: false,
+      curatedAt: null,
       englishIndexable: false,
       markdownAvailable: false,
       group: null,
@@ -166,6 +167,8 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     relatedStories: related,
     topics: topicLinks(row.topics),
     indexable: row.indexable,
+    // FR-001/FR-002: the editor's index mark is shown on the page as the curation date.
+    curatedAt: row.curated_at?.toISOString() ?? null,
     // FR-012: the English page follows the Chinese page's curation decision, then adds its own bar
     // (English copy of its own, event of several reports).
     englishIndexable: row.indexable && !!row.en_title && (event?.n ?? 0) >= INDEXED_MIN_REPORTS,

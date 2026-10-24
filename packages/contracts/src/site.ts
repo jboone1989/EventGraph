@@ -166,6 +166,8 @@ export interface SiteItemDetail extends ItemSummary {
   /** The topics the report belongs to. */
   topics: TopicLink[];
   indexable: boolean;
+  /** When an editor marked this page for indexing (specs/003-content-assets FR-001); null/absent when not curated. */
+  curatedAt?: string | null;
   /** Whether its English page may be indexed: an English copy exists and the event has several reports. */
   englishIndexable: boolean;
   markdownAvailable: boolean;
@@ -293,6 +295,10 @@ export interface StoryDetail {
   title: string;
   /** Whether the event page may be indexed: an editor curated a report of the event and it is not a thin single-source page (specs/002-adsense-readiness FR-006/FR-009). */
   indexable: boolean;
+  /** The newest curation mark among the event's reports (specs/003-content-assets FR-001); null/absent when uncurated. */
+  curatedAt?: string | null;
+  /** A single-report event whose digest is shorter than the indexing floor: shown as a quick note, not an event (FR-003). */
+  note?: boolean;
   status: "active" | "watching" | "settled";
   reportCount: number;
   sourceCount: number;

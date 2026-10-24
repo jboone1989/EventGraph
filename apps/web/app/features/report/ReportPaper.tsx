@@ -533,7 +533,20 @@ export function reportOutline(report: ReportDetail, lang: DisplayLanguage = "zh"
   ];
 }
 
-export function ReportPaper({ report, index, lang = "zh" }: { report: ReportDetail; index: ReportNavigationEntry[]; lang?: DisplayLanguage }) {
+/**
+ * The day's human-written note, above the issue: what to watch today, what still needs checking.
+ * It is editorial prose, not model output, so English shows it only when the note itself has English.
+ */
+function EditorNote({ text, title }: { text: string; title: string }) {
+  return (
+    <section aria-label={title} className="border-b border-line py-6 @[880px]:py-8">
+      <div className="mono text-[10.5px] font-semibold tracking-[0.18em] text-accent">{title}</div>
+      <p className="mt-2 max-w-[68ch] text-[15px] leading-[1.9] text-ink-2 @[560px]:text-justify">{text}</p>
+    </section>
+  );
+}
+
+export function ReportPaper({ report, index, lang = "zh", editorNote }: { report: ReportDetail; index: ReportNavigationEntry[]; lang?: DisplayLanguage; editorNote?: { note: string; noteEn?: string } | null }) {
   const en = lang === "en";
   const daily = report.kind === "daily";
   const leadStory = leadStoryOf(report, lang);
@@ -546,6 +559,8 @@ export function ReportPaper({ report, index, lang = "zh" }: { report: ReportDeta
   return (
     <article className="@container">
       <Masthead report={report} index={index} quiet={quiet} lang={lang} />
+      {daily && !en && editorNote?.note && <EditorNote text={editorNote.note} title="编辑手记" />}
+      {daily && en && editorNote?.noteEn && <EditorNote text={editorNote.noteEn} title="Editor's note" />}
       {quiet ? (
         !en && report.lead && <QuietFront lead={report.lead} />
       ) : (

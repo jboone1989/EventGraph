@@ -339,6 +339,7 @@ export default function StoryPage() {
         <div className="flex items-center gap-2 text-[12px] text-ink-4">
           EVENT / {t("热点事件","TOPIC")}
           <Badge tone={status.tone}>{t(status.label, story.status === "active" ? "Active" : story.status === "watching" ? "Watching" : "Historical")}</Badge>
+          {story.note && <Badge tone="neutral">{t("快讯", "Note")}</Badge>}
         </div>
         <h1 data-page-title="" className="mt-2.5 text-[27px] font-bold leading-[1.5] tracking-[-0.01em] text-ink lg:mt-3 lg:text-[36px] lg:font-[730]">{displayTitle}</h1>
         <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12.5px] text-ink-3">
@@ -354,6 +355,13 @@ export default function StoryPage() {
             <span className="inline-flex items-center gap-1.5" suppressHydrationWarning>
               <IconClock size={15} className="text-ink-4" />
               {uiLang === "en" ? `${new Date(story.latestAt).toLocaleDateString("en-US", {timeZone:"UTC"})} updated` : `${relativeTime(story.latestAt)}更新`}
+            </span>
+          )}
+          {story.curatedAt && (
+            <span className="inline-flex items-center gap-1.5">
+              <IconDoc size={15} className="text-ink-4" />
+              {t("编辑策展于", "Curated by the editor on")}
+              <time dateTime={story.curatedAt} className="mono font-semibold text-ink">{story.curatedAt.slice(0, 10)}</time>
             </span>
           )}
         </div>
