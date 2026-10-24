@@ -51,7 +51,7 @@ AdSense 就绪整改完成后，站点在合规面已经达标，但三件事仍
 ### 2.7 守护检查（FR-009/010/011）
 
 - CI 的 `check` 任务运行 `npm run adsense:preflight`：政策页占位词或缺失联系邮箱会让 PR 失败。
-- `scripts/production-smoke.py` 增加：政策页占位词扫描、sitemap 全部条目带 `lastmod`、`robots.txt` 含两个 AdSense 爬虫段；当 `SMOKE_EXPECT_HTTPS=1` 时，检查 `http://` 与 apex 域名的 301 归一。
+- `scripts/production-smoke.py` 增加：政策页占位词扫描、sitemap 全部条目带 `lastmod`、`robots.txt` 含两个 AdSense 爬虫段；当 `SMOKE_EXPECT_HTTPS=1` 时，检查 `http://` 与 apex 域名的永久重定向归一（301 或 Caddy 默认的 308；不接受临时 302/307）。
 - 新增 `npm run curation:report`：输出最近 N 天的收录覆盖率（可收录条目/事件、被排除、待策展），用于运营复盘。
 
 ### 2.8 信源补强（FR-012）
@@ -74,7 +74,7 @@ AdSense 就绪整改完成后，站点在合规面已经达标，但三件事仍
 | CA-07 | S1 | 中文 `/knowledge` 出现在 sitemap | sitemap 单测 |
 | CA-08 | S1 | `/more` 含「研究」入口 | web 测试 |
 | CA-09 | S1 | `adsense:preflight` 在 CI 中执行 | workflow diff + CI 结果 |
-| CA-10 | S1 | production-smoke 的占位词/lastmod/robots/301 检查可独立运行 | `python3 scripts/production-smoke.py` 对着本地站通过 |
+| CA-10 | S1 | production-smoke 的占位词/lastmod/robots/永久重定向检查可独立运行 | `python3 scripts/production-smoke.py` 对着本地站通过 |
 | CA-11 | S1 | `curation:report` 输出覆盖率摘要（空库不报错） | 单测/运行记录 |
 | CA-12 | S1 | 3 个新源进入 `industry/sources.json` 且通过现有信源校验测试 | 现有测试 + 抓取探测记录 |
 | CA-13 | S0 | 部署后人工核对：研究入口、编辑手记、主题简报、图谱变化在桌面与手机正常显示 | 发布后核对记录 |
