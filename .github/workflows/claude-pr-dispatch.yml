@@ -1,6 +1,5 @@
-# EventGraph's CI stays unchanged. Forward completed PR checks to the single
-# Claude reviewer already running in jboone1989/livingruntime-remote.
-# workflow_run executes the trusted default-branch workflow, not unreviewed PR files.
+# EventGraph only forwards a completed, passing Check for its exact PR HEAD.
+# All code review still happens on the existing livingruntime-remote Claude Runner.
 name: Forward PR to Claude review
 
 on:
@@ -10,31 +9,50 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   notify:
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.pull_requests[0].number != null &&
-      github.event.workflow_run.conclusion != 'cancelled'
+      github.event.workflow_run.pull_requests[0].number != null
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Send review event to central Runner
+      - name: Notify central Claude reviewer for passing SHA
         env:
-          GH_TOKEN: ${{ secrets.CLAUDE_CENTRAL_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          CENTRAL_TOKEN: ${{ secrets.CLAUDE_CENTRAL_DISPATCH_TOKEN }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          CHECK_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${GH_TOKEN:-}" ]]; then
-            echo "::error::Configure CLAUDE_CENTRAL_DISPATCH_TOKEN: fine-grained token scoped to livingruntime-remote (Contents: write)"
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # workflow_run belongs to a fixed commit. Its pull_requests array can
+          # later reflect a newer PR HEAD, so compare against workflow_run.head_sha.
+          actual="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            --jq '[.state, .draft, .head.sha, .head.repo.full_name] | @tsv')"
+          IFS=$'\t' read -r state draft live_sha head_repo <<< "$actual"
+          if [[ "$state" != open || "$draft" == true || "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+            echo "PR closed, draft, or forked; no dispatch"
+            exit 0
+          fi
+          if [[ "$live_sha" != "$CHECK_SHA" ]]; then
+            echo "Superseded Check SHA; next passing Check will dispatch"
+            exit 0
+          fi
+          if [[ -z "${CENTRAL_TOKEN:-}" ]]; then
+            echo "::error::Set CLAUDE_CENTRAL_DISPATCH_TOKEN: central repo only, Contents: write"
             exit 1
           fi
-          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
-          # GitHub automatically runs the central listener from its default branch.
-          # Send only identifiers; central CLI loads and verifies the live PR head.
-          gh api --method POST repos/jboone1989/livingruntime-remote/dispatches \
+          GH_TOKEN="$CENTRAL_TOKEN" gh api -X POST \
+            repos/jboone1989/livingruntime-remote/dispatches \
             -f event_type=claude-pr-review \
             -f 'client_payload[repository]=jboone1989/EventGraph' \
-            -F "client_payload[pr_number]=$PR_NUMBER"
+            -F "client_payload[pr_number]=$PR_NUMBER" \
+            -f "client_payload[sha]=$CHECK_SHA"
+          echo "Dispatched $GITHUB_REPOSITORY#$PR_NUMBER at $CHECK_SHA"
