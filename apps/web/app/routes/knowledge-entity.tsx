@@ -36,8 +36,10 @@ export function meta({ loaderData, params, location }: Route.MetaArgs) {
   const p = loaderData?.profile;
   const name = p?.entity?.name;
   const path = `/knowledge/entity/${encodeURIComponent(params.key)}`;
-  // An entity with sourced relations is a page worth finding; an empty or unknown one is not.
-  if (!name || !p.edges.length) return pageMeta({ title: `${name ?? "实体档案"} · 知识网络`, path, noindex: true });
+  // An entity with sourced relations is a page worth finding, unless its "name" is a raw source URL.
+  // Source URLs can appear as Graphiti entity labels; preserve the useful page without indexing that label.
+  if (!name || !p.edges.length || /^https?:\/\//i.test(name.trim()))
+    return pageMeta({ title: `${name ?? "实体档案"} · 知识网络`, path, noindex: true });
   const current = p.edges.filter((e) => !e.invalidAt).length;
   const summary = p.entity?.summary ?? null;
   return localized(pageMeta({
