@@ -122,7 +122,7 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
             <span className="text-[14px] font-semibold text-ink">{`${SITE.name} 后台`}</span>
             {me.dev && <span className="rounded bg-amber/15 px-1.5 text-[11px] font-medium text-amber">开发</span>}
           </div>
-          <nav aria-label="后台主要操作" className="no-scrollbar flex gap-1 overflow-x-auto px-3 py-2">
+          <nav aria-label="后台主要操作" className="flex flex-wrap items-center gap-1 px-3 py-2">
             {mobileMain.map((i) => {
               const active = location.pathname === i.to || location.pathname.startsWith(`${i.to}/`);
               return (
