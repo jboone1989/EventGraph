@@ -1052,6 +1052,36 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-bank-of-japan",
+      "name": "Bank of Japan · What's New",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.boj.or.jp/en/rss/whatsnew.xml",
+        "_aihot": { "initialBackfillLimit": 3 }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": ["亚洲", "日本", "金融", "官方公告"],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-rbi-press",
+      "name": "Reserve Bank of India · Press Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://rbi.org.in/pressreleases_rss.xml",
+        "_aihot": { "initialBackfillLimit": 3 }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": ["亚洲", "印度", "金融", "官方公告"],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
     }
   ]
 }
