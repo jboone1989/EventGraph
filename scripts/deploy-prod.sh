@@ -59,6 +59,9 @@ while IFS= read -r path; do
 done < <(git diff --name-only "$APP_BASE" "$NEW_SHA")
 if [[ ! "$APP_TAG" =~ $VALID ]] || ! docker image inspect "livingruntime-app:$APP_TAG" >/dev/null 2>&1; then APP_CHANGED=1; fi
 if [[ ! "$KNOWLEDGE_TAG" =~ $VALID ]] || ! docker image inspect "livingruntime-knowledge:$KNOWLEDGE_TAG" >/dev/null 2>&1; then KNOWLEDGE_CHANGED=1; fi
+# The pin is the release declaration: a repinned digest deploys even with no source diff,
+# and the last run's record (LRSITE_APP_IMAGE_REF) must match what is actually running.
+if [[ "$(read_tag LRSITE_APP_IMAGE_REF)" != "$IMAGE_REF" ]]; then APP_CHANGED=1; fi
 if [[ "${1:-}" == "--check" ]]; then
  echo "Source old=$OLD_SHA new=$NEW_SHA rebuild_app=$APP_CHANGED rebuild_knowledge=$KNOWLEDGE_CHANGED migrate=$SCHEMA_CHANGED"
  LRSITE_APP_RELEASE="${APP_TAG:-$TAG}" LRSITE_KNOWLEDGE_RELEASE="${KNOWLEDGE_TAG:-$TAG}" "${COMPOSE[@]}" config --quiet
@@ -88,14 +91,15 @@ echo "[2/5] Reuse existing Graphiti image and persistent data"
 echo "[3/5] Advance checkout and pin per-service release image"
 git merge --ff-only "$NEW_SHA"
 [[ "$(git rev-parse HEAD)" == "$NEW_SHA" ]] || exit 1
-python3 - "$APP_TAG" "$KNOWLEDGE_TAG" <<'WRITE_RELEASE'
+python3 - "$APP_TAG" "$KNOWLEDGE_TAG" "$IMAGE_REF" <<'WRITE_RELEASE'
 from pathlib import Path
 import os,re,sys
-app,knowledge=sys.argv[1:]
+app,knowledge,image_ref=sys.argv[1:]
 assert all(re.fullmatch(r"[0-9a-f]{12}", tag) for tag in (app,knowledge))
+assert re.fullmatch(r"ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}", image_ref)
 p=Path(".env")
 data=p.read_text()
-for key,tag in {"LRSITE_APP_RELEASE":app,"LRSITE_KNOWLEDGE_RELEASE":knowledge,"LRSITE_RELEASE":app,"AIHOT_RELEASE":app}.items():
+for key,tag in {"LRSITE_APP_RELEASE":app,"LRSITE_KNOWLEDGE_RELEASE":knowledge,"LRSITE_APP_IMAGE_REF":image_ref,"LRSITE_RELEASE":app,"AIHOT_RELEASE":app}.items():
  if re.search(r"^"+key+r"=",data,re.M):
   data=re.sub(r"^"+key+r"=.*$",key+"="+tag,data,flags=re.M)
  else:data+="\n"+key+"="+tag+"\n"
