@@ -76,8 +76,8 @@ if os.environ.get("SMOKE_EXPECT_HTTPS")=="1":
                 except urllib.error.HTTPError as err:
                     code,location=err.code,err.headers.get("Location","")
                 destination=urllib.parse.urljoin(target+"/",location)
-                if code!=301 or destination.rstrip("/")!=base.rstrip("/"):
-                    failure.append(target+" must return 301 directly to the canonical host")
+                if code not in (301,308) or destination.rstrip("/")!=base.rstrip("/"):
+                    failure.append(target+" must return permanent 301/308 directly to the canonical host")
                 print("redirect",target,code,"->",destination)
             except Exception as err:
                 failure.append(target+" "+str(err))
