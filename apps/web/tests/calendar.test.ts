@@ -7,6 +7,7 @@ import { after, before, test } from 'node:test';
 import * as cheerio from 'cheerio';
 import { startWebServer, type WebServer } from './web-server.ts';
 import { CALENDAR, calendarIcs } from '@aihot/site/calendar';
+import { beijingDate } from '@aihot/contracts/time';
 
 let web: WebServer;
 const api = createServer((req, res) => {
@@ -28,7 +29,7 @@ test('the calendar page lists upcoming entries in both editions', async () => {
   const zhText = zh('body').text();
   assert.ok(zhText.includes('政策与数据日历'), 'the page renders');
   assert.ok(zh('a[href="/calendar.ics"]').length > 0, 'the subscription link is there');
-  const upcoming = CALENDAR.filter((e) => e.date >= '2026-10-24');
+  const upcoming = CALENDAR.filter((e) => e.date >= beijingDate(Date.now()));
   for (const e of upcoming) assert.ok(zhText.includes(e.title), `${e.date} entry renders`);
   const en = cheerio.load(await (await fetch(`${web.origin}/en/calendar`)).text());
   const enText = en('body').text();
