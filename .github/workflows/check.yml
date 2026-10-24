@@ -90,6 +90,10 @@ jobs:
         run: node --import ./tests/standalone.ts --test tests/nvidia*.standalone.test.ts
       - name: Typecheck
         run: npm run typecheck
+      # Fail closed on policy-page placeholders or a missing contact email (specs/003-content-assets FR-009):
+      # an AdSense review would reject it, so a PR must not get that far either.
+      - name: AdSense preflight
+        run: npm run adsense:preflight
       - name: Build web
         run: npm run build -w @aihot/web
       - name: Browser test engines
