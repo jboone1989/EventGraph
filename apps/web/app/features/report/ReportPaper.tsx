@@ -13,7 +13,7 @@ import { IntentLink } from "../../components/ui/IntentLink";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import type { ReportCitation, ReportDetail, ReportNavigationEntry } from "@aihot/contracts/site";
-import { REPORTS, SITE, subjectAfter, withSubject } from "@aihot/site";
+import { REPORTS, SITE, subjectAfter } from "@aihot/site";
 import { Badge } from "../../components/ui/Badge";
 import { IconArrowLeft, IconArrowRight, IconArrowUpRight } from "../../components/icons";
 import { Kicker } from "../../components/ui/Kicker";
@@ -56,7 +56,7 @@ function Masthead({ report, index, quiet, lang }: { report: ReportDetail; index:
         <div className="flex min-w-0 flex-col justify-center">
           <h1 id="report-start" className="scroll-mt-[calc(var(--bar-h)+1.5rem)]">
             <span className="sr-only">
-              {en ? `${KIND_LABEL_EN[report.kind]} · ${dateLine(report.kind, report.key, lang)}` : `${before(withSubject(label), label)}${label} · ${dateLine(report.kind, report.key)}`}
+              {en ? `${KIND_LABEL_EN[report.kind]} · ${dateLine(report.kind, report.key, lang)}` : `${label} · ${dateLine(report.kind, report.key)}`}
             </span>
             <Nameplate which={report.kind} className="block h-[44px] w-auto @[520px]:h-[58px] @[880px]:h-[74px] @[1040px]:h-[84px]" />
           </h1>
@@ -465,7 +465,7 @@ function Neighbours({ report, index, lang }: { report: ReportDetail; index: Repo
   const titleOf = (key: string) => {
     const found = index.find((e) => e.key === key)?.title;
     if (en) return englishText(found) ?? `${SITE.name} ${KIND_LABEL_EN[report.kind]} · ${key}`;
-    return found ?? `${withSubject(KIND_LABEL[report.kind])} · ${key}`;
+    return found ?? `${KIND_LABEL[report.kind]} · ${key}`;
   };
   const cell = "group flex min-w-0 flex-col py-6";
   const title = "mt-2.5 line-clamp-2 text-[16px] font-bold leading-[1.5] text-ink transition-colors group-hover:text-accent @[880px]:text-[18px]";
@@ -503,7 +503,7 @@ function History({ report, index, lang }: { report: ReportDetail; index: ReportN
   const titleOf = (e: ReportNavigationEntry) => (en ? englishText(e.title) ?? `${SITE.name} ${KIND_LABEL_EN[report.kind]} · ${e.key}` : e.title ?? `${SITE.name} ${KIND_LABEL[report.kind]} · ${e.key}`);
   return (
     <section id="report-history" className="scroll-mt-[calc(var(--bar-h)+1.5rem)] pt-12">
-      <Kicker>{en ? `Past ${KIND_LABEL_EN[report.kind].toLowerCase()}s` : `${before(subjectAfter("往期", label), label)}${label}`}</Kicker>
+      <Kicker>{en ? `Past ${KIND_LABEL_EN[report.kind].toLowerCase()}s` : report.kind === "daily" ? `往期${label}` : `${before(subjectAfter("往期", label), label)}${label}`}</Kicker>
       <ul className="mt-3">
         {others.map((e) => (
           <li key={e.key}>

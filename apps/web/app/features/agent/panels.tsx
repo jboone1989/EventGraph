@@ -169,7 +169,7 @@ const FEEDS = [
   { name: "精选摘要", badge: "推荐", path: "/feed.xml", desc: "最新 50 条精选，带标题、摘要、站内阅读和原文链接。" },
   { name: "精选全文", path: "/feed/full.xml", desc: "同样的 50 条；允许转载的来源直接附全文，其余仍是摘要。" },
   { name: "全部动态", path: "/feed/all.xml", desc: "最近 7 天的公开动态，按原文发布时间倒序。" },
-  { name: withSubject("日报"), path: "/feed/daily.xml", desc: `每天 ${EDITION_TIMES.daily}（北京时间）一期：头条导语加整期目录，保留最近 30 期。` },
+  { name: "日报", path: "/feed/daily.xml", desc: `每天 ${EDITION_TIMES.daily}（北京时间）一期：头条导语加整期目录，保留最近 30 期。` },
   { name: withSubject("周报"), path: "/feed/weekly.xml", desc: `每周一 ${EDITION_TIMES.weekly}（北京时间）一期：总述加按栏目分好的报道，保留最近 12 期。` },
   { name: withSubject("月报"), path: "/feed/monthly.xml", desc: `每月 1 日 ${EDITION_TIMES.monthly}（北京时间）一期：总述加按栏目分好的报道，保留最近 12 期。` },
 ];

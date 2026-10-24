@@ -12,10 +12,10 @@ test("the workbench is reachable from the sidebar and lists real events", async 
   await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
   await open(page, "/en/explore");
   await expect(page.getByRole("heading", {name: "Event explorer"})).toBeVisible();
-  // The sidebar entry exists where the sidebar exists (desktop); the phone reaches the page
-  // through the More screen and the knowledge page.
+  // The explorer is deliberately off the navigation; readers reach it through deep links
+  // from the event and knowledge pages.
   const sidebar = page.getByRole("navigation", {name: "Main navigation"});
-  if (await sidebar.isVisible()) await expect(sidebar.getByRole("link", {name: "Explorer"})).toHaveAttribute("href", "/explore");
+  if (await sidebar.isVisible()) await expect(sidebar.getByRole("link", {name: "Explorer"})).toHaveCount(0);
   // The landing offers the site's real events, including the seeded one, not invented ones.
   await expect(page.locator(`a[href="/en/explore?story=${seeded.story}"]`).first()).toBeVisible();
   expect(problems).toEqual([]);
@@ -120,7 +120,7 @@ test("the workbench degrades clearly when the graph service is offline", async (
 });
 
 // Entity mode: the same workbench time state drives a focused atlas of one entity's public
-// relations (searched, not guessed), with one-hop growth, pair facts and predicate filters.
+// relations (searched, not guessed), with one-hop growth and pair facts.
 const entity = (key: string, name: string) => ({key, name, kind: "organization"});
 const stubGraphiti = (page: import("@playwright/test").Page) => {
   page.route(/\/api\/site\/knowledge\/centers\?/, (route) => {
@@ -187,22 +187,5 @@ test("entity exploration honors the shared time state", async ({page}) => {
   await page.getByRole("button", {name: "Back to latest"}).click();
   await expect(page).toHaveURL(/entity=e2e-alpha/);
   await expect(page).not.toHaveURL(/asOf=/);
-  expect(problems).toEqual([]);
-});
-
-test("predicate filters narrow the focused canvas", async ({page}) => {
-  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
-  stubGraphiti(page);
-  const problems = watch(page);
-  await open(page, "/en/explore?entity=e2e-alpha");
-  const canvas = page.locator(".lr-atlas-canvas");
-  await expect(canvas).toHaveAttribute("data-rendered-nodes", "3");
-  const uses = page.getByRole("button", {name: /USES/});
-  await expect(uses).toBeVisible();
-  await uses.click();
-  await expect(canvas).toHaveAttribute("data-rendered-nodes", "2");
-  await expect(canvas).toHaveAttribute("aria-label", /1 relations/);
-  await uses.click();
-  await expect(canvas).toHaveAttribute("data-rendered-nodes", "3");
   expect(problems).toEqual([]);
 });

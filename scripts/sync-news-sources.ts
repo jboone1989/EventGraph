@@ -10,7 +10,7 @@ import { closeDb, sql } from "@aihot/backend/db";
 import { assertSupportedConfig } from "@aihot/backend/sources/config-keys";
 
 type NewsSource = {
-  id: string; name: string; kind: "rss"; config: Record<string, unknown>;
+  id: string; name: string; kind: "rss" | "web_list" | "json_list" | "x_search" | "mp_account" | "external"; config: Record<string, unknown>;
   tier: string; owner_entity_id?: string | null; participation_mode: string;
   interval_minutes: number; tags: string[]; site_fulltext: boolean;
   syndicate_fulltext: boolean;
