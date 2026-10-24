@@ -1,6 +1,6 @@
 # Single weekly release window: Sunday 10:00 Asia/Shanghai (02:00 UTC).
 # A manual dispatch is diagnostic only, never a second production release.
-name: Weekly production release
+name: Weekly production release proposal
 
 on:
   schedule:
@@ -8,8 +8,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
+  pull-requests: write
+  actions: read
 
 concurrency:
   group: eventgraph-weekly-production
@@ -21,7 +22,6 @@ jobs:
       ${{ github.repository == 'jboone1989/EventGraph' &&
           github.event_name == 'schedule' &&
           vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
-    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -43,18 +43,7 @@ jobs:
           main_sha="$(git rev-parse origin/main)"
           today="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
           if git merge-base --is-ancestor "$dev_sha" origin/main; then
-            # An earlier run may have pushed main and then failed to dispatch Check.
-            if [[ "$main_subject" == "release(weekly): $today develop@"* ]]; then
-              dispatched="$(gh api "repos/$GH_REPO/actions/workflows/check.yml/runs?branch=main&event=workflow_dispatch&per_page=40" --jq ".workflow_runs[] | select(.head_sha == \"$main_sha\") | .id" | head -n 1)"
-              if [[ -z "$dispatched" ]]; then
-                echo "Recovering release dispatch for main $main_sha"
-                gh workflow run check.yml --ref main -f weekly_release=true
-              else
-                echo "Existing release dispatch $dispatched for main $main_sha; skip duplicate"
-              fi
-            else
-              echo "No new development commits to release"
-            fi
+            echo "No unreleased development commits"
             echo 'RELEASE_SKIP=true' >> "$GITHUB_ENV"
             exit 0
           fi
@@ -111,38 +100,24 @@ jobs:
           version: '1.8.2'
           script_path: scripts/ci/preflight-production.sh
 
-      - name: Promote only the verified develop head to main
+      - name: Propose a protected develop-to-main release PR
         if: env.RELEASE_SKIP != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: \${{ github.token }}
+          GH_REPO: \${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
           git fetch --no-tags origin main develop
-          # Bootstrap check must exist on default main before weekly promotion.
-          git show origin/main:.github/workflows/check.yml | grep -q 'weekly_release:' ||
-            { echo "::error::Bootstrap weekly_release input on main first"; exit 1; }
           dev_sha="$(git rev-parse origin/develop)"
           current="$(gh api "repos/$GH_REPO/branches/develop" --jq '.commit.sha')"
           [[ "$dev_sha" == "$current" ]] || { echo "::error::Develop advanced during preflight"; exit 1; }
           today="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-          if git log -1 --format=%s origin/main | grep -q "^release(weekly): $today "; then
-            echo "Already released this week; no second release"
+          existing="$(gh pr list --head develop --base main --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            echo "Using existing develop-to-main PR #$existing"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B weekly-release origin/main
-          git merge --no-ff --no-commit "$dev_sha"
-          # The built-in GITHUB_TOKEN cannot safely write workflow files.
-          if [[ -n "$(git diff --cached --name-only origin/main -- .github/workflows)" ]]; then
-            echo "::error::CI workflow changes require a separate reviewed bootstrap to main"
-            exit 1
-          fi
-          git commit -m "release(weekly): $today develop@${dev_sha:0:12}"
-          # Never force update main. A concurrent change rejects this push.
-          git push origin HEAD:refs/heads/main
-          # GITHUB_TOKEN pushes do not start another workflow. Explicitly
-          # dispatch existing Check, which will build/publish and deploy by digest.
-          gh workflow run check.yml --ref main -f weekly_release=true
+          gh pr create --base main --head develop \
+            --title "release(weekly): $today develop@\${dev_sha:0:12}" \
+            --body "Verified develop $dev_sha passed CI, immutable-image smoke and deployment preflight. This is the weekly protected promotion PR. Review and merge only after required checks are green; then run existing main Check workflow with weekly_release=true to deploy the published digest. No direct push, bypass or database migration."
