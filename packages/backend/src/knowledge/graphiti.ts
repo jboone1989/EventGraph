@@ -90,20 +90,27 @@ export type GraphTime = { asOf: Date; clock: "known" | "valid" };
 export async function graphForStory(publicId: string, time?: GraphTime): Promise<Graph> {
   if (!process.env.GRAPHITI_API_URL) return emptyGraph("disabled");
   const articles = await sql<{ id: string; revision: number }[]>`
-    SELECT DISTINCT a.id, selected.revision
+    SELECT DISTINCT a.id,
+      CASE WHEN ${time?.clock === "known"} THEN historical.revision
+      ELSE coalesce(
+        (SELECT g.revision FROM graphiti_ingestions g WHERE g.article_id=a.id AND g.revision=a.revision),
+        (SELECT max(g.revision) FROM graphiti_ingestions g WHERE g.article_id=a.id),
+        a.revision)
+      END AS revision
     FROM articles a
-    -- Select an actually ingested episode. For "known" time replay, select the
-    -- latest revision recorded BY asOf, not today's latest article revision.
-    JOIN LATERAL (
+    -- The historical known clock must select the revision that was ingested
+    -- by asOf. Keep existing current/valid behavior for un-ingested mock or
+    -- temporarily unavailable Graphiti episodes.
+    LEFT JOIN LATERAL (
       SELECT g.revision FROM graphiti_ingestions g
-      WHERE g.article_id=a.id
-        AND (${time?.clock !== "known"} OR g.ingested_at <= ${time?.asOf ?? null}::timestamptz)
+      WHERE g.article_id=a.id AND g.ingested_at <= ${time?.asOf ?? null}::timestamptz
       ORDER BY g.revision DESC, g.ingested_at DESC LIMIT 1
-    ) selected ON TRUE
+    ) historical ON TRUE
     JOIN fact_articles fa ON fa.article_id=a.id
     JOIN facts f ON f.id=fa.fact_id
     JOIN stories st ON st.id=f.story_id
     WHERE st.public_id=${publicId}::uuid
+      AND (${time?.clock !== "known"} OR historical.revision IS NOT NULL)
       AND (${time?.asOf ?? null}::timestamptz IS NULL OR
         (${time?.clock === "known"} AND a.discovered_at <= ${time?.asOf ?? null}) OR
         (${time?.clock === "valid"} AND coalesce(a.published_at, a.discovered_at) <= ${time?.asOf ?? null}))
