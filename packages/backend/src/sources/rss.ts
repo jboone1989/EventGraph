@@ -1,6 +1,7 @@
 // RSS 2.0 / Atom / RDF feeds.
 import { XMLParser } from "fast-xml-parser";
 import { fetchListing } from "./listing-fetch.ts";
+import { parseLooseDate } from "./dates.ts";
 import { collapseWhitespace, escapeXml, stripTags } from "../lib/text.ts";
 import { sanitizeBody } from "../content/sanitize.ts";
 import { identityKeyFor } from "../content/materials.ts";
@@ -58,8 +59,13 @@ function mediaDescription(entry: Record<string, any>): string | null {
   return null;
 }
 
-function parseDate(v: string): Date | null {
+function parseDate(v: string, utcOffset?: string): Date | null {
   if (!v) return null;
+  // Use an explicit source offset for wall-clock RSS dates; preserve timezone-bearing RFC dates.
+  if (utcOffset) {
+    const zoned = parseLooseDate(v, utcOffset);
+    if (zoned) return zoned;
+  }
   const t = Date.parse(v);
   if (Number.isFinite(t)) return new Date(t);
   // RFC 822 variants with Chinese weekday or odd zones
@@ -169,6 +175,7 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
     throw new FetchError(`feed parse error: ${String(e).slice(0, 200)}`);
   }
   const summaryIsBody = source.config.summaryIsBody === true;
+  const utcOffset = typeof source.config.publishedAtUtcOffset === "string" ? source.config.publishedAtUtcOffset : undefined;
   const out: Candidate[] = [];
 
   const channel = doc.rss?.channel ?? doc["rdf:RDF"];
@@ -200,7 +207,7 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
         ...(mediaFile ? { identityKey: identityKeyFor({ sourceId: source.id, url: guid, title, via: "fetch" }) } : {}),
         title,
         author: text(it["dc:creator"]) || text(it.author) || null,
-        publishedAt: parseDate(text(it.pubDate) || text(it["dc:date"]) || text(it.published)),
+        publishedAt: parseDate(text(it.pubDate) || text(it["dc:date"]) || text(it.published), utcOffset),
         ...feedText(bodyHtml, description ? stripTags(description) : null, source, !mediaFile && !video),
         ...(videoExcerpt ? { excerpt: videoExcerpt } : {}),
         media: media.slice(0, 6),
@@ -231,8 +238,8 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
         url: entryUrl,
         title,
         author: text(arr(e.author)[0]?.name) || null,
-        publishedAt: parseDate(text(e.published) || text(e.updated)),
-        sourceUpdatedAt: parseDate(text(e.updated)),
+        publishedAt: parseDate(text(e.published) || text(e.updated), utcOffset),
+        sourceUpdatedAt: parseDate(text(e.updated), utcOffset),
         ...feedText(bodyHtml, summary, source, !video, plainBody),
         ...(videoExcerpt ? { excerpt: videoExcerpt } : {}),
         media: bodyHtmlRaw ? imagesFrom(bodyHtmlRaw, entryUrl) : [],

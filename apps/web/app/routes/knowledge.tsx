@@ -17,15 +17,20 @@ export const handle: Screen = { tab: "knowledge", name: "知识网络" };
 export { pageHeaders as headers } from "../lib/api.server";
 export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 export async function loader({ request }: Route.LoaderArgs) {
-  const stats = await apiGet<KnowledgeStats>("/api/site/knowledge/stats", {signal: request.signal, timeoutMs: 4_000}).catch(()=>({episodes: 0, entities: 0, relations: 0, status: "unavailable"} as KnowledgeStats));
-  // The latest daily's graph changes, rendered as text here (specs/003-content-assets FR-006): the
-  // atlas is a canvas, so without this the page carries little for readers or crawlers.
-  const latest = await apiGet<ReportLatestPage>("/api/site/reports/daily/latest-page", { signal: request.signal, timeoutMs: 3_000 }).catch(() => null);
+  // The atlas stats and newest report do not depend on each other: fetch both concurrently.
+  const [stats, latest] = await Promise.all([
+    apiGet<KnowledgeStats>("/api/site/knowledge/stats", { signal: request.signal, timeoutMs: 4_000 })
+      .catch(() => ({ episodes: 0, entities: 0, relations: 0, status: "unavailable" } as KnowledgeStats)),
+    apiGet<ReportLatestPage>("/api/site/reports/daily/latest-page", { signal: request.signal, timeoutMs: 3_000 }).catch(() => null),
+  ]);
   const changesKey = latest?.report?.key ?? null;
-  const changes = changesKey
-    ? await apiGet<DailyGraphChanges>(`/api/site/knowledge/daily/${changesKey}`, { signal: request.signal, timeoutMs: 3_000 }).catch(() => null)
+  const response = changesKey
+    ? await apiGet<DailyGraphChanges>(`/api/site/knowledge/daily/${changesKey}`, { signal: request.signal, timeoutMs: 2_000 }).catch(() => null)
     : null;
-  return cachedPage(60, { stats, changes, changesKey });
+  // GraphChanges itself hides empty/failed windows; hide its adjacent links as well.
+  const changes = response?.status === "ok" &&
+    response.added.count + response.ended.count + response.newEntities.count > 0 ? response : null;
+  return cachedPage(60, { stats, changes, changesKey: changes ? changesKey : null });
 }
 export function meta({ location }: Route.MetaArgs) {
   return localized(pageMeta({ title: `知识网络 | ${SITE.name}`, description: "探索新闻背后的实体关系、历史变化与可追溯的原始来源。", path: "/knowledge" }), location.pathname, {
@@ -68,7 +73,7 @@ export default function KnowledgePage() {
         <div className="mt-8">
           <GraphChanges changes={changes} />
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-ink-4">
-            <Link to={`/daily/${changesKey}`} className="text-accent hover:underline">{t("读当期日报", "Read that daily")}</Link>
+            <Link to={`${lang === "en" ? "/en" : ""}/daily/${changesKey}`} className="text-accent hover:underline">{t("读当期日报", "Read that daily")}</Link>
             <Link to="/daily/archive" className="text-accent hover:underline">{t("往期日报", "Daily archive")}</Link>
             <span>{t("这一期的时间窗口由日报收刊时间决定。", "The window follows that daily issue's cutoff.")}</span>
           </div>
