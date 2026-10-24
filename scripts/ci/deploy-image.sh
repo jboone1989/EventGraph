@@ -12,6 +12,11 @@ esac
 cd "$EVENTGRAPH_DIR"
 test -f .env
 test -f docker-compose.yml
+if [ "${EVENTGRAPH_DEPLOY_ENV:-development}" = production ]; then
+  for file in docker-compose.production.yml docker-compose.knowledge.yml docker-compose.release.yml; do
+    test -f "$file" || { echo "Missing production Compose file: $file" >&2; exit 1; }
+  done
+fi
 umask 077
 # GHCR login is isolated from host-wide Docker credentials.
 dockercfg="$(mktemp -d)"
@@ -37,14 +42,27 @@ cleanup() {
 }
 trap cleanup EXIT
 compose() {
-  docker compose -f docker-compose.yml -f "$overlay" "$@"
+  if [ "${EVENTGRAPH_DEPLOY_ENV:-development}" = production ]; then
+    # Only application images are replaced. DB/Neo4j/knowledge stay untouched.
+    docker compose -p livingruntime -f docker-compose.yml \
+      -f docker-compose.production.yml -f docker-compose.knowledge.yml \
+      -f docker-compose.release.yml -f "$overlay" "$@"
+  else
+    docker compose -f docker-compose.yml -f "$overlay" "$@"
+  fi
 }
 previous=""
 if [ -f .eventgraph-last-good-image ]; then
   previous="$(cat .eventgraph-last-good-image)"
 else
   # First managed release: capture the actual running image (not a mutable tag).
-  running="$(docker compose -f docker-compose.yml ps -q web || true)"
+  if [ "${EVENTGRAPH_DEPLOY_ENV:-development}" = production ]; then
+    running="$(docker compose -p livingruntime -f docker-compose.yml \
+      -f docker-compose.production.yml -f docker-compose.knowledge.yml \
+      -f docker-compose.release.yml ps -q web || true)"
+  else
+    running="$(docker compose -f docker-compose.yml ps -q web || true)"
+  fi
   if [ -z "$running" ]; then
     echo "No running web container or successful release marker: bootstrap first" >&2
     exit 1
