@@ -68,9 +68,13 @@ test('discovery dates follow page content and publication scope', async () => {
 test('dry runs leave changes pending, corrections and disappeared URLs are submitted again', async () => {
   await material('changed-story-item');
   const publicId = randomUUID();
-  const [story] = await sql<{ id: number }[]>`INSERT INTO stories (public_id,title,created_at,updated_at) VALUES (${publicId},'事件','2026-10-01','2026-10-01') RETURNING id`;
+  // The story carries a substantial digest: a single-source story without one is a thin page the
+  // discovery rules leave out (specs/002-adsense-readiness FR-009), and this test is about lifecycle.
+  const [story] = await sql<{ id: number }[]>`INSERT INTO stories (public_id,title,digest,created_at,updated_at) VALUES (${publicId},'事件',${'初始事件综述。'.repeat(20)},'2026-10-01','2026-10-01') RETURNING id`;
   const [fact] = await sql<{ id: number }[]>`INSERT INTO facts (public_id,story_id,title) VALUES (${randomUUID()},${story!.id},'事实') RETURNING id`;
   await sql`INSERT INTO fact_articles (fact_id,article_id,role) VALUES (${fact!.id},'changed-story-item','primary')`;
+  // Publish writes the story/fact projection onto the publication; the curated-report check reads it.
+  await sql`UPDATE publications SET story_id=${story!.id}, fact_id=${fact!.id} WHERE article_id='changed-story-item'`;
   config.indexNowSubmitEnabled = false;
   globalThis.fetch = async () => { throw new Error('dry run made a network request'); };
   assert.equal((await submitIndexNow()).status, 'disabled');
@@ -79,7 +83,7 @@ test('dry runs leave changes pending, corrections and disappeared URLs are submi
   assert.equal((await submitIndexNow()).status, 'sent');
   assert.ok(batches[0]!.some(url => url.endsWith(`/story/${publicId}`)));
   assert.equal((await submitIndexNow()).status, 'empty');
-  await sql`UPDATE stories SET digest='已核实的新进展',digest_updated_at=now(),updated_at=now() WHERE id=${story!.id}`;
+  await sql`UPDATE stories SET digest=${'已核实的新进展。'.repeat(20)},digest_updated_at=now(),updated_at=now() WHERE id=${story!.id}`;
   await sql`UPDATE reports SET content='{"headline":"更正"}',revision=revision+1,updated_at=now() WHERE key='2026-10-01'`;
   await sql`INSERT INTO translations (article_id,revision,body_text,created_at) VALUES ('changed-story-item',1,'新的译文',now())`;
   await submitIndexNow();

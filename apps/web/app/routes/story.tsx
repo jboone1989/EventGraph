@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { IntentLink } from "../components/ui/IntentLink";
 import { Link, useLoaderData, useLocation } from "react-router";
 import type { Route } from "./+types/story";
-import type { StoryDetail, StoryReportView } from "@aihot/contracts/site";
+import type { StoryDetail, StoryReportView, StoryRoute } from "@aihot/contracts/site";
 import { SITE } from "@aihot/site";
 import { apiGet, cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
@@ -12,7 +12,7 @@ import { localizedMonthDay, localizedMonthDayTime, relativeTime } from "../lib/f
 import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
-import { englishText } from "../components/EnglishStory";
+import { englishText } from "../lib/english";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
 import { Badge, SelectedBadge } from "../components/ui/Badge";
@@ -32,8 +32,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   const storyPromise = loadOr404<StoryDetail>(`/api/site/stories/${encodeURIComponent(params.publicId)}`, { signal: request.signal, merged: (id) => `/story/${id}` });
   // Graph availability must never hide an otherwise public event and its source timeline.
   const marketPromise = apiGet<StoryMarket>(`/api/market/stories/${encodeURIComponent(params.publicId)}`, { signal: request.signal, timeoutMs: 1_500 }).catch(() => null);
-  const [story, market] = await Promise.all([storyPromise, marketPromise]);
-  return cachedPage(120, { story, market });
+  // The story route is derived from the story itself; its absence hides one panel, not the page.
+  const routePromise = apiGet<StoryRoute>(`/api/site/stories/${encodeURIComponent(params.publicId)}/route`, { signal: request.signal, timeoutMs: 4_000 }).catch(() => null);
+  const [story, market, route] = await Promise.all([storyPromise, marketPromise, routePromise]);
+  return cachedPage(120, { story, market, route });
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
@@ -46,6 +48,8 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
     path: `/story/${s.publicId}`,
     image: `/og/stories/${s.publicId}.png`,
     type: "article",
+    // FR-006/FR-009: an uncured or thin single-source event page stays readable but out of the index.
+    noindex: !s.indexable,
     jsonLd: [
       storyLd(s),
       // Under the board only while it is a way in, as the back link.
@@ -54,8 +58,9 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   }), location.pathname, {
     title: english?.title ?? englishText(s.englishTitle) ?? "Event timeline",
     description: english ? english.digest.slice(0, 160) : `${s.reportCount} reports from ${s.sourceCount} sources, with the full timeline, knowledge-graph relations and links to the original reporting.`,
-    // Without an English digest of its own (editorial/english.ts) the English page is headlines only and is not indexed.
-    noindex: !english,
+    // Without an English digest of its own (editorial/english.ts) the English page is headlines only and is not indexed;
+    // the curation decision is the Chinese page's (FR-012).
+    noindex: !english || !s.indexable,
   });
 }
 
@@ -198,8 +203,62 @@ type Order = "desc" | "asc";
 // The report filter and shared reading order, per history entry: back from a report restores the view.
 const viewCache = sessionCache<{ savedAt: number; filter: Filter; order: Order }>("aihot:story-view:", 30 * 60 * 1000);
 
+/** The structured story route (EG-T17): station by station, each with its evidence and
+ *  uncertainty, each jumping back into the explorer at the moment the station was recorded. */
+function StoryRoutePanel({ route, storyPublicId }: { route: StoryRoute; storyPublicId: string }) {
+  const t = useText();
+  const uiLang = useUiLanguage();
+  const when = (iso: string) => localizedMonthDayTime(iso, uiLang);
+  const prefix = uiLang === "en" ? "/en" : "";
+  const badge = "rounded border border-line-soft px-1.5 py-0.5";
+  return (
+    <Panel title={t("Story 路线","Story route")}
+      sub={t("从第一份公开证据到最新进展的逐站路线；每一站都带着自己的证据和不确定性。","A station-by-station route from the first public evidence onward; every station carries its own evidence and uncertainty.")}
+      className="order-2">
+      {route.status === "insufficient" ? (
+        <p className="text-[13.5px] leading-[1.7] text-ink-4">
+          {t("公开证据还不足以建立路线，不能把单方说法当作完整脉络。","Public evidence is not enough to build a route; a one-sided claim is not a storyline.")}
+        </p>
+      ) : (
+        <>
+          <ol className="border-l border-line-soft pl-4">
+            {route.stations.map((s, i) => (
+              <li key={s.factId} className="pb-4 last:pb-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-4">
+                  <span className="num font-semibold text-ink-3">{i + 1}</span>
+                  <span className="num">{when(s.timeEffective ?? s.timeRecorded)}</span>
+                  {s.timeEffective && <span className="num">{t("收录于","recorded")} {when(s.timeRecorded)}</span>}
+                  {s.uncertainty.singleSource && <span className={badge}>{t("单一来源","single source")}</span>}
+                  {s.uncertainty.occurredAtMissing && <span className={badge}>{t("时间来自报道","report-time only")}</span>}
+                  {s.uncertainty.revised && <span className={badge}>{t("有修订","revised")}</span>}
+                </div>
+                <p className="mt-1 text-[14px] font-semibold leading-[1.6] text-ink">{s.title}</p>
+                {s.reports[0] && /^https?:\/\//i.test(s.reports[0].url) && (
+                  <a href={s.reports[0].url} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open"
+                    className="mt-1 inline-block text-[12.5px] text-accent hover:underline">
+                    {t("核对原始报道","Read original source")} ↗ {s.reports[0].source}
+                  </a>
+                )}
+                <Link to={`${prefix}/explore?story=${encodeURIComponent(storyPublicId)}&clock=known&asOf=${encodeURIComponent(s.timeRecorded)}`}
+                  className="mt-1.5 inline-flex items-center gap-0.5 text-[12.5px] font-medium text-accent hover:underline">
+                  {t("在探索工作台回到这个时点","Replay this moment in the explorer")} <IconChevronRight size={13} />
+                </Link>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2 text-[12px] leading-[1.6] text-ink-4">
+            {route.limits.truncated
+              ? t("路线有截断；完整证据以探索工作台和证据包为准。","The route is truncated; the explorer and the evidence bundle carry the full evidence.")
+              : t("不确定性标注指出需要核对原文的地方，不是已证实的因果。","Uncertainty marks flag where to check the sources; they are not proven causation.")}
+          </p>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 export default function StoryPage() {
-  const { story, market } = useLoaderData<typeof loader>();
+  const { story, market, route } = useLoaderData<typeof loader>();
   const t=useText();
   const uiLang=useUiLanguage();
   const when = (iso: string) => localizedMonthDayTime(iso, uiLang);
@@ -244,9 +303,6 @@ export default function StoryPage() {
     }
     return out;
   }, [story.timeline, filter, order]);
-  const developments = useMemo(() => [...story.developments].sort((a, b) =>
-    order === "desc" ? Date.parse(b.firstReportAt) - Date.parse(a.firstReportAt) : Date.parse(a.firstReportAt) - Date.parse(b.firstReportAt)
-  ), [story.developments, order]);
   const newest = story.latestReport;
   const latestText = uiLang === "en" ? (englishText(story.timeline.find((r) => r.id === newest?.id)?.english?.title) ?? englishText(story.latest)) : story.latest;
   const overview = uiLang === "en"
@@ -360,6 +416,8 @@ export default function StoryPage() {
             </Panel>
           )}
 
+          {route && <StoryRoutePanel route={route} storyPublicId={story.publicId}/>}
+
           {/* Evidence is grouped by provenance, never synthesized into invented consensus. */}
           <Panel title={t("完整来源索引（截至目前）","Full source archive (current)")} sub={t("目前公开的报道索引，不属于历史回放。","Current public reports; outside the historical replay.")} className="order-2">
             <div className="grid gap-4 md:grid-cols-2">
@@ -391,31 +449,6 @@ export default function StoryPage() {
             </p>
           </Panel>
 
-          {story.developments.length > 1 && (
-            <Panel title={t("事件进展","Developments")} sub={`${story.developments.length} ${t("个进展","updates")}`} className="order-3" right={
-              <Select value={order} onChange={(e) => setOrder(e.target.value as "desc" | "asc")} aria-label={t("事件进展排序","Sort developments")}>
-                <option value="desc">{t("最新在前","Newest first")}</option>
-                <option value="asc">{t("最早在前","Oldest first")}</option>
-              </Select>
-            }>
-              <ol className="relative space-y-4 pl-5 before:absolute before:bottom-2 before:left-[3px] before:top-2 before:w-px before:bg-line">
-                {developments.map((d) => (
-                  <li key={d.factId} className="relative">
-                    <span className={`absolute -left-5 top-[7px] size-[7px] rounded-full ring-4 ring-surface ${d.factId === story.developments[0]?.factId ? "bg-accent" : "bg-line-strong"}`} aria-hidden="true" />
-                    <div className="num text-[12px] text-ink-4">
-                      {when(d.firstReportAt)} · {d.reportCount} {t("篇报道","reports")}
-                    </div>
-                    <Link viewTransition to={reportPath(d.representative.id)} className="mt-0.5 block text-[15px] font-semibold leading-snug text-ink transition-colors hover:text-accent">
-                      {uiLang === "en" ? (englishText(d.title) ?? reportTitle(d.representative)) : d.title}
-                    </Link>
-                    <div className="mt-0.5 truncate text-[12.5px] text-ink-4">
-                      {d.representative.source.name}：{reportTitle(d.representative)}
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </Panel>
-          )}
 
           <Panel
             id={SECTIONS.reports}

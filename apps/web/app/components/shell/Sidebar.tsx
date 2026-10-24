@@ -5,8 +5,7 @@ import { Wordmark } from "@aihot/site/brand/Logo.tsx";
 import { useChangelogSeen } from "../../lib/local-state";
 import { sidebar, sidebarIsActive, type NavItem } from "./nav";
 import { ThemeSwitch } from "./ThemeSwitch";
-import { LanguageSwitch, useUiLanguage } from "../LanguageSwitch";
-import { IconGithub } from "../icons";
+import { useUiLanguage } from "../LanguageSwitch";
 
 /** True while the changelog has an entry newer than the one this reader last opened. */
 export function useChangelogDot(latestVersion: string | null): boolean {
@@ -21,7 +20,7 @@ function SideLink({ item, dot }: { item: NavItem; dot: boolean }) {
   const { pathname } = useLocation();
   const isActive = sidebarIsActive(item, pathname);
   const language = useUiLanguage();
-  const englishLabels: Record<string,string> = {"/":"Overview","/all":"All News","/hot":"Event Tree","/knowledge":"Knowledge Graph","/daily":"Daily Brief","/topics":"Topics","/starred":"Saved","/agent":"For Agents","/about":"About","/changelog":"Updates","/feedback":"Feedback"};
+  const englishLabels: Record<string,string> = {"/":"Overview","/hot":"Event Tree","/knowledge":"Knowledge Graph","/daily":"Daily Brief","/more":"More"};
   const Icon = item.icon;
   return (
     <Link
@@ -35,7 +34,7 @@ function SideLink({ item, dot }: { item: NavItem; dot: boolean }) {
       <span className={`flex w-[22px] shrink-0 justify-center ${isActive ? "text-accent" : ""}`}>
         <Icon size={17} />
       </span>
-      <span className="min-w-0 truncate">{language==="en"?(englishLabels[item.to]??item.label):item.label}</span>
+      <span className="min-w-0 truncate">{language==="en"?(item.labelEn ?? englishLabels[item.to] ?? item.label):item.label}</span>
       {dot && item.changelog && <span className="ml-auto size-1.5 shrink-0 rounded-full bg-hot" aria-label={language==="en"?"New updates":"有新的更新"} />}
     </Link>
   );
@@ -63,18 +62,6 @@ export function Sidebar({ changelogVersion }: { changelogVersion: string | null 
         ))}
       </nav>
       <div className="mt-2 space-y-2.5 px-1 pt-1">
-        {SITE.github && (
-          <a
-            href={SITE.github}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mx-1 flex h-[34px] items-center justify-center gap-1.5 rounded-full border border-line text-[12.5px] text-ink-3 transition-colors hover:bg-bg-sunk hover:text-ink"
-          >
-            <IconGithub size={14} />
-            {language==="en"?"Open-source GitHub":"GitHub 开源"}
-          </a>
-        )}
-        <LanguageSwitch />
         <ThemeSwitch className="mx-1" />
         {SITE.icp && (
           <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="block px-2 text-[10px] text-ink-4 hover:text-ink-3">

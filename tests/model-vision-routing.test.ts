@@ -31,9 +31,9 @@ test("every step takes a model that reads images; only a step that needs images 
   assert.equal(overview.capabilities.find((capability) => capability.key === "understand")?.vision, false);
 });
 
-test("runtime image attachment is explicit rather than probing presets with unspecified vision support", () => {
-  assert.equal(modelSupportsVision("qwen3-vl-flash"), true);
-  assert.equal(modelSupportsVision("glm-5.3-flash"), true);
-  assert.equal(modelSupportsVision("qwen3.8-flash"), false);
-  assert.equal(modelSupportsVision("default"), process.env.LLM_VISION === "true");
+test("runtime image attachment is explicit rather than probing presets with unspecified vision support", async () => {
+  assert.equal(await modelSupportsVision("qwen3-vl-flash"), true);
+  assert.equal(await modelSupportsVision("glm-5.3-flash"), true);
+  assert.equal(await modelSupportsVision("qwen3.8-flash"), false);
+  assert.equal(await modelSupportsVision("default"), process.env.LLM_VISION === "true");
 });

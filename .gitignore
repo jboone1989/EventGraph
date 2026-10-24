@@ -20,3 +20,6 @@ fontsource-noto-sans-sc-*.tgz
 __pycache__/
 *.py[cod]
 *.deb
+
+# Playwright failure artifacts (e2e and web tests)
+test-results/

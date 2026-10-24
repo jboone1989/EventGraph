@@ -213,7 +213,7 @@ async function readIndex(now: Date): Promise<TopicIndex> {
 const indexCache = cached(() => readIndex(new Date()), { freshMs: 60_000, maxStaleMs: 60_000 });
 
 /** A given `now` reads afresh (tests, a clock other than this minute's). */
-const topicIndex = (now?: Date) => (now ? readIndex(now) : indexCache.get());
+export const topicIndex = (now?: Date) => (now ? readIndex(now) : indexCache.get());
 
 const DAY = 86400_000;
 const RECENT_DAYS = 30;

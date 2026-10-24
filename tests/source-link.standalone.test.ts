@@ -15,7 +15,7 @@ const entry: FeedItemSummary = {
 const detail: SiteItemDetail={
   ...entry,x:null,links:{original:link},originalTitle:"Original article",discoveredAt:at,story:null,
   readingMode:"full",author:null,body:null,outline:[],relatedStories:[],topics:[],
-  indexable:true,markdownAvailable:false,group:null,hasTranslation:false,bodyLanguage:"original"
+  indexable:true,englishIndexable:false,markdownAvailable:false,group:null,hasTranslation:false,bodyLanguage:"original"
 };
 let web:WebServer;
 const api=createServer((req,res)=>{

@@ -1,7 +1,7 @@
 // Stories (events) and the hot ranking through the public read layer. The website sees heat values;
 // v1 and MCP only see ranks and counts.
 import type { HeatPoint, HotResponse, StoryDetail, StoryReportView } from "@aihot/contracts/site";
-import { SITE } from "@aihot/site";
+import { SEO, SITE } from "@aihot/site";
 import { sql } from "../db.ts";
 import { cachedByKey, SHARED_ONLY } from "../lib/cache.ts";
 import { proxiedImage, proxiedImageSet } from "../media/imgproxy.ts";
@@ -60,6 +60,7 @@ interface ReportRow extends RepresentativeIdentity {
   summary: string | null;
   url: string;
   selected: boolean;
+  indexable: boolean;
   at: Date;
   discovered_at: Date;
   source_id: string;
@@ -79,7 +80,7 @@ interface ReportRow extends RepresentativeIdentity {
  */
 async function storyReports(storyId: number, now: Date): Promise<ReportRow[]> {
   return sql<ReportRow[]>`
-    SELECT DISTINCT ON (p.article_id) p.article_id AS id, p.title, p.original_title, p.summary, p.url, p.selected,
+    SELECT DISTINCT ON (p.article_id) p.article_id AS id, p.title, p.original_title, p.summary, p.url, p.selected, p.indexable,
       coalesce(p.published_at, p.discovered_at) AS at, p.discovered_at, s.id AS source_id, s.name AS source_name,
       (s.tier = 'T1') AS first_party, f.id AS fact_id,
       CASE WHEN ${compositeCondition()} THEN 'mention' ELSE fa.role END AS role, p.body_mode, p.score, p.timeline_at, ${REPRESENTATIVE_COLUMNS},
@@ -180,9 +181,14 @@ export async function loadStoryDetail(storyId: number, now = new Date()): Promis
   const latestAt = latest.at;
   // Without a digest or a summary of its own, the story opens with its first development's representative report.
   const origin = developments[developments.length - 1]?.representative;
+  // specs/002-adsense-readiness FR-006/FR-009: an event page is indexed only when an editor curated at
+  // least one of its reports, and never as a thin single-source page with a very short digest.
+  const curated = reports.some((r) => r.indexable);
+  const thin = reports.length < 2 && (text.digest?.length ?? 0) < SEO.minSingleSourceDigestChars;
   return {
     publicId: s.public_id,
     title: s.title,
+    indexable: curated && !thin,
     englishTitle: reports.find(r => r.original_title && !/[\u3400-\u9fff]/.test(r.original_title))?.original_title ?? null,
     english: text.english,
     status: storyStatusFor(latestAt, now.getTime()),
@@ -232,15 +238,13 @@ async function sparklines(storyIds: number[], at: Date): Promise<Map<number, Arr
   return out;
 }
 
-// Shared by concurrent readers of a ranking, but read again each time: a cover's visibility and licence
-// follow publication changes.
+// Shared by concurrent readers of a ranking, but read again each time: a cover follows the publication
+// changes of the report it comes from.
 const hotCovers = cachedByKey((ranking: HotRanking) => String(ranking.id), queryHotCovers, { ...SHARED_ONLY, maxKeys: 4 });
 
-/** A picture per story from its public full-text reports, the representative first, wide enough for a card. */
-async function queryHotCovers({ entries }: HotRanking) {
-  const at = new Date();
-  const ids = entries.map((e) => e.storyId);
-  const reps = entries.map((e) => e.representativeItemId).filter((id): id is string => !!id);
+/** A picture per story from its public reports (a stored first image is shown even in summary mode), the representative first, wide enough for a card. */
+export async function coversForStories(storyIds: number[], representativeItemIds: Array<string | null>, at = new Date()) {
+  const reps = representativeItemIds.filter((id): id is string => !!id);
   const rows = await sql<{ story_id: number; m: { url: string; width?: number; height?: number } }[]>`
     SELECT DISTINCT ON (p.story_id) p.story_id, img.m
     FROM publications p JOIN articles a ON a.id = p.article_id
@@ -248,14 +252,19 @@ async function queryHotCovers({ entries }: HotRanking) {
       SELECT m FROM jsonb_array_elements(coalesce(a.media, '[]'::jsonb)) m
       WHERE m->>'kind' = 'image' AND coalesce((m->>'width')::numeric, 800) >= 480 LIMIT 1
     ) img
-    WHERE p.story_id = ANY(${ids}::bigint[]) AND ${listedCondition(at)} AND p.body_mode <> 'summary'
+    WHERE p.story_id = ANY(${storyIds}::bigint[]) AND ${listedCondition(at)}
     ORDER BY p.story_id, (p.article_id::text = ANY(${reps}::text[])) DESC, p.first_party DESC, p.selected DESC, coalesce(p.score, 0) DESC, p.article_id`;
   const covers = new Map(rows.map((c) => [Number(c.story_id), { url: c.m.url, width: typeof c.m.width === "number" ? c.m.width : null, height: typeof c.m.height === "number" ? c.m.height : null }]));
   return covers;
 }
 
+/** A picture per story from its public full-text reports, the representative first, wide enough for a card. */
+async function queryHotCovers({ entries }: HotRanking) {
+  return coversForStories(entries.map((e) => e.storyId), entries.map((e) => e.representativeItemId));
+}
+
 /** The card clips its text to a few lines; complete public words belong to the event page. */
-function excerpt(text: string): string {
+export function excerpt(text: string): string {
   const chars = Array.from(text);
   return chars.length > 480 ? chars.slice(0, 480).join("") + "…" : text;
 }

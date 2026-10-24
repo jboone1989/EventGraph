@@ -6,4 +6,12 @@ Disallow: /admin/
 Disallow: /starred
 Disallow: /feedback
 
+# Google's ad crawlers must reach public pages for the AdSense site review
+# (support.google.com/adsense/answer/12176698 lists blocked crawlers as a not-ready cause).
+User-agent: Mediapartners-Google
+Disallow:
+
+User-agent: Google-Display-Ads-Bot
+Disallow:
+
 Sitemap: {{siteUrl}}/sitemap.xml

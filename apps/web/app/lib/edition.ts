@@ -1,8 +1,10 @@
 // The English edition: stable /en addresses for the pages that read fully in English, so search engines
 // can index them (with hreflang to the Chinese page). Elsewhere English stays the reader's preference.
 const COUNTERPARTS = [
-  /^\/$/, /^\/hot$/, /^\/knowledge$/, /^\/knowledge\/entity\/[^/]+$/, /^\/story\/[^/]+$/,
-  /^\/daily$/, /^\/daily\/\d{4}-\d{2}-\d{2}$/, /^\/topics$/, /^\/topics\/[^/]+$/, /^\/items\/[^/]+$/,
+  /^\/$/, /^\/hot$/, /^\/knowledge$/, /^\/knowledge\/entity\/[^/]+$/, /^\/explore$/, /^\/story\/[^/]+$/,
+  /^\/daily$/, /^\/daily\/\d{4}-\d{2}-\d{2}$/, /^\/weekly$/, /^\/weekly\/[^/]+$/, /^\/monthly$/, /^\/monthly\/[^/]+$/,
+  /^\/topics$/, /^\/topics\/[^/]+$/, /^\/items\/[^/]+$/,
+  /^\/privacy$/, /^\/terms$/,
 ];
 
 export const isEnglishPath = (pathname: string) => pathname === "/en" || pathname.startsWith("/en/");

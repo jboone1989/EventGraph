@@ -1,6 +1,6 @@
 import type {FastifyInstance} from "fastify";
 
-import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
+import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,publicEvidenceBundle,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
 import {timingSafeEqual} from "node:crypto";
 import {parseGraphTime} from "@aihot/backend/publication/knowledge";
 
@@ -38,12 +38,15 @@ export function registerKnowledge(app:FastifyInstance){
     if(result.status==="unavailable")return reply.code(503).header("Cache-Control","no-store").send(result);
     return reply.header("Cache-Control","public, max-age=60").send(result);
   });
-  app.get<{Params:{key:string}}>("/api/site/knowledge/neighborhood/:key",async(req,reply)=>{
+  app.get<{Params:{key:string};Querystring:{asOf?:string;clock?:string}}>("/api/site/knowledge/neighborhood/:key",async(req,reply)=>{
     if(req.params.key.length>180)return reply.code(400).send({error:"invalid_entity"});
-    const result=await publicAtlasNeighborhood(req.params.key);
+    const parsed=parseGraphTime(req.query.asOf, req.query.clock);
+    if(parsed.status==="invalid")return reply.code(400).header("Cache-Control","no-store").send({error:"invalid_graph_time"});
+    const time=parsed.value ?? undefined;
+    const result=await publicAtlasNeighborhood(req.params.key,new Date(),time);
     if(result.status==="unavailable")return reply.code(503).header("Cache-Control","no-store").send(result);
     if(result.status==="not_found")return reply.code(404).send(result);
-    return reply.header("Cache-Control","public, max-age=60").send(result);
+    return reply.header("Cache-Control",time?"public, max-age=30":"public, max-age=60").send(result);
   });
   app.get("/api/site/knowledge/stats",async(_req,reply)=>
     reply.header("Cache-Control","public, max-age=60").send(await graphStats()));
@@ -64,10 +67,28 @@ export function registerKnowledge(app:FastifyInstance){
     return reply.header("Cache-Control",time?"public, max-age=30":"public, max-age=120")
       .send({...graph,...(time?{asOf:time.asOf.toISOString(),clock:time.clock,fidelity:"bounded"}:{})});
   });
-  app.get<{Params:{key:string}}>("/api/site/knowledge/entities/:key",async(req,reply)=>{
+  app.get<{Params:{key:string};Querystring:{asOf?:string;clock?:string}}>("/api/site/knowledge/entities/:key",async(req,reply)=>{
     const key=req.params.key;
     if(key.length>180)return reply.code(400).send({error:"invalid_entity"});
-    return reply.header("Cache-Control","public, max-age=120").send(await entityProfile(key));
+    const parsed=parseGraphTime(req.query.asOf, req.query.clock);
+    if(parsed.status==="invalid")return reply.code(400).header("Cache-Control","no-store").send({error:"invalid_graph_time"});
+    const time=parsed.value ?? undefined;
+    return reply.header("Cache-Control",time?"public, max-age=30":"public, max-age=120")
+      .send(await entityProfile(key,new Date(),time));
+  });
+  app.get<{Querystring:{story?:string;entity?:string;relation?:string;asOf?:string;clock?:string}}>("/api/site/knowledge/bundle",async(req,reply)=>{
+    const {story,entity,relation}=req.query;
+    const given=[story,entity,relation].filter(Boolean).length;
+    if(given>1)return reply.code(400).header("Cache-Control","no-store").send({error:"invalid_object"});
+    const query=story?{kind:"story" as const,publicId:story}:entity?{kind:"entity" as const,key:entity}:relation?{kind:"relation" as const,key:relation}:null;
+    if(!query)return reply.code(400).header("Cache-Control","no-store").send({error:"missing_object"});
+    if((story&&!/^[a-f0-9-]{36}$/i.test(story))||(entity??relation??"").length>180)
+      return reply.code(400).header("Cache-Control","no-store").send({error:"invalid_object"});
+    const parsed=parseGraphTime(req.query.asOf, req.query.clock);
+    if(parsed.status==="invalid")return reply.code(400).header("Cache-Control","no-store").send({error:"invalid_graph_time"});
+    const time=parsed.value ?? undefined;
+    const bundle=await publicEvidenceBundle(query,new Date(),time);
+    return reply.header("Cache-Control",time?"public, max-age=30":"public, max-age=60").send(bundle);
   });
   app.get<{Params:{key:string}}>("/api/site/knowledge/daily/:key",async(req,reply)=>{
     const {key}=req.params;

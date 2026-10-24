@@ -1,3 +1,4 @@
+import {assertLegacyRegistryWritable} from './connections.ts';
 import {sql} from "../../db.ts";
 import {audit} from "../../audit.ts";
 import {checkProviderChanges} from "./validation.ts";
@@ -29,6 +30,7 @@ export async function getProvider(vendor:string,id:string):Promise<ProviderProfi
 }
 const fail=(message:string,code=400):never=>{throw Object.assign(new Error(message),{statusCode:code});};
 export async function updateProvider(vendor:string,id:string,changes:ProviderChanges,version:number,reason:string,actor:string):Promise<ProviderProfile>{
+ await assertLegacyRegistryWritable();
  if(!reason?.trim())fail("a reason is required");
  if(!Number.isInteger(version))fail("provider version required");
  const current=await getProvider(vendor,id);
@@ -54,6 +56,7 @@ export async function updateProvider(vendor:string,id:string,changes:ProviderCha
  return result;
 }
 export async function createProvider(vendor:string,id:string,actor:string):Promise<ProviderProfile>{
+ await assertLegacyRegistryWritable();
  if(vendor!=="nvidia"||!/^[-\w.]+\/[-\w.]+$/i.test(id))fail("invalid NVIDIA model ID");
  if(!isVerifiedFreeTrialProvider(id))fail("Only NVIDIA officially verified free trial API models may be added");
  await sql`INSERT INTO model_providers(vendor,model_id,adapter,credential_env,capabilities,enabled,route_enabled,updated_by)
@@ -68,6 +71,7 @@ export async function createProvider(vendor:string,id:string,actor:string):Promi
  * Capability checks cascade; neither credential values nor inference receipts are deleted.
  */
 export async function deleteProvider(vendor:string,id:string,version:number,reason:string,actor:string):Promise<{deleted:boolean}>{
+ await assertLegacyRegistryWritable();
  if(!reason?.trim())fail("a reason is required");
  if(!Number.isInteger(version))fail("provider version required");
  const current=await getProvider(vendor,id);

@@ -7,7 +7,7 @@ import { stripTagMarkup } from "../lib/text.ts";
 import { proxyBodyImages } from "../media/imgproxy.ts";
 import { textToHtml } from "../content/sanitize.ts";
 import { exportTranslation, isChineseBody, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
-import { evidenceCondition, listedCondition } from "./scope.ts";
+import { evidenceCondition, listedCondition, storyReportCondition } from "./scope.ts";
 import { itemUrl, siteUrl } from "./links.ts";
 import { hasItemPage, publicSourceName } from "./rules.ts";
 import { topicLinks, topicMembership } from "./topics.ts";
@@ -24,6 +24,9 @@ interface DetailRow extends ItemRow {
 export type DetailResult =
   | { kind: "found"; item: SiteItemDetail; row: DetailRow }
   | { kind: "not_found" };
+
+/** An English page is indexed when its report is one of several on its event: the page then has an event to stand in. */
+export const INDEXED_MIN_REPORTS = 2;
 
 /** Adds stable ids to h2–h4 and returns the outline. */
 function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
@@ -98,6 +101,7 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
       relatedStories: [],
       topics: [],
       indexable: false,
+      englishIndexable: false,
       markdownAvailable: false,
       group: null,
       hasTranslation: false,
@@ -148,6 +152,9 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
 
   // The reason goes with the seat; a report yielding it points to the one holding it.
   const sameEvent = (await seatHolders([row], now)).get(row.id) ?? null;
+  const [event] = row.story_public_id ? await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM publications p JOIN sources s ON s.id = p.source_id
+    WHERE p.story_id = (SELECT id FROM stories WHERE public_id = ${row.story_public_id}) AND ${storyReportCondition(now)}` : [];
   const item: SiteItemDetail = {
     ...summary,
     x,
@@ -159,6 +166,9 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     relatedStories: related,
     topics: topicLinks(row.topics),
     indexable: row.indexable,
+    // FR-012: the English page follows the Chinese page's curation decision, then adds its own bar
+    // (English copy of its own, event of several reports).
+    englishIndexable: row.indexable && !!row.en_title && (event?.n ?? 0) >= INDEXED_MIN_REPORTS,
     markdownAvailable: markdownAvailable(row),
     group,
     hasTranslation: reading.hasTranslation,

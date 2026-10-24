@@ -1,5 +1,20 @@
 # 部署
 
+## Provider Connections 数据迁移（先在开发副本验证）
+
+新增的 `0107`–`0110` 是添加新表的结构迁移，**不会自动迁移历史 Provider 资格**。旧 API/worker 停止写入后，先对 PostgreSQL 做自有私有备份，再在数据库副本进行显式的数据转换：
+
+```bash
+# 使用部署环境真实的运行时环境文件，不能用空白、示例文件或测试凭据代替。
+# 文件需要包含 DATABASE_URL、MODEL_CREDENTIAL_ENCRYPTION_KEY，以及
+# 旧 model_providers.credential_env 指向的每一个提供商 API key。
+docker compose -f docker-compose.yml -f docker-compose.production.yml \
+  run --rm --no-deps api node scripts/migrate-provider-connections.ts
+```
+
+任何旧 `credential_env` 变量缺失时必须中止，不应留下部分转换结果。验证所有原先真正可路由的模型：逐能力检查 `routingState.eligibleCapabilities`；只有旧表对应能力存在 `verified` 且 `verified_at` 在最近 24 小时内，才允许以 `legacy` 过渡，时间戳必须保持原样。没有验证过的 vision/embedding 能力不可自动获得资格；过期能力必须重新测试。切到 `MODEL_PROVIDER_REGISTRY_ENABLED=true` 前，先核对副本库的旧路由资格与新路由资格的差异，不接受意外新增或失去的能力。正式切换需单独的迁移/回滚计划；本 PR 不改动生产启用状态。 数据导入完成**不会自动切换路由**。必须先在服务环境显式设置 `MODEL_PROVIDER_REGISTRY_ENABLED=true`，再在维护窗口执行 `docker compose -f docker-compose.yml -f docker-compose.production.yml run --rm --no-deps api node scripts/migrate-provider-connections.ts --activate`；只有 **环境开关和 `providerConnections.activation.v1` 标记同时成立** 才激活。启动前确认实际生产 Compose 文件组合、密钥注入路径与数据库服务健康，并核对能力探测续期任务，避免 24 小时后因失效导致请求失败。 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 需要作为受保护的持久密钥供各进程一致使用，不可在日志、CI 或文档里填写真实值。
+
+
 ## 用 Docker（推荐）
 
 需要一台装了 Docker（带 Compose）的机器。云服务器建议至少 2 核、4 GB 内存，构建镜像时要用到。
@@ -79,6 +94,19 @@ docker compose run --rm setup && docker compose up -d
 
 下面按时间从新到旧列出每次更新要注意的事。
 
+#### Provider 连接与模型管理
+
+`0106`–`0110` 只新增连接、模型、验证记录和引用映射表，不删除旧数据。新管理页、API、运行时和数据迁移必须一起交付。
+
+先在数据库副本上验证，再按维护窗口执行：备份、停止旧 API 和 worker、运行 `scripts/migrate.ts`，然后运行 `docker compose -f docker-compose.yml -f docker-compose.production.yml \
+  run --rm --no-deps api node scripts/migrate-provider-connections.ts`，核验结果后启动新版服务。不要在旧 worker 仍运行时单独迁移 `models.*` 引用。
+
+新凭据通过 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 加密；设置为随机 32 字节的 base64 值，并与数据库备份一起妥善保管。已有环境凭据引用由迁移保留，替换或清除只影响该连接。
+
+迁移保留模型级超时和现有引用。只有迁移前已经开启路由的模型取得当前配置的 `legacy` 资格；原先关闭的路由仍须测试通过才能开启。修改地址、凭据或调用配置会使旧资格失效，界面分别显示路由开关和实际可用性。没有可用模型时明确报错。
+
+完成标记、数据和引用在同一事务提交。重跑只核验，管理员后来删除的对象不会恢复。迁移后旧管理写接口返回 409，请使用新的连接与模型页面。[API 和兼容约定](provider-api.md)。
+
 #### EventGraph：删除旧的本地知识图谱原型（2026 年 10 月 16 日）
 
 四个新迁移 `0097`–`0100` **删除表和其中的数据**：`knowledge_claims`、`knowledge_extractions`、`knowledge_entities`（改用 Graphiti 之前的本地图谱原型）和 `knowledge_sync`（已删除的 `scripts/graphiti-sync.ts` 的导入进度）。现在的图谱数据在 Graphiti/Neo4j 里，导入记录在 `graphiti_ingestions`，都不受影响。要保留旧原型的数据，先按[备份](#备份)导出这四张表再升级。
@@ -90,7 +118,7 @@ docker compose run --rm setup && docker compose up -d
 
 两个新迁移 `0095_english_copies.sql`、`0096_story_english.sql`（新表，不动已有数据）。选填的新环境变量 `ENGLISH_MODEL`，不填用 `LLM_*`。
 
-- worker 多了定时任务 `content.english`（每 5 分钟），给最近 90 天的精选报道写英文标题、摘要和推荐理由，给事件写英文标题和概览。和其他模型任务一样，`MODEL_CALLS_ENABLED=false` 时不调用。每篇报道、每个事件各一次模型调用，改了中文稿会重写一次；上线后从最新的开始补，旧内容要过一段时间才补齐。
+- worker 多了定时任务 `content.english`（每 5 分钟），给最近 90 天的公开报道写英文标题和摘要（精选报道另写推荐理由），给事件写英文标题和概览。和其他模型任务一样，`MODEL_CALLS_ENABLED=false` 时不调用。每篇报道、每个事件各一次模型调用，改了中文稿会重写一次；上线后从最新的开始补，旧内容要过一段时间才补齐。
 - `/en/items/<id>` 是新的英文文章页，除英文稿外还列出所在事件的概览、同一事件的其他报道、知识图谱从这篇报道抽出的关系、报道前后的币价（新接口 `GET /api/site/items/<id>/context`，读页面不调用模型；图谱关系要 knowledge_service 可用，不可用时这一块不显示）。英文文章页只有写好英文稿、并且所在事件有至少两篇公开报道时才进 sitemap、才允许索引；单独一篇的报道页仍是 `noindex`。英文事件页写好英文概览后才允许索引；之前只有原文标题的英文事件页现在是 `noindex`。
 
 日报缺期告警按北京时间的具体日期跟踪，跨午夜不会自动恢复；只有对应日报存在才发恢复通知。新缺期检查最近 7 个日历日（含今天），不早于最早的日报或 reports.compose 运行记录；没有历史记录时只检查今天。已告警的日期在这 7 天里一直跟踪，关闭采集/模型或 worker 启动宽限期也不会把缺期当成恢复；超出 7 天仍没有日报的，发一条“没能补出、停止提醒”后不再提醒。旧的 report.daily 状态自动按首次告警时间迁移，保留提醒间隔。出刊后两小时告警、每小时提醒及飞书开关保持不变；无需数据库迁移。自定义 responder 若按旧 `report.daily` 精确匹配，需改为识别 `report.daily:YYYY-MM-DD` 日期键。
@@ -110,7 +138,7 @@ docker compose run --rm setup && docker compose up -d
 
 #### 导航里可以不放某些入口
 
-没有迁移，没有新环境变量。`site/site.ts` 多了 `NAV.hidden`（目前只支持热点榜 `"/hot"` 和主题 `"/topics"`，见 [把它改成你的行业](customize.md)）；框架从 `@aihot/site` 读它，**自己维护 `site/site.ts` 的站，合并时照模板加上 `NAV`**，不加通不过类型检查。模板里是空的，导航和原来一样；隐藏入口不会关闭页面或公开接口。
+没有迁移，没有新环境变量。`site/site.ts` 多了 `NAV.hidden`（目前只支持热点榜 `"/hot"`、主题 `"/topics"` 和全部动态 `"/all"`，见 [把它改成你的行业](customize.md)）；框架从 `@aihot/site` 读它，**自己维护 `site/site.ts` 的站，合并时照模板加上 `NAV`**，不加通不过类型检查。模板里是空的，导航和原来一样；隐藏入口不会关闭页面或公开接口。
 
 #### 原帖展示与引擎同步（2026 年 10 月 6 日）
 

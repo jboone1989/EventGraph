@@ -342,6 +342,28 @@ const GRAPH_HINTS = [
   NO_INTERNALS,
 ];
 
+/** The structured evidence bundle (MCP get_evidence_bundle): the same object the site API serves. */
+export function evidenceBundleAnswer(bundle: {
+  object: { kind: string; id: string }; status: string; clock: string | null; asOf: string | null;
+  generatedAt: string; fidelity: string | null; limits: { edgeLimit: number | null; truncated: boolean };
+  relations: GraphEdge[]; coverage: { relations: number; sources: number };
+}): string {
+  const kindLabel = bundle.object.kind === "story" ? "事件" : bundle.object.kind === "entity" ? "实体" : "关系";
+  const scoped = bundle.asOf ? `（${bundle.clock === "valid" ? "事实生效时间" : "收录时间"}截至 ${stamp(bundle.asOf)}，有界历史读，生成于 ${stamp(bundle.generatedAt)}）` : `（当前视角，生成于 ${stamp(bundle.generatedAt)}）`;
+  if (bundle.status === "unavailable" || bundle.status === "disabled")
+    return answer([`# ${SITE.name} 证据包：${kindLabel} ${bundle.object.id}`, "", `状态：${bundle.status}${scoped}`], [],
+      ["知识图谱暂时无法访问，如实说明，稍后再试，不要用别的内容冒充。", NO_INTERNALS]);
+  if (!bundle.relations.length)
+    return answer([`# ${SITE.name} 证据包：${kindLabel} ${bundle.object.id}`, "", `这个对象没有有公开来源的关系${scoped}。`], [],
+      ["直接说明没有证据，不要自己推断关系。", NO_INTERNALS]);
+  return answer([
+    `# ${SITE.name} 证据包：${kindLabel} ${bundle.object.id}`,
+    "",
+    `${bundle.relations.length} 条关系 · ${bundle.coverage.sources} 个来源${scoped}`,
+    ...(bundle.limits.truncated ? [`注意：读数达到单次上限 ${bundle.limits.edgeLimit} 条，可能不完整。`] : []),
+  ], relationLines(bundle.relations), GRAPH_HINTS);
+}
+
 /** A public story's knowledge relations (MCP get_story_graph). */
 export function storyGraphAnswer(title: string, publicId: string, graph: { status: string; edges: GraphEdge[] }): string {
   const head = [`# ${SITE.name} 事件关系：${title}`, "", `事件页：${siteUrl(`/story/${publicId}`)}`];
@@ -349,6 +371,33 @@ export function storyGraphAnswer(title: string, publicId: string, graph: { statu
     return answer(head, null, [graph.status === "unavailable" ? "知识图谱暂时无法访问，稍后再试；先用事件时间线回答。" : "这个事件在知识图谱里还没有有公开来源的关系，直接说明，不要自己推断关系。", NO_INTERNALS]);
   }
   return answer([...head, `${graph.edges.length} 条有公开来源的关系`], relationLines(graph.edges), GRAPH_HINTS);
+}
+
+type RouteStation = {
+  title: string; timeEffective: string | null; timeRecorded: string; reports: Array<{ url: string; source: string; publishedAt: string | null }>;
+  uncertainty: { singleSource: boolean; occurredAtMissing: boolean; revised: boolean };
+};
+
+/** The structured story route (MCP get_story_route): the same object the site API serves, told out loud. */
+export function storyRouteAnswer(route: {
+  story: { publicId: string; title: string }; status: string; reason: string | null;
+  limits: { stationLimit: number; truncated: boolean }; stations: RouteStation[];
+}): string {
+  const head = [`# ${SITE.name} 事件路线：${route.story.title}`, "", `事件页：${siteUrl(`/story/${route.story.publicId}`)}`];
+  if (route.status !== "ok" || route.stations.length === 0) {
+    return answer(head, null, ["这个事件还没有可公开引用的证据，如实说明，不要用训练记忆或别的内容编一条路线。", NO_INTERNALS]);
+  }
+  const data = route.stations.flatMap((s, i) => {
+    const when = s.timeEffective ? `发生 ${stamp(s.timeEffective)}（本站收录于 ${stamp(s.timeRecorded)}）` : `本站收录于 ${stamp(s.timeRecorded)}（发生时间未有报道给出）`;
+    const flags = [s.uncertainty.singleSource ? "单一来源" : null, s.uncertainty.revised ? "有修订" : null].filter(Boolean).join("，");
+    const evidence = s.reports.map((r) => `${publicSourceName(r.source)}：${r.url}`).join(" ");
+    return [`${i + 1}. ${s.title}（${when}${flags ? `；${flags}` : ""}）`, ...(evidence ? [`   证据：${evidence}`] : [])];
+  });
+  return answer([...head, `${route.stations.length} 站，从第一份公开证据讲起${route.limits.truncated ? `（达到单次上限 ${route.limits.stationLimit} 站，可能不完整）` : ""}`], data, [
+    "每站的时间分开写：发生时间来自报道陈述，收录于是本站第一次记到它的时间，不要混用。",
+    "「单一来源」「有修订」这类标注指出需要核对原文的地方，不是已证实的结果；重要的回原文核对。",
+    NO_INTERNALS,
+  ]);
 }
 
 /** One graph entity's profile (MCP get_entity). */

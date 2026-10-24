@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { atlasPairKey, findEntities, groupAtlasPairs, uniqueAtlasFacts, mergeAtlasNetworks, neighborhood, type AtlasNetwork } from "../apps/web/app/lib/knowledge-atlas.ts";
+import { atlasPairKey, findEntities, groupAtlasPairs, uniqueAtlasFacts, mergeAtlasNetworks, neighborhood, temporalAtlasNetwork, type AtlasNetwork } from "../apps/web/app/lib/knowledge-atlas.ts";
 
 const network: AtlasNetwork = {
   nodes: Array.from({ length: 2300 }, (_, i) => ({ key: String(i), name: i === 2299 ? "远处的公司 Remote Corp" : `Entity ${i}`, degree: i === 0 ? 2 : 1 })),
@@ -78,4 +78,20 @@ test("identical statements combine sources, distinct predicates and directions d
   assert.deepEqual(result[0].evidence.map(e=>e.articleId),["a","b"]);
   assert.equal(result[1].object.key,"Other");
   assert.equal(result[2].predicate,"ACCEPTED");
+});
+
+test("time-scoped Graphiti facts adapt to Cytoscape without guessing relations",()=>{
+  const edge=(id:string,subject:string,object:string)=>({
+    id,subject:{key:subject,name:subject},object:{key:object,name:object},
+    predicate:"SUPPORTED_BY",invalidAt:null,
+  });
+  const early=temporalAtlasNetwork([edge("known-at-t1","AI","Company")]);
+  const later=temporalAtlasNetwork([edge("known-at-t1","AI","Company"),
+    edge("known-at-t2","Company","Market")]);
+  assert.deepEqual(early.links.map(l=>l.id),["known-at-t1"]);
+  assert.deepEqual(early.nodes.map(n=>n.key).sort(),["AI","Company"]);
+  assert.equal(groupAtlasPairs(early.links).length,1);
+  assert.deepEqual(neighborhood(later,"Company",1).links.map(l=>l.id),["known-at-t1","known-at-t2"]);
+  // Rewinding never merges the newer network into the past.
+  assert.deepEqual(temporalAtlasNetwork([edge("known-at-t1","AI","Company")]).links.map(l=>l.id),["known-at-t1"]);
 });

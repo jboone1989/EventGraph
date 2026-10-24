@@ -27,7 +27,7 @@ export const SITE = {
   /** 首页的完整标题（浏览器标签、搜索结果）。 */
   homeTitle: "EventGraph — AI、加密货币、金融与全球事件知识图谱",
   /** 主题目录页（/topics）的标题。 */
-  topicsTitle: "AI、加密货币与金融主题追踪 | EventGraph",
+  topicsTitle: "AI、加密货币与金融主题追踪",
   /** 反馈表单输入框里的示例。 */
   feedbackExample: "例如：我在搜索某个关键词时遇到……我原本想……",
   /** 反馈页标题下面的一句话。 */
@@ -60,19 +60,17 @@ export const SITE = {
    * 改了接口里已有的字段或含义时升主版本，并在部署说明里写清。
    */
   interfaceVersion: "4.0.0",
-  /** 对外联系邮箱（选填）：llms.txt 和给 Agent 的使用说明里会写。 */
-  contactEmail: null as string | null,
+  /** 对外联系邮箱：llms.txt、给 Agent 的使用说明、全站页脚和关于页都会写（AdSense 审核要求公开可核验的联系方式）。 */
+  contactEmail: "login@livingruntime.com" as string | null,
   /** 关于页底部的一行小字（选填）。 */
   footerNote: "AI · Crypto · Finance | 原创研究与公开来源",
   /** 中国大陆网站的 ICP 备案号（选填），填了就显示在侧栏底部和“我的”页底部，并链接到工信部备案系统。 */
   icp: null as string | null,
-  /** 源码的 GitHub 仓库地址（选填），填了就在侧栏底部和“我的”页底部显示“GitHub 开源”。 */
-  github: "https://github.com/jboone1989/AIHOT" as string | null,
   /** 结构化数据里的网站运营者（搜索引擎用）。 */
   organization: {
     name: "EventGraph",
     /** 创始人（选填）。 */
-    founder: null as null | { name: string; alternateName?: string; jobTitle?: string; description?: string; url?: string },
+    founder: { name: "Jianbo Wang" } as null | { name: string; alternateName?: string; jobTitle?: string; description?: string; url?: string },
   },
   /** 抓取信源时报上的名字和版本（User-Agent 里用），不要冒用别的站。 */
   crawlerName: "EventGraphBot/1.0",
@@ -111,13 +109,26 @@ export const POLICY = {
   xPostIsFullText: true,
 } as const;
 
+/**
+ * 搜索收录策略。依据 specs/002-adsense-readiness（FR-006~009）与 Google 发布商政策：不得在
+ * 「未经人工审核或策展的自动生成内容」上放广告——收录（索引/sitemap）只认编辑策展标记，
+ * 模型精选本身不再自动让页面进索引。
+ */
+export const SEO = {
+  /** true：只有后台标记「可收录」（seo_indexed_at）的页面进索引与 sitemap；false：精选仍自动收录（旧行为）。 */
+  curatedIndexOnly: true,
+  /** 事件页收录的薄页门槛：单来源事件的 AI 综述至少这么多字，否则该事件页不收录。 */
+  minSingleSourceDigestChars: 100,
+} as const;
+
 /** 导航（电脑侧栏、手机底栏、“我的”页）。 */
 export const NAV = {
   /**
-   * 不放进导航的引擎入口，目前只支持热点榜（"/hot"）和主题（"/topics"）。页面照样能打开；原来回到它的返回按钮和链接改回精选，
-   * 写 "/hot" 时首页也不放当前热点。
+   * 不放进导航的引擎入口，目前只支持热点榜（"/hot"）、主题（"/topics"）、全部动态（"/all"）和探索工作台（"/explore"）。页面照样能打开；原来回到它的返回按钮和链接改回精选，
+   * 写 "/hot" 时首页也不放当前热点；写 "/all" 时精选和全部动态的桌面筛选行带头部的“精选 | 全部”切换，读者在页面里换范围（手机顶栏本来就有）；
+   * 写 "/explore" 时只从侧栏和“我的”里藏掉，事件页和知识页的“打开探索工作台”深链照旧。
    */
-  hidden: [] as Array<"/hot" | "/topics">,
+  hidden: ["/all", "/explore"] as Array<"/hot" | "/topics" | "/all" | "/explore">,
 };
 
 /** 条目卡片和详情页上的几处说法和显示。 */
@@ -172,6 +183,34 @@ export const ABOUT = {
   termsAnchor: null as string | null,
 } as const;
 
+/** 英文版关于页的文案：与 ABOUT 对应槽位的英文说法，英文页面用；数字（信源数、收录数、精选数、日报期数）两种语言相同。 */
+export const ABOUT_EN = {
+  kicker: `About ${SITE.name}`,
+  /** 大标题：第一行正常颜色，第二行强调色。 */
+  headline: ["See what is changing.", "Understand what it means."] as [string, string],
+  /** {sources} 换成实时的信源数，与 ABOUT.lead 同规则。 */
+  lead: `${SITE.name} gathers notable technology and finance reporting from {sources} sources, organizes it into events, and keeps room for original research and independent authors. Reporting and opinion stay apart, and readers can always check the original source.`,
+  sourcesFallback: "many",
+  steps: {
+    collect: "Follows official announcements and independent reporting on AI, digital assets, finance, macro policy and global industry risk, keeping the time and the source.",
+    store: "Brings together what different sources report on the same event, cutting duplication while keeping the facts and their provenance.",
+    select: "Keeps the events with new information; original research and reporting stay apart, with method, evidence and conclusions stated.",
+    publish: "Serves everything through the website, RSS and public interfaces; event updates follow new evidence.",
+  },
+  /** 页面底部的版权与下架说明，中间接“反馈页”的链接，与 ABOUT.copyright 同规则。 */
+  copyright: [
+    "Third-party reporting remains the property of its publisher; this site adds selection, summaries and links to the original. Original articles carry author and source. Independent researchers and AI authors are welcome to propose collaborations via the",
+    "page; a public submission system is not open yet.",
+  ] as [string, string],
+} as const;
+
+/** 英文版反馈页的文案：与 SITE 对应反馈槽位的英文说法。 */
+export const FEEDBACK_EN = {
+  lead: "Report a problem, suggest an improvement, or request correction or removal of a source article.",
+  example: "For example: when I searched for …, I saw …, but I expected …",
+  emailHint: "Leave an email so we can write back",
+} as const;
+
 /** 后台页面上给管理员的提示（选填）。 */
 export const ADMIN = {
   /** “反馈”页标题下的一行。 */
@@ -186,6 +225,11 @@ export const ADMIN = {
 export const AGENT = {
   /** MCP 工具表里“搜索”一行：能搜什么、可以怎么问。 */
   search: { scope: "按 AI、加密货币与金融事件搜索最近 7 天", ask: "稳定币与 AI 基础设施最近有哪些重要变化？" },
+};
+
+/** 英文版 Agent 接入页的示例：与 AGENT 对应槽位的英文说法。 */
+export const AGENT_EN = {
+  search: { scope: "Search AI, crypto and finance events from the last 7 days", ask: "What changed recently in stablecoins and AI infrastructure?" },
 };
 
 /** 日报、周报、月报版面上的说法。 */
@@ -213,6 +257,20 @@ export const REPORTS = {
   quiet: { title: "今日安静，无大事发生", paragraph: `${subjectAfter("北京时间 {start} 至 {end}，没有新的", "大事")}。` },
 };
 
+/** 英文版报告页面的文案：与 REPORTS 对应槽位的英文说法，英文页面用；出版者一行（imprint）两种语言相同，不在这里重复。 */
+export const REPORTS_EN = {
+  /** 报头旁边的一个词。 */
+  motto: "AI · CRYPTO · FINANCE",
+  /** 一期里的一条怎么称呼（"4 stories"），与 REPORTS.entry 同槽位。 */
+  entry: { measure: "story", noun: "stories" },
+  /** 报头上其余几个数字后面的说法；主题页、关于页也这样写。 */
+  metricUnits: { sourcesCount: "sources", firstPartyEvents: "first-party posts", selectedCount: "selected reports", reportsCovered: "daily issues" },
+  /** 报告分享图上"共几条"的说法。 */
+  shareUnit: "stories",
+  /** 没有新大事时的标题与导语。 */
+  quiet: { title: "A quiet day — nothing new passed selection", paragraph: "No new stories passed selection between {start} and {end} Beijing time." },
+};
+
 /** 运维告警（只发给站长）里随部署而变的几处说法。 */
 export const ALERTS = {
   /** 多少分钟没有收录新文章就告警“网站停止收录新内容”（最多一天）；环境变量 ALERT_QUIET_MINUTES 优先。 */
@@ -236,7 +294,7 @@ export const SOURCE_DEFAULTS = {
 export const COMMUNITY_FEEDS: { dev: string[]; hn: string[] } = {
   // Count independent DEV authors, not the entire feed as one "participant".
   dev: ["rss-dev-ai", "rss-dev-crypto"],
-  hn: [],
+  hn: ["hn-ai"],
 };
 
 /** 各页分享图（/og/pages/*.png）上的文字。主题目录页的那张按主题数自动生成。 */
@@ -244,7 +302,7 @@ export const CARDS: Record<string, { kicker: string; title: string; subtitle: st
   site: { kicker: subjectAfter("每日", "精选"), title: SITE.tagline, subtitle: SITE.description },
   all: { kicker: subjectAfter("全部", "动态"), title: "所有信源的最新动态，一站看完", subtitle: "按时间汇总各信源的最新动态，可按类别与标签筛选。" },
   hot: { kicker: "热点榜", title: "过去 48 小时，大家在讨论什么", subtitle: "热度指数、趋势与组成热度的公开来源。", accent: "hot" },
-  daily: { kicker: withSubject("日报"), title: subjectAfter(`每天 ${spokenTime(EDITION_TIMES.daily)}，一份读得完的`, "日报"), subtitle: `${subjectAfter("前一天值得关注的", "动态")}。` },
+  daily: { kicker: "日报", title: `每天 ${spokenTime(EDITION_TIMES.daily)}，一份读得完的日报`, subtitle: `${subjectAfter("前一天值得关注的", "动态")}。` },
   weekly: { kicker: withSubject("周报"), title: `一周${REPORTS.entry.noun}，一次看清`, subtitle: "本周的主线、重要发布与值得回看的讨论。" },
   monthly: { kicker: withSubject("月报"), title: "一个月的变化", subtitle: "月度主线与关键事件回顾。" },
   about: { kicker: "关于", title: `关于 ${SITE.name}`, subtitle: SITE.description },

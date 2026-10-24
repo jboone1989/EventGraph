@@ -6,12 +6,13 @@ import { Presence } from "../components/ui/Presence";
 import { edgeTtl } from "../lib/api.server";
 import { pageMeta } from "../lib/seo";
 import { exportBundle, importBundle, removeStar, useStarred, type ImportReport } from "../lib/local-state";
-import { fullDateTime } from "../lib/format";
+import { localizedDateTime } from "../lib/format";
+import { englishText } from "../lib/english";
+import { englishPath } from "../lib/edition";
 import { IconBookmark, IconDownload, IconClose } from "../components/icons";
 import { readSnapshot, restoreAnchor, useSaveOnLeave } from "../lib/restore";
 import { PhoneBar } from "../components/shell/PhoneBar";
-import { useUiLanguage } from "../components/LanguageSwitch";
-import { EnglishStarred } from "../components/EnglishUtility";
+import { useText, useUiLanguage } from "../components/LanguageSwitch";
 import type { Screen } from "../components/shell/screens";
 import { webModules } from "../site-modules";
 
@@ -25,18 +26,23 @@ export function meta() {
   return pageMeta({ title: "我的收藏", description: `保存在这台设备上的 ${SITE.name} 收藏。`, path: "/starred", noindex: true });
 }
 
-function reportText(r: ImportReport): string {
-  const parts = [`新增收藏 ${r.starredAdded} 条`, `已读记录 ${r.readAdded} 条`];
-  if (r.starredSkipped || r.readSkipped) parts.push(`超出上限或格式不对而跳过 ${r.starredSkipped + r.readSkipped} 条`);
-  if (r.themeApplied) parts.push("已沿用导入的深浅色设置");
-  if (r.fontApplied) parts.push("已沿用导入的字体设置");
-  if (r.followsAdded) parts.push(`新增关注 ${r.followsAdded} 个`);
-  if (r.readFailed) parts.push("已读记录没能保存（浏览器存储已满或不可用）");
-  return parts.join("，");
+function reportText(r: ImportReport, t: (zh: string, en: string) => string): string {
+  const parts = [
+    t(`新增收藏 ${r.starredAdded} 条`, `${r.starredAdded} reports saved`),
+    t(`已读记录 ${r.readAdded} 条`, `${r.readAdded} read marks`),
+  ];
+  if (r.starredSkipped || r.readSkipped) parts.push(t(`超出上限或格式不对而跳过 ${r.starredSkipped + r.readSkipped} 条`, `${r.starredSkipped + r.readSkipped} skipped (over the limit or malformed)`));
+  if (r.themeApplied) parts.push(t("已沿用导入的深浅色设置", "Imported light/dark setting kept"));
+  if (r.fontApplied) parts.push(t("已沿用导入的字体设置", "Imported font setting kept"));
+  if (r.followsAdded) parts.push(t(`新增关注 ${r.followsAdded} 个`, `${r.followsAdded} follows added`));
+  if (r.readFailed) parts.push(t("已读记录没能保存（浏览器存储已满或不可用）", "Read marks could not be saved (browser storage is full or unavailable)"));
+  return parts.join(t("，", "; "));
 }
 
 export default function StarredPage() {
-  const language=useUiLanguage();
+  const language = useUiLanguage();
+  const en = language === "en";
+  const t = useText();
   const starred = useStarred();
   const [mounted, setMounted] = useState(false);
   const [availability, setAvailability] = useState<Record<string, ItemAvailability>>({});
@@ -87,9 +93,9 @@ export default function StarredPage() {
     if (!file) return;
     try {
       const report = importBundle(await file.text());
-      setNotice({ kind: report.readFailed ? "error" : "ok", text: `导入完成：${reportText(report)}` });
+      setNotice({ kind: report.readFailed ? "error" : "ok", text: `${t("导入完成", "Import finished")}${t("：", ": ")}${reportText(report, t)}` });
     } catch (e) {
-      setNotice({ kind: "error", text: e instanceof Error ? e.message : "导入失败" });
+      setNotice({ kind: "error", text: e instanceof Error ? e.message : t("导入失败", "Import failed") });
     }
   };
 
@@ -101,14 +107,13 @@ export default function StarredPage() {
     );
 
   const action = "text-[12.5px] text-ink-3 transition-colors hover:text-accent";
-  if(language==="en") return <EnglishStarred starred={starred}/>;
   return (
     <div className="pb-12">
-      <PhoneBar back={{ to: "/more", label: "我的" }} title="收藏" />
+      <PhoneBar back={{ to: "/more", label: t("我的", "More") }} title={t("收藏", "Saved")} />
       <header className="flex flex-col gap-2 pb-4 pt-3 sm:flex-row sm:items-start sm:justify-between lg:pt-1">
         <div>
-          <h1 data-page-title="" className="text-[24px] font-semibold leading-[1.3] text-ink">收藏</h1>
-          <p className="mt-1.5 text-[13px] text-ink-3">{`本机收藏的 ${SITE.name} 内容，适合稍后阅读和回看。`}</p>
+          <h1 data-page-title="" className="text-[24px] font-semibold leading-[1.3] text-ink">{t("收藏", "Saved")}</h1>
+          <p className="mt-1.5 text-[13px] text-ink-3">{t(`本机收藏的 ${SITE.name} 内容，适合稍后阅读和回看。`, `${SITE.name} reports saved on this device, for reading later or coming back to.`)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 sm:pt-1.5">
           {webModules().flatMap((m) => m.starredImports ?? []).map((i) => (
@@ -117,24 +122,24 @@ export default function StarredPage() {
             </button>
           ))}
           <button type="button" onClick={() => fileRef.current?.click()} className={action}>
-            导入文件
+            {t("导入文件", "Import a file")}
           </button>
           {mounted && starred.length > 0 && (
             <button type="button" onClick={doExport} className={`${action} inline-flex items-center gap-1`}>
-              <IconDownload size={13} /> 导出
+              <IconDownload size={13} /> {t("导出", "Export")}
             </button>
           )}
           <input ref={fileRef} type="file" accept="application/json,.json" className="sr-only" onChange={(e) => doImport(e.target.files?.[0])} />
         </div>
       </header>
-      <p className="rounded-tile border border-line bg-surface px-4 py-2.5 text-[12.5px] text-ink-3">收藏只保存在当前浏览器；清除浏览器数据或换设备后不会同步。</p>
+      <p className="rounded-tile border border-line bg-surface px-4 py-2.5 text-[12.5px] text-ink-3">{t("收藏只保存在当前浏览器；清除浏览器数据或换设备后不会同步。", "Saved reports stay in this browser only; clearing the browser's data or switching devices does not carry them over.")}</p>
       <Presence show={!!notice} enter="anim-notice-in" exit="anim-fade-out" duration={160}>
         <div
           role="status"
           className={`mt-3 flex items-start justify-between gap-3 rounded-tile px-4 py-2.5 text-[13px] ${notice?.kind === "ok" ? "bg-accent-soft text-accent-ink dark:text-accent" : "bg-hot-soft text-hot"}`}
         >
           {notice?.text}
-          <button type="button" aria-label="关闭" onClick={() => setNotice(null)} className="shrink-0 opacity-70 hover:opacity-100">
+          <button type="button" aria-label={t("关闭", "Close")} onClick={() => setNotice(null)} className="shrink-0 opacity-70 hover:opacity-100">
             <IconClose size={14} />
           </button>
         </div>
@@ -142,9 +147,9 @@ export default function StarredPage() {
       {!mounted ? null : starred.length === 0 ? (
         <div className="mt-3 flex flex-col items-center rounded-card border border-dashed border-line-strong px-6 py-12 text-center">
           <IconBookmark size={20} className="text-ink-4" />
-          <p className="mt-3 text-[13px] text-ink-3">还没有收藏内容。点开任意一条内容，在详情页点击收藏即可添加。</p>
+          <p className="mt-3 text-[13px] text-ink-3">{t("还没有收藏内容。点开任意一条内容，在详情页点击收藏即可添加。", "Nothing saved yet. Open any report and tap Save on its page to add it here.")}</p>
           <Link to="/" className="mt-4 text-[12.5px] font-medium text-accent hover:text-accent-ink">
-            去看精选 →
+            {t("去看精选 →", "Browse the picks →")}
           </Link>
         </div>
       ) : (
@@ -153,30 +158,33 @@ export default function StarredPage() {
             const current = availability[s.id];
             const status = current?.status;
             const unavailable = status === "unavailable";
+            const title = en ? englishText(s.title) : s.title;
+            const summary = en ? englishText(s.summary ?? "") : s.summary;
+            const to = (en ? englishPath(`/items/${s.id}`) : null) ?? `/items/${s.id}`;
             return (
               <li key={s.id} data-card-key={s.id} className={`relative border-b border-line-soft py-4 lg:card lg:px-[18px] lg:py-[15px] ${unavailable ? "opacity-70" : "lg:card-hover"}`}>
                 <div className="flex items-center gap-2 text-[12.5px] text-ink-4">
                   <span className="min-w-0 truncate text-ink-3">{current?.sourceName ?? s.sourceName}</span>
-                  {s.publishedAt && <span className="num shrink-0">· {fullDateTime(s.publishedAt)}</span>}
+                  {s.publishedAt && <span className="num shrink-0">· {localizedDateTime(s.publishedAt, language)}</span>}
                   <span className="ml-auto hidden shrink-0 sm:inline">
-                    收藏于 <span className="num">{fullDateTime(s.savedAt)}</span>
+                    {t("收藏于", "Saved")} <span className="num">{localizedDateTime(s.savedAt, language)}</span>
                   </span>
-                  <button type="button" aria-label="取消收藏" title="取消收藏" onClick={() => removeStar(s.id)} className="relative z-10 -my-1 ml-auto grid size-7 shrink-0 place-items-center rounded-full text-ink-4 transition-colors hover:bg-bg-sunk hover:text-ink sm:ml-0">
+                  <button type="button" aria-label={t("取消收藏", "Remove saved report")} title={t("取消收藏", "Remove saved report")} onClick={() => removeStar(s.id)} className="relative z-10 -my-1 ml-auto grid size-7 shrink-0 place-items-center rounded-full text-ink-4 transition-colors hover:bg-bg-sunk hover:text-ink sm:ml-0">
                     <IconClose size={14} />
                   </button>
                 </div>
                 <h2 className="mt-1.5 text-[16px] font-[650] leading-[1.55] text-ink">
                   {unavailable ? (
-                    s.title
+                    title ?? t("打开收藏的原报道", "Open the saved report")
                   ) : (
-                    <Link viewTransition to={`/items/${s.id}`} className="transition-colors after:absolute after:inset-0 after:content-[''] hover:text-accent">
-                      {s.title}
+                    <Link viewTransition to={to} className="transition-colors after:absolute after:inset-0 after:content-[''] hover:text-accent">
+                      {title ?? t("打开收藏的原报道", "Open the saved report")}
                     </Link>
                   )}
                 </h2>
-                {s.summary && <p className="mt-1.5 line-clamp-2 text-[14px] leading-[1.75] text-ink-3">{s.summary}</p>}
-                {unavailable && <p className="mt-2 text-[12.5px] text-hot">这条内容已不再公开，收藏会保留直到你手动移除。</p>}
-                {status === "summary-only" && <p className="mt-2 text-[12.5px] text-amber-ink">应来源方要求，这条内容现在只提供摘要。</p>}
+                {summary && <p className="mt-1.5 line-clamp-2 text-[14px] leading-[1.75] text-ink-3">{summary}</p>}
+                {unavailable && <p className="mt-2 text-[12.5px] text-hot">{t("这条内容已不再公开，收藏会保留直到你手动移除。", "This report is no longer public; the entry stays until you remove it.")}</p>}
+                {status === "summary-only" && <p className="mt-2 text-[12.5px] text-amber-ink">{t("应来源方要求，这条内容现在只提供摘要。", "At the source's request, this report now offers a summary only.")}</p>}
               </li>
             );
           })}

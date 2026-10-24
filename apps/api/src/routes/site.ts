@@ -16,9 +16,10 @@ import { loadSiteStats } from "@aihot/backend/site/stats";
 import { itemAvailability } from "@aihot/backend/publication/availability";
 import { listTopicSummaries, loadTopicPage, topicBrowseLinks } from "@aihot/backend/publication/topics";
 import { FOLLOW_LIMITS, followingItems, followList } from "@aihot/backend/publication/following";
-import { loadItemContext } from "@aihot/backend/publication/item-context";
 import { registerFeedback } from "./feedback.ts";
 import { loadHot, loadStoryDetail, resolveStory } from "@aihot/backend/publication/stories";
+import { publicExploreGallery } from "@aihot/backend/publication/gallery";
+import { publicStoryRoute } from "@aihot/backend/publication/story-route";
 import { listReports, loadReport, reportNavigation, loadReportNavigation, loadReportMonth, type ReportKind } from "@aihot/backend/publication/reports";
 import { looseQuery, sendJsonWithEtag, sendProblem } from "../http/respond.ts";
 
@@ -102,14 +103,6 @@ export function registerSite(app: FastifyInstance) {
     return sendJsonWithEtag(req, reply, result.item, { etagPrefix: "item-original", cacheControl: "public, max-age=60, s-maxage=60" });
   }));
 
-  app.get("/api/site/items/:id/context", siteHandler(async (req, reply) => {
-    const id = (req.params as { id: string }).id;
-    if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id)) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "item not found" });
-    const context = await loadItemContext(id);
-    if (!context) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "item not found", cacheControl: "public, max-age=60" });
-    return sendJsonWithEtag(req, reply, context, { etagPrefix: "item-context", cacheControl: "public, max-age=300, s-maxage=300" });
-  }));
-
   app.get("/api/site/stories/:publicId/followups", siteHandler(async (req, reply) => {
     const result = await loadStoryFollowups((req.params as { publicId: string }).publicId);
     if (!result) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "story not found" });
@@ -172,6 +165,22 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/hot", siteHandler(async (req, reply) => {
     const data = await loadHot();
     return sendJsonWithEtag(req, reply, data, { etagPrefix: "hot", cacheControl: "public, max-age=30, s-maxage=30" });
+  }));
+
+  app.get("/api/site/explore/gallery", siteHandler(async (req, reply) => {
+    const data = await publicExploreGallery();
+    return sendJsonWithEtag(req, reply, data, { etagPrefix: "explore-gallery", cacheControl: "public, max-age=60, s-maxage=60" });
+  }));
+
+  app.get("/api/site/stories/:publicId/route", siteHandler(async (req, reply) => {
+    const publicId = (req.params as { publicId: string }).publicId;
+    const found = await resolveStory(publicId);
+    if (found.kind === "merged") {
+      return reply.code(308).header("Location", `/api/site/stories/${found.target}/route`).header("Cache-Control", "public, max-age=300").send({ mergedInto: found.target });
+    }
+    if (found.kind === "not_found") return sendProblem(req, reply, { status: 404, code: "not_found", detail: "story not found", cacheControl: "public, max-age=60" });
+    const data = await publicStoryRoute(publicId);
+    return sendJsonWithEtag(req, reply, data, { etagPrefix: "story-route", cacheControl: "public, max-age=60, s-maxage=60" });
   }));
 
   app.get("/api/site/stories/:publicId", siteHandler(async (req, reply) => {
