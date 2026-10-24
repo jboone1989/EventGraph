@@ -87,7 +87,7 @@ export default function MorePage() {
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4 2xl:grid-cols-3">
         <Group title="PREFERENCES">
           <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[15px] text-ink">
-            <span>Language</span><LanguageSwitch />
+            <span>Language</span><LanguageSwitch compact />
           </li>
           <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[15px] text-ink"><span>Appearance</span><ThemeSwitch className="w-[126px]" /></li>
           <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[15px] text-ink">
@@ -120,7 +120,7 @@ export default function MorePage() {
       <h1 className="hidden pb-4 pt-1 text-[22px] font-bold text-ink lg:block">{"我的"}</h1>
       <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-4 2xl:grid-cols-3">
         <Group>
-          <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[16px] text-ink"><span>{"语言"}</span><LanguageSwitch /></li>
+          <li className="flex min-h-[56px] items-center justify-between gap-3 px-4 text-[16px] text-ink"><span>{"语言"}</span><LanguageSwitch compact /></li>
           <RowLink row={{ to: "/starred", label: "收藏", icon: <IconBookmark size={20} />, detail: here && starred.length > 0 ? <span className="num">{starred.length}</span> : undefined }} />
           <li className="flex min-h-[56px] items-center gap-3 px-4 text-[16px] font-medium text-ink">
             <span className="text-ink-3">
@@ -153,6 +153,7 @@ export default function MorePage() {
         <Link viewTransition to="/terms" className="hover:text-ink-2">{POLICY.terms.name}</Link>
         <Link viewTransition to="/privacy" className="hover:text-ink-2">隐私说明</Link>
         <a href="/feed.xml" className="hover:text-ink-2" onClick={() => trackAnalytics("rss_open")}>RSS</a>
+        {SITE.github && <a href={SITE.github} target="_blank" rel="noopener noreferrer" className="hover:text-ink-2">GitHub 开源</a>}
         {SITE.icp && <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" className="hover:text-ink-2">{SITE.icp}</a>}
       </div>
     </div>

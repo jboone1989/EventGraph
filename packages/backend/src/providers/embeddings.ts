@@ -21,13 +21,6 @@ export function embeddingsAvailable(): boolean {
   return config.modelCallsEnabled && !!(credential("models", "EMBEDDING_API_KEY") ?? credential("models", "DASHSCOPE_API_KEY"));
 }
 
-/** NVIDIA's hosted retrieval models refuse a request without input_type; passage for every text
- * here, since stored report texts and the recall query are embedded the same way. */
-export function embeddingsInputType(base: string): "passage" | undefined {
-  try { return new URL(base).host === "integrate.api.nvidia.com" ? "passage" : undefined; }
-  catch { return undefined; }
-}
-
 async function embedBatch(texts: string[], subject: string): Promise<{ vectors: number[][]; receiptId: number }> {
   if (!config.modelCallsEnabled) throw new Error("Model calls are disabled (MODEL_CALLS_ENABLED=false)");
   const base = own ? credential("models", "EMBEDDING_BASE_URL") ?? "https://api.openai.com/v1" : credential("models", "DASHSCOPE_BASE_URL") ?? "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -36,11 +29,10 @@ async function embedBatch(texts: string[], subject: string): Promise<{ vectors: 
   const receipt = await paidRequest(
     { service: SERVICE, model: EMBEDDING_MODEL, purpose: "embedding", subject, identity: { model: EMBEDDING_MODEL, dims: EMBEDDING_DIMS, texts: texts.map((t) => sha256(t)) }, requestSummary: { count: texts.length } },
     async () => {
-      const inputType = embeddingsInputType(base);
       const res = await fetch(`${base.replace(/\/$/, "")}/embeddings`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model: EMBEDDING_MODEL, input: texts, ...(EMBEDDING_DIMS > 0 ? { dimensions: EMBEDDING_DIMS } : {}), encoding_format: "float", ...(inputType ? { input_type: inputType } : {}) }),
+        body: JSON.stringify({ model: EMBEDDING_MODEL, input: texts, ...(EMBEDDING_DIMS > 0 ? { dimensions: EMBEDDING_DIMS } : {}), encoding_format: "float" }),
         signal: AbortSignal.timeout(60_000),
       });
       const text = await res.text();

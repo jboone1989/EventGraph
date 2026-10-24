@@ -52,7 +52,7 @@ export function useText() {
 /** Shared browser preference. Article pages move between /items/:id and its English page /en/items/:id.
  * A Chinese-original article remains Chinese; it must never be mislabeled as translated English.
  */
-export function LanguageSwitch() {
+export function LanguageSwitch({compact=false}: {compact?:boolean}) {
   const lang = useUiLanguage();
   const {pathname, search} = useLocation();
   const navigate=useNavigate();
@@ -67,7 +67,7 @@ export function LanguageSwitch() {
     if(en) void navigate((next==="en"?en:chinesePath(pathname))+search,{replace:true});
   };
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-lg border border-line bg-surface p-1 text-[11px]" role="group" aria-label="Language / 语言">
+    <div className={`inline-flex items-center gap-0.5 rounded-lg border border-line bg-surface p-1 ${compact?"text-[11px]":"text-[12px]"}`} role="group" aria-label="Language / 语言">
       <button type="button" onClick={()=>choose("en")} aria-pressed={lang==="en"}
         className={`rounded-md px-2 py-1.5 font-semibold transition-colors ${lang==="en"?"bg-accent text-white":"text-ink-3 hover:bg-bg-sunk"}`}>EN</button>
       <button type="button" onClick={()=>choose("zh")} aria-pressed={lang==="zh"}

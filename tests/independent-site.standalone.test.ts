@@ -9,7 +9,7 @@ import { SITE, NAV, COMMUNITY_FEEDS } from "@aihot/site";
 interface Source {
   id: string;
   kind: string;
-  config: { feedUrl?: string; url?: string };
+  config: { feedUrl?: string };
   participation_mode: string;
   tier: string;
   site_fulltext: boolean;
@@ -26,8 +26,6 @@ test("the news site has no mandatory AI-author or self-RSS source", () => {
   assert.ok(sources.every(s => s.participation_mode === "editorial" || s.participation_mode === "hot_signal"));
   assert.deepEqual(new Set(COMMUNITY_FEEDS.dev), new Set(["rss-dev-ai", "rss-dev-crypto"]));
   assert.ok(COMMUNITY_FEEDS.dev.every(id => sources.find(s => s.id === id)?.participation_mode === "hot_signal"));
-  assert.deepEqual(new Set(COMMUNITY_FEEDS.hn), new Set(["hn-ai"]));
-  assert.ok(COMMUNITY_FEEDS.hn.every(id => sources.find(s => s.id === id)?.participation_mode === "hot_signal"));
 });
 
 test("public sources cover AI, cryptocurrency and finance on their own", () => {
@@ -36,16 +34,11 @@ test("public sources cover AI, cryptocurrency and finance on their own", () => {
     assert.ok(ids.has(id), id);
   }
   for (const source of sources) {
+    assert.equal(source.kind, "rss");
+    assert.ok(source.config.feedUrl?.startsWith("https://"), source.id);
     assert.equal(source.site_fulltext, false, source.id);
     assert.equal(source.syndicate_fulltext, false, source.id);
   }
-  for (const source of sources.filter(s => s.kind === "rss")) {
-    assert.ok(source.config.feedUrl?.startsWith("https://"), source.id);
-  }
-  // The one non-RSS source: Hacker News through its free search API, pinned to the fields recall uses.
-  const hn = sources.find(s => s.id === "hn-ai");
-  assert.equal(hn?.kind, "json_list");
-  assert.ok(hn?.config.url?.startsWith("https://hn.algolia.com/"), "hn-ai");
 });
 
 test("the site has an independent public navigation and topical taxonomy", () => {

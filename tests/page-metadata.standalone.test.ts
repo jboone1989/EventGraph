@@ -88,10 +88,8 @@ test("ordinary feed pages remain indexable and normalize ignored parameters", as
 for (const [kind, label] of [["daily", "日报"], ["weekly", "周报"], ["monthly", "月报"]] as const) {
   test(`${kind} issue metadata describes its visible lead while the permanent entry keeps its title`, async () => {
     const r = report(kind);
-    // The daily's display name is plain 日报; the other editions keep the industry word.
-    const name = kind === "daily" ? label : withSubject(label);
     const $ = await page(`/${kind}/${r.key}`);
-    const title = `${name} ${r.key}：${r.lead!.title}`;
+    const title = `${withSubject(label)} ${r.key}：${r.lead!.title}`;
     assert.equal($("title").text(), `${title} · ${SITE.name}`);
     assert.equal($("meta[property='og:title']").attr("content"), title);
     assert.ok($("main").text().includes(r.lead!.title));
@@ -100,7 +98,7 @@ for (const [kind, label] of [["daily", "日报"], ["weekly", "周报"], ["monthl
     assert.equal(article.image, `${web.origin}/og/reports/${kind}/${r.key}.png`);
     assert.equal("dateModified" in article, false);
     const latest = await page(`/${kind}`);
-    assert.equal(latest("title").text(), `${name} · ${SITE.name}`);
+    assert.equal(latest("title").text(), `${withSubject(label)} · ${SITE.name}`);
   });
 }
 

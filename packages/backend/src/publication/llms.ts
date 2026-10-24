@@ -114,7 +114,7 @@ export function llmsTxt(opts: {
   lines.push(`- [${withSubject("热点榜")}](${u("/hot")}): 过去 48 小时内被多个独立信源${subjectAfter("共同讨论的", "事件")}；可进入事件页查看最新进展、热度变化、报道时间线和 AI 综述`);
   lines.push(`- [全部动态](${u("/all")}): ${subjectAfter("全量", "资讯流")}，可按分类筛选`);
   if (opts.hasDailies) {
-    lines.push(`- [日报](${u("/daily")}): ${subjectAfter("每日", "行业精编汇总")}`);
+    lines.push(`- [${withSubject("日报")}](${u("/daily")}): ${subjectAfter("每日", "行业精编汇总")}`);
     lines.push(`- [日报存档](${u("/daily/archive")}): ${subjectAfter("历史", "日报归档")}`);
   }
   if (opts.hasWeekly) lines.push(`- [${withSubject("周报")}](${u("/weekly")}): ${REPORTS.descriptions.weekly}（含往期）；也可用 /api/v1/weeklies、给 Agent 的 /api/v1/agent/weekly、MCP 工具 ${T.weekly} 读取，或用 /feed/weekly.xml 订阅`);

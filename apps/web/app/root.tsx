@@ -147,7 +147,7 @@ function SiteShell({ changelogVersion, children }: { changelogVersion: string | 
           <SiteFooter english={english} />
         </div>
       </main>
-      <div className="fixed bottom-[calc(66px+env(safe-area-inset-bottom))] right-3 z-[55] lg:hidden"><LanguageSwitch /></div>
+      <div className="fixed bottom-[calc(66px+env(safe-area-inset-bottom))] right-3 z-[55] lg:hidden"><LanguageSwitch compact /></div>
       <TabBar changelogVersion={changelogVersion} />
       {interactive && <SearchOverlay />}
       {interactive && <PullToRefresh />}

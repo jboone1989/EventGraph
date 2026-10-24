@@ -199,7 +199,7 @@ export function siteLd() {
       "@type": "Dataset",
       "@id": `${base}/#dataset`,
       name: `${SITE.name} — ${withSubject("行业动态数据集")}`,
-      description: `${subjectAfter("持续更新的中文", "行业动态")}：每条附中文摘要、评分与原文出处，另有每日精选与日报，可通过 RSS 与公开 API 获取。`,
+      description: `${subjectAfter("持续更新的中文", "行业动态")}：每条附中文摘要、评分与原文出处，${subjectAfter("另有每日精选与", "日报")}，可通过 RSS 与公开 API 获取。`,
       url: base,
       inLanguage: SITE.locale,
       isAccessibleForFree: true,
@@ -210,7 +210,7 @@ export function siteLd() {
       distribution: [
         { "@type": "DataDownload", name: "精选 RSS", encodingFormat: "application/rss+xml", contentUrl: `${base}/feed.xml` },
         { "@type": "DataDownload", name: "全部动态 RSS", encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/all.xml` },
-        { "@type": "DataDownload", name: "日报 RSS", encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/daily.xml` },
+        { "@type": "DataDownload", name: `${withSubject("日报")} RSS`, encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/daily.xml` },
         { "@type": "DataDownload", name: `${withSubject("周报")} RSS`, encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/weekly.xml` },
         { "@type": "DataDownload", name: `${withSubject("月报")} RSS`, encodingFormat: "application/rss+xml", contentUrl: `${base}/feed/monthly.xml` },
         { "@type": "DataDownload", name: "公开 API v1", encodingFormat: "application/json", contentUrl: `${base}/api/v1/items` },
@@ -281,7 +281,7 @@ const REPORT_NAME = { daily: "日报", weekly: "周报", monthly: "月报" } as 
 /** An issue's date and actual editorial lead, falling back only to a still-public visible highlight. */
 export function reportTitle(report: ReportDetail): string {
   const lead = report.lead?.title.trim() || report.highlights.find((item) => item.available)?.title.trim();
-  const name = `${report.kind === "daily" ? REPORT_NAME[report.kind] : withSubject(REPORT_NAME[report.kind])} ${report.key}`;
+  const name = `${withSubject(REPORT_NAME[report.kind])} ${report.key}`;
   return lead ? `${name}：${lead}` : name;
 }
 

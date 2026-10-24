@@ -29,8 +29,8 @@ function gap(a: string, b: string): number {
 
 const S = SITE.subject;
 const NAMEPLATES: Record<string, Array<{ text: string; accent: boolean }>> = {
-  // The daily's display name is plain 日报 on this site; the industry word stays on the weeklies.
   daily: [
+    { text: S, accent: true },
     { text: "日报", accent: false },
   ],
   weekly: [
