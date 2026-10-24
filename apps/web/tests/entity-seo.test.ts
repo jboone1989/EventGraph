@@ -21,6 +21,10 @@ const api = createServer((req, res) => {
     return res.end(JSON.stringify({ code: 'not_found' }));
   }
   const key = matched[1]!;
+  if (key === 'unavailable') {
+    res.statusCode = 503;
+    return res.end(JSON.stringify({ code: 'service_unavailable' }));
+  }
   const name = names[key];
   if (!name) {
     res.statusCode = 404;
@@ -66,4 +70,17 @@ test('named entities with sourced relations remain indexable in both languages',
 test('entities without public relations still stay noindex', async () => {
   const $ = await tags('/knowledge/entity/empty');
   assert.match($('meta[name="robots"]').attr('content') ?? '', /noindex/);
+});
+
+// Neither a temporary graph outage nor a real missing key may generate a 200/noindex response.
+test('temporary knowledge API failure returns 503, not a false noindex page', async () => {
+  for (const route of ['/knowledge/entity/unavailable', '/en/knowledge/entity/unavailable']) {
+    const response = await fetch(web.origin + route);
+    assert.equal(response.status, 503);
+  }
+});
+
+test('unknown entity returns 404 instead of a successful empty profile', async () => {
+  const response = await fetch(web.origin + '/knowledge/entity/absent');
+  assert.equal(response.status, 404);
 });
