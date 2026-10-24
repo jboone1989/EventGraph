@@ -136,5 +136,7 @@ if [ "$healthy" -ne 1 ]; then
   rollback
 fi
 printf '%s\n' "$EVENTGRAPH_IMAGE" > .eventgraph-last-good-image.tmp
+echo "Reconciling existing public page indexing in bounded batches"
+compose exec -T api node scripts/reindex-public-pages.ts
 mv .eventgraph-last-good-image.tmp .eventgraph-last-good-image
 echo "Release verified: $EVENTGRAPH_IMAGE"
