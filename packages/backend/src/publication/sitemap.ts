@@ -63,6 +63,8 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
     { loc: "/weekly", revision: reportRevision("weekly"), changefreq: "weekly", priority: 0.7 },
     { loc: "/monthly", revision: reportRevision("monthly"), changefreq: "monthly", priority: 0.6 },
     { loc: "/topics", revision: sha256(stableJson(topics)), changefreq: "daily", priority: 0.7 },
+    // The Chinese knowledge page carries the latest issue's graph changes as text (specs/003-content-assets FR-007).
+    { loc: "/knowledge", changefreq: "daily", priority: 0.6 },
     ...serverModules().flatMap((m) => m.sitemap?.pages ?? []),
     { loc: "/agent", revision: sha256(stableJson([SITE, ACCESS, AGENT])), changefreq: "weekly", priority: 0.7 },
     { loc: "/about", revision: sha256(stableJson(ABOUT)), changefreq: "monthly", priority: 0.5 },
