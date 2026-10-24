@@ -10,7 +10,6 @@ import { loadChangelog } from "../site/meta.ts";
 import { latestHotRanking } from "./hot.ts";
 import { ITEM_FROM } from "./items.ts";
 import { ENGLISH_STORY_INPUTS } from "./story-text.ts";
-import { INDEXED_MIN_REPORTS } from "./detail.ts";
 import { sql } from "../db.ts";
 import { cached, SHARED_ONLY } from "../lib/cache.ts";
 import { escapeXml } from "../lib/text.ts";
@@ -92,8 +91,7 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
   }
   // A story needs listed evidence of its own. Its identity follows current readable reports as well
   // as the digest, so a correction or regrouping is visible even when latest_at does not advance.
-  // FR-006/FR-009: it enters the sitemap only when an editor curated one of its reports (publications
-  // .indexable) and it is not a thin single-source event with a very short digest.
+  // Public events with eligible reports enter discovery automatically; single-source quick notes remain redirects.
   const stories = await sql<{ public_id: string; lastmod: Date | null; revision: string; en_revision: string | null }[]>`
     SELECT st.public_id::text, st.latest_at AS lastmod, md5(concat_ws('|', st.title, st.summary, st.digest, st.digest_updated_at::text,
       st.version::text, members.revision)) AS revision,
@@ -107,20 +105,19 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
       WHERE f.story_id = st.id AND ${storyReportCondition(at)}
     ) members ON true
     JOIN LATERAL (
-      SELECT count(*) FILTER (WHERE p.indexable) AS curated, count(*) AS n
+      SELECT count(*) FILTER (WHERE p.indexable) AS eligible, count(*) AS n
       FROM publications p JOIN sources s ON s.id = p.source_id
       WHERE p.story_id = st.id AND ${storyReportCondition(at)}
     ) sizes ON true
     WHERE st.merged_into IS NULL AND EXISTS (
       SELECT 1 FROM facts f JOIN fact_articles fa ON fa.fact_id = f.id JOIN publications p ON p.article_id = fa.article_id
       WHERE f.story_id = st.id AND ${evidenceCondition()} AND ${listedCondition(at)})
-      AND sizes.curated > 0
+      AND sizes.eligible > 0
       AND (sizes.n >= 2 OR coalesce(length(st.digest), 0) >= ${SEO.minSingleSourceDigestChars})
     ORDER BY st.latest_at DESC NULLS LAST, st.id DESC ${limits ? sql`LIMIT ${limits.stories}` : sql``}`;
   for (const s of stories) {
     entries.push({ loc: `/story/${s.public_id}`, lastmod: s.lastmod, revision: s.revision, changefreq: "daily", priority: 0.5 });
-    // The /en edition is indexed only with an English digest of its own (editorial/english.ts),
-    // under the same curation decision as the Chinese page (FR-012).
+    // English discovery requires a current English digest of its own.
     if (s.en_revision)
       entries.push({ loc: `/en/story/${s.public_id}`, lastmod: s.lastmod, revision: s.en_revision, changefreq: "daily", priority: 0.4 });
   }
@@ -128,14 +125,11 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
   // Material/translation timestamps can also record a retry or a state repair. The item's public
   // timeline slot is its modification clock (FR-010: every sitemap entry carries a lastmod).
   const items = await sql<{ id: string; lastmod: Date | null; revision: string; en_revision: string | null }[]>`
-    WITH story_sizes AS (
-      SELECT p.story_id, count(*) AS n FROM publications p JOIN sources s ON s.id = p.source_id
-      WHERE p.story_id IS NOT NULL AND ${storyReportCondition(at)} GROUP BY p.story_id)
     SELECT p.article_id AS id, p.timeline_at AS lastmod,
       md5(concat_ws('|', p.revision::text, a.content_hash, tr.title, tr.body_html, tr.body_text, tr.complete::text, qt.text_zh,
         s.name, s.icon_url, st.public_id::text, st.title)) AS revision,
-      -- An English page with English copy and an event of several reports (detail.ts INDEXED_MIN_REPORTS).
-      CASE WHEN ec.title IS NOT NULL AND coalesce((SELECT z.n FROM story_sizes z WHERE z.story_id = p.story_id), 0) >= ${INDEXED_MIN_REPORTS}
+      -- English copy must exist and match current inputs; a multi-report event is not required.
+      CASE WHEN ec.title IS NOT NULL
       THEN md5(concat_ws('|', p.revision::text, a.content_hash, ec.title, ec.summary, ec.reason, s.name)) END AS en_revision
     ${ITEM_FROM}
     WHERE ${storyReportCondition(at)} AND p.indexable
@@ -148,7 +142,7 @@ export async function loadDiscoveryEntries(at = new Date(), limits?: { stories: 
 }
 
 async function build(at: Date): Promise<string> {
-  const entries = await loadDiscoveryEntries(at, { stories: 500, urls: MAX_URLS });
+  const entries = await loadDiscoveryEntries(at, { stories: MAX_URLS, urls: MAX_URLS });
   const body = entries
     .slice(0, MAX_URLS)
     .map((e) => {
