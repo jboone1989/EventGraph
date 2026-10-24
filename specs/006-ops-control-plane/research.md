@@ -17,7 +17,7 @@
 - [pg-boss 官方](https://github.com/timgit/pg-boss) 与 [expiration/heartbeat](https://github.com/timgit/pg-boss/blob/master/docs/api/queues.md)：既有 Postgres 队列是合适基础，支持事务入队及 retry；不要换 Redis/BullMQ/Temporal。
 - [Sidekiq Web UI/Job Lifecycle](https://github.com/sidekiq/sidekiq/wiki/Job-Lifecycle)：待执行/执行中/重试/失败区分清晰，可借鉴其后台可操作性，但不能装 Sidekiq 来管 pg-boss。
 - [智谱 BigModel 官方 API 文档](https://docs.bigmodel.cn/cn/api/introduction)：OpenAI-compatible 兼容与计费/限流须分清。NVIDIA 托管 GLM 与智谱直接付费 API 是两个独立 Provider；不要把同名模型当成同一运行实例。
-- [日本央行 RSS 公告](https://www.boj.or.jp/en/tips.htm)、[印度央行 RSS](https://www.rbi.org.in/Scripts/rss.aspx)：官方链接可追溯，加入配置后还需采集预览。
+- [日本央行 RSS 公告](https://www.boj.or.jp/en/tips.htm)、[印度央行 RSS](https://www.rbi.org.in/Scripts/rss.aspx)、[韩国央行英文 RSS 目录](https://www.bok.or.kr/static/view/eng/popup/rss_popup.html)、[日本金融厅 RSS](https://www.fsa.go.jp/en/rss.html)：官方链接可追溯，加入配置后还需采集预览。
 
 ## Claude Devil's Advocate（独立，只读）
 
