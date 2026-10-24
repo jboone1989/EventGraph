@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { NAV } from "@aihot/site";
 import { webModules } from "../../site-modules";
-import { IconNetwork, IconBolt, IconDoc, IconFlame, IconUser } from "../icons";
+import { IconNetwork, IconBolt, IconClock, IconDoc, IconFlame, IconUser } from "../icons";
 
 export interface NavItem {
   to: string;
@@ -29,6 +29,13 @@ const SECTIONS: Array<{ title: string; items: NavItem[] }> = [
       { to: "/more", label: "我的", icon: IconUser, changelog: true },
     ],
   },
+  {
+    // The engine's own extras; a module naming this section (研究 does) joins it here.
+    title: "更多",
+    items: [
+      { to: "/calendar", label: "日历", labelEn: "Calendar", icon: IconClock },
+    ],
+  },
 ];
 
 /** Whether an engine page is a way in from the navigation (site.ts NAV.hidden); a hidden page still opens. */
@@ -44,7 +51,8 @@ export function sidebar(): Array<{ title: string; items: NavItem[] }> {
   const sections = [content!, ...rest].map((s) => ({ ...s, items: s.items.filter((i) => inNav(i.to)) }));
   for (const m of webModules()) {
     if (!m.sidebar) continue;
-    const section = sections.find((s) => s.title === m.sidebar!.section);
+    // The last engine section (更多) stays last: a module naming it joins in place instead of adding its own.
+    const section = [...sections, ...(more ? [more] : [])].find((s) => s.title === m.sidebar!.section);
     if (section) section.items.push(...m.sidebar.items);
     else sections.push({ title: m.sidebar.section, items: [...m.sidebar.items] });
   }
