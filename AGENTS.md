@@ -50,6 +50,12 @@
 - **测试只证明你想到的情况。** 动了采集、日期、正文清洗、精选或归组的，拿一批公开的真实订阅和网页跑改动前后，在 PR 里写有多少条结果变了、变的是否都对。中文网页的时间常不带时区，按信源时区读（默认 `+08:00`），上面的 “CST” 一般指北京时间；测试结果不能取决于运行机器的时区。
 - **改全。** 新的环境变量写进 `.env.example`，新的站点配置写进 `site/`；改了配置字段的意思，示例配置跟着改，让已部署的站升级后行为不变（比如改成只给声明了 `vision` 的模型附图，本来就能看图的预设要补上声明）；改一个读者看到的名字或入口，出现它的地方一起改。新增或更改导航配置时，分别核对默认配置与非默认配置的电脑侧栏、手机底栏、返回和“我的”入口，入口变少时的标签布局也要在浏览器里看；默认值不变只能证明原行为，不能证明配置可用。
 
+## 当前产品增长基线（必须先读，2026-10-25）
+
+EventGraph 的产品方向已在用户 + ChatGPT + Claude 独立反方讨论后确定：**保留新闻详情页作为 Google 获客入口；事件页负责深读，主题/关注负责持续追踪**。不能因追求事件图谱而删除/批量 `noindex` 新闻页，也不能无证据把新闻 canonical 全指向事件页。保持 #114 对公开、有摘要新闻的默认索引策略，区分 Google 索引资格和 AdSense 合规广告展示资格。现阶段**不重做首页**，先改善现有新闻页的增量价值和来自搜索的后续点击。亚洲新增信源先核对实际库存与利用率，不要凭感觉得出已上线。
+
+**任何增长/SEO/新闻页/索引/亚洲信源/复访相关工作开工前，先读** `specs/005-news-growth-funnel/spec.md`、`research.md`、`plan.md`、`tasks.md`，并核查最新 `develop` 和 PR 状态。遵循 Research First → 现有 Spec Kit → 最小实现 → CI/独立评审，不另造工具链。此处为产品方向和接力索引；详细事实与验收标准以 Spec 为准。
+
 ## EventGraph Spec-driven development and independent review
 
 For non-trivial feature work, use the upstream [GitHub Spec Kit](https://github.com/github/spec-kit) artifact names and flow; see [docs/spec-review.md](docs/spec-review.md). Small fixes may use the Issue and PR acceptance criteria instead of creating three documents.
