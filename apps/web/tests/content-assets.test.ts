@@ -12,6 +12,8 @@ const item = { id: 'asset-item', title: '可核实的测试报道', summary: '�
 const report = {
   kind: 'daily', key: '2026-10-24', issueNumber: 1, title: '测试日报', generatedAt: at,
   lead: { title: '今日要闻', leadParagraph: '今天的导读。' }, leadItemId: item.id, overview: null, overviewEn: null,
+  // The note rides with the report answer now (specs/004-editorial-ops FR-001), written in the admin.
+  editorNote: { note: '今天起，日报最前面多了一小块编辑手记，由人写。', noteEn: 'A short editor-written note opens the daily from today on.' },
   highlights: [], sections: [], flashes: [], tail: [], cover: null, metrics: {}, readingMinutes: 1, prev: null, next: null,
 };
 let graphState: 'ok' | 'empty' | 'unavailable' = 'ok';
@@ -36,7 +38,8 @@ const api = createServer((req, res) => {
   if (url === '/api/site/reports/daily/latest-page') return res.end(JSON.stringify({ index: [], report }));
   if (url === '/api/site/reports/daily/navigation/2026-10-24') return res.end(JSON.stringify({ items: [] }));
   const daily = /^\/api\/site\/reports\/daily\/(\d{4}-\d{2}-\d{2})$/.exec(url);
-  if (daily) return res.end(JSON.stringify({ ...report, key: daily[1] }));
+  // Only the seeded day carries a note; other days answer without one (FR-001's absent case).
+  if (daily) return res.end(JSON.stringify({ ...report, key: daily[1], editorNote: daily[1] === '2026-10-24' ? report.editorNote : null }));
   if (url === '/api/site/knowledge/daily/2026-10-24') return res.end(JSON.stringify(graphState === 'ok' ? changes : { ...changes, status: graphState === 'empty' ? 'ok' : 'unavailable', added: {count: 0, edges: []}, ended: {count: 0, edges: []}, newEntities: {count: 0, items: []} }));
   if (url === '/api/site/knowledge/stats') return res.end(JSON.stringify({ episodes: 1, entities: 1, relations: 1, status: 'ok' }));
   const topicRoute = /^\/api\/site\/topics\/([a-z0-9-]+)$/.exec(url);

@@ -2,7 +2,6 @@ import { data, useLoaderData } from "react-router";
 import type { Route } from "./+types/report-detail";
 import type { ReportDetail, ReportNavigationResponse, ReportKind } from "@aihot/contracts/site";
 import { SITE, subjectAfter } from "@aihot/site";
-import { EDITOR_NOTES } from "@aihot/site/editor-notes";
 import { apiGet, cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { localized, pageMeta, reportLd, reportTitle, titled } from "../lib/seo";
@@ -58,8 +57,8 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
 export default function ReportDetailPage() {
   const language = useUiLanguage();
   const { report, index, graph, today } = useLoaderData<typeof loader>();
-  // The editor's own note for this daily, written in site/editor-notes.ts (specs/003-content-assets FR-004).
-  const editorNote = report.kind === "daily" ? EDITOR_NOTES[report.key] ?? null : null;
+  // The editor's own note for this daily, written in the admin (specs/004-editorial-ops FR-001).
+  const editorNote = report.kind === "daily" && report.editorNote ? { note: report.editorNote.note, noteEn: report.editorNote.noteEn ?? undefined } : null;
   return (
     <ReportLayout kind={report.kind} index={index} current={report.key} today={today} outline={reportOutline(report, language)}>
       <ReportPaper report={report} index={index} lang={language} editorNote={editorNote} />
