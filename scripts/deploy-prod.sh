@@ -112,6 +112,8 @@ fi
 # no dependencies => PostgreSQL and Neo4j are never recreated for an app release.
 echo "[4/5] Reconcile application containers only; leave Graphiti/Neo4j running"
 "${COMPOSE[@]}" up -d --no-deps --no-build --pull never api worker web
+echo "[5/5] Reconcile existing public page indexing in bounded batches"
+"${COMPOSE[@]}" exec -T api node scripts/reindex-public-pages.ts
 echo "[5/5] Verify real site content and graph"
 OK=0
 for n in 1 2 3 4 5 6 7 8 9 10; do
