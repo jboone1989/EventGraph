@@ -14,6 +14,7 @@ const report = {
   lead: { title: '今日要闻', leadParagraph: '今天的导读。' }, leadItemId: item.id, overview: null, overviewEn: null,
   highlights: [], sections: [], flashes: [], tail: [], cover: null, metrics: {}, readingMinutes: 1, prev: null, next: null,
 };
+let graphState: 'ok' | 'empty' | 'unavailable' = 'ok';
 const changes = {
   key: '2026-10-24', windowStart: '2026-10-23T00:00:00.000Z', windowEnd: '2026-10-24T00:00:00.000Z', status: 'ok',
   added: { count: 1, edges: [{ id: 'e1', subject: { key: 'a', name: 'Entity A' }, predicate: 'PROVIDES', object: { key: 'b', name: 'Entity B' }, fact: 'A provides B.' }] },
@@ -36,7 +37,7 @@ const api = createServer((req, res) => {
   if (url === '/api/site/reports/daily/navigation/2026-10-24') return res.end(JSON.stringify({ items: [] }));
   const daily = /^\/api\/site\/reports\/daily\/(\d{4}-\d{2}-\d{2})$/.exec(url);
   if (daily) return res.end(JSON.stringify({ ...report, key: daily[1] }));
-  if (url === '/api/site/knowledge/daily/2026-10-24') return res.end(JSON.stringify(changes));
+  if (url === '/api/site/knowledge/daily/2026-10-24') return res.end(JSON.stringify(graphState === 'ok' ? changes : { ...changes, status: graphState === 'empty' ? 'ok' : 'unavailable', added: {count: 0, edges: []}, ended: {count: 0, edges: []}, newEntities: {count: 0, items: []} }));
   if (url === '/api/site/knowledge/stats') return res.end(JSON.stringify({ episodes: 1, entities: 1, relations: 1, status: 'ok' }));
   const topicRoute = /^\/api\/site\/topics\/([a-z0-9-]+)$/.exec(url);
   if (topicRoute) return res.end(JSON.stringify(topic(topicRoute[1]!, topicRoute[1]!)));
@@ -70,6 +71,22 @@ test("the knowledge page carries the latest graph changes as text", async () => 
   assert.ok(text.includes('图谱今日变化'), 'the changes block renders');
   assert.ok(text.includes('Entity A'), 'relation subjects render');
   assert.ok($('a[href="/daily/2026-10-24"]').length > 0, 'it links the issue it came from');
+});
+
+test('the knowledge page hides change links on empty or unavailable windows', async () => {
+  for (const state of ['empty', 'unavailable'] as const) {
+    graphState = state;
+    try {
+      const $ = cheerio.load(await (await fetch(`${web.origin}/knowledge`)).text());
+      assert.equal($('a[href="/daily/2026-10-24"]').length, 0, `${state}: no isolated issue link`);
+      assert.ok(!$('body').text().includes('这一期的时间窗口由日报收刊时间决定'), `${state}: no empty graph section`);
+    } finally { graphState = 'ok'; }
+  }
+});
+
+test('English knowledge page links to the English daily edition', async () => {
+  const $ = cheerio.load(await (await fetch(`${web.origin}/en/knowledge`)).text());
+  assert.ok($('a[href="/en/daily/2026-10-24"]').length > 0);
 });
 
 test('the phone 我的 page links the research section', async () => {
