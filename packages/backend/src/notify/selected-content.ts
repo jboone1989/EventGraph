@@ -47,8 +47,26 @@ function card(r: Row) {
   };
 }
 
+/** The same item as a Telegram message (HTML): every value is escaped, the tags are ours. */
+function telegram(r: Row): { text: string; buttons: Array<{ label: string; url: string }> } {
+  const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const lines = [
+    `<b>${esc(r.title)}</b>`,
+    r.summary ? esc(r.summary) : null,
+    r.reason ? `<b>${esc(ITEM_COPY.reasonLabel)}</b>：${esc(r.reason)}` : null,
+    `来源：${esc(publicSourceName(r.source_name))}`,
+  ].filter(Boolean);
+  return {
+    text: lines.join("\n\n"),
+    buttons: [
+      { label: `${SITE.name} 查看`, url: itemUrl(r.article_id) },
+      { label: "原文", url: r.url },
+    ],
+  };
+}
+
 export async function selectedContent(articleId: string, now = new Date()): Promise<
-  | { status: "ready"; article: Row; card: ReturnType<typeof card> }
+  | { status: "ready"; article: Row; card: ReturnType<typeof card>; telegram: ReturnType<typeof telegram> }
   | { status: "skipped"; reason: string }
 > {
   const [r] = await sql<Row[]>`
@@ -63,5 +81,5 @@ export async function selectedContent(articleId: string, now = new Date()): Prom
   if (!PUSH_TIERS.includes(r.source_tier)) return { status: "skipped", reason: "not a first-party source" };
   if (r.backfill || now.getTime() - r.timeline_at.getTime() > MAX_AGE_MS) return { status: "skipped", reason: "not live" };
 
-  return { status: "ready", article: r, card: card(r) };
+  return { status: "ready", article: r, card: card(r), telegram: telegram(r) };
 }

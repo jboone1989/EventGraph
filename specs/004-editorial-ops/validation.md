@@ -76,6 +76,14 @@ Docker 路径确认：`docker-compose.yml` 的 `setup` 服务即 `node scripts/m
 - 幂等重跑：`database is up to date`、种子 `INSERT 0 1` 仅首次生效
 - VM 与本地临时文件已清理，未触碰 VM 上的活动检出（`fix/61-valid-time-evidence`）
 
+## FR-005 公开频道推送（feature/channel-push，2026-10-24）
+
+- 迁移 0113–0116：`notify_targets.chat_ref` 新列、kind 检查放宽含 `telegram`（DROP → ADD NOT VALID → VALIDATE，在线安全检查通过）
+- `notify/telegram.ts`：Bot API 发送器（HTML 文本 + 内联按钮，`{ok:true}` 才算 sent）；`selected-content.ts` 同源双渲染（卡片 + Telegram 文本，值转义、标签自有）
+- `deliver.ts`：`kind='telegram'` 分支、载荷改存 `{card, telegram}` 包（旧裸卡片兼容）、重发走同一确认规则；默认目标 `feishu-content-public` / `telegram-channel-public`（默认关闭，后台可启用）；总闸 `FEISHU_CONTENT_PUSH_ENABLED` 不变
+- 测试：`tests/channel-push.test.ts` 4 项（发送/确认语义 sent/failed/unknown、安全阀 skipped、双渲染转义、种子幂等+包重发）；既有 `deliveries`/`delivery-resolution` 11 项全过（合计 **14/14**）
+- 未验证：真实 Telegram/飞书公开群的端到端送达（需运营者提供 bot token/chat id 与群 webhook 后在测试环境启用观察）
+
 ## 未验证项
 
 - 生产部署后的表现（含 301/308 归一，见 specs/003 validation）——UNVERIFIED。
