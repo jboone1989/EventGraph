@@ -42,7 +42,7 @@ jobs:
           main_subject="$(git log -1 --format=%s origin/main)"
           main_sha="$(git rev-parse origin/main)"
           today="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-          if git merge-base --is-ancestor "$dev_sha" origin/main; then
+          if git merge-base --is-ancestor "$dev_sha" origin/main || git diff --quiet origin/main origin/develop; then
             echo "No unreleased development commits"
             echo 'RELEASE_SKIP=true' >> "$GITHUB_ENV"
             exit 0
@@ -103,8 +103,8 @@ jobs:
       - name: Propose a protected develop-to-main release PR
         if: env.RELEASE_SKIP != 'true'
         env:
-          GH_TOKEN: \${{ github.token }}
-          GH_REPO: \${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
@@ -119,5 +119,5 @@ jobs:
             exit 0
           fi
           gh pr create --base main --head develop \
-            --title "release(weekly): $today develop@\${dev_sha:0:12}" \
+            --title "release(weekly): $today develop@${dev_sha:0:12}" \
             --body "Verified develop $dev_sha passed CI, immutable-image smoke and deployment preflight. This is the weekly protected promotion PR. Review and merge only after required checks are green; then run existing main Check workflow with weekly_release=true to deploy the published digest. No direct push, bypass or database migration."
