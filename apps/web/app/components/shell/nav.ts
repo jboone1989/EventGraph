@@ -48,15 +48,18 @@ export const inNav = (to: string) => !(NAV.hidden as readonly string[]).includes
 export function sidebar(): Array<{ title: string; items: NavItem[] }> {
   const [content, ...rest] = SECTIONS;
   const more = rest.pop();
+  // Every call builds fresh objects: the shared SECTIONS are never mutated, or the next render
+  // (hydration included) would append the modules' entries a second time.
   const sections = [content!, ...rest].map((s) => ({ ...s, items: s.items.filter((i) => inNav(i.to)) }));
+  const tail = more ? { ...more, items: more.items.filter((i) => inNav(i.to)) } : null;
   for (const m of webModules()) {
     if (!m.sidebar) continue;
     // The last engine section (更多) stays last: a module naming it joins in place instead of adding its own.
-    const section = [...sections, ...(more ? [more] : [])].find((s) => s.title === m.sidebar!.section);
+    const section = [...sections, ...(tail ? [tail] : [])].find((s) => s.title === m.sidebar!.section);
     if (section) section.items.push(...m.sidebar.items);
     else sections.push({ title: m.sidebar.section, items: [...m.sidebar.items] });
   }
-  return more ? [...sections, more] : sections;
+  return tail ? [...sections, tail] : sections;
 }
 
 /** A sidebar entry is lit on its pages; 日报 also covers weekly and monthly reports. */
