@@ -226,6 +226,7 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      pull-requests: read
       packages: write
     outputs:
       image_ref: ${{ steps.ref.outputs.image_ref }}
@@ -237,21 +238,20 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Confirm scheduled weekly promotion before publishing main
+      - name: Confirm reviewed weekly promotion PR before publishing main
         if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          today="$(TZ=Asia/Shanghai date +%Y-%m-%d)"
-          subject="$(git show -s --format=%s HEAD)"
-          author="$(git show -s --format=%an HEAD)"
-          email="$(git show -s --format=%ae HEAD)"
-          [[ "$author" == 'github-actions[bot]' && "$email" == '41898282+github-actions[bot]@users.noreply.github.com' ]] || {
-            echo "::error::Main release commit is not from the scheduled Actions identity"
-            exit 1
-          }
-          [[ "$subject" == "release(weekly): $today develop@"* ]] || {
-            echo "::error::Production publication requires today's scheduled release commit"
+          # A human merge or squash has a human author, not github-actions[bot].
+          # Resolve an actual merged develop-to-main release PR for this commit.
+          matches="$(gh api "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/pulls" \
+            --jq '[.[] | select(.merged_at != null and .base.ref == "main" and .head.ref == "develop" and (.title | startswith("release(weekly): ")))] | length')"
+          [[ "$matches" -ge 1 ]] || {
+            echo "::error::Main SHA is not an approved develop-to-main weekly release PR"
             exit 1
           }
 
