@@ -79,7 +79,7 @@ export function preflightCandidate(c: DiscoveredSource): PreflightResult {
     const validPrefix = (v: unknown) => {
       try { const u = new URL(String(v)); return /^https?:$/.test(u.protocol) && !u.username && !u.password; } catch { return false; }
     };
-    if (!query || query.length > 300 || !Array.isArray(prefixes) || prefixes.length === 0 || !prefixes.every(validPrefix)) {
+    if (!query || Array.from(query).length > 128 || !Array.isArray(prefixes) || prefixes.length === 0 || !prefixes.every(validPrefix)) {
       reasons.push("address");
     }
   } else {
