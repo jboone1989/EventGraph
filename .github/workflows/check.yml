@@ -46,6 +46,9 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
+      - name: Test Spec gate (positive and negative cases)
+        if: github.event_name == 'pull_request'
+        run: node --test scripts/ci/check-spec.test.mjs
       - name: Enforce pre-existing approved Spec
         if: github.event_name == 'pull_request'
         env:
