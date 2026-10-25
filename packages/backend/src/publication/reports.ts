@@ -424,17 +424,18 @@ export function reportIndex(kind: ReportKind) {
   return entry.get();
 }
 
-export async function listReports(kind: ReportKind, limit = INDEX_LIMIT): Promise<ReportIndexEntry[]> {
+export async function listReports(kind: ReportKind, limit = INDEX_LIMIT, withEnglish = false): Promise<ReportIndexEntry[]> {
   const index = await reportIndex(kind);
   const rows = index.rows.slice(0, limit);
   const shape = kind === "daily" ? "daily" : "periodic";
   const gone = index.gone;
-  return rows.map((r) => ({
+  const entries = rows.map((r) => ({
     key: r.key,
     issueNumber: r.issue_number,
     title: issueLead(r.content, shape, gone)?.title ?? null,
     count: entriesOf(r.content, shape).length,
   }));
+  return withEnglish ? englishNavigation(kind, entries) : entries;
 }
 
 // v1
@@ -671,10 +672,30 @@ export function reportNavigation(kind: ReportKind, index: ReportIndexEntry[], ke
   }));
 }
 
+/** Reuse already-published English article copies for archive headlines, without translating on read. */
+async function englishNavigation<T extends ReportNavigationEntry>(kind: ReportKind, entries: T[]): Promise<T[]> {
+  const needingTitles = entries.filter((e) => e.title && !e.titleEn);
+  if (!needingTitles.length) return entries;
+  const { rows, gone } = await reportIndex(kind);
+  const wanted = new Set(needingTitles.map((e) => e.key));
+  const shape = kind === "daily" ? "daily" : "periodic";
+  const leads = rows.filter((r) => wanted.has(r.key))
+    .map((r) => ({ key: r.key, id: issueLead(r.content, shape, gone)?.itemId }))
+    .filter((r): r is { key: string; id: string } => !!r.id);
+  const copies = await availability([...new Set(leads.map((r) => r.id))]);
+  const titles = new Map(leads.flatMap(({ key, id }) => {
+    const english = copies.get(id)?.english?.title;
+    return english ? [[key, english] as const] : [];
+  }));
+  return entries.map((e) => ({ ...e, ...(titles.has(e.key) ? { titleEn: titles.get(e.key) } : {}) }));
+}
+
 export async function loadReportNavigation(kind: ReportKind, key: string) {
-  return reportNavigation(kind, await listReports(kind), key);
+  return englishNavigation(kind, reportNavigation(kind, await listReports(kind), key));
 }
 
 export async function loadReportMonth(kind: ReportKind, month: string) {
-  return (await listReports(kind)).filter((e) => e.key.startsWith(month)).map(({ key, issueNumber, title }) => ({ key, issueNumber, title }));
+  const entries = (await listReports(kind)).filter((e) => e.key.startsWith(month))
+    .map(({ key, issueNumber, title }) => ({ key, issueNumber, title }));
+  return englishNavigation(kind, entries);
 }
