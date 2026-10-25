@@ -210,7 +210,11 @@ export async function collectSource(sourceId: string, opts: { force?: boolean } 
         summary: !!d.summarySelector && !(stored?.excerpt || c.excerpt),
         body: source.participation_mode === "editorial" && stored?.body_status !== "ok" && !c.bodyText && (!c.bodyStatus || c.bodyStatus === "pending"),
       };
-      if (!need.date && !need.title && !need.summary) continue;
+      // A DeepSeek detail read is paid: never buy one for a date with no extraction rule.
+      // A bounded editorial body-only Fetch is useful even if Search already supplied the date.
+      if (d.fetchVia === "deepseek") {
+        if (!(need.date && !!d.publishedAtRegex) && !(need.title && !!d.titleRegex) && !need.body) continue;
+      } else if (!need.date && !need.title && !need.summary) continue;
       if (detailBudgetSpent || detailUsed >= detailBudget) { detailPending += 1; continue; }
       detailUsed += 1;
       try {
