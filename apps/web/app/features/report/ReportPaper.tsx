@@ -99,7 +99,7 @@ function Masthead({ report, index, quiet, lang }: { report: ReportDetail; index:
 function Source({ c, lang, size = 16 }: { c: ReportCitation; lang: DisplayLanguage; size?: number }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
-      <SourceAvatar name={c.sourceName} iconUrl={c.sourceIconUrl} iconSrcSet={c.sourceIconSrcSet} size={size} />
+      <SourceAvatar name={localizedSourceName(c.sourceName, lang, c.sourceUrl)} iconUrl={c.sourceIconUrl} iconSrcSet={c.sourceIconSrcSet} size={size} />
       <span className="truncate">{lang === "en" ? localizedSourceName(c.sourceName, lang, c.sourceUrl) : c.sourceName}</span>
       {c.firstParty && <Badge tone="accent">{lang === "en" ? "First-party" : "一手"}</Badge>}
     </span>
