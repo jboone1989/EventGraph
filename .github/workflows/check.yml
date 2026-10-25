@@ -46,6 +46,13 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
+      - name: Enforce pre-existing approved Spec
+        if: github.event_name == 'pull_request'
+        env:
+          SPEC_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SPEC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SPEC_PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/ci/check-spec.mjs
       - name: Install
         run: npm ci --no-audit --no-fund
       - name: Online migration safety
