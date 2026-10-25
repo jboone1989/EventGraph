@@ -1,0 +1,5 @@
+# Development API binding for a local SSH tunnel.
+services:
+  api:
+    ports:
+      - '127.0.0.1:3001:3001'
