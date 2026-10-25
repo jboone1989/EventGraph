@@ -50,11 +50,11 @@
 
 | 优先级 | 目标 | 计划承接内容 | 当前阻断 |
 |---|---|---|---|
-| 必选 | 中国人民银行 PBOC | 货币政策、公开市场、利率等官方公告 | 已接通 `rss-cn-pboc-announcements`（官方 RSS 列表页，cn-dev 预览 6 条，rewrite 后为 https）；发改委/财政部等仍待验证 |
-| 必选 | 中国证监会 CSRC | 证券监管、上市/基金/政策公告 | 已接通 `web-cn-csrc-announcements`（cn-dev 预览最新 2026-10-23/19 两条，目录页已拒） |
+| 必选 | 中国人民银行 PBOC | 货币政策、公开市场、利率等官方公告 | 已接通 `rss-cn-pboc-official`（官方 RSS 列表页，cn-dev 预览 6 条，rewrite 后为 https）；发改委/财政部等仍待验证 |
+| 必选 | 中国证监会 CSRC | 证券监管、上市/基金/政策公告 | 已接通 `rss-cn-csrc-official`（cn-dev 预览最新 2026-10-23/19 两条，目录页已拒） |
 | 高 | 国家统计局数据解读 | 已有“数据发布”以外的官方解读 | 官方公布 RSS `https://www.stats.gov.cn/sj/sjjd/rss.xml`，但本轮抓取超时，需从开发机真实预览后决定启用 |
 | 高 | 发改委 NDRC、财政部 MOF、商务部 MOFCOM | 宏观、产业、对外贸易/制裁相关政策 | 需要官方列表可解析性验证 |
-| 高 | 工信部 MIIT、科技部 MOST | AI、半导体、先进制造、技术标准与政策 | MIIT 已接通 `web-cn-miit-announcements`（cn-dev 预览 5 条日期正确）；MOST 仍待验证 |
+| 高 | 工信部 MIIT、科技部 MOST | AI、半导体、先进制造、技术标准与政策 | MIIT 已接通 `rss-cn-miit-official`（cn-dev 预览 5 条日期正确）；MOST 仍待验证 |
 | 高 | 上海证券交易所、深交所、港交所、香港证监会 | 交易监管/上市规则/重大公告 | 官方公告列表或 RSS / API 要分别核实，港交所有官方 RSS 目录 |
 | 高 | 国务院、海关总署、外汇局 | 重大政策、贸易与汇率统计 | 先找权威渠道，禁止把政策首页作为正文 |
 
