@@ -123,8 +123,15 @@ test("a run finds the event's publisher, previews it for real and (autoPromote o
 
 test("with autoPromote on, the same daily run starts a T2 hot_signal trial and reviews it", async () => {
   await sql`INSERT INTO settings (key, value, updated_by) VALUES ('sourceLifecycle.autoPromote', ${sql.json({ enabled: true })}, 'test')`;
+  // The previously previewed candidate must still start its free/authorized trial
+  // when a new paid discovery search cannot run.
+  await sql`UPDATE budgets SET per_day = 0 WHERE service = 'deepseek_web'`;
+  const priorCalls = hits;
   const run = await runDailyDiscovery();
+  assert.equal(run.skipped, "budget");
+  assert.equal(hits, priorCalls);
   assert.equal(run.trialsStarted, 1);
+  await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
   const [c0] = await candidateRow();
   const [src] = await sql<{ tier: string; participation_mode: string; tags: string[] }[]>`
     SELECT tier, participation_mode, tags FROM sources WHERE id = ${"lc-" + c0.id}`;
