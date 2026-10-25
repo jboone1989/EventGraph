@@ -1351,7 +1351,7 @@
       "syndicate_fulltext": false
     },
     {
-      "id": "rss-cn-pboc-announcements",
+      "id": "rss-cn-pboc-official",
       "name": "中国人民银行 · 交流资讯",
       "kind": "rss",
       "config": {
@@ -1380,7 +1380,7 @@
       "syndicate_fulltext": false
     },
     {
-      "id": "web-cn-csrc-announcements",
+      "id": "rss-cn-csrc-official",
       "name": "中国证监会 · 发布公告",
       "kind": "web_list",
       "config": {
@@ -1415,7 +1415,7 @@
       "syndicate_fulltext": false
     },
     {
-      "id": "web-cn-miit-announcements",
+      "id": "rss-cn-miit-official",
       "name": "工业和信息化部 · 工作动态",
       "kind": "web_list",
       "config": {
