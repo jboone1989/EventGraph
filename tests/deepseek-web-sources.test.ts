@@ -10,7 +10,7 @@ import { stopBoss } from "@aihot/backend/jobs/queue";
 import { collectSource } from "@aihot/backend/sources/collect";
 import { unsupportedConfig } from "@aihot/backend/sources/config-keys";
 import { previewSource, sourceIdentity } from "@aihot/backend/admin/sources";
-import { deepseekFetch } from "@aihot/backend/providers/deepseek-web";
+import { deepseekFetch, deepseekSearch } from "@aihot/backend/providers/deepseek-web";
 
 const T = tag();
 const SRC = `test-dsweb-${T}`;
@@ -315,4 +315,24 @@ test("cached refused URL never starves a later result at maxFetches one", async 
   assert.equal(deepseek.hits(), firstHits + 3, "the cached denial takes no slot; next article gets one Fetch");
   const rows = await articles(source);
   assert.equal(rows.find(r => r.url.endsWith("/91"))?.body_status, "ok");
+});
+
+test("missing API credentials do not create unknown paid receipts or poison future retries", async () => {
+  const purpose = `source_credential_test_${T}`;
+  const query = `credential test ${T}`;
+  const saved = process.env.DEEPSEEK_API_KEY;
+  process.env.DEEPSEEK_API_KEY = "";
+  const hits = deepseek.hits();
+  try {
+    await assert.rejects(() => deepseekSearch(query, { purpose, subject: SRC, count: 1 }), /DEEPSEEK_API_KEY/);
+    const [row] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM receipts
+      WHERE service = 'deepseek_web' AND purpose = ${purpose}`;
+    assert.equal(row!.n, 0, "a local credential problem must never claim a provider receipt");
+    assert.equal(deepseek.hits(), hits);
+  } finally {
+    process.env.DEEPSEEK_API_KEY = saved;
+  }
+  searchReply = () => ({ results: [] });
+  await deepseekSearch(query, { purpose, subject: SRC, count: 1 });
+  assert.equal(deepseek.hits(), hits + 1, "the next correctly configured run may proceed");
 });
