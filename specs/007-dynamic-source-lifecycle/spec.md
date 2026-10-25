@@ -110,3 +110,12 @@ rejected（人工或安全原因，任何状态可进）
 - **本 PR（MVP）**：候选表 + 预检 + 打分/决定 + dry-run/自动晋升（默认禁用）+ 单测；发现接口空实现（`operator` 通道可手工登记）。
 - **PR#132 合并后**：`SourceDiscoverer` 接 DeepSeek Search（每日一跑，走 `deepseek_web` 预算），预检前置去重同本 PR。
 - **后续**：候选后台页、突发事件触发器（监听活跃事件分组自动生成 `breaking_event` 候选）、退场源的一键复活。
+
+## MVP code-level safeguards / current implementation boundary (2026-10-25)
+
+- Candidate kinds accepted by the new lifecycle are **RSS or JSON/API only**. Existing legacy `web_list` sources are left as-is but no new traditional HTML/CSS scraper can enter through this automation.
+- Discovery output must **not** self-assert protected official status: `officialLowFrequency=true` requires operator verification during this MVP. Future discovery can propose such a flag, but not auto-authorize it.
+- Use `previewCandidate(id, actor)` to call the actual existing `previewSource` before an automatic trial. `markPreviewed` remains the manual audit/attestation path for operators; a boolean supplied by an external search result is **not** proof of successful preview.
+- Start of trial clamps `publishedAfter` to no earlier than activation time (UTC), preserving future-only acquisition even if candidate discovery used an older window. Thus its first fetch may have zero articles until the next real publication.
+- Current score's exclusivity and cost are **proxies** based on source discoveries and items-per-request; real independent fact contribution and DeepSeek spend must be linked before fully automated unattended retirement of important sources. Never cap high-value sources to a fixed top-N.
+- **Not yet implemented:** the daily/event-triggered DeepSeek discovery scheduler, fully automatic `previewCandidate` → `startTrial` orchestration, and the candidate review UI. They must not be described as running in development or production. The underlying candidate registry and score decisions are implemented but remain opt-in.
