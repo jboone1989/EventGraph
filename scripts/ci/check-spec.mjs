@@ -14,6 +14,14 @@ function fail(message) {
   process.exit(1);
 }
 if (!hash.test(base) || !hash.test(head)) fail("Missing or invalid PR base/head SHA.");
+if (process.env.SPEC_BASE_REF === "main" &&
+    process.env.SPEC_HEAD_REF === "develop" &&
+    process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY &&
+    process.env.SPEC_REPOSITORY) {
+  // Promotion is already checked by individual implementation PRs into develop.
+  console.log("Spec gate PASS: same-repo develop -> main promotion.");
+  process.exit(0);
+}
 const ancestor = git("merge-base", base, head).trim();
 const files = git("diff", "--name-only", "-z", ancestor, head).split("\0").filter(Boolean);
 if (files.length === 0) fail("No changed files found; cannot validate PR scope.");
@@ -39,6 +47,8 @@ let approved, baseline;
 try {
   approved = git("show", `${specSha}:${path}`);
   baseline = git("show", `${base}:${path}`);
+  const proposed = git("show", `${head}:${path}`);
+  if (proposed !== approved) fail("Implementation PR modifies or deletes its pinned Spec; approve and merge the Spec separately.");
 } catch {
   fail("Spec must exist at its pinned commit and already on the base branch.");
 }
