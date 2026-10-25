@@ -30,7 +30,7 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   const en = location.pathname.startsWith("/en/");
   const entries = (loaderData?.index ?? []).map((e: ReportIndexEntry) => ({
     path: reportPath("daily", e.key, en ? "en" : "zh"),
-    name: en ? (englishText(e.titleEn) ?? englishText(e.titleEn) ?? englishText(e.title) ?? `Daily brief · ${e.key}`) : (e.title ? `${e.key} · ${e.title}` : `${SITE.name} 日报 · ${e.key}`),
+    name: en ? (englishText(e.titleEn) ?? englishText(e.title) ?? `Daily brief · ${e.key}`) : (e.title ? `${e.key} · ${e.title}` : `${SITE.name} 日报 · ${e.key}`),
   }));
   const path = en ? "/en/daily/archive" : "/daily/archive";
   const label = en ? `${SITE.name} · Daily archive` : `${SITE.name} 日报 · 历史存档`;
@@ -85,7 +85,7 @@ export default function DailyArchive() {
                   </span>
                   <span className="min-w-0">
                     <span className="block text-[15px] font-bold leading-[1.55] text-ink transition-colors group-hover:text-accent">
-                      {en ? englishText(e.title) ?? `Daily brief · ${e.key}` : e.title ?? `日报 ${e.key}`}
+                      {en ? englishText(e.titleEn) ?? englishText(e.title) ?? `Daily brief · ${e.key}` : e.title ?? `日报 ${e.key}`}
                     </span>
                     {!!e.count && (
                       <span className="mt-1 block text-[12px] text-ink-4">
