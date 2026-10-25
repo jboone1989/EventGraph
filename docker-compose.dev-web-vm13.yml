@@ -1,0 +1,31 @@
+# Minimal EventGraph development Web only, co-located with Ferro on VM13.
+# PostgreSQL, Neo4j, Graphiti, API and Worker stay exclusively on cn-dev.
+# WEB_HOST binds loopback; SSH reverse forward brings cn-dev API to localhost:13001.
+# Never combine this file with the default full-stack docker-compose.yml.
+name: eventgraph-dev-web-vm13
+
+services:
+  web:
+    image: ${EVENTGRAPH_APP_IMAGE:?Pinned GHCR image digest is required}
+    restart: unless-stopped
+    init: true
+    command: ["node", "apps/web/server.ts"]
+    # Loopback-bound SSH tunnel is unavailable from ordinary Docker bridge;
+    # host net is used ONLY for Web, without secrets or direct database access.
+    network_mode: host
+    cpus: 0.40
+    mem_limit: 384m
+    environment:
+      NODE_ENV: production
+      WEB_HOST: 127.0.0.1
+      WEB_PORT: "13000"
+      API_BASE_URL: http://127.0.0.1:13001
+      SITE_URL: ${EVENTGRAPH_DEV_SITE_URL:-http://127.0.0.1:13000}
+      TRUST_PROXY: "false"
+      AIHOT_RELEASE: ${EVENTGRAPH_DEV_RELEASE:-dev}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:13000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 8s
+      start_period: 30s
+      retries: 3
