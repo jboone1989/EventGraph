@@ -119,3 +119,20 @@ test("one transiently failed search does not discard another subject's good publ
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0]?.kind, "rss");
 });
+
+test("long conflict titles are truncated to the DeepSeek 128 Unicode-char limit, preserving site scope", async () => {
+  const long = { ...event, subject: "地区冲突军援制裁与供应链影响".repeat(14) };
+  const lead = leadFromResult(long, hit(), NOW) as DiscoveredSource;
+  assert.ok(Array.from(String(lead.config.deepseekQuery)).length <= 128);
+  assert.ok(String(lead.config.deepseekQuery).endsWith(" site:sanctions.example.gov"));
+  assert.equal(preflightCandidate(lead).ok, true);
+  const sent: string[] = [];
+  await discoverViaDeepSeek([long], new Set(), {
+    maxCandidates: 2, now: NOW,
+    search: async (q: string) => { sent.push(q); return []; },
+  });
+  assert.equal(sent.length, 1);
+  assert.ok(Array.from(sent[0]!).length <= 128);
+  const invalid = DiscoveredSource.parse({ ...lead, config: { ...lead.config, deepseekQuery: "x".repeat(129) } });
+  assert.ok(preflightCandidate(invalid).reasons.includes("address"));
+});
