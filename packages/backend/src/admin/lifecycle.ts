@@ -46,7 +46,7 @@ export type DiscoveryInput = z.infer<typeof DiscoveryInput>;
 
 /** One publisher-domain source a discovery channel proposes. Not trusted: it is a lead, not a fact. */
 export const DiscoveredSource = z.object({
-  id: z.string().regex(/^[a-z0-9][a-z0-9-]{2,79}$/),
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{2,76}$/),
   origin: z.object({ channel: z.enum(["deepseek", "operator", "breaking_event"]), note: z.string().max(500).optional() }).strict(),
   kind: z.enum(CANDIDATE_KINDS),
   name: z.string().min(1).max(200),
@@ -237,9 +237,13 @@ export async function registerCandidates(input: { candidates: unknown[]; actor: 
         ${c.expiresAt ? new Date(c.expiresAt) : null}, ${db.json({ ok: true, reasons: [] } as never)})
       ON CONFLICT DO NOTHING RETURNING id`;
     if (!row) {
-      // Either this id or this address is already on file (a retired candidate being re-discovered).
-      const [existing] = await db<{ id: string }[]>`SELECT id FROM source_candidates WHERE identity = ${pre.identity}`;
-      out.push({ id: c.id, status: "discovered", preflightReasons: [existing && existing.id !== c.id ? "duplicate-candidate-identity" : "duplicate-candidate-id"] });
+      // Never claim "discovered" unless an actual discovered row exists.
+      // Preflight failures retain their identity so operators can correct and re-submit.
+      const [existing] = await db<{ id: string; status: CandidateStatus }[]>`
+        SELECT id, status FROM source_candidates WHERE identity = ${pre.identity} OR id = ${c.id}
+        ORDER BY (id = ${c.id}) DESC LIMIT 1`;
+      out.push({ id: existing?.id ?? c.id, status: existing?.status ?? "preflight_failed",
+        preflightReasons: [existing?.id === c.id ? "duplicate-candidate-id" : "duplicate-candidate-identity"] });
       continue;
     }
     await audit(input.actor, "sourceLifecycle.register", `candidate:${c.id}`, null, null,
@@ -357,7 +361,7 @@ async function trialEvidence(c: CandidateRow, now: Date, db: Db): Promise<TrialE
       (SELECT count(*)::int FROM unnest(${c.tags}::text[]) t WHERE t NOT LIKE 'lifecycle-%' AND NOT EXISTS (SELECT 1 FROM covered cv WHERE cv.tag = t)) AS uncovered_tags
     FROM runs r, items i, exclusive x, selected s`;
   return {
-    trialDays: Math.max(0, Math.round((now.getTime() - since.getTime()) / 86_400_000)),
+    trialDays: Math.max(0, Math.floor((now.getTime() - since.getTime()) / 86_400_000)),
     runs: e?.runs ?? 0, failed: e?.failed ?? 0, items: e?.items ?? 0, dated: e?.dated ?? 0,
     exclusive: e?.exclusive ?? 0, selected: e?.selected ?? 0,
     everOutput: e?.ever_output ?? false, healthFailing: e?.failing ?? false,
@@ -390,6 +394,9 @@ export async function evaluateCandidate(id: string, opts: { actor?: string; now?
       expiresAt: c.expires_at, previewPassed: c.preflight.previewPassed === true, now },
     evidence, evidence.uncoveredTags,
   );
+  // A terminal decision or an operator hold must not be overwritten by a
+  // subsequent read-only evaluation returning "keep/not-in-trial".
+  if (c.status !== "trial" || c.manual_hold) return { id, decision, applied: false, evidence };
   const enabled = await lifecycleEnabled(db);
   let applied = false;
   if (enabled && decision.action !== "keep") {
