@@ -6,7 +6,7 @@
 import { credential } from "../config.ts";
 import { sql } from "../db.ts";
 import { guardedFetch } from "../lib/http-fetch.ts";
-import { assertAccepted, BudgetExceededError, paidRequest, ProviderRejectedError } from "./receipts.ts";
+import { assertAccepted, BudgetExceededError, logicalKeyFor, paidRequest, ProviderRejectedError } from "./receipts.ts";
 
 /** Receipts permit unlimited calls when a service budget row is missing; paid web tools must not. */
 async function requireWebBudget(): Promise<void> {
@@ -78,6 +78,20 @@ export async function deepseekSearch(query: string, opts: { purpose: string; sub
     },
   );
   return (receipt.response as { results: DeepSeekResult[] }).results ?? [];
+}
+
+/** A same-day cached refusal/empty result must not consume today's next detail slot. */
+export async function deepseekFetchSuppressedToday(url: string): Promise<boolean> {
+  const day = new Date().toISOString().slice(0, 10);
+  const logicalKey = logicalKeyFor({
+    service: "deepseek_web", model: null, purpose: "source_detail",
+    identity: { fetch: url, day },
+  });
+  const [row] = await sql<{ blocked: boolean }[]>\`
+    SELECT (response ? 'refusedStatus' OR response ? 'emptyContent') AS blocked
+    FROM receipts WHERE logical_key = ${logicalKey} AND status IN ('received', 'completed')
+    LIMIT 1\`;
+  return row?.blocked === true;
 }
 
 /**
