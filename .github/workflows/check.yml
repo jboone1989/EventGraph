@@ -485,3 +485,70 @@ jobs:
           command_timeout: 15m
           version: '1.8.2'
           script_path: scripts/ci/deploy-image.sh
+
+
+  # Extend the existing tested develop release; VM13 only runs the stateless Web.
+  # This job is opt-in until VM13 SSH credentials are installed in development.
+  deploy_vm13_preview:
+    needs: [publish, deploy_development]
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref_name == 'develop' &&
+          needs.publish.outputs.image_ref != '' &&
+          needs.deploy_development.result == 'success' &&
+          vars.EVENTGRAPH_VM13_AUTO_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: eventgraph-vm13-preview
+      cancel-in-progress: false
+    environment: development
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.source_sha }}
+          persist-credentials: false
+      - name: Deploy only Web on VM13
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.publish.outputs.source_sha }}
+        with:
+          host: ${{ vars.EVENTGRAPH_VM13_HOST }}
+          username: ${{ vars.EVENTGRAPH_VM13_USER }}
+          key: ${{ secrets.EVENTGRAPH_VM13_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_VM13_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_PREVIEW_RELEASE
+          command_timeout: 12m
+          version: '1.8.2'
+          script_path: scripts/ci/deploy-vm13-preview.sh
+
+  # The deployed-browser smoke runs on cn-dev; VM13 has no Chromium/Playwright.
+  e2e_vm13_preview:
+    needs: deploy_vm13_preview
+    if: ${{ needs.deploy_vm13_preview.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: development
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Chromium smoke against VM13, executing on cn-dev
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_PREVIEW_URL: ${{ vars.EVENTGRAPH_VM13_URL || 'http://43.133.185.154' }}
+        with:
+          host: ${{ vars.EVENTGRAPH_DEV_HOST }}
+          username: ${{ vars.EVENTGRAPH_DEV_USER }}
+          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_PREVIEW_URL
+          command_timeout: 8m
+          version: '1.8.2'
+          script_path: scripts/ci/smoke-vm13-browser.sh
