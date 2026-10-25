@@ -671,10 +671,30 @@ export function reportNavigation(kind: ReportKind, index: ReportIndexEntry[], ke
   }));
 }
 
+/** Reuse already-published English article copies for archive headlines, without translating on read. */
+async function englishNavigation(kind: ReportKind, entries: ReportNavigationEntry[]): Promise<ReportNavigationEntry[]> {
+  const needingTitles = entries.filter((e) => e.title);
+  if (!needingTitles.length) return entries;
+  const { rows, gone } = await reportIndex(kind);
+  const wanted = new Set(needingTitles.map((e) => e.key));
+  const shape = kind === "daily" ? "daily" : "periodic";
+  const leads = rows.filter((r) => wanted.has(r.key))
+    .map((r) => ({ key: r.key, id: issueLead(r.content, shape, gone)?.itemId }))
+    .filter((r): r is { key: string; id: string } => !!r.id);
+  const copies = await availability([...new Set(leads.map((r) => r.id))]);
+  const titles = new Map(leads.flatMap(({ key, id }) => {
+    const english = copies.get(id)?.english?.title;
+    return english ? [[key, english] as const] : [];
+  }));
+  return entries.map((e) => ({ ...e, ...(titles.has(e.key) ? { titleEn: titles.get(e.key) } : {}) }));
+}
+
 export async function loadReportNavigation(kind: ReportKind, key: string) {
-  return reportNavigation(kind, await listReports(kind), key);
+  return englishNavigation(kind, reportNavigation(kind, await listReports(kind), key));
 }
 
 export async function loadReportMonth(kind: ReportKind, month: string) {
-  return (await listReports(kind)).filter((e) => e.key.startsWith(month)).map(({ key, issueNumber, title }) => ({ key, issueNumber, title }));
+  const entries = (await listReports(kind)).filter((e) => e.key.startsWith(month))
+    .map(({ key, issueNumber, title }) => ({ key, issueNumber, title }));
+  return englishNavigation(kind, entries);
 }

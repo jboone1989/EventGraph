@@ -1,8 +1,10 @@
-// JSON sources: plain JSON APIs, JSON embedded in HTML (script tags, window variables).
+// JSON sources: plain JSON APIs, JSON embedded in HTML (script tags, window variables), and
+// DeepSeek Search discovery for topics with no listing to crawl.
 import { credential } from "../config.ts";
 import { fetchListing } from "./listing-fetch.ts";
 import { collapseWhitespace, stripTags } from "../lib/text.ts";
 import { parseLooseDate } from "./dates.ts";
+import { deepseekSearch, type DeepSeekResult } from "../providers/deepseek-web.ts";
 import { FetchError, type Candidate, type SourceRow } from "./types.ts";
 
 export function getPath(obj: unknown, path: string): unknown {
@@ -144,8 +146,38 @@ function embeddedJson(html: string, source: SourceRow): unknown {
   throw new FetchError(`embedded key ${key} not found`);
 }
 
+function resultToCandidate(r: DeepSeekResult): Candidate | null {
+  const title = collapseWhitespace(stripTags(String(r.title ?? "")));
+  const url = String(r.url ?? "");
+  if (!title || !/^https?:\/\//.test(url)) return null;
+  const summary = String(r.snippet ?? "").trim();
+  return {
+    url,
+    title,
+    author: null,
+    // RFC 3339 UTC from the API; null stays null — an undated result is never "today's" news.
+    publishedAt: r.date ? toDate(r.date, undefined, undefined) : null,
+    excerpt: summary ? collapseWhitespace(stripTags(summary)).slice(0, 2000) : null,
+    bodyText: null,
+    bodyStatus: "pending",
+    raw: { externalId: null },
+  };
+}
+
+/** Discovery through the paid DeepSeek Search API: `deepseekQuery` (with `site:` scoping), small `deepseekCount`. */
+async function fetchDeepSeekSearch(source: SourceRow): Promise<Candidate[]> {
+  const c = source.config;
+  const query = String(c.deepseekQuery ?? "").trim();
+  if (!query) throw new FetchError("deepseek_search requires deepseekQuery");
+  const count = Math.min(Math.max(Math.trunc(Number(c.deepseekCount ?? 5)), 1), 10);
+  const results = await deepseekSearch(query, { count, purpose: "source_listing", subject: `source:${source.id}` });
+  // An empty result is a normal answer; cross-domain URLs are admitListing's to filter.
+  return results.map(resultToCandidate).filter((x): x is Candidate => x !== null);
+}
+
 export async function fetchJsonList(source: SourceRow): Promise<Candidate[]> {
   const c = source.config;
+  if (c.mode === "deepseek_search") return fetchDeepSeekSearch(source);
   const url = String(c.url ?? "");
   const headers: Record<string, string> = { accept: "application/json, text/html;q=0.9", ...(c.headers ?? {}) };
   if (/^https:\/\/api\.github\.com\//.test(url)) {

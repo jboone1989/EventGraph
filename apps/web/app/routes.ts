@@ -55,6 +55,7 @@ export default [
   route("en/story/:publicId", "routes/story.tsx", { id: "en-story" }),
   route("en/items/:id", "routes/item.tsx", { id: "en-items-detail" }),
   route("en/daily", "routes/report-latest.tsx", { id: "en-daily-latest" }),
+  route("en/daily/archive", "routes/daily-archive.tsx", { id: "en-daily-archive" }),
   route("en/daily/:key", "routes/report-detail.tsx", { id: "en-daily-detail" }),
   route("en/weekly", "routes/report-latest.tsx", { id: "en-weekly-latest" }),
   route("en/weekly/:key", "routes/report-detail.tsx", { id: "en-weekly-detail" }),

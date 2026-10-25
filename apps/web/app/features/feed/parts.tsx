@@ -6,20 +6,21 @@ import { SourceAvatar } from "../../components/ui/SourceAvatar";
 import { Lightbox } from "../../components/ui/Lightbox";
 import { toggleStar, useIsStarred } from "../../lib/local-state";
 import { useUiLanguage,useText } from "../../components/LanguageSwitch";
+import { localizedSourceName, hasHan } from "../../lib/english";
 
 /** The source's name, or, for X, avatar + display name + @handle. */
-export function SourceLine({ item, className = "" }: { item: Pick<FeedItemSummary, "source" | "x" | "channel">; className?: string }) {
+export function SourceLine({ item, className = "" }: { item: Pick<FeedItemSummary, "source" | "x" | "channel"> & Partial<Pick<FeedItemSummary, "links">>; className?: string }) {
   const lang=useUiLanguage();
   if (item.channel === "x" && item.x) {
     return (
       <span className={`flex min-w-0 items-center gap-1.5 ${className}`}>
         <SourceAvatar name={item.x.authorName} avatarUrl={item.x.avatarUrl} avatarSrcSet={item.x.avatarSrcSet} size={16} />
-        <span className="truncate text-ink-3">{lang==="en"&&/[\u3400-\u9fff]/u.test(item.x.authorName)?"X account":item.x.authorName}</span>
-        <span className="hidden shrink-0 text-ink-4 min-[400px]:inline">@{item.x.handle}</span>
+        <span className="truncate text-ink-3">{lang==="en" && hasHan(item.x.authorName) ? `@${item.x.handle}` : item.x.authorName}</span>
+        {!(lang === "en" && hasHan(item.x.authorName)) && <span className="hidden shrink-0 text-ink-4 min-[400px]:inline">@{item.x.handle}</span>}
       </span>
     );
   }
-  return <span className={`min-w-0 truncate ${className}`}>{lang==="en"&&/[\u3400-\u9fff]/u.test(item.source.name)?"Publisher":item.source.name}</span>;
+  return <span className={`min-w-0 truncate ${className}`}>{localizedSourceName(item.source.name, lang, item.links?.original)}</span>;
 }
 
 /** The source's standing on a card: the party itself or its official account; media and individuals carry no mark. */

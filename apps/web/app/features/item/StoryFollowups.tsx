@@ -5,7 +5,7 @@ import { MoreLink } from "../../components/ui/Page";
 import { localizedRelativeTime } from "../../lib/format";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { englishPath } from "../../lib/edition";
-import { englishText } from "../../lib/english";
+import { englishText, localizedSourceName } from "../../lib/english";
 
 /**
  * "事件后续": the other developments of the event this report belongs to, newest first, with a link to
@@ -68,7 +68,7 @@ function Followups({items, more, story}: {items: StoryFollowup[]; more: boolean;
                 <span className="min-w-0 text-[13.5px] leading-snug text-ink-2 group-hover:text-accent sm:truncate">{title}</span>
               </span>
               <span className="shrink-0 pl-[46px] text-[12px] text-ink-4 sm:pl-0" suppressHydrationWarning>
-                {d.representative.source.name} · {localizedRelativeTime(d.representative.timelineAt, language)}
+                {localizedSourceName(d.representative.source.name, language)} · {localizedRelativeTime(d.representative.timelineAt, language)}
               </span>
             </Link>
           </li>
