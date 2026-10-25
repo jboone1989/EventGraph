@@ -94,12 +94,16 @@ export default function FeedLayout() {
             </div>
           )}
           <div className="hidden lg:block">
-            <div className={`mb-5 flex items-center justify-between gap-4 ${base === "/all" ? "mt-4" : ""}`}>
-              <div className="flex min-w-0 items-center gap-3">
-                {!inNav("/all") && <ScopeTabs base={base} />}
-                <CategoryTabs base={base} category={filters.category} channel={filters.channel} layoutId="feed-cat-desk" className="min-w-0" />
+            <div className={`mb-5 @container ${base === "/all" ? "mt-4" : ""}`}>
+              <div className="flex min-w-0 flex-col gap-3 @[1120px]:flex-row @[1120px]:items-center @[1120px]:justify-between">
+                <div className="flex min-w-0 w-full items-center gap-3 @[1120px]:flex-1">
+                  {!inNav("/all") && <ScopeTabs base={base} />}
+                  <CategoryTabs base={base} category={filters.category} channel={filters.channel} layoutId="feed-cat-desk" className="min-w-0 flex-1" />
+                </div>
+                <div className="flex justify-end @[1120px]:shrink-0">
+                  <SearchField defaultValue={q ?? ""} keep={{ category: filters.category, channel: filters.channel }} />
+                </div>
               </div>
-              <SearchField defaultValue={q ?? ""} keep={{ category: filters.category, channel: filters.channel }} />
             </div>
           </div>
           <div className={`transition-opacity duration-200 ${busy ? "opacity-50" : ""}`}>

@@ -23,7 +23,7 @@ import { Halftone } from "./Halftone";
 import { Nameplate } from "./Nameplate";
 import { IssueDots } from "./IssueDots";
 import { localizedMonthDay, localizedMonthDayTime, monthDay, type DisplayLanguage } from "../../lib/format";
-import { englishText } from "../../lib/english";
+import { englishText, localizedSourceName } from "../../lib/english";
 import { KIND_LABEL, KIND_LABEL_EN, dateLine, dateMark, edition, entriesUnit, headline, metricItems, motto, neighbourLabel, reportPath, sectionEn, shortDay } from "./format";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -58,7 +58,13 @@ function Masthead({ report, index, quiet, lang }: { report: ReportDetail; index:
             <span className="sr-only">
               {en ? `${KIND_LABEL_EN[report.kind]} · ${dateLine(report.kind, report.key, lang)}` : `${label} · ${dateLine(report.kind, report.key)}`}
             </span>
-            <Nameplate which={report.kind} className="block h-[44px] w-auto @[520px]:h-[58px] @[880px]:h-[74px] @[1040px]:h-[84px]" />
+            {en ? (
+              <span aria-hidden="true" className="block max-w-full font-serif text-[32px] font-bold leading-[1.05] tracking-[-0.04em] text-ink @[520px]:text-[50px] @[880px]:text-[67px] @[1040px]:text-[76px]">
+                {KIND_LABEL_EN[report.kind]}
+              </span>
+            ) : (
+              <Nameplate which={report.kind} className="block h-[44px] w-auto @[520px]:h-[58px] @[880px]:h-[74px] @[1040px]:h-[84px]" />
+            )}
           </h1>
           <p className="mt-3 text-[11.5px] tracking-[0.36em] text-ink-4 @[880px]:mt-4 @[880px]:text-[12.5px]">{REPORTS.imprint}</p>
         </div>
@@ -99,8 +105,8 @@ function Masthead({ report, index, quiet, lang }: { report: ReportDetail; index:
 function Source({ c, lang, size = 16 }: { c: ReportCitation; lang: DisplayLanguage; size?: number }) {
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
-      <SourceAvatar name={c.sourceName} iconUrl={c.sourceIconUrl} iconSrcSet={c.sourceIconSrcSet} size={size} />
-      <span className="truncate">{lang === "en" ? englishText(c.sourceName) ?? "Publisher" : c.sourceName}</span>
+      <SourceAvatar name={localizedSourceName(c.sourceName, lang, c.sourceUrl)} iconUrl={c.sourceIconUrl} iconSrcSet={c.sourceIconSrcSet} size={size} />
+      <span className="truncate">{lang === "en" ? localizedSourceName(c.sourceName, lang, c.sourceUrl) : c.sourceName}</span>
       {c.firstParty && <Badge tone="accent">{lang === "en" ? "First-party" : "一手"}</Badge>}
     </span>
   );
@@ -116,7 +122,7 @@ function Original({ c, lang, className = "" }: { c: ReportCitation; lang: Displa
       href={c.sourceUrl}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label={lang === "en" ? `Read the original at ${englishText(c.sourceName) ?? "the publisher"}: ${enTitle(c)} (new tab)` : `阅读${c.sourceName}原文：${c.title}（新标签页）`}
+      aria-label={lang === "en" ? `Read the original at ${localizedSourceName(c.sourceName, lang, c.sourceUrl)}: ${enTitle(c)} (new tab)` : `阅读${c.sourceName}原文：${c.title}（新标签页）`}
       className={`${LINK} text-[12.5px] text-ink-3 ${className}`}
     >
       {lang === "en" ? "Original" : "原文"} <IconArrowUpRight size={12} />
@@ -144,7 +150,7 @@ function Related({ items, lang, className = "" }: { items: ReportCitation[]; lan
             ) : (
               <span title={withdrawnNote(lang)} className="text-ink-4 line-through">{lang === "en" ? enTitle(r) : r.title}</span>
             )}
-            {r.available && <span className="ml-2 text-[12px] text-ink-4">{lang === "en" ? englishText(r.sourceName) ?? "Publisher" : r.sourceName}</span>}
+            {r.available && <span className="ml-2 text-[12px] text-ink-4">{lang === "en" ? localizedSourceName(r.sourceName, lang, r.sourceUrl) : r.sourceName}</span>}
           </span>
         </li>
       ))}
@@ -395,7 +401,7 @@ function FrontPage({ report, pages, leadStory, count, lang }: { report: ReportDe
                       <span className="numeral w-6 shrink-0 text-[30px] italic leading-[0.95] text-accent">{i + 1}</span>
                       <span className="min-w-0">
                         <span className="block text-[15px] font-bold leading-[1.55] text-ink transition-colors group-hover:text-accent">{en ? enTitle(h) : h.title}</span>
-                        <span className="mt-1.5 block truncate text-[12px] text-ink-4">{en ? englishText(h.sourceName) ?? "Publisher" : h.sourceName}</span>
+                        <span className="mt-1.5 block truncate text-[12px] text-ink-4">{en ? localizedSourceName(h.sourceName, lang, h.sourceUrl) : h.sourceName}</span>
                       </span>
                     </Link>
                   </li>
@@ -605,7 +611,7 @@ export function ReportPaper({ report, index, lang = "zh", editorNote }: { report
                     ) : (
                       <span className="text-ink">{en ? enTitle(f) : f.title}</span>
                     )}
-                    {f.available && <span className="ml-2 text-[12px] text-ink-4">{en ? englishText(f.sourceName) ?? "Publisher" : f.sourceName}</span>}
+                    {f.available && <span className="ml-2 text-[12px] text-ink-4">{en ? localizedSourceName(f.sourceName, lang, f.sourceUrl) : f.sourceName}</span>}
                     {f.available && f.followUp && (
                       <Badge className="ml-2 align-[1px]" title={en ? `The ${localizedMonthDay(f.followUp, "en")} daily covered this; these are the new developments` : `${monthDay(f.followUp)}的日报报道过这件事，这里是新进展`}>
                         {en ? "Follow-up" : "跟进"}
@@ -638,7 +644,7 @@ export function ReportPaper({ report, index, lang = "zh", editorNote }: { report
                     <span className="text-ink">{en ? enTitle(t) : t.title}</span>
                   )}
                   {t.available && t.publishedAt && <span className="ml-2 whitespace-nowrap text-[12px] text-ink-4">{localizedMonthDayTime(t.publishedAt, lang)}</span>}
-                  {t.available && <span className="ml-2 text-[12px] text-ink-4">{en ? englishText(t.sourceName) ?? "Publisher" : t.sourceName}</span>}
+                  {t.available && <span className="ml-2 text-[12px] text-ink-4">{en ? localizedSourceName(t.sourceName, lang, t.sourceUrl) : t.sourceName}</span>}
                 </span>
               </li>
             ))}
