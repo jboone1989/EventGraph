@@ -61,17 +61,51 @@ export interface GapSubject {
   event: boolean;
 }
 
-/** One search subject per uncovered topic, plus recent active event groups first (spec §D inputs). */
+/** 
+ * Keep searching *covered* topics too: one news outlet is not complete
+ * coverage. Rotate both sets by UTC day and reserve slots for active events.
+ * This avoids always inspecting the same first few gaps when the budget is small.
+ */
+export function chooseDiscoverySubjects(
+  events: GapSubject[], topics: GapSubject[], covered: Set<string>, maxGaps: number,
+  utcDay = Math.floor(Date.now() / 86_400_000),
+): GapSubject[] {
+  const max = Math.max(1, Math.trunc(maxGaps));
+  const eventCount = Math.min(events.length, Math.max(1, Math.floor(max / 3)));
+  const slots = max - eventCount;
+  const gaps = topics.filter(t => !t.tags.some(tag => covered.has(tag)));
+  const existing = topics.filter(t => t.tags.some(tag => covered.has(tag)));
+  const rotate = <T>(items: T[]) => {
+    if (!items.length) return items;
+    const offset = ((utcDay % items.length) + items.length) % items.length;
+    return [...items.slice(offset), ...items.slice(0, offset)];
+  };
+  const rotatedGaps = rotate(gaps), rotatedExisting = rotate(existing);
+  const coveredSlots = slots >= 2 ? Math.max(1, Math.floor(slots / 3))
+    : slots === 1 && utcDay % 2 === 1 ? 1 : 0;
+  const selected = [
+    ...rotatedGaps.slice(0, Math.max(0, slots - coveredSlots)),
+    ...rotatedExisting.slice(0, coveredSlots),
+  ];
+  const seen = new Set(selected.map(s => s.subject));
+  for (const topic of [...rotatedGaps, ...rotatedExisting]) {
+    if (selected.length >= slots) break;
+    if (!seen.has(topic.subject)) { seen.add(topic.subject); selected.push(topic); }
+  }
+  return [...events.slice(0, eventCount), ...selected].slice(0, max);
+}
+
+/** Source-tag gaps and rotating covered sectors, plus recent active conflicts. */
 export async function buildGapSubjects(maxGaps: number, db: Db = sql): Promise<GapSubject[]> {
   const covered = new Set((await db<{ tag: string }[]>`
     SELECT DISTINCT unnest(tags) AS tag FROM sources WHERE enabled AND tags <> '{}'`).map((r) => r.tag));
   const events = (await db<{ title: string }[]>`
     SELECT title FROM stories WHERE merged_into IS NULL AND latest_at > now() - interval '48 hours'
     ORDER BY latest_at DESC LIMIT ${maxGaps}`).map((r) => ({ subject: r.title.slice(0, 200), tags: [], event: true }));
-  const gaps = TOPICS
-    .filter((t) => !t.entityId && t.tags.length > 0 && !t.tags.some((tag) => covered.has(tag)))
+  const topics = TOPICS
+    .filter((t) => !t.entityId && t.tags.length > 0)
     .map((t) => ({ subject: t.name, tags: t.tags, event: false }));
-  return [...events, ...gaps].slice(0, maxGaps);
+  return chooseDiscoverySubjects(events, topics, covered, maxGaps);
 }
 
 /**
