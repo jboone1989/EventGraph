@@ -4,13 +4,13 @@
 
 ## Spec 与批准依据
 
-<!-- 复杂功能：填写 specs/<feature>/spec.md @ 批准的提交 SHA，以及批准的 Issue/评论。
-     小修复：填 Issue 的验收条件，注明无需完整 Spec。
-     新 Spec 与代码在同一个 PR 中尚不能视为已批准。 -->
+<!-- 任何改动实际产品代码/配置/测试的 PR，都必须引用在本 PR 开始前已合入目标分支的 Spec。
+     Spec 可短可长，单点 Bug 只需写问题、根因、期望行为与验收条件。
+     先提交并批准 Spec，再另开实现 PR。CI 会核对所引版本存在于 base、内容未漂移。
+     下面的 Spec: 一行必须用真实 40 位提交 SHA 替换示例。纯文档/治理 PR 可删除此行。 -->
 
-- Spec/Issue：
-- 批准的版本（commit SHA + path / Issue 记录）：
-- 批准依据：
+Spec: specs/REPLACE_ME/spec.md@REPLACE_WITH_FULL_40_CHARACTER_COMMIT_SHA
+批准依据：<!-- 关联此前确定的 Issue、Spec PR 或用户审批记录；不要自行声称已获批准 -->
 
 ## 验收矩阵
 
