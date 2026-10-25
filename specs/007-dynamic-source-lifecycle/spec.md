@@ -6,7 +6,7 @@
 
 **目标**：同一领域内多个重要一手 + 二手来源互补、信源数量没有上限，但每个信源的存废由持续证据决定，而不是人工一次性拍板：
 
-1. 每日按覆盖缺口与活跃事件，自动发现 publisher 域的潜在信源（下阶段接 DeepSeek Search，见 PR#132）。
+1. 每日轮换扫描尚未覆盖与已覆盖的领域，另为活跃事件保留搜索名额；利用 DeepSeek Search 提出新发行方信源候选（依赖 PR#132）。
 2. 发现阶段之后的链路现在就能跑：预检（去重、协议、发布日期、权利）→ 预览（现有 `previewSource`）→ 自动以 **T2 hot_signal** 建源试运行 → 按证据晋升、降级或退场。
 3. 官方低频来源（制裁机构、监管公告）**永不因发稿量低被淘汰**；突发事件可带截止时间临时接入特定地域信源，事件平息后自动退场；运营者随时可覆盖任何决定。
 4. 不重跑历史数据；不新增 HTML/CSS/Playwright 网页抓取源（`web_list` 仅保留既有遗留信源，不参与本项目自动候选）；不建新基础设施。
@@ -42,10 +42,10 @@ rejected（人工或安全原因，任何状态可进）
 
 ### D · 发现
 
-- 输入：覆盖缺口（`industry/topics.json` 主题里没有任何启用信源携带其标签的）、活跃事件分组（近 48h `stories.active` 标题）；`admin/discovery.ts` 每日一跑（`cron.sources.discover`）。
-- 执行者：`admin/discovery.ts` 的 DeepSeek 发现（依赖 PR#132 的 `deepseekSearch`，付费走 `deepseek_web` 预算与回执，缺预算/缺凭证当日安全跳过）：每个缺口/活跃事件一次限定查询，只认两种发布者线索——像 feed 端点的 URL（候选 `rss`，由预览实探验证）或官方域（候选 `json_list` `mode=deepseek_search`，查询 `site:` 限定 + `allowUrlPrefixes`）；博客平台域跳过。去重按候选身份（`sourceIdentity`：RSS 的归一化 URL、DeepSeek 查询+发布者前缀），不按整域——同一发布者可有多个独立 feed。运营者仍可手工登记（`origin.channel = "operator"`）。
+- 输入：覆盖缺口以及已覆盖主题的每日轮换扫描（避免一家二手来源阻止其他来源进入）、活跃事件分组（近 48h `stories.latest_at` 标题）；`admin/discovery.ts` 每日一跑（`cron.sources.discover`）。
+- 执行者：`admin/discovery.ts` 的 DeepSeek 发现（依赖 PR#132 的 `deepseekSearch`，付费走 `deepseek_web` 预算与回执，缺预算/缺凭证当日安全跳过）：每个轮换主题或活跃事件最多一次限定查询，只认两种发布者线索——像 feed 端点的 URL（候选 `rss`，由预览实探验证）或官方域（候选 `json_list` `mode=deepseek_search`，查询 `site:` 限定 + `allowUrlPrefixes`）；博客平台域跳过。去重按候选身份（`sourceIdentity`：RSS 的归一化 URL、DeepSeek 查询+发布者前缀），不按整域——同一发布者可有多个独立 feed。运营者仍可手工登记（`origin.channel = "operator"`）。
 - 产出：`DiscoveryCandidate{ origin, kind, name, config, tags, rationale, officialLowFrequency?, expiresAt? }`。`kind` 只允许 `rss|json_list`（`x_search`/`mp_account` 不参与自动生命周期）。**不满足官方RSS/API或DeepSeek模式的URL允许只登记为研究线索，不自动建立网页抓取源（status 仍为 discovered），不写爬虫。**自动候选不分配 T1：一律由试运行从 T2 hot_signal 争取（见 §T）；`officialLowFrequency` 仅能由运营者登记时声明（预检拒绝自动渠道声明，见 §P）；自动事件候选不与 `breaking_event` 的到期退场叠加（事件源必须能退场）。标签保留一手/二手区分，发布者来源记在 `origin.note`。
-- 频率：每日一次；settings 键 `sourceLifecycle.discovery`（`{ enabled, maxGaps, maxCandidates }`，默认 `false/6/8`，封顶 20）控制开关与查询成本（每缺口一次搜索、每候选一次预览，预览付费查询在 15 分钟回执窗口内复用）。新信源数量不设总量上限：候选凭试运行证据竞争存留。
+- 频率：每日一次；settings 键 `sourceLifecycle.discovery`（`{ enabled, maxGaps, maxCandidates }`，默认 `false/6/8`，封顶 20）控制开关与查询成本（每个入选主题一次搜索、每候选首次预览，预览付费查询在 15 分钟回执窗口内复用）。新信源数量不设总量上限：候选凭试运行证据竞争存留。
 
 ### P · 预检（纯函数，可单测）
 
@@ -119,4 +119,8 @@ rejected（人工或安全原因，任何状态可进）
 - Use `previewCandidate(id, actor)` to call the actual existing `previewSource` before an automatic trial. `markPreviewed` remains the manual audit/attestation path for operators; a boolean supplied by an external search result is **not** proof of successful preview.
 - Start of trial clamps `publishedAfter` to no earlier than activation time (UTC), preserving future-only acquisition even if candidate discovery used an older window. Thus its first fetch may have zero articles until the next real publication.
 - Current score's exclusivity and cost are **proxies** based on source discoveries and items-per-request; real independent fact contribution and DeepSeek spend must be linked before fully automated unattended retirement of important sources. Never cap high-value sources to a fixed top-N.
-- **Not yet implemented:** the daily/event-triggered DeepSeek discovery scheduler, fully automatic `previewCandidate` → `startTrial` orchestration, and the candidate review UI. They must not be described as running in development or production. The underlying candidate registry and score decisions are implemented but remain opt-in.
+- **Code implemented in PR #141, not yet activated:** the daily scheduler and `previewCandidate` → `startTrial` orchestration, with optional source trial activation and default-off switches. The candidate management UI and a real paid DeepSeek smoke test are still outstanding; no production activation is claimed. The underlying candidate registry and score decisions are implemented but remain opt-in.
+
+## 外部接口实际限制（2026-10-25 官方文档核对）
+
+DeepSeek Search 的 `query` 允许 1–128 个 Unicode 字符。自动发现必须对长事件标题截断且保留 `site:` 域名限制；候选 preflight 和 provider 均拒绝超长查询。搜索命中失败不应阻断同轮其他领域，也不能阻止已验证候选在打开试运行开关后进入 T2。官方参考：https://api-docs.deepseek.com/guides/search/ 。代码合并、部署和调度开启须分别验收。
