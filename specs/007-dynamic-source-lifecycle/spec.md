@@ -9,7 +9,7 @@
 1. 每日按覆盖缺口与活跃事件，自动发现 publisher 域的潜在信源（下阶段接 DeepSeek Search，见 PR#132）。
 2. 发现阶段之后的链路现在就能跑：预检（去重、协议、发布日期、权利）→ 预览（现有 `previewSource`）→ 自动以 **T2 hot_signal** 建源试运行 → 按证据晋升、降级或退场。
 3. 官方低频来源（制裁机构、监管公告）**永不因发稿量低被淘汰**；突发事件可带截止时间临时接入特定地域信源，事件平息后自动退场；运营者随时可覆盖任何决定。
-4. 不重跑历史数据；不做 HTML/CSS/Playwright 站点专用爬虫；不建新基础设施。
+4. 不重跑历史数据；不新增 HTML/CSS/Playwright 网页抓取源（`web_list` 仅保留既有遗留信源，不参与本项目自动候选）；不建新基础设施。
 
 **非目标**：不重写采集器与队列（复用 `collectSource`/`fetchSource` 队列/`next_fetch_at` 节律）；不自动删除任何已有信源或文章；不绕过付费回执与预算；不把发现结果当成事实（搜索命中是线索，不是证据）。
 
@@ -44,7 +44,7 @@ rejected（人工或安全原因，任何状态可进）
 
 - 输入：覆盖缺口标签（对照审计文档 + `industry/topics.json`）、活跃事件主题（近 24h 精选分组标题）。
 - 执行者：发现接口 `SourceDiscoverer`。**本阶段交付为空实现**（返回空数组并注明原因）：真正的 DeepSeek Search 调用来自 PR#132（`deepseekSearch`，`deepseek_web` 预算与回执已就绪），合并后接入；运营者也可从后台/脚本手工登记候选（`origin.channel = "operator"`）。
-- 产出：`DiscoveryCandidate{ origin, kind, name, config, tags, rationale, officialLowFrequency?, expiresAt? }`。`kind` 只允许 `rss|json_list|web_list`（`x_search`/`mp_account` 不参与自动生命周期）。**不满足现有采集器的 URL 允许只登记候选（status 仍为 discovered），不写爬虫。**
+- 产出：`DiscoveryCandidate{ origin, kind, name, config, tags, rationale, officialLowFrequency?, expiresAt? }`。`kind` 只允许 `rss|json_list`（`x_search`/`mp_account` 不参与自动生命周期）。**不满足官方RSS/API或DeepSeek模式的URL允许只登记为研究线索，不自动建立网页抓取源（status 仍为 discovered），不写爬虫。**
 - 频率：每日一次；每领域每日新增候选上限 5（防 flooding），全站 30。
 
 ### P · 预检（纯函数，可单测）
@@ -60,7 +60,7 @@ rejected（人工或安全原因，任何状态可进）
 
 ### V · 预览（现有能力，无新代码路径）
 
-预检通过后调用现有 `previewSource`：解析成功、≥1 条带发布日期的条目、无版权声明拒绝迹象（出现 "all rights reserved" 类文本且无明确 feed 许可时不自动晋升，转人工）。预览失败 → `preflight_failed`（原因 `preview`）。
+预检通过后必须调用现有 `previewSource`（不能仅凭外部给出的 `previewPassed: true` 视作实际联网预览成功）：解析成功、≥1 条带发布日期的条目、无版权声明拒绝迹象（出现 "all rights reserved" 类文本且无明确 feed 许可时不自动晋升，转人工）。预览失败 → `preflight_failed`（原因 `preview`）。
 
 ### T · 试运行
 
