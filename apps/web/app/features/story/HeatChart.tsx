@@ -1,6 +1,6 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import type { HeatPoint } from "@aihot/contracts/site";
-import { monthDayTime } from "../../lib/format";
+import { localizedMonthDay, localizedMonthDayTime, type DisplayLanguage } from "../../lib/format";
 import { useEntrance } from "../../lib/hydration";
 import { PillTabs } from "../../components/ui/Tabs";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
@@ -49,13 +49,16 @@ function distinctRanges(points: HeatPoint[]) {
  * Time labels on whole Beijing hours: the finest step that leaves at most six; midnight reads as the
  * date. Beyond four, a phone shows every other one (`wide`: only from sm up).
  */
-function timeTicks(t0: number, t1: number): Array<{ t: number; label: string; wide: boolean }> {
+export function timeTicks(t0: number, t1: number, language: DisplayLanguage): Array<{ t: number; label: string; wide: boolean }> {
   const span = (t1 - t0) / HOUR;
   const step = ([1, 2, 3, 6, 12, 24, 48].find((s) => span / s <= 6) ?? 72) * HOUR;
   const out: Array<{ t: number; label: string; wide: boolean }> = [];
   for (let t = Math.ceil((t0 + BEIJING) / step) * step - BEIJING; t <= t1; t += step) {
-    const [day, time] = monthDayTime(new Date(t).toISOString()).split(" ");
-    out.push({ t, label: time === "00:00" ? day! : time!, wide: Math.round((t + BEIJING) / step) % 2 === 1 });
+    const iso = new Date(t).toISOString();
+    const midnight = new Date(t + BEIJING).getUTCHours() === 0;
+    const formatted = localizedMonthDayTime(iso, language);
+    const label = midnight ? localizedMonthDay(iso, language) : formatted.match(/\d{2}:\d{2}$/)?.[0] ?? formatted;
+    out.push({ t, label, wide: Math.round((t + BEIJING) / step) % 2 === 1 });
   }
   if (out.length <= 4) for (const tick of out) tick.wide = false;
   return out;
@@ -121,8 +124,8 @@ export function HeatChart({ points: all }: { points: HeatPoint[] }) {
     if (run.length) runs.push(run);
     const line = runs.map(curvePath).join("");
     const area = runs.map((r) => areaPath(r, 100)).join("");
-    return { seen, last, peak, change, ticks, x, y, line, area, labels: timeTicks(t0, t1) };
-  }, [series]);
+    return { seen, last, peak, change, ticks, x, y, line, area, labels: timeTicks(t0, t1, lang) };
+  }, [series, lang]);
   if (!geometry) {
     return <p className="rounded-tile bg-bg-sunk px-4 py-8 text-center text-[13px] text-ink-4">{t("还没有足够的连续观测数据，暂不绘制趋势。","Not enough continuous observations to chart activity.")}</p>;
   }
@@ -147,7 +150,7 @@ export function HeatChart({ points: all }: { points: HeatPoint[] }) {
           </Stat>
           <Stat label={t("可比范围峰值","Comparable peak")}>
             <span className="numeral text-[30px] leading-none text-ink">{Math.round(peak.p!.heat)}</span>
-            <span className="num text-[12px] text-ink-4">{monthDayTime(new Date(peak.t).toISOString())}</span>
+            <span className="num text-[12px] text-ink-4">{localizedMonthDayTime(new Date(peak.t).toISOString(), lang)}</span>
           </Stat>
           <Stat label={t("近 24 小时变化","24h change")}>
             <span className={`mono text-[22px] font-semibold leading-none tracking-[-0.02em] ${change === null ? "text-ink-4" : change > 0 ? "text-hot" : "text-ink"}`}>
@@ -224,7 +227,7 @@ export function HeatChart({ points: all }: { points: HeatPoint[] }) {
               className="pointer-events-none absolute top-0 z-10 whitespace-nowrap rounded-control border border-line bg-raised px-2.5 py-1.5 text-[12px] shadow-[var(--shadow-pop)]"
               style={x(cur.t) > 55 ? { right: `calc(${100 - x(cur.t)}% + 10px)` } : { left: `calc(${x(cur.t)}% + 10px)` }}
             >
-              <div className="num text-ink-4">{monthDayTime(new Date(cur.t).toISOString())}</div>
+              <div className="num text-ink-4">{localizedMonthDayTime(new Date(cur.t).toISOString(), lang)}</div>
               <div className="text-ink-2">
                 {t("热度","Heat")} <b className="num font-semibold text-ink">{cur.p!.heat.toFixed(1)}</b>
                 <span className="mx-1 text-ink-4">·</span>
