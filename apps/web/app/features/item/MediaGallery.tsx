@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { MediaView } from "@aihot/contracts/site";
 import { Lightbox } from "../../components/ui/Lightbox";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
-import { englishText } from "../../lib/english";
+import { hasHan } from "../../lib/english";
 
 /** A round play mark over a video's still. */
 function PlayMark() {
@@ -24,7 +24,7 @@ function PlayMark() {
 export function MediaGallery({ media, postUrl }: { media: MediaView[]; postUrl: string }) {
   const t = useText();
   const en = useUiLanguage() === "en";
-  const mediaAlt = (alt: string | null) => en ? englishText(alt) ?? "Source media" : alt ?? "";
+  const mediaAlt = (alt: string | null) => !alt ? "" : en && hasHan(alt) ? "Source media" : alt;
   const [open, setOpen] = useState<number | null>(null);
   const shown = media.slice(0, 9);
   const images = shown.filter((m) => m.kind !== "video");
