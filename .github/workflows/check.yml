@@ -444,6 +444,8 @@ jobs:
 
   deploy_development:
     needs: publish
+    outputs:
+      deployed: ${{ steps.current.outputs.deploy }}
     concurrency:
       group: eventgraph-dev-rollout
       cancel-in-progress: false
@@ -498,7 +500,7 @@ jobs:
       ${{ github.event_name == 'push' &&
           github.ref_name == 'develop' &&
           needs.publish.outputs.image_ref != '' &&
-          needs.deploy_development.result == 'success' &&
+          needs.deploy_development.outputs.deployed == 'true' &&
           vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
