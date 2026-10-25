@@ -4,6 +4,7 @@
 // registered, previewed and trialled through the existing lifecycle functions; nothing here creates a
 // source by itself. All paid work goes through deepseekSearch (deepseek_web budget + receipts); a
 // missing budget or credential skips discovery for the day and never touches another feed.
+import { createHash } from "node:crypto";
 import { sql, type Db } from "../db.ts";
 import { TOPICS } from "../publication/topics.ts";
 import { deepseekSearch, type DeepSeekResult } from "../providers/deepseek-web.ts";
@@ -93,8 +94,13 @@ export async function existingIdentities(db: Db = sql): Promise<Set<string>> {
 export type Search = typeof deepseekSearch;
 
 /** Deterministic candidate id from the same string that forms its identity. */
-const idFrom = (s: string): string =>
-  `ds-${s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 74) || "lead"}`;
+const idFrom = (s: string): string => {
+  // Slugification drops Chinese, Arabic, etc. Two distinct scoped queries for the
+  // same site would then share an id. Append a content hash of the original identity.
+  const slug = s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 54) || "lead";
+  const digest = createHash("sha256").update(s).digest("hex").slice(0, 12);
+  return `ds-${slug}-${digest}`;
+};
 
 /** One qualified publisher lead from one search result; null when the hit is not a publisher. */
 export function leadFromResult(s: GapSubject, r: DeepSeekResult, now: Date): DiscoveredSource | null {
