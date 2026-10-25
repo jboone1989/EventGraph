@@ -424,7 +424,7 @@ export default function StoryPage() {
             <Panel title={t("事件探索工作台","EventGraph Explorer")}
               sub={t("同一时点联动报道、关系与证据。","One time cutoff for reports, relations and evidence.")}
               className="order-1">
-              <EventExplorer key={story.publicId} story={story}/>
+              <EventExplorer key={story.publicId} story={story} route={route} market={market}/>
             </Panel>
           )}
 
