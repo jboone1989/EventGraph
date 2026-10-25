@@ -42,7 +42,10 @@ const safeUrl = (url: string) => {
 
 function inScope(report: StoryRouteReport, cutoff: number, clock: "known" | "valid") {
   const at = clock === "known" ? report.discoveredAt : report.publishedAt;
-  return timestamp(at) && Date.parse(at!) <= cutoff;
+  // A future-dated or embargoed publication cannot appear before its stated
+  // publication time, even if a collector saw it earlier (replay.ts contract).
+  return timestamp(report.publishedAt) && Date.parse(report.publishedAt!) <= cutoff &&
+    timestamp(at) && Date.parse(at!) <= cutoff;
 }
 
 /**
