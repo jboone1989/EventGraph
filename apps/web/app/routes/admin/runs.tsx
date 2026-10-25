@@ -47,6 +47,26 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
 
   return (
     <AdminPage title="运行" subtitle={<>任务、队列、信源延迟与需要人工核对的回执和投递。每 20 秒自动刷新 · 最近检查 {bj(r.checkedAt)}</>}>
+      <Card className="mb-5" title="新新闻处理链路 · 最近 24 小时"
+        right={<span className="text-[11px]">不含历史回填和仅作热度信号的内容 · 最近发现 <Time at={r.live24h.newestAt} /></span>}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          <Stat label="新发现" value={num(r.live24h.discovered)} hint="进入编辑处理的新闻" />
+          <Stat label="已分析" value={num(r.live24h.analyzed)} tone="ok" hint="含已完成归组" />
+          <Stat label="已归组" value={num(r.live24h.grouped)} tone="ok" hint="事件身份确认完成" />
+          <Stat label="等待处理" value={num(r.live24h.waiting)} tone={r.live24h.stalled ? "warn" : undefined} hint="含正常等待重试" />
+          <Stat label="超过 15 分钟" value={num(r.live24h.stalled)} tone={r.live24h.stalled ? "bad" : "ok"} hint="等待处理中的子集" />
+          <Stat label="处理失败" value={num(r.live24h.failed)} tone={r.live24h.failed ? "bad" : "ok"} hint="仅最近发现的新闻" />
+        </div>
+        <div className="mt-3 flex flex-col justify-between gap-2 text-[12px] text-ink-3 sm:flex-row sm:items-center">
+          <span>正常预筛过滤 {num(r.live24h.filtered)} 条，不算故障；各处理阶段会重叠，不能把数字相加。</span>
+          <span className="flex flex-wrap gap-3">
+            <Link className="text-accent hover:underline" to="/admin/models">检查模型路由</Link>
+            <Link className="text-accent hover:underline" to="/admin/sources">检查采集信源</Link>
+            <Link className="text-accent hover:underline" to="/admin/content">查看新文章</Link>
+          </span>
+        </div>
+      </Card>
+
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat
           label="worker"

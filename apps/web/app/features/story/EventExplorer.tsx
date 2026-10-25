@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import type { StoryDetail } from "@aihot/contracts/site";
+import type { StoryDetail, StoryRoute } from "@aihot/contracts/site";
+import type { StoryMarket } from "./EventPrices";
+import { ImpactEvidence } from "./ImpactEvidence";
 import type { KnowledgeGraph } from "../../components/KnowledgeNetwork";
 import { TemporalKnowledgeAtlas } from "./TemporalKnowledgeAtlas";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
@@ -11,8 +13,10 @@ import type { ExplorerClock, ExplorerTimeState } from "./explore-state";
 
 /** The selected cutoff drives the source list, event progress and graph query. The standalone
  *  /explore page seeds and mirrors the time state through initialTime/onTimeState (deep links). */
-export function EventExplorer({ story, initialTime, onTimeState, standalone }: {
+export function EventExplorer({ story, route = null, market = null, initialTime, onTimeState, standalone }: {
   story: StoryDetail;
+  route?: StoryRoute | null;
+  market?: StoryMarket | null;
   initialTime?: { clock: ExplorerClock; position: number };
   onTimeState?: (time: ExplorerTimeState) => void;
   standalone?: boolean;
@@ -21,7 +25,7 @@ export function EventExplorer({ story, initialTime, onTimeState, standalone }: {
   const [clock, setClock] = useState<"known" | "valid">(initialTime?.clock ?? "known");
   // Open at the most recent known point; a reader can then rewind the event.
   const [position, setPosition] = useState(() => initialTime?.position ?? Math.max(0, buildReplayFrames(story.timeline, "known").length - 1));
-  const [tab, setTab] = useState<"time" | "graph" | "evidence">("time");
+  const [tab, setTab] = useState<"time" | "graph" | "evidence" | "impact">("time");
   const frames = useMemo(() => buildReplayFrames(story.timeline, clock === "known" ? "known" : "published"), [story.timeline, clock]);
   const step = Math.min(position, Math.max(0, frames.length - 1));
   const asOf = frames[step]?.publishedAt;
@@ -60,7 +64,7 @@ export function EventExplorer({ story, initialTime, onTimeState, standalone }: {
   const reportTitle = (r: StoryDetail["timeline"][number]) => lang === "zh" ? r.title :
     englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original source";
   const formatTime = (value: string) => new Date(value).toLocaleString(lang==="zh"?"zh-CN":"en-US",{timeZone:"Asia/Shanghai"});
-  const tabButton = (v:"time"|"graph"|"evidence", label:string) =>
+  const tabButton = (v:"time"|"graph"|"evidence"|"impact", label:string) =>
     <button role="tab" type="button" aria-selected={tab===v} onClick={()=>setTab(v)}
       className={tab===v?"rounded-lg bg-accent px-3 py-2 text-sm text-white":"rounded-lg border border-line px-3 py-2 text-sm"}>{label}</button>;
   const explorerHref = (lang === "en" ? "/en" : "") + "/explore?story=" + encodeURIComponent(story.publicId) +
@@ -82,7 +86,7 @@ export function EventExplorer({ story, initialTime, onTimeState, standalone }: {
     <EventTimeMachine reports={story.timeline} totalReports={story.reportCount}
       clock={clock==="known"?"known":"published"} position={step} onPosition={setPosition} showDetails={tab==="time"} />
     <div className="flex gap-2 lg:hidden" role="tablist" aria-label={t("探索视图","Explorer views")}>
-      {tabButton("time",t("时间","Timeline"))}{tabButton("graph",t("关系","Relations"))}{tabButton("evidence",t("来源","Sources"))}
+      {tabButton("time",t("时间","Timeline"))}{tabButton("graph",t("关系","Relations"))}{tabButton("evidence",t("来源","Sources"))}{tabButton("impact",t("影响线索","Impact leads"))}
     </div>
     <div className={tab==="time"?"space-y-4":"hidden space-y-4 lg:block"}>
       <section className="rounded-panel border border-line-soft p-4" aria-label={t("按时点筛选的事件进展","Event developments at selected time")}>
@@ -108,6 +112,9 @@ export function EventExplorer({ story, initialTime, onTimeState, standalone }: {
             : t("按最早报道发布时间筛选；列表时间显示代表报道自己的发布时间。当前事件归组可能后来修订，不是完整历史快照。","Filtered by first report publication; the displayed time is the representative report's own publication time. Story grouping may have changed later, so this is not a complete historical snapshot.")}
         </p>
       </section>
+    </div>
+    <div className={tab==="impact" ? "" : "hidden lg:block"}>
+      <ImpactEvidence story={story} route={route} market={market} asOf={asOf} clock={clock}/>
     </div>
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
       <div className={tab==="graph"?"min-w-0":"hidden min-w-0 lg:block"}>

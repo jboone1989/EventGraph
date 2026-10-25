@@ -1,6 +1,8 @@
 import {useState} from 'react';
+import {useRevalidator} from 'react-router';
 import type {ProviderManagement,ProviderConnection,RegisteredModel,ConnectionInput,ModelInput,ModelCapability} from '@aihot/contracts/providers';
-import {Button,Input,Select,Textarea,Card} from './ui';
+import {Button,Input,Select,Textarea,Card,Badge,Time} from './ui';
+import {workflowStageStatus} from './workflow-status';
 import {useAdminAction} from './action';
 
 type Problem={detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>};
@@ -9,7 +11,11 @@ const caps:ModelCapability[]=['text','reasoning','vision','embedding','embedding
 const defaultProbe={capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'};
 
 export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
- const {run,busy}=useAdminAction();
+ const {run,busy:actionBusy}=useAdminAction();
+ const revalidator=useRevalidator();
+ const [bulkTesting,setBulkTesting]=useState(false);
+ const [batchResults,setBatchResults]=useState<Array<{model:string;status:string;detail:string}>>([]);
+ const busy=actionBusy||bulkTesting;
  const [editor,setEditor]=useState<Editor|null>(null),[problem,setProblem]=useState<Problem|null>(null);
  const [provider,setProvider]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1);
  const [notice,setNotice]=useState(''),[reason,setReason]=useState('');
@@ -23,6 +29,30 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  const open=(e:Editor)=>{setProblem(null);setEditor(e)};
  const models=data.models.filter(m=>(!provider||m.providerId===provider)&&(!search||[m.modelId,data.providers.find(c=>c.id===m.providerId)?.name??'',...m.capabilities].join(' ').toLowerCase().includes(search.toLowerCase())));
  const pages=Math.max(1,Math.ceil(models.length/20)),current=Math.min(page,pages);
+ const visibleModels=models.slice((current-1)*20,current*20);
+ const testableModels=models.filter(m=>m.enabled&&m.probeSpec);
+ async function testPage() {
+  if(bulkTesting||!testableModels.length)return;
+  setBulkTesting(true);
+  setBatchResults([]);
+  try {
+   // Existing authenticated API performs the capability probe and saves the result.
+   // These are independent requests, not a new testing worker or an invented shared timeout.
+   const results=await Promise.all(testableModels.map(async m=>{
+    let failure='网络请求失败';
+    const response=await run<{status:string;elapsedMs:number;detail:string}>(
+      'POST','/api/admin/provider-models/'+m.id+'/test',
+      {capability:m.probeSpec!.capability},
+      {label:'batch-probe-'+m.id,revalidate:false,quietError:true,onError:p=>{failure=p.detail}});
+    return {model:m.modelId,status:response?.status??'failed',
+      detail:response?response.elapsedMs+' ms · '+response.detail:failure};
+   }));
+   setBatchResults(results);
+   setNotice('已完成 '+results.length+' 项独立能力测试；逐项结果见下方。');
+   revalidator.revalidate();
+  } finally {setBulkTesting(false);}
+ }
+
  async function discover(c:ProviderConnection) {
   const result=await command<{models:Array<{modelId:string;status:string}>}>('POST','/api/admin/providers/'+c.id+'/discover');
   if(result){setSelected([]);setReason('');setDiscovery({id:c.id,models:result.models})}
@@ -31,23 +61,50 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  return <div className="space-y-5">
   {notice&&<p role="status" className="text-sm">{notice}</p>}
   {!editor&&!deleting&&!discovery&&!workflow&&errors}
-  <Card title="工作流模型 · 实际运行路径">
-   <p className="mb-3 text-[12px] text-ink-3">每个阶段独立选模型。连接已添加并不代表已分配；能力测试过期时，模型虽显示启用却不能接任务。切换付费模型将实际产生 API 费用。</p>
-   <div className="divide-y divide-line-soft">{data.workflows.map(w=>{
-    const currentModel=data.models.find(m=>'model:'+m.id===w.model);
-    const vendor=currentModel?data.providers.find(c=>c.id===currentModel.providerId)?.name:null;
-    const usable=!!currentModel?.routing.eligibleCapabilities.length;
-    return <div className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center" key={w.key}>
-     <div className="min-w-0 flex-1"><p className="text-[13px] font-medium">{w.label}</p>
-      <p className="break-all text-[12px] text-ink-3">{vendor?vendor+' · ':''}{currentModel?.modelId??w.model} · {w.source==='admin'?'后台指定':w.source==='env'?'环境变量':'默认配置'}</p>
-      {currentModel&&!usable&&<p className="mt-1 text-[12px] text-hot">不可路由：{currentModel.routing.reasons.join('；')||'缺少当前有效能力测试'}</p>}
-     </div>
-     <div className="flex items-center justify-between gap-3 sm:justify-end">
-      <span className={`text-[12px] ${currentModel?(usable?'text-accent':'text-hot'):'text-ink-3'}`}>{currentModel?(usable?'已验证可用':'需重新测试'):'使用预设'}</span>
-      <Button size="sm" disabled={busy} onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>切换</Button>
-     </div>
-    </div>;
-   })}</div>
+  <Card title="工作流路由 · 当前实际选择" right={<span className="text-xs text-ink-3">绑定 ≠ 可用 · 按阶段独立验证</span>}>
+   <p className="mb-3 text-[12px] leading-relaxed text-ink-3">
+    模型已添加、已启用、允许路由及完成有效能力测试是不同状态。点击“测试”会实际调用该 Provider；
+    选择模型前先看不可路由原因，不会自动替你切换到其他服务商。
+   </p>
+   <div className="mb-3 flex flex-wrap gap-3 text-[12px] text-ink-3">
+    <span>阶段 {data.workflows.length}</span>
+    <span className="text-ok">可用 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='ready').length}</span>
+    <span className="text-hot">需处理 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='problem').length}</span>
+    <span>待核验 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='unverified').length}</span>
+   </div>
+   <div className="divide-y divide-line-soft">
+    {data.workflows.map(w=>{
+     const health=workflowStageStatus(w,data);
+     const model=health.model;
+     const provider=health.provider;
+     return <div key={w.key} className="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-center">
+      <div className="min-w-0 space-y-1">
+       <p className="text-[13.5px] font-semibold text-ink">{w.label}</p>
+       <p className="text-[11.5px] text-ink-4">{w.source==='admin'?'后台绑定':w.source==='env'?'环境变量':'默认配置'} · {w.key}</p>
+      </div>
+      <div className="min-w-0 space-y-1.5">
+       <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={health.kind==='ready'?'ok':health.kind==='problem'?'bad':'warn'}>
+         {health.kind==='ready'?'可路由':health.kind==='problem'?'不可路由':'待核验'}
+        </Badge>
+        <span className="break-all font-mono text-[12px] text-ink-2">{model?.modelId ?? w.model ?? '未分配'}</span>
+       </div>
+       <p className="break-words text-[12px] text-ink-3">{provider?provider.name+' · '+provider.vendor+' · ':''}{health.reason}</p>
+       {health.check&&<p className="text-[11px] text-ink-4">
+        文本测试 {health.check.status} · <Time at={health.check.verifiedAt}/> {health.check.latencyMs!=null?' · '+health.check.latencyMs+' ms':''}
+       </p>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 md:justify-end">
+       {model&&<Button size="sm" disabled={busy||!health.canTest} title={!health.canTest?'此模型未配置文本测试或连接不可用':undefined} onClick={async()=>{
+        const r=await command<{status:string;elapsedMs:number;detail:string}>('POST','/api/admin/provider-models/'+model.id+'/test',{capability:'text'});
+        if(r)setNotice(model.modelId+'：'+r.status+' · '+r.elapsedMs+' ms · '+r.detail);
+       }}>测试</Button>}
+       <Button size="sm" tone={health.kind==='problem'?'primary':'secondary'} disabled={busy}
+        onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>选择模型</Button>
+      </div>
+     </div>;
+    })}
+   </div>
   </Card>
   <Card title="厂商连接" right={<Button disabled={busy} onClick={()=>open({kind:'connection',value:null})}>添加连接</Button>}>
    <div className="space-y-3">{data.providers.length===0&&<p>暂无连接，请先添加厂商的 API 地址和凭据。</p>}
@@ -64,11 +121,27 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
     </div>
    </div>)}</div>
   </Card>
-  <Card title={'模型（'+models.length+'）'}>
+  <Card title={'模型（'+models.length+'）'}
+   right={<Button size="sm" disabled={busy||!testableModels.length} onClick={testPage}>
+    {bulkTesting?'正在并发测试…':'并发测试筛选结果（'+testableModels.length+'）'}
+   </Button>}>
+   <p className="mb-3 text-[12px] leading-relaxed text-ink-3">
+    仅测试当前筛选结果中已启用、配置了测试请求的模型；并发发出独立请求、分别保存回执与耗时；
+    可能产生 API 调用费用，不会自动修改工作流路由。
+   </p>
+   {batchResults.length>0&&<details role="status" open className="mb-3 rounded-control bg-bg-sunk p-3 text-[12px] text-ink-2">
+    <summary className="cursor-pointer font-medium">本次能力测试 · {batchResults.filter(r=>r.status==='verified').length} / {batchResults.length} 通过 · 展开逐项耗时</summary>
+    <div className="mt-2 grid max-h-64 gap-1 overflow-auto sm:grid-cols-2">
+     {batchResults.map((r,i)=><p key={i} className="break-all">
+      <span className={r.status==='verified'?'text-ok':'text-hot'}>{r.status==='verified'?'通过':'失败'}</span>
+      {' · '+r.model+' · '+r.detail}
+     </p>)}
+    </div>
+   </details>}
    <div className="mb-4 flex flex-wrap gap-2"><Select aria-label="按连接筛选" value={provider} onChange={e=>{setProvider(e.target.value);setPage(1)}}><option value="">全部连接</option>{data.providers.map(c=><option key={c.id} value={c.id}>{c.name} · {c.id.slice(0,8)}</option>)}</Select>
     <Input aria-label="搜索模型" placeholder="搜索模型或能力" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/></div>
    <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>连接 / 模型</th><th>能力</th><th>启用 / 路由开关 / 当前资格</th><th>操作</th></tr></thead><tbody>
-    {models.slice((current-1)*20,current*20).map(m=><tr key={m.id} className="border-t border-line">
+    {visibleModels.map(m=><tr key={m.id} className="border-t border-line">
      <td className="p-2"><div>{data.providers.find(c=>c.id===m.providerId)?.name} · {m.providerId.slice(0,8)}</div><div className="break-all font-mono text-xs">{m.modelId}</div></td>
      <td className="p-2 text-xs">{m.capabilities.join(', ')||'未配置'}</td>
      <td className="p-2"><p>{m.enabled?'启用':'停用'} / {m.routeEnabled?'开启':'关闭'} / {m.routing.eligibleCapabilities.length?'可用：'+m.routing.eligibleCapabilities.join(', '):'不可用'}</p>
