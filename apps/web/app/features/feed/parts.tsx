@@ -16,7 +16,7 @@ export function SourceLine({ item, className = "" }: { item: Pick<FeedItemSummar
       <span className={`flex min-w-0 items-center gap-1.5 ${className}`}>
         <SourceAvatar name={item.x.authorName} avatarUrl={item.x.avatarUrl} avatarSrcSet={item.x.avatarSrcSet} size={16} />
         <span className="truncate text-ink-3">{lang==="en" && hasHan(item.x.authorName) ? `@${item.x.handle}` : item.x.authorName}</span>
-        <span className="hidden shrink-0 text-ink-4 min-[400px]:inline">@{item.x.handle}</span>
+        {!(lang === "en" && hasHan(item.x.authorName)) && <span className="hidden shrink-0 text-ink-4 min-[400px]:inline">@{item.x.handle}</span>}
       </span>
     );
   }
