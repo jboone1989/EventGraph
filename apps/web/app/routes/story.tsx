@@ -12,7 +12,7 @@ import { localizedMonthDay, localizedMonthDayTime, relativeTime } from "../lib/f
 import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
-import { englishText } from "../lib/english";
+import { englishText, localizedSourceName } from "../lib/english";
 import { isEnglishPath } from "../lib/edition";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
@@ -179,7 +179,7 @@ function TimelineRow({ r }: { r: StoryReportView }) {
       </time>
       <div className="min-w-0">
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] leading-[20px] text-ink-4 lg:mt-0">
-          <span className="min-w-0 truncate">{r.source.name}</span>
+          <span className="min-w-0 truncate">{localizedSourceName(r.source.name, lang, r.originalUrl)}</span>
           {r.selected && <SelectedBadge />}
         </div>
         <IntentLink viewTransition to={lang === "en" ? `/en/items/${r.id}` : `/items/${r.id}`} className="mt-1 block text-[16px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent lg:text-[15.5px]">
@@ -241,7 +241,7 @@ function StoryRoutePanel({ route, storyPublicId }: { route: StoryRoute; storyPub
                 {s.reports[0] && /^https?:\/\//i.test(s.reports[0].url) && (
                   <a href={s.reports[0].url} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open"
                     className="mt-1 inline-block text-[12.5px] text-accent hover:underline">
-                    {t("核对原始报道","Read original source")} ↗ {s.reports[0].source}
+                    {t("核对原始报道","Read original source")} ↗ {localizedSourceName(s.reports[0].source, uiLang, s.reports[0].url)}
                   </a>
                 )}
                 <Link to={`${prefix}/explore?story=${encodeURIComponent(storyPublicId)}&clock=known&asOf=${encodeURIComponent(s.timeRecorded)}`}
@@ -443,7 +443,7 @@ export default function StoryPage() {
                     <ul className="mt-2 divide-y divide-line-soft">
                       {group.rows.slice(0, 4).map(report => (
                         <li key={report.id} className="py-3">
-                          <div className="text-[11.5px] text-ink-4">{report.source.name} · {when(report.publishedAt)}</div>
+                          <div className="text-[11.5px] text-ink-4">{localizedSourceName(report.source.name, uiLang, report.originalUrl)} · {when(report.publishedAt)}</div>
                           <Link to={reportPath(report.id)} className="mt-1 block text-[13.5px] font-semibold leading-[1.55] text-ink hover:text-accent">{reportTitle(report)}</Link>
                           {visibleSummary(report.summary, report) && <p className="mt-1 line-clamp-3 text-[12.5px] leading-[1.7] text-ink-3">{visibleSummary(report.summary, report)}</p>}
                           {report.originalUrl && /^https?:\/\//i.test(report.originalUrl) &&
@@ -558,7 +558,7 @@ export default function StoryPage() {
               <ul className="mt-1 divide-y divide-line-soft">
                 {story.officialReports.slice(0, 5).map((r) => (
                   <li key={r.id} className="py-3">
-                    <div className="truncate text-[11.5px] text-ink-4">{r.source.name}</div>
+                    <div className="truncate text-[11.5px] text-ink-4">{localizedSourceName(r.source.name, uiLang, r.originalUrl)}</div>
                     <Link viewTransition to={reportPath(r.id)} className="group mt-1 block text-[13.5px] font-semibold leading-[1.6] text-ink transition-colors hover:text-accent">
                       {reportTitle(r)}
                       <IconChevronRight size={13} className="ml-0.5 inline -translate-y-px text-ink-4 transition-transform group-hover:translate-x-0.5" />
