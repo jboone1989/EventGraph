@@ -18,7 +18,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     const workbench = page.locator('[data-testid="impact-evidence"]');
     await expect(workbench).toBeVisible();
     await expect(workbench.locator("[data-impact-area]")).toHaveCount(4);
-    await expect(workbench).toContainText("not verified policy actions");
+    await expect(workbench).toContainText("not proof of a policy action");
     await expect(workbench).toContainText("bounded");
     const slider = page.getByRole("region", { name: "Event report playback" }).getByRole("slider");
     if (await slider.count()) {
