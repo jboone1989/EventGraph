@@ -274,7 +274,7 @@ function ItemPreview({ preview }: { preview: FeedItemSummary }) {
       <PhoneBar back={preview.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }} title={isX ? preview.x!.authorName : title} />
       <article className="pb-6 pt-3" aria-busy="true">
         <div className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-ink-3">
-          <span className="font-semibold text-ink-2">{isX ? (en && hasHan(preview.x!.authorName) ? `@${preview.x!.handle}` : preview.x!.authorName) : localizedSourceName(preview.source.name, language, preview.links.original)}</span>
+          <span className="font-semibold text-ink-2">{isX ? (en && hasHan(preview.x!.authorName) ? `@${preview.x!.handle}` : preview.x!.authorName) : localizedSourceName(preview.source.name, language, preview.links?.original)}</span>
           {isX && <span>· @{preview.x!.handle} · X</span>}
           <span>·</span>
           {!preview.publishedAt && <span>{t("收录于", "Collected")}</span>}
