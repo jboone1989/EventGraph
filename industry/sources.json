@@ -1448,6 +1448,144 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-eu-council-press",
+      "name": "Council of the EU · Press Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.consilium.europa.eu/en/rss/pressreleases.ashx",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 120,
+      "tags": [
+        "政治",
+        "欧洲",
+        "制裁",
+        "国防",
+        "贸易"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-un-geneva-press",
+      "name": "UN Geneva · Press Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.ungeneva.org/news-media/press-releases-list/rss.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 120,
+      "tags": [
+        "政治",
+        "外交",
+        "军事",
+        "联合国"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-gdacs-disasters-24h",
+      "name": "GDACS · Global Disasters (24h)",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://gdacs.org/xml/rss_24h.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 60,
+      "tags": [
+        "突发事件",
+        "灾害",
+        "供应链"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-usgs-earthquakes-m45",
+      "name": "USGS · M4.5+ Earthquakes (24h)",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.atom",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 60,
+      "tags": [
+        "突发事件",
+        "地震",
+        "供应链"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-gdelt-conflict-discovery",
+      "name": "GDELT · Conflict Discovery",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://api.gdeltproject.org/api/v2/doc/doc?query=(%22airstrike%22%20OR%20%22missile%20attack%22%20OR%20%22military%20conflict%22%20OR%20%22naval%20attack%22%20OR%20%22ceasefire%22)&mode=artlist&maxrecords=75&timespan=1d&sort=datedesc&format=rss",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 120,
+      "tags": [
+        "政治",
+        "军事",
+        "冲突",
+        "发现"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-gdelt-trade-risk-discovery",
+      "name": "GDELT · Trade and Supply Risk Discovery",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://api.gdeltproject.org/api/v2/doc/doc?query=(%22export%20controls%22%20OR%20%22new%20tariffs%22%20OR%20%22economic%20sanctions%22%20OR%20%22shipping%20disruption%22%20OR%20%22oil%20supply%20disruption%22)&mode=artlist&maxrecords=75&timespan=1d&sort=datedesc&format=rss",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 120,
+      "tags": [
+        "政治",
+        "制裁",
+        "贸易",
+        "供应链",
+        "发现"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
     }
   ]
 }
