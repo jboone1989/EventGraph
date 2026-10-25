@@ -5,9 +5,11 @@
 name: eventgraph-vm13-preview
 services:
   web:
-    image: ghcr.io/jboone1989/eventgraph-app@sha256:3e49688ddae5428028d598c11217a40ff8afd0c60d194ce046cbc1413ac2d2c7
+    image: ${EVENTGRAPH_APP_IMAGE:-ghcr.io/jboone1989/eventgraph-app@sha256:3e49688ddae5428028d598c11217a40ff8afd0c60d194ce046cbc1413ac2d2c7}
     command: ["node", "apps/web/server.ts"]
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.50
     environment:
       NODE_ENV: production
       WEB_HOST: "0.0.0.0"
@@ -15,7 +17,7 @@ services:
       API_BASE_URL: "http://43.142.127.40"
       SITE_URL: "http://43.133.185.154"
       TRUST_PROXY: "false"
-      AIHOT_RELEASE: "11478d2a9201f11094b97d5234bd882aaa54a246"
+      AIHOT_RELEASE: "${EVENTGRAPH_PREVIEW_RELEASE:-11478d2a9201f11094b97d5234bd882aaa54a246}"
     ports:
       - "80:3000"
     healthcheck:
