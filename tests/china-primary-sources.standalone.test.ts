@@ -10,7 +10,7 @@ type Feed = { id:string; name:string; kind:string; config:Record<string, any>; t
   participation_mode:string; interval_minutes:number; tags:string[]; site_fulltext:boolean; syndicate_fulltext:boolean };
 const { sources } = JSON.parse(readFileSync(new URL("../industry/sources.json", import.meta.url), "utf8")) as {sources:Feed[]};
 const byId = new Map(sources.map(x => [x.id, x]));
-const additions = ["rss-cn-pboc-announcements", "web-cn-csrc-announcements", "web-cn-miit-announcements"];
+const additions = ["rss-cn-pboc-official", "rss-cn-csrc-official", "rss-cn-miit-official"];
 
 test("three Chinese regulator sources match the preview-verified configs", () => {
   for (const id of additions) {
@@ -29,7 +29,7 @@ test("three Chinese regulator sources match the preview-verified configs", () =>
 });
 
 test("PBoC RSS keeps only its own links and rewrites them to https", () => {
-  const config = byId.get("rss-cn-pboc-announcements")!.config;
+  const config = byId.get("rss-cn-pboc-official")!.config;
   assert.equal(config.feedUrl, "https://www.pbc.gov.cn/goutongjiaoliu/113456/2986536/index.html");
   assert.equal(config.publishedAtUtcOffset, "+08:00");
   assert.deepEqual(config.allowUrlPrefixes, ["www.pbc.gov.cn/"]);
@@ -39,7 +39,7 @@ test("PBoC RSS keeps only its own links and rewrites them to https", () => {
 });
 
 test("CSRC and MIIT listings deny their index pages and trust only detail dates", () => {
-  for (const id of ["web-cn-csrc-announcements", "web-cn-miit-announcements"]) {
+  for (const id of ["rss-cn-csrc-official", "rss-cn-miit-official"]) {
     const config = byId.get(id)!.config;
     assert.equal(config.parseMode, "html", id);
     assert.ok(/^https:\/\/www\.(csrc|miit)\.gov\.cn\//.test(config.url), id);
