@@ -31,6 +31,24 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  return <div className="space-y-5">
   {notice&&<p role="status" className="text-sm">{notice}</p>}
   {!editor&&!deleting&&!discovery&&!workflow&&errors}
+  <Card title="工作流模型 · 实际运行路径">
+   <p className="mb-3 text-[12px] text-ink-3">每个阶段独立选模型。连接已添加并不代表已分配；能力测试过期时，模型虽显示启用却不能接任务。切换付费模型将实际产生 API 费用。</p>
+   <div className="divide-y divide-line-soft">{data.workflows.map(w=>{
+    const currentModel=data.models.find(m=>'model:'+m.id===w.model);
+    const vendor=currentModel?data.providers.find(c=>c.id===currentModel.providerId)?.name:null;
+    const usable=!!currentModel?.routing.eligibleCapabilities.length;
+    return <div className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center" key={w.key}>
+     <div className="min-w-0 flex-1"><p className="text-[13px] font-medium">{w.label}</p>
+      <p className="break-all text-[12px] text-ink-3">{vendor?vendor+' · ':''}{currentModel?.modelId??w.model} · {w.source==='admin'?'后台指定':w.source==='env'?'环境变量':'默认配置'}</p>
+      {currentModel&&!usable&&<p className="mt-1 text-[12px] text-hot">不可路由：{currentModel.routing.reasons.join('；')||'缺少当前有效能力测试'}</p>}
+     </div>
+     <div className="flex items-center justify-between gap-3 sm:justify-end">
+      <span className={`text-[12px] ${currentModel?(usable?'text-accent':'text-hot'):'text-ink-3'}`}>{currentModel?(usable?'已验证可用':'需重新测试'):'使用预设'}</span>
+      <Button size="sm" disabled={busy} onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>切换</Button>
+     </div>
+    </div>;
+   })}</div>
+  </Card>
   <Card title="厂商连接" right={<Button disabled={busy} onClick={()=>open({kind:'connection',value:null})}>添加连接</Button>}>
    <div className="space-y-3">{data.providers.length===0&&<p>暂无连接，请先添加厂商的 API 地址和凭据。</p>}
    {data.providers.map(c=><div key={c.id} className="space-y-2 border-b border-line pb-3">
@@ -65,7 +83,6 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
    </tbody></table>{!models.length&&<p className="p-3">暂无匹配模型；可以从连接下手动添加。</p>}</div>
    <div className="mt-3 flex items-center gap-3"><Button size="sm" disabled={current<=1} onClick={()=>setPage(current-1)}>上一页</Button><span>{current} / {pages}</span><Button size="sm" disabled={current>=pages} onClick={()=>setPage(current+1)}>下一页</Button></div>
   </Card>
-  <Card title="工作流模型选择"><div className="space-y-2">{data.workflows.map(w=><div className="flex flex-wrap items-center gap-2" key={w.key}><span className="flex-1 text-sm">{w.label}</span><span className="text-xs">{data.models.find(m=>'model:'+m.id===w.model)?.modelId??w.model}（{w.source}）</span><Button size="sm" disabled={busy} onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>切换</Button></div>)}</div></Card>
   {editor&&<ConfigurationDialog key={editor.kind+(editor.value?.id??'new')} editor={editor} providers={data.providers} busy={busy} problem={problem} onClose={()=>setEditor(null)} onSubmit={async(input,why)=>{
    const e=editor,id=e.value?.id;
    const path=e.kind==='connection'?'/api/admin/providers'+(id?'/'+id:''):id?'/api/admin/provider-models/'+id:'/api/admin/providers/'+e.providerId+'/models';

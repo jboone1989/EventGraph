@@ -20,6 +20,7 @@ export async function runsOverview(): Promise<Runs> {
     latest,
     timeline,
     queues,
+    [articleProcessing],
     failedJobs,
     lagging,
     receipts,
@@ -52,6 +53,14 @@ export async function runsOverview(): Promise<Runs> {
     sql<Runs["queues"]>`
       SELECT name, state, count(*)::int AS n, min(created_on) AS oldest FROM pgboss.job
       WHERE state IN ('created', 'retry', 'active') GROUP BY 1, 2 ORDER BY 1, 2`,
+    sql<Runs["articleProcessing"][]> `
+      SELECT count(*) FILTER (WHERE processing_state='new' AND processing_attempts=0)::int AS waiting,
+        count(*) FILTER (WHERE processing_state='new' AND processing_attempts>0)::int AS retrying,
+        count(*) FILTER (WHERE processing_state='failed')::int AS failed,
+        count(*) FILTER (WHERE processing_state='blocked')::int AS filtered,
+        count(*) FILTER (WHERE processing_state IN ('new','failed') AND
+          (processing_error ILIKE '%No eligible configured model%' OR processing_error ILIKE '%Model cannot route%'))::int AS "unavailableModel"
+      FROM articles`,
     sql<Runs["failedJobs"]>`
       SELECT name, count(*)::int AS failed, max(completed_on) AS last, left((array_agg(output::text ORDER BY completed_on DESC))[1], 300) AS last_output
       FROM pgboss.job WHERE state = 'failed' AND completed_on > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC, 1`,
@@ -93,6 +102,7 @@ export async function runsOverview(): Promise<Runs> {
     jobs: latest,
     timeline,
     queues,
+    articleProcessing: articleProcessing ?? {waiting:0,retrying:0,failed:0,filtered:0,unavailableModel:0},
     failedJobs,
     grouping: groupingOverview(grouping, now),
     lagging,
