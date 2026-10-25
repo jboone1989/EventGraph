@@ -1779,6 +1779,102 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-ustr-trade-policy",
+      "name": "USTR · Official US Trade Policy",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.ustr.gov/rss.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 120,
+      "tags": [
+        "美国",
+        "贸易政策",
+        "关税",
+        "出口管制",
+        "官方"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-gcaptain-maritime",
+      "name": "gCaptain · Maritime and Shipping",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.gcaptain.com/feed/",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "海运",
+        "航运安全",
+        "能源",
+        "供应链",
+        "媒体"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-tass-english",
+      "name": "TASS · Russia Official-State News Perspective",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://tass.com/rss/v2.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 180,
+      "tags": [
+        "俄罗斯",
+        "冲突当事方口径",
+        "政治",
+        "地缘事件",
+        "信号"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-yonhap-english",
+      "name": "Yonhap · Korea and Northeast Asia",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://en.yna.co.kr/RSS/news.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "韩国",
+        "东北亚",
+        "国际",
+        "政治",
+        "地区视角"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
     }
   ]
 }

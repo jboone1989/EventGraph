@@ -10,6 +10,10 @@ EventGraph 聚合新闻、公告及研究，保留原始来源与发布时间，
 - **Ferro**：独立研究及内容 Agent，通过 EventGraph 的公开接口读取证据。
 - **AIHot**：上游开源新闻引擎，与 EventGraph 不是同一产品。
 
+## 产品演进规划
+
+- [地区冲突影响追踪（规划 v0.1）](specs/event-impact-tracing/spec.md)：政策变化 → 供应链 → 企业暴露 → 市场反应的可验证证据链；含阶段路线、反方意见及首个真实案例的验收标准。**这是规划记录，不表示已实现或已批准全面开发。**
+
 ## 技术栈
 
 Node.js 24、PostgreSQL 17、Docker Compose。Graphiti、Neo4j 与 NVIDIA 模型端点为知识图谱路线，按实际交付进度集成。

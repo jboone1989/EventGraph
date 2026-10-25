@@ -31,7 +31,9 @@ export async function sweepUngrouped(): Promise<{ enqueued: number }> {
           SELECT 1 FROM analyses an WHERE an.article_id = a.id AND an.input_revision = a.revision AND an.relevance = 'pass')
         AND NOT EXISTS (SELECT 1 FROM pgboss.job j WHERE j.name = ${QUEUES.group}
           AND j.data->>'articleId' = a.id AND j.state IN ('created', 'active', 'retry'))
-      ORDER BY a.created_at LIMIT 100 FOR UPDATE OF a SKIP LOCKED`;
+      -- Repair current news first. An old import must not occupy the bounded recovery batch.
+      ORDER BY a.backfill ASC, a.discovered_at DESC, a.id
+      LIMIT 100 FOR UPDATE OF a SKIP LOCKED`;
     let enqueued = 0;
     for (const row of rows) {
       if (await enqueue(QUEUES.group, { articleId: row.id }, { singletonKey: row.id }, tx)) enqueued += 1;
