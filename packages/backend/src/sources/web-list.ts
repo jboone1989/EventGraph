@@ -368,6 +368,10 @@ export interface DetailNeed {
  */
 async function deepseekDetail(url: string, source: SourceRow, need: DetailNeed): Promise<{ publishedAt: Date | null; title: string | null; summary: string | null; body: ExtractedBody | null }> {
   const d = source.config.detail ?? {};
+  // No billable fetch if the requested field cannot be extracted from Markdown.
+  if (!(need.date && d.publishedAtRegex) && !(need.title && d.titleRegex) && !need.body) {
+    return { publishedAt: null, title: null, summary: null, body: null };
+  }
   const offset = articleUtcOffset(source.config);
   const page = await deepseekFetch(url, { purpose: "source_detail", subject: `source:${source.id}` });
   let publishedAt: Date | null = null;
