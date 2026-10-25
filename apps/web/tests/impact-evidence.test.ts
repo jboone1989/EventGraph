@@ -33,6 +33,18 @@ test("known clock rejects an earlier-published report which the system discovere
   assert.equal(impactLeadsAt(r, news, t1, "known").policy.length, 1);
 });
 
+test("known-time replay never exposes a future-published or embargoed article", () => {
+  const embargoed = station("embargo");
+  embargoed.reports[0]!.discoveredAt = t0;
+  embargoed.reports[0]!.publishedAt = t2;
+  const news = [report("embargo", "Sanctions announced tomorrow", t2, t0)];
+  const r = route([embargoed]);
+  assert.equal(impactLeadsAt(r, news, t1, "known").policy.length, 0);
+  assert.equal(impactLeadsAt(r, news, t1, "valid").policy.length, 0);
+  assert.equal(impactLeadsAt(r, news, t2, "known").policy.length, 1);
+  assert.equal(impactLeadsAt(r, news, t2, "valid").policy.length, 1);
+});
+
 test("only current public route evidence with a dated, safe source URL is displayed", () => {
   const r = route([
     station("a"), station("missing"), station("bad", "javascript:alert(1)"),
