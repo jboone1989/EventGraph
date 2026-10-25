@@ -38,7 +38,7 @@ fi
 sudo -n docker pull "$EVENTGRAPH_IMAGE"
 sudo -n docker pull caddy:2-alpine
 sudo -n docker run --rm -v "$staged_proxy:/etc/caddy/Caddyfile:ro" caddy:2-alpine \
-  validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
 export EVENTGRAPH_APP_IMAGE="$EVENTGRAPH_IMAGE"
 compose() {
