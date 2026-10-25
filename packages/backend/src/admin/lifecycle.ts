@@ -1,9 +1,8 @@
 // Dynamic source lifecycle (specs/007-dynamic-source-lifecycle/spec.md): candidate preflight, trial
-// scoring and promotion decisions. Nothing here runs on its own — no cron, no queue job; an operator
-// script or a future discovery channel calls these functions. DeepSeek discovery is the next stage
-// (PR#132's deepseekSearch): SourceDiscoverer below is where it wires in, and until then the only
-// registration channel is "operator". Auto actions stay dry-run until the sourceLifecycle.autoPromote
-// setting is enabled.
+// scoring and promotion decisions. Nothing here runs on its own; the daily cron.sources.discover
+// schedule (admin/discovery.ts) feeds it DeepSeek-searched candidates and evaluates trials, and an
+// operator may register candidates directly (origin.channel "operator"). Auto actions stay dry-run
+// until the sourceLifecycle.autoPromote setting is enabled.
 import { z } from "zod";
 import { audit } from "../audit.ts";
 // admin is the top layer: it may import the collectors below, and this lifecycle is an operator
@@ -36,14 +35,6 @@ export const SOURCE_KIND_BY_CANDIDATE_KIND: Record<CandidateKind, "rss" | "json_
 const utcInstant = (v: unknown): boolean =>
   typeof v === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(v) && Number.isFinite(Date.parse(v));
 
-export const DiscoveryInput = z.object({
-  /** Coverage-gap tags (the audit's uncovered domains) steering what to look for. */
-  gapTags: z.array(z.string().min(1).max(60)).max(20),
-  /** Titles of currently active event groups: a breaking event asks for its region's sources. */
-  activeTopics: z.array(z.string().min(1).max(200)).max(20),
-}).strict();
-export type DiscoveryInput = z.infer<typeof DiscoveryInput>;
-
 /** One publisher-domain source a discovery channel proposes. Not trusted: it is a lead, not a fact. */
 export const DiscoveredSource = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]{2,76}$/),
@@ -60,13 +51,6 @@ export const DiscoveredSource = z.object({
   expiresAt: z.string().datetime().optional(),
 }).strict();
 export type DiscoveredSource = z.infer<typeof DiscoveredSource>;
-
-/**
- * Where DeepSeek Search plugs in (PR#132): one daily run per gap set, paid through the deepseek_web
- * budget and receipts there. Until that lands the only implementation is an operator list — an empty
- * discoverer here would only pretend to work.
- */
-export type SourceDiscoverer = (input: DiscoveryInput) => Promise<DiscoveredSource[]>;
 
 export interface PreflightResult {
   ok: boolean;
@@ -87,12 +71,25 @@ export function preflightCandidate(c: DiscoveredSource): PreflightResult {
     unsupported = ["kind"];
   }
   if (unsupported.length) reasons.push(`unsupported-config:${unsupported.join(",")}`);
-  const address = String(c.config.feedUrl ?? c.config.url ?? "");
-  try {
-    const u = new URL(address);
-    if (!/^https?:$/.test(u.protocol) || u.username || u.password) reasons.push("address");
-  } catch {
-    reasons.push("address");
+  // A DeepSeek-search candidate has no listing URL of its own: its address is the scoped query plus
+  // the publisher prefixes it admits (identity is sourceIdentity's deepseek:<query> on this branch).
+  if (c.kind === "json_list" && c.config.mode === "deepseek_search") {
+    const query = String(c.config.deepseekQuery ?? "").trim();
+    const prefixes = c.config.allowUrlPrefixes;
+    const validPrefix = (v: unknown) => {
+      try { const u = new URL(String(v)); return /^https?:$/.test(u.protocol) && !u.username && !u.password; } catch { return false; }
+    };
+    if (!query || Array.from(query).length > 128 || !Array.isArray(prefixes) || prefixes.length === 0 || !prefixes.every(validPrefix)) {
+      reasons.push("address");
+    }
+  } else {
+    const address = String(c.config.feedUrl ?? c.config.url ?? "");
+    try {
+      const u = new URL(address);
+      if (!/^https?:$/.test(u.protocol) || u.username || u.password) reasons.push("address");
+    } catch {
+      reasons.push("address");
+    }
   }
   const backfill = (c.config._aihot as Record<string, unknown> | undefined)?.initialBackfillLimit;
   if (typeof backfill !== "number" || !Number.isInteger(backfill) || backfill < 1 || backfill > BACKFILL_LIMIT_MAX) reasons.push("backfill-limit");
