@@ -144,9 +144,16 @@ export async function discoverViaDeepSeek(
   let queries = 0;
   for (const s of subjects) {
     if (candidates.length >= opts.maxCandidates) break;
-    const results = await search(`${s.subject} official newsroom press release RSS feed`, {
-      count: 8, purpose: "source_discovery", subject: s.event ? `event:${s.subject}` : `gap:${s.subject}`,
-    });
+    // One failing subject must not discard successful searches for other regions or topics.
+    let results: DeepSeekResult[];
+    try {
+      results = await search(`${s.subject} official newsroom press release RSS feed`, {
+        count: 8, purpose: "source_discovery", subject: s.event ? `event:${s.subject}` : `gap:${s.subject}`,
+      });
+    } catch (error) {
+      if (error instanceof BudgetExceededError || /DEEPSEEK_API_KEY/.test(String(error))) throw error;
+      continue;
+    }
     queries += 1;
     for (const r of results) {
       if (candidates.length >= opts.maxCandidates) break;
@@ -199,9 +206,11 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
     run.queries = found.queries;
   } catch (error) {
     const message = String((error as Error | undefined)?.message ?? error).slice(0, 200);
-    if (error instanceof BudgetExceededError) return { ...run, skipped: "budget" };
-    if (/DEEPSEEK_API_KEY/.test(message)) return { ...run, skipped: "credential" };
-    return { ...run, note: `search: ${message}` };
+    // Paid discovery can be unavailable without blocking already validated
+    // candidates from entering an authorized trial or existing trials from review.
+    if (error instanceof BudgetExceededError) run.skipped = "budget";
+    else if (/DEEPSEEK_API_KEY/.test(message)) run.skipped = "credential";
+    else run.note = `search: ${message}`;
   }
   run.proposed = candidates.length;
   const registered = await registerCandidates({ candidates, actor: ACTOR, db });
