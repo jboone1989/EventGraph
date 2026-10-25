@@ -15,6 +15,17 @@ for (const path of [...PAGES, ...EN_PAGES, ...content]) {
   });
 }
 
+test("English daily archive has a working route and keeps English issue links", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
+  await open(page, "/en/daily/archive");
+  await expect(page.getByRole("heading", { name: "Daily archive" }).first()).toBeVisible();
+  const archiveIssue = page.locator('a[href^="/en/daily/20"]').first();
+  if (await archiveIssue.count()) {
+    await archiveIssue.click();
+    await expect(page).toHaveURL(/\/en\/daily\/20\d\d-/);
+  }
+});
+
 test("an unknown address answers 404 with the site's page", async ({ page }) => {
   const res = await page.goto("/no-such-page-e2e");
   expect(res?.status()).toBe(404);
