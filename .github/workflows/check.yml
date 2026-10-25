@@ -54,6 +54,10 @@ jobs:
         env:
           SPEC_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           SPEC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SPEC_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          SPEC_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          SPEC_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          SPEC_REPOSITORY: ${{ github.repository }}
           SPEC_PR_BODY: ${{ github.event.pull_request.body }}
         run: node scripts/ci/check-spec.mjs
       - name: Install
