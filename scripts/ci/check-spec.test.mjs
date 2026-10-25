@@ -35,10 +35,10 @@ function commit(cwd, file, text) {
   git(cwd, "commit", "-qm", "change");
   return git(cwd, "rev-parse", "HEAD");
 }
-function check(cwd, base, head, body = "") {
+function check(cwd, base, head, body = "", extraEnv = {}) {
   return spawnSync(process.execPath, [checker], {
     cwd, encoding: "utf8",
-    env: { ...process.env, SPEC_BASE_SHA: base, SPEC_HEAD_SHA: head, SPEC_PR_BODY: body },
+    env: { ...process.env, SPEC_BASE_SHA: base, SPEC_HEAD_SHA: head, SPEC_PR_BODY: body, ...extraEnv },
   });
 }
 test("prior immutable spec permits an implementation change", () => {
@@ -63,6 +63,26 @@ test("spec created only inside implementation PR is blocked", () => {
     writeFileSync(join(cwd, "specs", "demo", "spec.md"), "# Added too late\n");
     const head = commit(cwd, "apps/app.ts", "export const value = 2;\n");
     assert.equal(check(cwd, base, head, `Spec: specs/demo/spec.md@${head}`).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("spec edited alongside product code is blocked", () => {
+  const { cwd, base } = fixture();
+  try {
+    const name = join(cwd, "specs", "demo", "spec.md");
+    writeFileSync(name, "# Changed after approval\\n");
+    const head = commit(cwd, "apps/app.ts", "export const value = 2;\\n");
+    assert.equal(check(cwd, base, head, `Spec: specs/demo/spec.md@${base}`).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("same-repo develop to main promotion is exempt, fork promotion is not", () => {
+  const { cwd, base } = fixture(false);
+  try {
+    const head = commit(cwd, "apps/app.ts", "export const value = 2;\\n");
+    const env = { SPEC_BASE_REF: "main", SPEC_HEAD_REF: "develop",
+                  SPEC_HEAD_REPO: "jboone1989/EventGraph",
+                  SPEC_REPOSITORY: "jboone1989/EventGraph" };
+    assert.equal(check(cwd, base, head, "", env).status, 0);
+    assert.equal(check(cwd, base, head, "", { ...env, SPEC_HEAD_REPO: "other/EventGraph" }).status, 1);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 test("governance-only PR does not demand a product spec", () => {
