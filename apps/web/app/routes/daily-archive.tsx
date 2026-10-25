@@ -21,7 +21,8 @@ export { pageHeaders as headers } from "../lib/api.server";
 export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 
 export async function loader({ request }: { request: Request }) {
-  const { items: index } = await apiGet<ReportIndexResponse>("/api/site/reports/daily", { signal: request.signal });
+  const english = new URL(request.url).pathname.startsWith("/en/");
+  const { items: index } = await apiGet<ReportIndexResponse>(english ? "/api/site/reports/daily?en=1" : "/api/site/reports/daily", { signal: request.signal });
   return cachedPage(600, { index, today: beijingDate(Date.now()) });
 }
 
@@ -29,7 +30,7 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   const en = location.pathname.startsWith("/en/");
   const entries = (loaderData?.index ?? []).map((e: ReportIndexEntry) => ({
     path: reportPath("daily", e.key, en ? "en" : "zh"),
-    name: en ? (englishText(e.title) ?? `Daily brief · ${e.key}`) : (e.title ? `${e.key} · ${e.title}` : `${SITE.name} 日报 · ${e.key}`),
+    name: en ? (englishText(e.titleEn) ?? englishText(e.titleEn) ?? englishText(e.title) ?? `Daily brief · ${e.key}`) : (e.title ? `${e.key} · ${e.title}` : `${SITE.name} 日报 · ${e.key}`),
   }));
   const path = en ? "/en/daily/archive" : "/daily/archive";
   const label = en ? `${SITE.name} · Daily archive` : `${SITE.name} 日报 · 历史存档`;

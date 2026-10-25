@@ -424,17 +424,18 @@ export function reportIndex(kind: ReportKind) {
   return entry.get();
 }
 
-export async function listReports(kind: ReportKind, limit = INDEX_LIMIT): Promise<ReportIndexEntry[]> {
+export async function listReports(kind: ReportKind, limit = INDEX_LIMIT, withEnglish = false): Promise<ReportIndexEntry[]> {
   const index = await reportIndex(kind);
   const rows = index.rows.slice(0, limit);
   const shape = kind === "daily" ? "daily" : "periodic";
   const gone = index.gone;
-  return rows.map((r) => ({
+  const entries = rows.map((r) => ({
     key: r.key,
     issueNumber: r.issue_number,
     title: issueLead(r.content, shape, gone)?.title ?? null,
     count: entriesOf(r.content, shape).length,
   }));
+  return withEnglish ? englishNavigation(kind, entries) : entries;
 }
 
 // v1
@@ -672,8 +673,8 @@ export function reportNavigation(kind: ReportKind, index: ReportIndexEntry[], ke
 }
 
 /** Reuse already-published English article copies for archive headlines, without translating on read. */
-async function englishNavigation(kind: ReportKind, entries: ReportNavigationEntry[]): Promise<ReportNavigationEntry[]> {
-  const needingTitles = entries.filter((e) => e.title);
+async function englishNavigation<T extends ReportNavigationEntry>(kind: ReportKind, entries: T[]): Promise<T[]> {
+  const needingTitles = entries.filter((e) => e.title && !e.titleEn);
   if (!needingTitles.length) return entries;
   const { rows, gone } = await reportIndex(kind);
   const wanted = new Set(needingTitles.map((e) => e.key));

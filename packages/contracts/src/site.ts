@@ -434,6 +434,7 @@ export interface ReportIndexEntry {
   key: string;
   issueNumber: number;
   title: string | null;
+  titleEn?: string | null;
   count: number;
 }
 
