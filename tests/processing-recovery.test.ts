@@ -8,6 +8,7 @@ import { closeDb, sql } from "@aihot/backend/db";
 import { groupArticle } from "@aihot/backend/events/group";
 import { upsertMaterial } from "@aihot/backend/content/materials";
 import { rerun } from "@aihot/backend/admin/content";
+import { requeueFailedArticles } from "@aihot/backend/admin/runs";
 import { processArticle, queueProcessing, registerContentJobs, sweepUnprocessed } from "@aihot/backend/jobs/content";
 import { enqueue, getBoss, QUEUES, stopBoss } from "@aihot/backend/jobs/queue";
 import { recoverStaleWork, releaseReceipt } from "@aihot/backend/operations/recover";
@@ -67,6 +68,28 @@ async function waitFor(check: () => Promise<boolean>) {
     await delay(20);
   }
 }
+
+test("operator can requeue only two articles from a recoverable model error group", async () => {
+  const ids = await Promise.all(["bounded-a", "bounded-b", "bounded-c"].map(article));
+  const group = "Model cannot route text: retest required for selected model";
+  await sql`UPDATE articles SET processing_state='failed',processing_error=${group},processing_attempts=8
+    WHERE id=ANY(${ids}::text[])`;
+  await assert.rejects(
+    requeueFailedArticles({ group, reason: "invalid batch", limit: 0 }, "test"),
+    /limit must be/,
+  );
+  const result = await requeueFailedArticles({ group, reason: "limited paid model recovery", limit: 2 }, "test");
+  assert.equal(result.requeued, 2, "only the requested small batch is reopened");
+  const states = await sql<{ processing_state: string; n: number }[]>`
+    SELECT processing_state,count(*)::int n FROM articles WHERE id=ANY(${ids}::text[]) GROUP BY processing_state`;
+  assert.equal(states.find(x => x.processing_state === "new")?.n, 2);
+  assert.equal(states.find(x => x.processing_state === "failed")?.n, 1);
+  const jobs = await sql<{ n: number }[]>`SELECT count(*)::int n FROM pgboss.job WHERE name=${QUEUES.analyze}
+    AND data->>'articleId'=ANY(${ids}::text[]) AND state='created'`;
+  assert.equal(jobs[0]!.n, 2);
+  assert.equal((await sql`SELECT count(*)::int n FROM audit_log WHERE action='processing.requeue'
+    AND reason='limited paid model recovery'`)[0]!.n, 1);
+});
 
 test("a failed audit rolls back the receipt release and the processing job", async () => {
   const id = await article("atomic");

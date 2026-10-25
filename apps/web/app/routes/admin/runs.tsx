@@ -31,6 +31,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
   // Failure group to put back into processing ("" = every failure of the last 30 days).
   const [requeue, setRequeue] = useState<string | null>(null);
+  const [requeueLimit, setRequeueLimit] = useState("5");
 
   // Live view: refresh every 20 s while visible.
   useEffect(() => {
@@ -187,7 +188,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           right={
             <span className="flex items-center gap-3">
               {r.retrying.count > 0 && <span>等待重试 {num(r.retrying.count)} 条 · 下一次 <Time at={r.retrying.next} /></span>}
-              {r.errors.length > 0 && <Button size="sm" onClick={() => setRequeue("")}>全部重新处理</Button>}
+              {r.errors.length > 0 && <Button size="sm" onClick={() => setRequeue("")}>分批重新处理</Button>}
             </span>
           }
           pad={false} scrollable
@@ -276,13 +277,22 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       </ReasonDialog>
       <ReasonDialog
         open={requeue !== null}
-        title={requeue ? "重新处理这一类失败" : "重新处理全部失败"}
-        description="这些文章会重新进入处理队列（正文、判断、发布）。模型调用会重新计费；供应商拒绝的内容可能再次失败。"
+        title={requeue ? "分批恢复这一类失败" : "分批恢复失败文章"}
+        description="默认每次只恢复 5 条，避免在模型能力恢复后一次性重新发出几百次付费调用。需要时可明确选择全部。" 
         confirmLabel="重新处理"
         busy={pending === "requeue"}
         onClose={() => setRequeue(null)}
-        onSubmit={async (reason) => (await run("POST", "/api/admin/processing/requeue", { group: requeue || null, reason }, { label: "requeue", success: "已重新排队" })) !== null}
-      />
+        onSubmit={async (reason) => (await run("POST", "/api/admin/processing/requeue", { group: requeue || null, reason, ...(requeueLimit === "all" ? {} : { limit: Number(requeueLimit) }) }, { label: "requeue", success: "已重新排队" })) !== null}
+      >
+        <Field label="本批恢复数量">
+          <Select value={requeueLimit} onChange={(e) => setRequeueLimit(e.target.value)}>
+            <option value="2">2 条（先验证）</option>
+            <option value="5">5 条（默认）</option>
+            <option value="20">20 条</option>
+            <option value="all">全部（可能产生较多模型费用）</option>
+          </Select>
+        </Field>
+      </ReasonDialog>
       <ReasonDialog
         open={!!delivery}
         title="处理投递"
