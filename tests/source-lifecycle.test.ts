@@ -60,6 +60,9 @@ test("trial: no preview means no source; a passed preview creates a T2 hot_signa
   assert.equal(src.tier, "T2");
   assert.equal(src.participation_mode, "hot_signal");
   assert.equal(src.enabled, true);
+  const [dateGate] = await sql<{ config: { publishedAfter: string } }[]>`SELECT config FROM sources WHERE id = 'lc-' || ${id}`;
+  assert.ok(Date.parse(dateGate!.config.publishedAfter) > Date.parse("2026-10-24T00:00:00Z"),
+    "a newly activated candidate must ingest only future publications");
   assert.ok(src.tags.includes("lifecycle-trial"));
   const [candRow] = await sql`SELECT status, attached_source_id FROM source_candidates WHERE id = ${id}`;
   assert.equal(candRow.status, "trial");
