@@ -51,6 +51,9 @@ const windowBucket = () => Math.floor(Date.now() / (15 * 60_000));
  * Fetch caches deterministic refusals for the day to avoid repeated requests.
  */
 export async function deepseekSearch(query: string, opts: { purpose: string; subject: string; count?: number }): Promise<DeepSeekResult[]> {
+  // The official API rejects query strings exceeding 128 Unicode characters.
+  // Validate before any receipt or paid request; discovery trims at its boundary.
+  if (!query.trim() || Array.from(query).length > 128) throw new Error("deepseek_search query must be 1-128 characters");
   await requireWebBudget();
   // Credential failure is local, before paidRequest claims a receipt: no false "unknown" result.
   const key = apiKey();
