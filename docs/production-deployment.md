@@ -1,22 +1,27 @@
 # LivingRuntime production · VM09 (single current deployment)
 
-Official source: `main`. Current release source: `/home/ubuntu/livingruntime-prod-source` on VM09. The domain `livingruntime.com` and `www.livingruntime.com` stay on VM09. `43.133.185.154` is for Ferro; never deploy this site there.
+Official source: `main`. Current release source: `/home/ubuntu/livingruntime-prod-source` on VM09. The domain `livingruntime.com` and `www.livingruntime.com` stay on VM09. VM13 (`43.133.185.154`) is **not a production target**; its separate EventGraph development Web preview is documented in [vm13-preview.md](vm13-preview.md). Ferro is deployed independently.
 
 ## One-stack architecture and single-command releases
 
-Production is **only** VM09 and the `livingruntime` Docker Compose project. Cloudflare Tunnel forwards to `127.0.0.1:3000`. Web, API, one worker, PostgreSQL, Graphiti and Neo4j run in the same Compose project. `43.133.185.154` remains Ferro-only.
+Production is **only** VM09 and the `livingruntime` Docker Compose project. Cloudflare Tunnel forwards to `127.0.0.1:3000`. Web, API, one worker, PostgreSQL, Graphiti and Neo4j run in the same Compose project. The independent VM13 development preview must never share these production volumes or release commands.
 
 **For every ordinary software release, from VM09:**
 
 ```bash
 cd /home/ubuntu/livingruntime-prod-source
-bash scripts/deploy-prod.sh --check
 bash scripts/deploy-prod.sh
 ```
 
-The release fetches the exact `main` SHA and its reviewed `.github/production-image.env` pin. The pinned digest **must** be the successful `develop` image already published in GHCR; neither `main` nor VM09 compiles an application image. VM09 pulls that immutable digest, assigns a local `livingruntime-app:<main-sha>` tag, preserves the current Graphiti image, and reconciles only `api`, `worker`, `web` with `--no-build --pull never --no-deps`. PostgreSQL, Neo4j and their volumes remain untouched by the application rollout. The existing production content/graph smoke check still gates success.
+That one command fetches the exact `main` commit, builds **only changed** application/Graphiti images on cn-dev using a clean `git archive`, streams only the changed images to VM09, advances VM09's Git checkout, sets `LRSITE_RELEASE`, reconciles application service image/config hashes **without any build or database/Neo4j restart on VM09**, and runs a substantive production smoke check. The PostgreSQL and Neo4j named volumes are **not replaced or re-imported**. AdSense and model inference retain their configured flags.
 
-Automatic VM09 rollout from GitHub Actions is only active once distinct production SSH credentials and `EVENTGRAPH_PROD_AUTO_DEPLOY=true` are configured. Without them, merging to `main` is an **image promotion**, not a completed server deployment.
+For a safe environment check before deploying:
+
+```bash
+bash scripts/deploy-prod.sh --check
+```
+
+The release uses `docker-compose.yml`, `docker-compose.production.yml`, `docker-compose.knowledge.yml`, and `docker-compose.release.yml` in that order. The final overlay selects prebuilt `livingruntime-app:<sha>` and `livingruntime-knowledge:<sha>` images; `--no-build --pull never` prevents accidental image builds on VM09. The development host must be SSH-reachable from VM09 and have working Docker, and both hosts access the same internal Git remote. Image transport requires no paid registry.
 
 **Initial migration is a separate one-time task, not part of ordinary deployment.** The old host application, three app systemd units and old `lrsite` host PostgreSQL database have been removed. Never revive them or copy legacy databases into production.
 
