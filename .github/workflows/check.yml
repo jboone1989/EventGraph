@@ -487,7 +487,7 @@ jobs:
           host: 43.133.185.154
           username: ubuntu
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
-          fingerprint: SHA256:UfYGtQUohibqwf71gOna4qLk7iJsTqlzA4+vMwp4daw
+          fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
           envs: EVENTGRAPH_IMAGE,EVENTGRAPH_PREVIEW_RELEASE
           command_timeout: 12m
           version: '1.8.2'
