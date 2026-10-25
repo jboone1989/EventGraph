@@ -5,7 +5,7 @@ services:
   api-forward:
     image: caddy:2-alpine
     restart: unless-stopped
-    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    command: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     volumes:
       - ./deploy/vm13-readonly.Caddyfile:/etc/caddy/Caddyfile:ro
     mem_limit: 128m
