@@ -3,7 +3,7 @@
 // per-run caps. No database, no network: the search is injected.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { discoverViaDeepSeek, leadFromResult, type GapSubject } from "../packages/backend/src/admin/discovery.ts";
+import { chooseDiscoverySubjects, discoverViaDeepSeek, leadFromResult, type GapSubject } from "../packages/backend/src/admin/discovery.ts";
 import { preflightCandidate, DiscoveredSource } from "../packages/backend/src/admin/lifecycle.ts";
 import { sourceIdentity } from "../packages/backend/src/admin/sources.ts";
 
@@ -143,4 +143,24 @@ test("Chinese-language topics on the same authority domain receive different sta
   assert.notEqual(a.id, b.id);
   assert.notEqual(sourceIdentity(a.kind, a.config), sourceIdentity(b.kind, b.config));
   assert.equal(a.id, leadFromResult({ subject: "军事冲突", event: false, tags: ["军事"] }, hit(), NOW)?.id);
+});
+
+test("a domain with sources never stops discovery: rotate covered and uncovered topics", () => {
+  const topics: GapSubject[] = [
+    { subject: "军情", tags: ["军事"], event: false },
+    { subject: "贸易", tags: ["贸易"], event: false },
+    { subject: "海运", tags: ["海运"], event: false },
+    { subject: "能源", tags: ["能源"], event: false },
+    { subject: "制裁", tags: ["制裁"], event: false },
+  ];
+  const covered = new Set(["军事", "贸易", "能源", "海运"]);
+  const eventSubjects: GapSubject[] = [{ subject: "红海通航", tags: [], event: true }];
+  const today = chooseDiscoverySubjects(eventSubjects, topics, covered, 4, 100);
+  const tomorrow = chooseDiscoverySubjects(eventSubjects, topics, covered, 4, 101);
+  assert.ok(today.some(t => t.event), "active conflict always reserves a slot");
+  assert.ok(today.some(t => t.subject === "制裁"), "uncovered gaps retain priority");
+  assert.ok(today.some(t => t.subject !== "制裁" && !t.event), "covered domains still get independent discovery");
+  assert.notDeepEqual(today.map(t => t.subject), tomorrow.map(t => t.subject), "daily rotation reaches other covered sectors");
+  const allCovered = chooseDiscoverySubjects([], topics, new Set(["军事","贸易","海运","能源","制裁"]), 2, 102);
+  assert.equal(allCovered.length, 2, "discovery continues after every topic has one publisher");
 });
