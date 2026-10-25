@@ -60,6 +60,20 @@ A bounded read-only probe using EventGraph's **own** `fetchRss` or `fetchJsonLis
 
 **Three independent states** must be recorded separately for any source: (1) valuable candidate, (2) technical endpoint tested, (3) actually **enabled and producing unique useful current material in development**. Even #133's 10 successful network previews have not necessarily been registered in DB.
 
+## Second cn-dev live feed probe — candidate discovery examples
+
+The same current EventGraph `fetchRss` parser was run on five **new candidate URLs** (2026-10-25). These were **not registered/activated**; keeping all candidates in the lifecycle registry rather than auto-enabling before policy/preview checks is deliberate:
+
+| Candidate | Real parse | Newest source timestamp UTC | Use |
+|---|---:|---|---|
+| USTR official trade policy RSS `https://www.ustr.gov/rss.xml` | 10/10 dated | 2026-10-23 20:06:58 | **High priority T1** official trade-policymaker feed; first candidate for safe RSS trial |
+| gCaptain maritime `https://www.gcaptain.com/feed/` | 12/12 dated | 2026-10-25 01:52:30 | **High priority T2** maritime corroboration, not a substitute for UKMTO/MARAD primary incident notices |
+| TASS English `https://tass.com/rss/v2.xml` | 41/41 dated | 2026-10-25 08:31:10 | **Attribution-only state-aligned viewpoint** for a conflict party, never an independent military fact |
+| Yonhap English `https://en.yna.co.kr/RSS/news.xml` | 100/100 dated | 2026-10-25 07:27:36 | **Useful South Korea regional viewpoint**, select targeted topics to avoid off-topic volume |
+| NOAA/NHC `https://www.nhc.noaa.gov/index-at.xml` | 2/2 dated | **2026-10-26 17:28:18 (future relative to probe)** | Flag anomalous dates and **do not auto-promote** until timestamps are understood; prefer verified official alert APIs |
+
+Candidates have distinct information roles, so they should be individually tested and can coexist with sources in the same topical sector. This is precisely why portfolio decisions require provenance, unique contribution and dates, not a numerical cap.
+
 ## Quality and lifecycle: avoid the obvious mistakes
 
 1. **Coverage unit = event × affected region × evidence role × viewpoint**, not a publication count. For geopolitical conflict, retain statements from affected parties separately (each carries a provenance/claim label) and add independent corroboration; no single media outlet makes another source redundant by category.
