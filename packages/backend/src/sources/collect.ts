@@ -385,17 +385,18 @@ const shardMinutes = (mode: string) => X_SHARD_MINUTES[mode] ?? 60;
  */
 export async function adaptIntervals(): Promise<{ updated: number }> {
   const rows = await sql<Array<Pick<SourceRow, "id" | "participation_mode" | "kind" | "config" | "cursor"> & { paid_listing: boolean; per_day: number }>>`
-    SELECT s.id, s.participation_mode, s.kind, s.config, s.cursor, coalesce(s.config->>'url', '') LIKE 'https://r.jina.ai/%' AS paid_listing,
+    SELECT s.id, s.participation_mode, s.kind, s.config, s.cursor,
+      coalesce(s.config->>'url', '') LIKE 'https://r.jina.ai/%' OR s.config->>'mode' = 'deepseek_search' AS paid_listing,
       (SELECT count(*) FROM articles a WHERE a.source_id = s.id AND a.discovered_at > now() - interval '7 days' AND NOT a.backfill) / 7.0 AS per_day
     FROM sources s WHERE s.enabled AND s.kind IN ('rss', 'web_list', 'json_list', 'x_search')`;
   let updated = 0;
   for (const r of rows) {
     const perDay = Number(r.per_day);
     // Editorial sites and feeds are looked at hourly at least (they cost nothing);
-    // editorial X and listings read through Jina stop at two hours (paid per call, within their budgets);
-    // hot signals may wait longer.
+    // editorial X and paid listings (Jina, DeepSeek search) stop at two hours (paid per call, within
+    // their budgets); hot signals may wait longer.
     const max = r.participation_mode === "hot_signal" ? 180 : r.kind === "x_search" || r.paid_listing ? 120 : 60;
-    // Listings read through Jina are not looked at more than hourly: busy ones would outrun its daily budget.
+    // Paid listings are not looked at more than hourly: busy ones would outrun their daily budget.
     const min = r.paid_listing ? 60 : 15;
     // X accounts read by shard follow the shard's pace, whatever their own volume.
     const target = shardHandle(r) ? shardMinutes(r.participation_mode) : perDay <= 0.15 ? max : Math.round(Math.min(max, Math.max(min, (24 * 60) / (perDay * 3))));
