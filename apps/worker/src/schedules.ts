@@ -9,7 +9,6 @@ import { ingestGraphitiOnce } from "@aihot/backend/knowledge/graphiti";
 import { translatePending } from "@aihot/backend/editorial/translate";
 import { writeEnglishPending } from "@aihot/backend/editorial/english";
 import { adaptIntervals, scheduleDueSources } from "@aihot/backend/sources/collect";
-import { runDailyDiscovery } from "@aihot/backend/admin/discovery";
 import { scheduleMpReconcile } from "@aihot/backend/sources/mp";
 import { dajialaConfigured } from "@aihot/backend/providers/dajiala";
 import { refreshSourceIcons } from "@aihot/backend/sources/icons";
@@ -67,9 +66,6 @@ const ENGINE_SCHEDULES: Scheduled[] = [
     ? [
         { name: "sources.schedule", cron: "* * * * *", run: () => scheduleDueSources() },
         { name: "sources.adapt-intervals", cron: "20 4 * * *", run: adaptIntervals },
-        // Dynamic source lifecycle (specs/007): daily trial review (free) and, behind its settings
-        // key, DeepSeek-searched discovery for coverage gaps and active events (deepseek_web budget).
-        { name: "sources.discover", cron: "10 5 * * *", missed: "once" as const, run: () => runDailyDiscovery() },
         // Icons are read from the sources' own sites, so they stop with collection.
         { name: "sources.icons", cron: "40 4 * * *", missed: "once" as const, run: () => refreshSourceIcons() },
         // Exchange prices for event pages (Binance, else OKX); read from outside, so it stops with collection.
