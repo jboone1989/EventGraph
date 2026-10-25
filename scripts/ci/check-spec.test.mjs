@@ -1,0 +1,74 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+
+const checker = resolve("scripts/ci/check-spec.mjs");
+function git(cwd, ...args) {
+  const p = spawnSync("git", args, { cwd, encoding: "utf8" });
+  assert.equal(p.status, 0, p.stderr);
+  return p.stdout.trim();
+}
+function fixture(withSpec = true) {
+  const cwd = mkdtempSync(join(tmpdir(), "eventgraph-spec-"));
+  git(cwd, "init", "-q");
+  git(cwd, "config", "user.name", "CI Spec Test");
+  git(cwd, "config", "user.email", "ci-spec@example.invalid");
+  mkdirSync(join(cwd, "apps"), { recursive: true });
+  writeFileSync(join(cwd, "apps", "app.ts"), "export const value = 1;\n");
+  if (withSpec) {
+    mkdirSync(join(cwd, "specs", "demo"), { recursive: true });
+    writeFileSync(join(cwd, "specs", "demo", "spec.md"), "# Demo\nRequires value = 2.\n");
+  }
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "baseline");
+  const base = git(cwd, "rev-parse", "HEAD");
+  return { cwd, base };
+}
+function commit(cwd, file, text) {
+  const name = join(cwd, file);
+  mkdirSync(resolve(name, ".."), { recursive: true });
+  writeFileSync(name, text);
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "change");
+  return git(cwd, "rev-parse", "HEAD");
+}
+function check(cwd, base, head, body = "") {
+  return spawnSync(process.execPath, [checker], {
+    cwd, encoding: "utf8",
+    env: { ...process.env, SPEC_BASE_SHA: base, SPEC_HEAD_SHA: head, SPEC_PR_BODY: body },
+  });
+}
+test("prior immutable spec permits an implementation change", () => {
+  const { cwd, base } = fixture();
+  try {
+    const head = commit(cwd, "apps/app.ts", "export const value = 2;\n");
+    const r = check(cwd, base, head, `Spec: specs/demo/spec.md@${base}`);
+    assert.equal(r.status, 0, r.stderr);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("implementation missing a pinned spec is blocked", () => {
+  const { cwd, base } = fixture();
+  try {
+    const head = commit(cwd, "apps/app.ts", "export const value = 2;\n");
+    assert.equal(check(cwd, base, head).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("spec created only inside implementation PR is blocked", () => {
+  const { cwd, base } = fixture(false);
+  try {
+    mkdirSync(join(cwd, "specs", "demo"), { recursive: true });
+    writeFileSync(join(cwd, "specs", "demo", "spec.md"), "# Added too late\n");
+    const head = commit(cwd, "apps/app.ts", "export const value = 2;\n");
+    assert.equal(check(cwd, base, head, `Spec: specs/demo/spec.md@${head}`).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("governance-only PR does not demand a product spec", () => {
+  const { cwd, base } = fixture(false);
+  try {
+    const head = commit(cwd, "docs/guide.md", "Review guidance\n");
+    assert.equal(check(cwd, base, head).status, 0);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
