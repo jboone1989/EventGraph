@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { MediaView } from "@aihot/contracts/site";
 import { Lightbox } from "../../components/ui/Lightbox";
-import { useText } from "../../components/LanguageSwitch";
+import { useText, useUiLanguage } from "../../components/LanguageSwitch";
+import { englishText } from "../../lib/english";
 
 /** A round play mark over a video's still. */
 function PlayMark() {
@@ -22,6 +23,8 @@ function PlayMark() {
  */
 export function MediaGallery({ media, postUrl }: { media: MediaView[]; postUrl: string }) {
   const t = useText();
+  const en = useUiLanguage() === "en";
+  const mediaAlt = (alt: string | null) => en ? englishText(alt) ?? "Source media" : alt ?? "";
   const [open, setOpen] = useState<number | null>(null);
   const shown = media.slice(0, 9);
   const images = shown.filter((m) => m.kind !== "video");
@@ -39,7 +42,7 @@ export function MediaGallery({ media, postUrl }: { media: MediaView[]; postUrl: 
               width={m.width ?? undefined}
               height={m.height ?? undefined}
               decoding="async"
-              alt={m.alt ?? ""}
+              alt={mediaAlt(m.alt)}
               loading="lazy"
               className={`block w-full object-cover transition-transform duration-300 group-hover:scale-[1.015] ${single ? "max-h-[360px]" : "h-full"}`}
               style={single && m.width && m.height ? { aspectRatio: `${m.width} / ${m.height}` } : undefined}
@@ -51,13 +54,13 @@ export function MediaGallery({ media, postUrl }: { media: MediaView[]; postUrl: 
               <PlayMark />
             </a>
           ) : (
-            <button key={m.url} type="button" onClick={() => setOpen(images.indexOf(m))} aria-label={m.alt ? t(`查看大图：${m.alt}`, `Zoom in: ${m.alt}`) : t("查看大图", "Zoom in")} className={`${tile} cursor-zoom-in`}>
+            <button key={m.url} type="button" onClick={() => setOpen(images.indexOf(m))} aria-label={m.alt ? t(`查看大图：${m.alt}`, `Zoom in: ${mediaAlt(m.alt)}`) : t("查看大图", "Zoom in")} className={`${tile} cursor-zoom-in`}>
               {img}
             </button>
           );
         })}
       </div>
-      <Lightbox images={images.map((m) => ({ src: m.url, alt: m.alt }))} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />
+      <Lightbox images={images.map((m) => ({ src: m.url, alt: mediaAlt(m.alt) }))} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />
     </>
   );
 }
