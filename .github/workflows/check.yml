@@ -72,6 +72,7 @@ jobs:
       - name: Release script validation
         run: |
           bash -n scripts/deploy-prod.sh
+          sh -n scripts/ci/deploy-vm13-preview.sh scripts/ci/smoke-vm13-browser.sh
           python3 -m py_compile scripts/production-env-check.py
           python3 - <<'PY'
           import importlib.util
