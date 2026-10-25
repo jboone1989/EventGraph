@@ -75,6 +75,12 @@ export function unsupportedConfig(kind: SourceRow["kind"], config: Record<string
       const nested = value as Record<string, unknown>;
       if (key === "detail" && nested.fetchVia !== undefined && !VALUES.fetchVia!.includes(String(nested.fetchVia)))
         out.push(`detail.fetchVia=${String(nested.fetchVia)}`);
+      if (key === "detail" && nested.fetchVia === "deepseek") {
+        // The API returns Markdown, not a page DOM; CSS selectors here would silently do nothing.
+        for (const selector of ["publishedAtSelector", "titleSelector", "summarySelector"]) {
+          if (nested[selector] !== undefined) out.push(`detail.${selector} unsupported with deepseek`);
+        }
+      }
     }
   }
   return out;
