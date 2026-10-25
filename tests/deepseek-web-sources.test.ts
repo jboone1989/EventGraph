@@ -296,3 +296,23 @@ test("HTML selectors are rejected for Markdown-based DeepSeek Fetch", () => {
   }));
   assert.deepEqual(invalid, ["detail.summarySelector unsupported with deepseek"]);
 });
+
+test("cached refused URL never starves a later result at maxFetches one", async () => {
+  const source = `${SRC}-refusal-slot`;
+  await sql`INSERT INTO sources (id, name, kind, config, tier, participation_mode, cursor, next_fetch_at)
+    VALUES (${source}, 'DeepSeek refusal slot', 'json_list',
+      ${sql.json(scopedConfig({ deepseekQuery: `refusal slot ${T}`,
+        detail: { maxFetches: 1, fetchVia: "deepseek", publishedAtRegex: "Published Time:\\s*([^\\n]+)" } }))},
+      'T2', 'editorial', ${sql.json({ initializedAt: new Date().toISOString() })}, '2100-01-01')`;
+  searchReply = () => ({ results: [story(90, { date: null }), story(91, { date: null })] });
+  fetchReply = (_hit, req) => req.url.endsWith("/90")
+    ? new Reply(403, { error: { message: "Refused" } })
+    : { title: "News", content: "Published Time: 2026-10-25T08:00:00Z\\n\\n" + "Useful paragraph ".repeat(20) };
+  const firstHits = deepseek.hits();
+  await collectSource(source, { force: true });
+  assert.equal(deepseek.hits(), firstHits + 2, "one Search and one denied Fetch");
+  await collectSource(source, { force: true });
+  assert.equal(deepseek.hits(), firstHits + 3, "the cached denial takes no slot; next article gets one Fetch");
+  const rows = await articles(source);
+  assert.equal(rows.find(r => r.url.endsWith("/91"))?.body_status, "ok");
+});
