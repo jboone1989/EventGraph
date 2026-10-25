@@ -6,7 +6,7 @@
 import { credential } from "../config.ts";
 import { sql } from "../db.ts";
 import { guardedFetch } from "../lib/http-fetch.ts";
-import { assertAccepted, BudgetExceededError, paidRequest } from "./receipts.ts";
+import { assertAccepted, BudgetExceededError, paidRequest, ProviderRejectedError } from "./receipts.ts";
 
 /** Receipts permit unlimited calls when a service budget row is missing; paid web tools must not. */
 async function requireWebBudget(): Promise<void> {
@@ -47,8 +47,8 @@ const windowBucket = () => Math.floor(Date.now() / (15 * 60_000));
 
 /**
  * One web search (query operators pass through: `site:`, `-site:`, `lang:`, `after:`, `before:`).
- * HTTP 401/402/403/404 fail without a retry (DeepSeek does not bill them); only 429/5xx may be retried,
- * and only as a new scheduled run of the same window key.
+ * HTTP 401/402/403/404 are refusals. Search failures follow existing receipt retry policy;
+ * Fetch caches deterministic refusals for the day to avoid repeated requests.
  */
 export async function deepseekSearch(query: string, opts: { purpose: string; subject: string; count?: number }): Promise<DeepSeekResult[]> {
   await requireWebBudget();
@@ -99,6 +99,11 @@ export async function deepseekFetch(url: string, opts: { purpose: string; subjec
         maxBytes: 6 * 1024 * 1024,
       });
       const text = res.text();
+      // Cache deterministic refusals under the day-keyed receipt: never keep paying
+      // for an inaccessible page on every collection tick.
+      if ([401, 402, 403, 404].includes(res.status)) {
+        return { response: { refusedStatus: res.status }, cost: null };
+      }
       assertAccepted("deepseek_fetch", res.status, text);
       let page: { title?: unknown; content?: unknown };
       try {
@@ -107,12 +112,21 @@ export async function deepseekFetch(url: string, opts: { purpose: string; subjec
         throw new Error("deepseek_fetch response is not JSON");
       }
       const content = typeof page.content === "string" ? page.content.slice(0, 2_000_000) : "";
+      // A successful HTTP response without useful content must not stamp detail
+      // rules. Keep the unbillable negative answer for the UTC day.
+      if (!content.trim()) return { response: { emptyContent: true }, cost: null };
       return {
         response: { title: typeof page.title === "string" ? page.title : "", content },
-        // DeepSeek bills a Fetch only when it returns content.
-        cost: content ? COST_PER_CALL : null,
+        cost: COST_PER_CALL,
       };
     },
   );
-  return receipt.response as { title: string; content: string };
+  const answer = receipt.response as { title?: string; content?: string; refusedStatus?: number; emptyContent?: boolean };
+  // Throw after receipt persistence: refusals are cached for this day, but
+  // callers do not treat them as completed article-detail extraction.
+  if (answer.refusedStatus) throw new ProviderRejectedError(
+    `deepseek_fetch HTTP ${answer.refusedStatus}`, answer.refusedStatus, false,
+  );
+  if (answer.emptyContent) throw new ProviderRejectedError("deepseek_fetch returned empty content", 200, false);
+  return { title: answer.title ?? "", content: answer.content ?? "" };
 }
