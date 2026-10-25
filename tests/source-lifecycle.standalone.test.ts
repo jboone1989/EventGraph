@@ -45,6 +45,12 @@ const strongEvidence: TrialEvidence = {
   everOutput: true, healthFailing: false,
 };
 
+test("automated candidates reject spoofed official status and HTML crawlers", () => {
+  const official = candidate({ officialLowFrequency: true, origin: { channel: "deepseek" } });
+  assert.ok(preflightCandidate(official).reasons.includes("official-requires-operator-verification"));
+  assert.throws(() => candidate({ kind: "web_list" }), /Invalid option|Invalid value|enum/i);
+});
+
 test("the score rewards exclusivity, dating, reliability and selection", () => {
   assert.ok(scoreCandidate(strongEvidence, 3) >= 70);
   assert.ok(scoreCandidate({ ...strongEvidence, items: 0, exclusive: 0, dated: 0, selected: 0 }, 0) < 40);
