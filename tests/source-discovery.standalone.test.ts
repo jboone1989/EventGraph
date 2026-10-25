@@ -105,3 +105,17 @@ test("an automated candidate asserting officialLowFrequency is refused until an 
   assert.ok(preflightCandidate(auto).reasons.includes("official-requires-operator-verification"));
   assert.ok(preflightCandidate(DiscoveredSource.parse({ ...auto, origin: { ...auto.origin, channel: "operator" } })).ok);
 });
+
+test("one transiently failed search does not discard another subject's good publisher feeds", async () => {
+  let calls = 0;
+  const search = async (_query: string) => {
+    calls += 1;
+    if (calls === 1) throw new Error("temporary search outage");
+    return [hit({ url: "https://www.sanctions.example.gov/press/feed.xml" })];
+  };
+  const result = await discoverViaDeepSeek([gap, event], new Set(), { maxCandidates: 4, now: NOW, search });
+  assert.equal(calls, 2);
+  assert.equal(result.queries, 1);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0]?.kind, "rss");
+});
