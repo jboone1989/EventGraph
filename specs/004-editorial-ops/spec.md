@@ -38,9 +38,11 @@
 
 - 双确认订阅（邮件+token 确认）、一键退订、隐私页新增「邮件订阅」小节；发送走通用 SMTP 环境变量（`SMTP_HOST/PORT/USER/PASS/FROM`），**未配置时整块隐藏**（安全阀默认关）。每日日报生成后由 worker 发送纯文本+HTML。需运营者确认发送服务与退信处理后再实现。
 
-### 2.5 公开频道推送（FR-005，本 PR 仅规格）
+### 2.5 公开频道推送（FR-005，本 PR 实现）
 
-- 飞书群机器人 webhook（复用 FEISHU 告警通道的发送设施，独立 webhook 地址与开关）与 Telegram Bot（`TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`）两个可选出口，按「当日精选」分发；默认关闭。需运营者提供群/机器人凭据后再实现。
+- 复用既有内容投递系统（`notify_targets`/`deliveries`：去重、未知结果不自动重试、后台人工处理）：新增两个**默认关闭**的目标——飞书公开频道群（`feishu-content-public`，webhook 凭据 `FEISHU_PUBLIC_WEBHOOK_URL`）与 Telegram 公开频道（`telegram-channel-public`，凭据 `TELEGRAM_PUSH_BOT_TOKEN` + `TELEGRAM_PUSH_CHAT_ID`）。
+- Telegram 新增 `kind='telegram'` 发送器：与飞书卡片同源的 HTML 文本 + 内联按钮，确认语义一致（只有 Telegram 返回 `{ok:true}` 才算 sent）；`notify_targets` 加 `chat_ref` 列（迁移 0113–0116，NOT VALID+VALIDATE 在线安全）。
+- 总闸仍是 `FEISHU_CONTENT_PUSH_ENABLED`（关=全部记录为 skipped，不出进程）；目标启停沿用后台「设置 → 通知目的地」。
 
 ## 3. 规格化验收条件
 
