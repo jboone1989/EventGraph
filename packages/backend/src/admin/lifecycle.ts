@@ -13,7 +13,7 @@ import { sql, type Db } from "../db.ts";
 import { budgetMessage } from "../providers/receipts.ts";
 import { unsupportedConfig } from "../sources/config-keys.ts";
 
-export const CANDIDATE_KINDS = ["rss", "json_list", "web_list"] as const;
+export const CANDIDATE_KINDS = ["rss", "json_list"] as const;
 export type CandidateKind = (typeof CANDIDATE_KINDS)[number];
 
 /** Lifecycle states a candidate moves through; rejected/demoted/retired/promoted/preflight_failed are terminal for the auto chain. */
@@ -29,8 +29,8 @@ export const DEMOTE_SCORE = 40;
 /** Share of items this source delivered first; below this a candidate must earn its place another way. */
 export const EXCLUSIVE_PROMOTE = 0.2;
 
-export const SOURCE_KIND_BY_CANDIDATE_KIND: Record<CandidateKind, "rss" | "web_list" | "json_list"> = {
-  rss: "rss", web_list: "web_list", json_list: "json_list",
+export const SOURCE_KIND_BY_CANDIDATE_KIND: Record<CandidateKind, "rss" | "json_list"> = {
+  rss: "rss", json_list: "json_list",
 };
 
 const utcInstant = (v: unknown): boolean =>
