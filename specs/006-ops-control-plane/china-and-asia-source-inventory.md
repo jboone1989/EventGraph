@@ -8,7 +8,7 @@
 
 - **已有**：国家统计局数据发布（中/英）2 条；BOJ、RBI、韩国央行英文、日本 FSA 4 条；Binance/OKX 现货并非新闻源，已有独立 `market-spot.ts` 和事件价格快照，**不要作为假文章重复接入**。
 - **本轮新增配置 9 条**：中国新闻网财经、时政、国际、大湾区；量子位 AI；IT之家科技；香港金管局新闻稿；PANews 中文文章和中文快讯。四个中新网、量子位、IT之家、HKMA、PANews 两条都在 **2026-10-25 开发容器通过既有 `previewSource` 实际解析**，分别返回候选 30/30/30/30/10/60/428/100/100。新闻和快讯分开，`hot_signal` 不应当直接冒充原创新闻页。
-- **配置 ≠ 运行**：本轮来源尚未部署到生产，旧开发/生产数据库先前各仅 49 条，切勿以 manifest 65 条推导采集已经成功。必须先开发同步种子、预览、手动触发、检查 `fetch_runs`、`articles`、`fact_articles`，然后按既定发布节奏上线生产。已验证解析不等于新闻通过后续 AI 处理或归组。
+- **配置 ≠ 运行**：manifest 当前 65 条；2026-10-25 已通过开发环境**现有有审计的 `createSource`** 将新增九源入库（开发总数 49→58），然后通过 `fetchNow` 启动九次真实采集。**九源全部 health=`ok`**，两个 `fetch_runs`/源（新入数下表），累计 **318 条原始文章**。但模型处理/发布与事件事实归组**尚未完成验收**；当次快照 **224 条 `publications.visibility='public'`** 主要来自 `hot_signal`，**0 个 `fact_articles` 关联**，不得将这些统计称为 Google 可索引的新闻或有深度的事件。生产未部署本批信源。
 - **去重和成本**：中国新闻网不同栏目可能交叉报道，PANews 与西文报道可能复述同一事件。沿用现有文章规范化 URL、来源归组/证据合并机制；初次每个源最多回填 2 篇。多快讯、泛科技信号先 `hot_signal`，把有限模型预算留给 AI/金融/政策深度。
 
 ### P0 · 已通过独立采集解析的信源（本轮 PR）
@@ -26,6 +26,23 @@
 | 中文加密快讯 | `rss-cn-panews-flashes` | https://www.panewslab.com/rss.xml?lang=zh&type=NEWS | T2 hot_signal |
 
 官方来源导航：[中新网](https://www.chinanews.com/rss/)；[PANews](https://www.panewslab.com/zh/rss)；[香港金管局](https://www.hkma.gov.hk/chi/other-information/rss/rss_press-release.xml)。两个 PANews 不与镜像/第三方聚合 RSS 重复登记。
+
+### 实际开发机抓取收据（2026-10-25）
+
+| ID | 首次 + 第二次 `fetch_runs.new_count` | 文章入库 | `new` 待处理 | `analyzed` | `public` | 事件事实关联 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `rss-cn-chinanews-china` | 2 + 28 | 30 | 0 | 0 | 30 | 0 |
+| `rss-cn-chinanews-finance` | 2 + 28 | 30 | 28 | 0 | 2 | 0 |
+| `rss-cn-chinanews-gba` | 2 + 28 | 30 | 0 | 0 | 30 | 0 |
+| `rss-cn-chinanews-world` | 2 + 28 | 30 | 29 | 0 | 1 | 0 |
+| `rss-cn-ithome-tech` | 2 + 58 | 60 | 0 | 0 | 60 | 0 |
+| `rss-cn-panews-articles` | 2 + 32 | 34 | 33 | 1 | 1 | 0 |
+| `rss-cn-panews-flashes` | 2 + 98 | 100 | 0 | 0 | 100 | 0 |
+| `rss-cn-qbitai-ai` | 2 + 0 | 2 | 2 | 0 | 0 | 0 |
+| `rss-hkma-press` | 2 + 0 | 2 | 1 | 1 | 1 | 0 |
+| **合计** | **318** | **318** | **93** | **2** | **225（不全是可索引新闻）** | **0** |
+
+注：该表为一次性快照，后续状态随 worker 变化；绝不把 `hot_signal` 公开记录算成独立 SEO 文章。第一次仅导入 2 篇，**第二次调用 `fetchNow` 会按 `collect.ts` 设计接纳较新的剩余候选**：`initialBackfillLimit` 并非永久总量上限。对于高频快讯/科技流，后续应核对预算与源频率、必要时设置可验证的发布时间界限，而非任其因“2 条限制”产生错觉。
 
 ### P1 · 之前讨论过但尚未接通的**中国权威一手信源**
 
