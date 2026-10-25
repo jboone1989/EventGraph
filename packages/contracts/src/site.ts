@@ -520,7 +520,7 @@ export interface ItemAvailability {
 }
 
 /** An issue in the archive and the calendar, numbered in its whole series; closed daily months omit their titles. */
-export interface ReportNavigationEntry { key: string; issueNumber: number; title?: string | null; count?: number }
+export interface ReportNavigationEntry { key: string; issueNumber: number; title?: string | null; titleEn?: string | null; count?: number }
 
 // Topics
 
