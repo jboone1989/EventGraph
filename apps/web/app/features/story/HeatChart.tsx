@@ -57,7 +57,7 @@ export function timeTicks(t0: number, t1: number, language: DisplayLanguage): Ar
     const iso = new Date(t).toISOString();
     const midnight = new Date(t + BEIJING).getUTCHours() === 0;
     const formatted = localizedMonthDayTime(iso, language);
-    const label = midnight ? localizedMonthDay(iso, language) : formatted.match(/\d{2}:\d{2}$/)?.[0] ?? formatted;
+    const label = midnight ? localizedMonthDay(new Date(t + BEIJING).toISOString().slice(0, 10), language) : formatted.match(/\d{2}:\d{2}$/)?.[0] ?? formatted;
     out.push({ t, label, wide: Math.round((t + BEIJING) / step) % 2 === 1 });
   }
   if (out.length <= 4) for (const tick of out) tick.wide = false;
