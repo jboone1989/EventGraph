@@ -10,6 +10,7 @@ import { stopBoss } from "@aihot/backend/jobs/queue";
 import { collectSource } from "@aihot/backend/sources/collect";
 import { unsupportedConfig } from "@aihot/backend/sources/config-keys";
 import { previewSource, sourceIdentity } from "@aihot/backend/admin/sources";
+import { deepseekFetch } from "@aihot/backend/providers/deepseek-web";
 
 const T = tag();
 const SRC = `test-dsweb-${T}`;
@@ -197,10 +198,23 @@ test("an undated result gets its date and body from one on-demand DeepSeek fetch
   assert.equal(undated.published_at, null, "a refused fetch leaves the date unknown, never today");
   const detailReceipts = await sql<{ status: string }[]>`
     SELECT status FROM receipts WHERE service = 'deepseek_web' AND purpose = 'source_detail' ORDER BY id`;
-  assert.deepEqual(detailReceipts.map((r) => r.status).sort(), ["failed", "received"], "the answered read is kept, the refused one fails without a retry");
+  assert.deepEqual(detailReceipts.map((r) => r.status).sort(), ["received", "received"], "the answered read and the refusal are cached; refusal is still thrown to the collector");
   const [fetchRun] = await sql<{ detail: { detailAttempts: number; detailFailures: number } }[]>`
     SELECT detail FROM fetch_runs WHERE source_id = ${detailSrc} ORDER BY id DESC LIMIT 1`;
   assert.deepEqual([fetchRun!.detail.detailAttempts, fetchRun!.detail.detailFailures], [2, 1], "two on-demand reads: one answered, one refused");
+  const callCount = deepseek.hits();
+  await collectSource(detailSrc, { force: true });
+  assert.equal(deepseek.hits(), callCount, "repeat collection reuses same-day search and refusal without a new HTTP request");
+});
+
+test("an empty 200 Fetch is a daily cached negative answer, not a completed detail", async () => {
+  const url = `https://example-news.example/empty-${T}`;
+  fetchReply = () => ({ title: "No body", content: "" });
+  const hits = deepseek.hits();
+  await assert.rejects(() => deepseekFetch(url, { purpose: "test_empty", subject: `source:${SRC}-empty` }), /empty content/);
+  assert.equal(deepseek.hits(), hits + 1);
+  await assert.rejects(() => deepseekFetch(url, { purpose: "test_empty", subject: `source:${SRC}-empty` }), /empty content/);
+  assert.equal(deepseek.hits(), hits + 1, "no repeat HTTP call for an unbillable empty answer");
 });
 
 test("a deepseek_search config without URL scoping is refused before it can spend anything", () => {
