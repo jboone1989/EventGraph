@@ -19,7 +19,7 @@ test("English daily archive has a working route and keeps English issue links", 
   await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
   await open(page, "/en/daily/archive");
   await expect(page.getByRole("heading", { name: "Daily archive" }).first()).toBeVisible();
-  const archiveIssue = page.locator('a[href^="/en/daily/20"]').first();
+  const archiveIssue = page.locator('a[href^="/en/daily/20"]:visible').first();
   await expect(archiveIssue).toBeVisible();
   await archiveIssue.click();
   await expect(page).toHaveURL(/\/en\/daily\/20\d\d-/);
