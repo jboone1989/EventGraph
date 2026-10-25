@@ -17,7 +17,8 @@
 - [x] PR #117：新增九条中国相关 RSS 配置与测试；Check/Docker/E2E/Claude 通过并合并 develop（提交 `e12892f2`）。九源也已用现有开发后台 API 实际入库并拉取，具体数据见 `china-and-asia-source-inventory.md`。
 - [x] **中国九源**已从开发环境现有后台 `createSource` + `fetchNow` 入库并采集（九源 health=ok，318 篇原始文章）；**首次回填 2 条只限制首轮，第二次会导入更多新近条目**。
 - [ ] **未完成**：九源文章的付费 GLM 处理与事件证据关联（首次快照 0 关联）、原日韩/印度四源的真实开发/生产入库核验、生产发布。开发库的 225 个 `publications.visibility=public` 含大量 `hot_signal`，并非 225 篇索引新闻。
-- [ ] 中国人民银行、证监会、发改委、工信部、商务部、财政部、沪深交易所、港交所/香港证监会：通过官方 URL 的现有 web_list/RSS/JSON 接入并验证；先保证 CPI/利率/交易制度/政策等一级公告可用。
+- [x] 2026-10-25 **Pi 在真实 worktree 交付三套监管一手源配置**（`.worktrees/pi-china-feeds-20261025`，分支 `feat/pi-china-primary-sources`，基于 origin/develop `f4f365c`）：`industry/sources.json` 新增 `rss-cn-pboc-announcements`（RSS 6 条，rewrite 后 https）、`web-cn-csrc-announcements`（最新 2026-10-23/19，拒目录页）、`web-cn-miit-announcements`（5 条日期正确），均为 T1/editorial/回填 2 条/不全文；配置均经 cn-dev 现有 `previewSource` 实测后原样入库。新测试 `tests/china-primary-sources.standalone.test.ts` 3/3 通过；相关 standalone 16 项、DB 测试（source-rules、source-publication-window）7 项通过（临时库 `aihot_pi_test`）；`npm run typecheck`、`git diff --check` 干净。 **只读备注**：GLM 七阶段仍绑 NVIDIA/付费模型，切换验证属后续事项，本会话未做付费调用。
+- [ ] 中国监管一手源剩余目标：发改委、商务部、财政部、沪深交易所、港交所/香港证监会、科技部 MOST；通过官方 URL 的现有 web_list/RSS/JSON 接入并验证，先保证 CPI/利率/交易制度/政策等一级公告可用。
 - [ ] 财新、第一财经、界面、金十、财联社、证券时报、新华社、人民网、经济观察网、36氪；中文 AI 企业公告/机器之心/新智元/智东西；加密 BlockBeats/Odaily/金色财经：逐个找稳定有权限的 RSS/API 或现有 web_list，不用假 URL/无授权全文镜像。
 - [ ] 别忘记三个商业目标：搜索新闻页流量、新闻到事件深读、长期关注复访。新来源要测对事件证据和站内阅读的有效贡献，不以 RSS 条数充当增长。
 - [ ] 进一步检索用户所述亚洲其他信源的原始清单；补韩国、东南亚与政策/金融机构的**真实稳定官方接口**，逐个验证。
