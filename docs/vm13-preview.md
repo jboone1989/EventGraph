@@ -49,3 +49,37 @@ The VM13 development preview is intentionally independent of the production rele
 Playwright Chromium 1.61.1 ran from cn-dev against VM13 public HTTP: desktop `/`, `/en`, `/daily`, `/en/daily` and mobile `/en/daily` (390×844). All five navigations succeeded. No `pageerror`, console error, or horizontal overflow was found by the existing `e2e/site.ts`-style check. The English daily H1 was `Daily brief · October 25, 2026 · Sun` and the HTML title `Daily brief · EventGraph`.
 
 English content can still contain Chinese original publisher headlines and a Chinese quiet-report lead (`今日安静，无大事发生`), produced by the cn-dev report pipeline/template; this reproduces on cn-dev and is not caused by moving the Web service. Screenshot files were generated on cn-dev under `/tmp/vm13-shots/`, but no manual visual overlap inspection was completed; zero horizontal overflow does not prove that all text and tabs never overlap.
+
+## Development CI/CD after splitting Web and API
+
+This deployment has exactly one CI image source: the existing `develop`
+GitHub Actions checks/builds/GHCR digest. Pull requests still run isolated
+Playwright E2E in GitHub-hosted CI. The **deployed** browser smoke runs on
+cn-dev, targeting VM13 (Chromium is not installed on VM13).
+
+When `EVENTGRAPH_DEV_AUTO_DEPLOY=true` and the existing cn-dev SSH
+deployment succeeds, the additional jobs in `.github/workflows/check.yml`
+can deploy the same tested digest to VM13 and execute cn-dev's Chromium smoke.
+
+VM13 automatic deployment remains **opt-in**. In the repository configuration:
+
+- Set variable `EVENTGRAPH_VM13_AUTO_DEPLOY=true` only after the one-time SSH
+  setup and a successful manual deployment test.
+- Set variables `EVENTGRAPH_VM13_HOST=43.133.185.154`,
+  `EVENTGRAPH_VM13_USER=ubuntu`, and optionally
+  `EVENTGRAPH_VM13_URL=http://43.133.185.154`.
+- Provide development environment secrets `EVENTGRAPH_VM13_SSH_KEY` and
+  `EVENTGRAPH_VM13_SSH_FINGERPRINT`, separately scoped for VM13.
+- Keep existing cn-dev `EVENTGRAPH_DEV_HOST`, `EVENTGRAPH_DEV_USER`,
+  `EVENTGRAPH_DEV_SSH_KEY`, and `EVENTGRAPH_DEV_SSH_FINGERPRINT`.
+
+The job runs `scripts/ci/deploy-vm13-preview.sh` through the existing SSH
+Action. It pulls the immutable digest, reconciles **only** the Web service,
+performs two HTTP checks and tries the previous Web image if these fail.
+After successful deployment `scripts/ci/smoke-vm13-browser.sh` executes on
+cn-dev using its already-installed Chromium. No databases, workers or
+knowledge services are started on VM13.
+
+These repository settings have **not yet been verified/configured by this PR**;
+a green pull-request CI run alone does not demonstrate the real SSH deployment.
+VM09 production remains entirely separate.
