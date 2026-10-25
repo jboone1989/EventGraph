@@ -23,10 +23,25 @@ if sudo -n docker inspect eventgraph-vm13-preview-web-1 >/dev/null 2>&1; then
   previous="$(sudo -n docker inspect --format '{{.Config.Image}}' eventgraph-vm13-preview-web-1)"
 fi
 export EVENTGRAPH_APP_IMAGE="$EVENTGRAPH_IMAGE"
-compose config --quiet
+# Source parity: deploy the Compose definition belonging to the published
+# source SHA, not an arbitrarily old file left in the VM13 checkout.
 sudo -n docker pull "$EVENTGRAPH_IMAGE"
+git fetch --quiet --no-tags origin develop
+staged="$(mktemp "$PWD/.vm13-compose-next.XXXXXX.yml")"
+backup="$(mktemp "$PWD/.vm13-compose-previous.XXXXXX.yml")"
+trap 'rm -f "$staged" "$backup"' EXIT
+git show "$EVENTGRAPH_PREVIEW_RELEASE:docker-compose.vm13-preview.yml" > "$staged"
+sudo -n env EVENTGRAPH_APP_IMAGE="$EVENTGRAPH_IMAGE" \
+  EVENTGRAPH_PREVIEW_RELEASE="$EVENTGRAPH_PREVIEW_RELEASE" \
+  docker compose -f "$staged" config --quiet
+cp docker-compose.vm13-preview.yml "$backup"
+cp "$staged" docker-compose.vm13-preview.yml
+compose config --quiet
 rollback() {
-  echo "VM13 preview check failed; restoring only Web" >&2
+  echo "VM13 preview check failed; restoring only Web and previous Compose" >&2
+  if [ -f "$backup" ]; then
+    cp "$backup" docker-compose.vm13-preview.yml
+  fi
   if [ -n "$previous" ] && [ "$previous" != "$EVENTGRAPH_IMAGE" ]; then
     export EVENTGRAPH_APP_IMAGE="$previous"
     compose up -d --no-deps --no-build --pull never web || true
