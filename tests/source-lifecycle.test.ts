@@ -184,7 +184,7 @@ test("a corrected preflight failure can be registered and recovered", async () =
   const [failed] = await registerCandidates({ actor: ACTOR, candidates: [invalid] });
   assert.equal(failed.status, "preflight_failed");
   const [corrected] = await registerCandidates({ actor: ACTOR, candidates: [cand("fixed", {
-    config: { ...invalid.config as object, publishedAfter: new Date().toISOString() },
+    config: { ...invalid.config, publishedAfter: new Date().toISOString() },
   })] });
   assert.equal(corrected.status, "discovered");
   assert.deepEqual(corrected.preflightReasons, []);
