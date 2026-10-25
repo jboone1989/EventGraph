@@ -1349,6 +1349,113 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-pboc-official",
+      "name": "中国人民银行 · 官方公告与新闻",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.pbc.gov.cn/goutongjiaoliu/113456/2986536/index.html",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "itemUrlPrefixRewrite": {
+          "from": "www.pbc.gov.cn/",
+          "to": "https://www.pbc.gov.cn/"
+        },
+        "detail": {
+          "maxFetches": 6,
+          "titleRegex": "<title[^>]*>\\s*([^<]+)\\s*</title>",
+          "titleAuthoritative": true
+        },
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "央行",
+        "货币政策",
+        "金融",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-csrc-official",
+      "name": "中国证监会 · 要闻与监管公告",
+      "kind": "web_list",
+      "config": {
+        "url": "https://www.csrc.gov.cn/",
+        "parseMode": "html",
+        "allowUrlPrefixes": [
+          "https://www.csrc.gov.cn/csrc/c100028/"
+        ],
+        "denyUrlPrefixes": [
+          "https://www.csrc.gov.cn/csrc/c100028/common_xq_list.shtml"
+        ],
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "detail": {
+          "maxFetches": 6,
+          "publishedAtRegex": "日期：\\s*(\\d{4}-\\d{2}-\\d{2})",
+          "publishedAtUtcOffset": "+08:00",
+          "publishedAtAuthoritative": true
+        },
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "资本市场",
+        "监管",
+        "金融",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-miit-official",
+      "name": "工信部 · 工业与信息化工作动态",
+      "kind": "web_list",
+      "config": {
+        "url": "https://www.miit.gov.cn/",
+        "parseMode": "html",
+        "allowUrlPrefixes": [
+          "https://www.miit.gov.cn/xwfb/gxdt/"
+        ],
+        "denyUrlPrefixes": [
+          "https://www.miit.gov.cn/xwfb/gxdt/index.html"
+        ],
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "detail": {
+          "maxFetches": 10,
+          "publishedAtRegex": "发布时间：\\s*(\\d{4}-\\d{2}-\\d{2})",
+          "publishedAtUtcOffset": "+08:00",
+          "publishedAtAuthoritative": true
+        },
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "中国",
+        "AI",
+        "产业政策",
+        "制造业",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
     }
   ]
 }
