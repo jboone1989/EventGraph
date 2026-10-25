@@ -7,6 +7,7 @@ import { sha256 } from "../lib/ids.ts";
 import { enqueue, QUEUES, shutdownSignal } from "../jobs/queue.ts";
 import { queueProcessing } from "../jobs/content.ts";
 import { BudgetExceededError, completeReceipt } from "../providers/receipts.ts";
+import { deepseekFetchSuppressedToday } from "../providers/deepseek-web.ts";
 import { fetchRss } from "./rss.ts";
 import { fetchDetail, fetchWebList, isCallToActionTitle, needsTitle, type DetailNeed } from "./web-list.ts";
 import { unsupportedConfig } from "./config-keys.ts";
@@ -215,6 +216,9 @@ export async function collectSource(sourceId: string, opts: { force?: boolean } 
       if (d.fetchVia === "deepseek") {
         if (!(need.date && !!d.publishedAtRegex) && !(need.title && !!d.titleRegex) && !need.body) continue;
       } else if (!need.date && !need.title && !need.summary) continue;
+      // A same-day refused or empty DeepSeek answer already exists in receipts.
+      // Skip BEFORE using a scarce maxFetches slot; retry automatically on the next UTC day.
+      if (d.fetchVia === "deepseek" && await deepseekFetchSuppressedToday(c.url)) continue;
       if (detailBudgetSpent || detailUsed >= detailBudget) { detailPending += 1; continue; }
       detailUsed += 1;
       try {
