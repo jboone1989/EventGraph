@@ -1357,7 +1357,6 @@
       "config": {
         "feedUrl": "https://www.pbc.gov.cn/goutongjiaoliu/113456/2986536/index.html",
         "publishedAtUtcOffset": "+08:00",
-        "publishedAfter": "2026-10-01T00:00:00.000Z",
         "allowUrlPrefixes": [
           "www.pbc.gov.cn/"
         ],
