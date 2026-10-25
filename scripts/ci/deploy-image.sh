@@ -12,6 +12,7 @@ esac
 cd "$EVENTGRAPH_DIR"
 test -f .env
 test -f docker-compose.yml
+test -f docker-compose.dev-api-loopback.yml
 umask 077
 # GHCR login is isolated from host-wide Docker credentials.
 dockercfg="$(mktemp -d)"
@@ -37,7 +38,7 @@ cleanup() {
 }
 trap cleanup EXIT
 compose() {
-  docker compose -f docker-compose.yml -f "$overlay" "$@"
+  docker compose -f docker-compose.yml -f docker-compose.dev-api-loopback.yml -f "$overlay" "$@"
 }
 previous=""
 if [ -f .eventgraph-last-good-image ]; then
