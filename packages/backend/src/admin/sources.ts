@@ -236,6 +236,10 @@ const CreateSchema = z
 
 /** The address a source collects from, used to find duplicates before creating one. */
 export function sourceIdentity(kind: string, config: Record<string, unknown>): string | null {
+  if (kind === "json_list" && config.mode === "deepseek_search") {
+    const query = String(config.deepseekQuery ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+    return query ? `deepseek:${query}` : null;
+  }
   const raw = (config.feedUrl ?? config.url ?? config.listUrl ?? config.endpoint ?? null) as string | null;
   if (kind === "x_search") {
     const m = /from:([A-Za-z0-9_]{1,15})/.exec(String(config.query ?? ""));

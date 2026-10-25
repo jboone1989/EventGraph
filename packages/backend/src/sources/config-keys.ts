@@ -16,7 +16,7 @@ const KEYS: Record<SourceRow["kind"], string[]> = {
   json_list: [
     ...COLLECTED, "url", "mode", "method", "headers", "bodyJson", "jsonKey", "windowVar", "itemsPath", "itemsObjectValues",
     "titlePaths", "summaryPaths", "summaryIsBody", "authorPaths", "publishedAtPath", "publishedAtUnit", "publishedAtUtcOffset", "externalIdPath",
-    "urlTemplate", "urlTemplateFallback", "rawDropKeys", "requireBoolean", "minNumeric",
+    "urlTemplate", "urlTemplateFallback", "rawDropKeys", "requireBoolean", "minNumeric", "deepseekQuery", "deepseekCount",
   ],
   // X accounts are mostly read in shards, which apply only these.
   x_search: [...PUBLISHER, "_aihot", "ingestNoiseFilter", "itemUrlPrefixRewrite", "query", "searchType"],
@@ -33,7 +33,7 @@ const NESTED: Record<string, string[]> = {
   minNumeric: ["path", "min"],
   detail: [
     "maxFetches", "publishedAtSelector", "publishedAtRegex", "publishedAtUtcOffset", "publishedAtAuthoritative", "upgradeDatePrecision",
-    "titleSelector", "titleRegex", "titleAuthoritative", "summarySelector",
+    "titleSelector", "titleRegex", "titleAuthoritative", "summarySelector", "fetchVia",
   ],
 };
 
@@ -41,6 +41,7 @@ const VALUES: Record<string, string[]> = {
   publisherRole: ["organization", "person"],
   adapter: ["mimo_home"],
   parseMode: ["html", "markdown", "docusaurus_changelog", "intercom_changelog"],
+  fetchVia: ["deepseek"],
 };
 
 function utcInstant(value: unknown): boolean {
@@ -62,9 +63,24 @@ export function unsupportedConfig(kind: SourceRow["kind"], config: Record<string
       if (typeof v !== "string") return false;
       try { const u = new URL(v); return /^https?:$/.test(u.protocol) && !u.username && !u.password && !u.search && !u.hash; } catch { return false; }
     }))) out.push(key);
+    // A DeepSeek Search source has no listing of its own: without URL prefix rules every cross-domain
+    // result its query drags in would be admitted. The scoping is required up front, not filtered later.
+    else if (kind === "json_list" && key === "mode" && value === "deepseek_search"
+      && !(Array.isArray(config.allowUrlPrefixes) && config.allowUrlPrefixes.some((v) => typeof v === "string" && v)))
+      out.push("deepseek_search requires allowUrlPrefixes");
     else if (VALUES[key] && !VALUES[key]!.includes(String(value))) out.push(`${key}=${String(value)}`);
     else if (NESTED[key] && value && typeof value === "object") {
       for (const sub of Object.keys(value)) if (!NESTED[key]!.includes(sub)) out.push(`${key}.${sub}`);
+      // The nested check covers key names only; a value with a closed set of its own is checked here.
+      const nested = value as Record<string, unknown>;
+      if (key === "detail" && nested.fetchVia !== undefined && !VALUES.fetchVia!.includes(String(nested.fetchVia)))
+        out.push(`detail.fetchVia=${String(nested.fetchVia)}`);
+      if (key === "detail" && nested.fetchVia === "deepseek") {
+        // The API returns Markdown, not a page DOM; CSS selectors here would silently do nothing.
+        for (const selector of ["publishedAtSelector", "titleSelector", "summarySelector"]) {
+          if (nested[selector] !== undefined) out.push(`detail.${selector} unsupported with deepseek`);
+        }
+      }
     }
   }
   return out;
