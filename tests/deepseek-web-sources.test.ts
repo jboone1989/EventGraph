@@ -243,3 +243,42 @@ test("a missing service budget fails closed instead of invoking unlimited paid s
         per_hour = EXCLUDED.per_hour, per_day = EXCLUDED.per_day, note = EXCLUDED.note`;
   }
 });
+
+test("an undated hot signal without a date rule never buys an unusable Fetch", async () => {
+  const source = `${SRC}-skip-detail`;
+  await sql`INSERT INTO sources (id, name, kind, config, tier, participation_mode, cursor, next_fetch_at)
+    VALUES (${source}, 'DeepSeek no rule', 'json_list',
+      ${sql.json(scopedConfig({ deepseekQuery: `no date rule ${T}`, detail: { maxFetches: 2, fetchVia: "deepseek" } }))},
+      'T2', 'hot_signal', ${sql.json({ initializedAt: new Date().toISOString() })}, '2100-01-01')`;
+  searchReply = () => ({ results: [story(80, { date: null })] });
+  const beforeHits = deepseek.hits();
+  const result = await collectSource(source, { force: true });
+  assert.equal(result.status, "ok");
+  assert.equal(deepseek.hits(), beforeHits + 1, "only the Search call; Fetch would be useless");
+  const [row] = await articles(source);
+  assert.equal(row!.published_at, null);
+});
+
+test("a dated editorial result uses at most one Fetch for a requested body", async () => {
+  const source = `${SRC}-body-only`;
+  await sql`INSERT INTO sources (id, name, kind, config, tier, participation_mode, cursor, next_fetch_at)
+    VALUES (${source}, 'DeepSeek body only', 'json_list',
+      ${sql.json(scopedConfig({ deepseekQuery: `body only ${T}`, detail: { maxFetches: 1, fetchVia: "deepseek" } }))},
+      'T2', 'editorial', ${sql.json({ initializedAt: new Date().toISOString() })}, '2100-01-01')`;
+  searchReply = () => ({ results: [story(81), story(82)] });
+  fetchReply = () => ({ title: "Fetched body", content: "A sourced report paragraph. ".repeat(20) });
+  const beforeHits = deepseek.hits();
+  const result = await collectSource(source, { force: true });
+  assert.equal(result.status, "ok");
+  assert.equal(result.created, 2);
+  assert.equal(deepseek.hits(), beforeHits + 2, "one Search and one budgeted Fetch");
+  const rows = await articles(source);
+  assert.equal(rows.filter(r => r.body_status === "ok").length, 1);
+});
+
+test("HTML selectors are rejected for Markdown-based DeepSeek Fetch", () => {
+  const invalid = unsupportedConfig("json_list", scopedConfig({
+    detail: { maxFetches: 1, fetchVia: "deepseek", summarySelector: ".summary" },
+  }));
+  assert.deepEqual(invalid, ["detail.summarySelector unsupported with deepseek"]);
+});
