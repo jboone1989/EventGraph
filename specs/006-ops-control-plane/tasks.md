@@ -8,7 +8,8 @@
 - [x] 编码：运行页增加文章级问题指标、后台导航按运营流程重排。
 - [x] PR #116：Check/Docker/E2E + Claude 复审成功，已合并到 develop（提交 `5a89d501`）。**开发部署与模型实际恢复另需证据。**
 - [ ] 验证开发镜像确实部署、真 API 与后台实际显示；1440/390、亮暗视觉审查。
-- [ ] 小额测试开发环境**智谱直连**并在已通过后通过现有有审计的模型分配 API 把必要阶段选到付费模型；核对 MODEL_PROVIDER_REGISTRY_ENABLED/MODEL_CALLS_ENABLED 状态，不暴露密钥。
+- [x] **2026-10-25 开发真实智谱直连能力测试成功**：现有 `testRegisteredModel` 经带预算回执的受控调用返回 `verified`、2913 ms、`Valid chat response`；`MODEL_PROVIDER_REGISTRY_ENABLED`、`MODEL_CALLS_ENABLED` 均为 true，无密钥泄露。**这不是阶段已经切换的证据**。
+- [ ] 查询当前智谱预算限额、开发 worker 队列，按最小样本通过现有可审计分配 API 把指定阶段选择付费直连模型，观察实际请求成功率/花费；其他阶段暂不批量切换或重新入队。
 - [ ] 在开发环境对失败组执行受控 requeue，并测算每小时吞吐与调用成本；不要直接全量跑生产。
 - [ ] 试跑 BOJ/RBI/BOK/日本 FSA 数据源从 Feed→文章→事件的真实处理；开发环境启用后确认成功，生产按发布流程再启用。
 - [x] 2026-10-25 对遗漏的中国媒体/监管/科技/加密信息源做 Search First 和现有 collector 真机预览，记录在 `china-and-asia-source-inventory.md`。
