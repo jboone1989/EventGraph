@@ -1,7 +1,7 @@
 // DeepSeek Search/Fetch tools (api.deepseek.com/v1/tools): low-cost discovery and page reading for
 // topics whose sources have no feed and no stable listing to crawl. Paid per successful request —
 // always behind receipts and the deepseek_web budget (any zero stops it); DeepSeek does not bill
-// failed requests or empty search results. The API key is the one the model presets use; it never
+// failed requests or empty search results. The API key uses the same models credentials group as the model presets; it never
 // reaches a source config, the database or a log line.
 import { credential } from "../config.ts";
 import { sql } from "../db.ts";
@@ -18,14 +18,14 @@ async function requireWebBudget(): Promise<void> {
 }
 
 function apiKey(): string {
-  const key = credential("collectors", "DEEPSEEK_API_KEY");
+  const key = credential("models", "DEEPSEEK_API_KEY");
   if (!key) throw new Error("DEEPSEEK_API_KEY is not configured");
   return key;
 }
 
 /** The API root; the same env the deepseek model presets read. Tests point it at a local stub. */
 function apiBase(): string {
-  return (credential("collectors", "DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com/v1").replace(/\/+$/, "");
+  return (credential("models", "DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com/v1").replace(/\/+$/, "");
 }
 
 export interface DeepSeekResult {
