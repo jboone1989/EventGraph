@@ -9,6 +9,7 @@ import { publishArticle } from "@aihot/backend/publication/publish";
 import { computeHotRanking } from "@aihot/backend/events/hot";
 import { ENGLISH_ITEM_INPUTS } from "@aihot/backend/publication/items";
 import { ENGLISH_STORY_INPUTS } from "@aihot/backend/publication/story-text";
+import { beijingDate } from "@aihot/contracts/time";
 
 const name = new URL(process.env.DATABASE_URL ?? "postgres://localhost/").pathname.slice(1);
 if (!/_(test|ci)$/.test(name)) throw new Error(`refusing to seed "${name}": only a database named *_test or *_ci`);
@@ -73,7 +74,7 @@ await sql`INSERT INTO story_english (story_id, inputs_hash, outcome, title, dige
 
 // A published daily makes archive navigation a required, non-vacuous E2E assertion.
 const day = new Date();
-const issueKey = day.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+const issueKey = beijingDate(day.getTime());
 const issueContent = {
   leadItemId: ids[0],
   highlights: [ids[0]],
