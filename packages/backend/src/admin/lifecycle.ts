@@ -301,19 +301,40 @@ export async function startTrial(id: string, actor: string, db: Db = sql): Promi
   if (c.status !== "discovered") return { started: false, reason: `status:${c.status}` };
   if (!c.preflight.previewPassed) return { started: false, reason: "preview-not-passed" };
   if (c.manual_hold) return { started: false, reason: "manual-hold" };
-  const created = await createSource({
-    id: `lc-${id}`, name: c.name, kind: c.kind,
-    // Future-only trial: never bulk-ingest previously published items.
-    config: { ...c.config, publishedAfter: new Date(Math.max(Date.parse(String(c.config.publishedAfter)), Date.now())).toISOString() },
-    tier: "T2", participation_mode: "hot_signal",
-    interval_minutes: 60, tags: [...new Set([...c.tags, "lifecycle-trial"])], site_fulltext: false, syndicate_fulltext: false,
-  }, actor);
-  if (!created.created) return { started: false, reason: `duplicate-source:${created.duplicate.id}` };
-  await db`UPDATE source_candidates SET status = 'trial', attached_source_id = ${created.source.id},
-      trial_started_at = now(), updated_at = now() WHERE id = ${id}`;
+  const sourceId = `lc-${id}`;
+  let attachedId: string;
+  try {
+    const created = await createSource({
+      id: sourceId, name: c.name, kind: c.kind,
+      // Future-only trial: never bulk-ingest previously published items.
+      config: { ...c.config, publishedAfter: new Date(Math.max(Date.parse(String(c.config.publishedAfter)), Date.now())).toISOString() },
+      tier: "T2", participation_mode: "hot_signal",
+      interval_minutes: 60, tags: [...new Set([...c.tags, "lifecycle-trial"])],
+      site_fulltext: false, syndicate_fulltext: false,
+    }, actor);
+    if (!created.created) return { started: false, reason: `duplicate-source:${created.duplicate.id}` };
+    attachedId = created.source.id;
+  } catch (error) {
+    // An interrupted run might have created the source but failed before
+    // attaching it to its candidate. A retry is safe if the existing source
+    // has exactly the same normalized identity and trial purpose.
+    const [existing] = await db<{ id: string; kind: string; config: Record<string, unknown>;
+      tier: string; participation_mode: string }[]>`
+      SELECT id, kind, config, tier, participation_mode FROM sources WHERE id = ${sourceId}`;
+    if (!existing || existing.tier !== "T2" || existing.participation_mode !== "hot_signal" ||
+        sourceIdentity(existing.kind, existing.config) !== c.identity) {
+      return { started: false, reason: `create-source-conflict:${String((error as Error).message ?? error).slice(0, 140)}` };
+    }
+    attachedId = existing.id;
+  }
+  const [attached] = await db<{ id: string }[]>`
+    UPDATE source_candidates SET status = 'trial', attached_source_id = ${attachedId},
+      trial_started_at = now(), updated_at = now()
+    WHERE id = ${id} AND status = 'discovered' RETURNING id`;
+  if (!attached) return { started: false, reason: "candidate-status-changed" };
   await audit(actor, "sourceLifecycle.startTrial", `candidate:${id}`, null,
-    { status: "discovered" }, { status: "trial", sourceId: created.source.id }, { db });
-  return { started: true, sourceId: created.source.id };
+    { status: "discovered" }, { status: "trial", sourceId: attachedId }, { db });
+  return { started: true, sourceId: attachedId };
 }
 
 const spentBudget = sql`LIKE ${budgetMessage("%", "%")}`;
