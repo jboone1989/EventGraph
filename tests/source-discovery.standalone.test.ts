@@ -164,3 +164,13 @@ test("a domain with sources never stops discovery: rotate covered and uncovered 
   const allCovered = chooseDiscoverySubjects([], topics, new Set(["军事","贸易","海运","能源","制裁"]), 2, 102);
   assert.equal(allCovered.length, 2, "discovery continues after every topic has one publisher");
 });
+
+test("official news.xml feeds are RSS leads; they are previewed rather than scraped", () => {
+  const lead = leadFromResult(gap, hit({
+    url: "https://www.mod.go.jp/j/rss/news.xml", site_name: "Japan Ministry of Defense",
+  }), NOW) as DiscoveredSource;
+  assert.equal(lead.kind, "rss");
+  assert.equal(lead.config.feedUrl, "https://www.mod.go.jp/j/rss/news.xml");
+  assert.equal(preflightCandidate(lead).ok, true);
+  assert.equal(lead.officialLowFrequency, false);
+});
