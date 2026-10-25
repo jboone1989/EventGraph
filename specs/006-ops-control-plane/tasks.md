@@ -10,7 +10,9 @@
 - [ ] 验证开发镜像确实部署、真 API 与后台实际显示；1440/390、亮暗视觉审查。
 - [x] **2026-10-25 开发真实智谱直连能力测试成功**：现有 `testRegisteredModel` 经带预算回执的受控调用返回 `verified`、2913 ms、`Valid chat response`；`MODEL_PROVIDER_REGISTRY_ENABLED`、`MODEL_CALLS_ENABLED` 均为 true，无密钥泄露。**这不是阶段已经切换的证据**。
 - [x] 2026-10-25 只读核对开发预算：`budgets` 的 `zhipu` 当前为 100/min、2000/h、20000/day（**请求次数上限，不是人民币金额上限**）；NVIDIA 24/min、720/h、3000/day。当前智谱限额不足以约束支出，不能直接将全部处理阶段切到付费模型。
-- [ ] 先明确适用于开发阶段小样本的付费请求/金额预算，检查 dev worker 当前积压；再经现有有审计的模型分配 API 只切一个阶段并小批量验证成功率与真实用量。不得对生产直接批量放量。
+- [x] **2026-10-25 GLM 开发实际切换**：通过现有 `updateBudget` 将 `zhipu` 请求熔断从 100/min、2000/h、20000/day 收紧为 **2/min、20/h、60/day**；通过现有 `switchModel`（完整审计记录）把 `prefilter`、`score` 分配到付费智谱直连 `glm-5.3-flash`，model id `98ac1a72-6321-4405-a12b-3a549ed00c68`。生产未改变。**这些是请求次数限额，不是人民币金额上限。**
+- [x] 真实新闻试跑已产生至少 **4 条 `receipt_attempts`：`prefilter_article / zhipu / glm-5.3-flash / received`**；实测消息 `Budget for zhipu exhausted (minute)` 正常进入 waiting（未因此失败）。已观察大量其它阶段 `Budget for nvidia exhausted (hour)`，这解释了为什么 GLM 单阶段切换不能一次清空全部积压。
+- [ ] 在新绑定的 `score` 阶段观察实际回执、文章 `analyzed` 与事件关联增长；检查 `structure/group/english` 的剩余 NVIDIA 路由瓶颈，再依据实际支付价格与吞吐调整限额。不得把 4 条 prefilter 回执宣称 4 篇新闻处理完成，也不擅自一次性重放全部失败文章。
 - [ ] 在开发环境对失败组执行受控 requeue，并测算每小时吞吐与调用成本；不要直接全量跑生产。
 - [ ] 试跑 BOJ/RBI/BOK/日本 FSA 数据源从 Feed→文章→事件的真实处理；开发环境启用后确认成功，生产按发布流程再启用。
 - [x] 2026-10-25 对遗漏的中国媒体/监管/科技/加密信息源做 Search First 和现有 collector 真机预览，记录在 `china-and-asia-source-inventory.md`。
