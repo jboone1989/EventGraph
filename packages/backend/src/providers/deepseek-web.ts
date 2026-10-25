@@ -87,10 +87,10 @@ export async function deepseekFetchSuppressedToday(url: string): Promise<boolean
     service: "deepseek_web", model: null, purpose: "source_detail",
     identity: { fetch: url, day },
   });
-  const [row] = await sql<{ blocked: boolean }[]>\`
+  const [row] = await sql<{ blocked: boolean }[]>`
     SELECT (response ? 'refusedStatus' OR response ? 'emptyContent') AS blocked
     FROM receipts WHERE logical_key = ${logicalKey} AND status IN ('received', 'completed')
-    LIMIT 1\`;
+    LIMIT 1`;
   return row?.blocked === true;
 }
 
