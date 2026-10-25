@@ -15,8 +15,6 @@ const expected = [
   "rss-un-geneva-press",
   "rss-gdacs-disasters-24h",
   "rss-usgs-earthquakes-m45",
-  "rss-gdelt-conflict-discovery",
-  "rss-gdelt-trade-risk-discovery",
 ];
 
 test("global-risk source IDs and feed URLs are unique and configs supported", () => {
@@ -45,20 +43,12 @@ test("official primary publishers differ from monitoring signals and discovery",
   for (const id of expected.slice(2)) {
     assert.equal(byId.get(id)?.participation_mode, "hot_signal", id);
   }
-  for (const id of expected.slice(4)) {
-    const feed = byId.get(id)!;
-    assert.equal(feed.tier, "T2", id);
-    const url = new URL(feed.config.feedUrl);
-    assert.equal(url.hostname, "api.gdeltproject.org", id);
-    assert.equal(url.searchParams.get("mode"), "artlist", id);
-    assert.equal(url.searchParams.get("format"), "rss", id);
-    assert.equal(url.searchParams.get("timespan"), "1d", id);
-    assert.ok((url.searchParams.get("query") ?? "").includes(" OR "), id);
-  }
+  assert.equal(byId.has("rss-gdelt-conflict-discovery"), false, "no unverified rate-limited conflict feed");
+  assert.equal(byId.has("rss-gdelt-trade-risk-discovery"), false, "no unverified rate-limited trade feed");
 });
 
 test("the new global-risk feeds are not existing news or market-data duplicates", () => {
-  const hosts = new Set(["consilium.europa.eu", "ungeneva.org", "gdacs.org", "earthquake.usgs.gov", "api.gdeltproject.org"]);
+  const hosts = new Set(["consilium.europa.eu", "ungeneva.org", "gdacs.org", "earthquake.usgs.gov"]);
   for (const id of expected) {
     const u = new URL(byId.get(id)!.config.feedUrl);
     assert.ok(hosts.has(u.hostname) || hosts.has(u.hostname.replace(/^www\./, "")), id);
