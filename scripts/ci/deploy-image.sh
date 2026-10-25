@@ -62,7 +62,10 @@ unset GHCR_TOKEN
 if docker image inspect "$EVENTGRAPH_IMAGE" >/dev/null 2>&1; then
   echo "Immutable image already cached locally; no registry transfer needed"
 else
-  docker pull "$EVENTGRAPH_IMAGE"
+  # Bound the slow GHCR transfer shorter than ssh-action command_timeout (55m).
+  # Otherwise the SSH task can be cancelled while this script keeps running,
+  # and a later unsupervised `compose up` can race the next release.
+  timeout --signal=TERM --kill-after=10s 48m docker pull "$EVENTGRAPH_IMAGE"
 fi
 # Keep a usable rollback image even after host-level image pruning.
 case "$previous" in
