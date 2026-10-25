@@ -12,7 +12,7 @@ import { localizedMonthDay, localizedMonthDayTime, relativeTime } from "../lib/f
 import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
-import { englishText, localizedSourceName } from "../lib/english";
+import { englishText, localizedSourceName, enTopicName } from "../lib/english";
 import { isEnglishPath } from "../lib/edition";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
@@ -576,9 +576,9 @@ export default function StoryPage() {
           {story.topics.length > 0 && (
             <RailCard title={t("相关主题","Related topics")}>
               <div className="flex flex-wrap gap-1.5">
-                {story.topics.map((t) => (
-                  <Link viewTransition key={t.slug} to={`/topics/${t.slug}`} className="chip">
-                    {t.name}
+                {story.topics.filter(topic => uiLang === "zh" || !!enTopicName(topic)).map((topic) => (
+                  <Link viewTransition key={topic.slug} to={`${uiLang === "en" ? "/en" : ""}/topics/${topic.slug}`} className="chip">
+                    {uiLang === "en" ? enTopicName(topic) : topic.name}
                   </Link>
                 ))}
               </div>
