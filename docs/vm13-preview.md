@@ -26,6 +26,8 @@ Standalone Compose file: `docker-compose.vm13-preview.yml` (not combined with th
 ```bash
 cd /home/ubuntu/workspace/eventgraph
 sudo docker compose -f docker-compose.vm13-preview.yml config --quiet
+# Only if the digest is not already locally cached; CI always pulls its target digest.
+sudo docker pull ghcr.io/jboone1989/eventgraph-app@sha256:3e49688ddae5428028d598c11217a40ff8afd0c60d194ce046cbc1413ac2d2c7
 sudo docker compose -f docker-compose.vm13-preview.yml up -d --no-build --pull never
 sudo docker compose -f docker-compose.vm13-preview.yml ps
 curl -I http://127.0.0.1/
@@ -40,7 +42,7 @@ On 2026-10-25: the image pull and Compose startup succeeded; container health wa
 - Cross-host API calls traverse the public cn-dev HTTP ingress; this is acceptable for basic public-content browser smoke tests, not confidential testing.
 - `/api/mcp` initialization via a bare-IP Host can return 421 `misdirected_request` because of the existing cn-dev Host allowlist; ordinary pages and `/api/health` were verified separately.
 - Test UI regressions with Chromium rather than relying on HTTP 200 alone.
-- For a later update, build/publish a tested `develop` image in the existing CI, update the immutable digest in the standalone Compose file, and recreate only this VM13 Web container. Never run the default `docker-compose.yml` on VM13.
+- For a later update, the CI deploy script pulls the tested `develop` digest before using `--pull never` to recreate only this VM13 Web container. Never run the default `docker-compose.yml` on VM13.
 
 The VM13 development preview is intentionally independent of the production release procedure in `docs/production-deployment.md`.
 
