@@ -136,3 +136,11 @@ test("long conflict titles are truncated to the DeepSeek 128 Unicode-char limit,
   const invalid = DiscoveredSource.parse({ ...lead, config: { ...lead.config, deepseekQuery: "x".repeat(129) } });
   assert.ok(preflightCandidate(invalid).reasons.includes("address"));
 });
+
+test("Chinese-language topics on the same authority domain receive different stable candidate ids", () => {
+  const a = leadFromResult({ subject: "军事冲突", event: false, tags: ["军事"] }, hit(), NOW) as DiscoveredSource;
+  const b = leadFromResult({ subject: "出口管制", event: false, tags: ["贸易"] }, hit(), NOW) as DiscoveredSource;
+  assert.notEqual(a.id, b.id);
+  assert.notEqual(sourceIdentity(a.kind, a.config), sourceIdentity(b.kind, b.config));
+  assert.equal(a.id, leadFromResult({ subject: "军事冲突", event: false, tags: ["军事"] }, hit(), NOW)?.id);
+});
