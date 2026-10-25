@@ -7,7 +7,7 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [develop, main]
+    branches: [develop, main, review-base/deepseek-web-20261025]
   workflow_dispatch:
 
 permissions:
