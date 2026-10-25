@@ -61,17 +61,15 @@ When `EVENTGRAPH_DEV_AUTO_DEPLOY=true` and the existing cn-dev SSH
 deployment succeeds, the additional jobs in `.github/workflows/check.yml`
 can deploy the same tested digest to VM13 and execute cn-dev's Chromium smoke.
 
-VM13 automatic deployment remains **opt-in**. In the repository configuration:
-
-- Set variable `EVENTGRAPH_VM13_AUTO_DEPLOY=true` only after the one-time SSH
-  setup and a successful manual deployment test.
-- Set variables `EVENTGRAPH_VM13_HOST=43.133.185.154`,
-  `EVENTGRAPH_VM13_USER=ubuntu`, and optionally
-  `EVENTGRAPH_VM13_URL=http://43.133.185.154`.
-- Provide development environment secrets `EVENTGRAPH_VM13_SSH_KEY` and
-  `EVENTGRAPH_VM13_SSH_FINGERPRINT`, separately scoped for VM13.
-- Keep existing cn-dev `EVENTGRAPH_DEV_HOST`, `EVENTGRAPH_DEV_USER`,
-  `EVENTGRAPH_DEV_SSH_KEY`, and `EVENTGRAPH_DEV_SSH_FINGERPRINT`.
+The VM13 Web deployment uses the **existing** development auto-deploy gate
+`EVENTGRAPH_DEV_AUTO_DEPLOY=true` and the **same** development SSH private-key
+secret `EVENTGRAPH_DEV_SSH_KEY`, to avoid creating a second credential or
+manual GitHub variable. The matching public key was appended to
+`ubuntu@VM13:~/.ssh/authorized_keys` on 2026-10-25 while preserving existing
+keys. The host key is verified against the fingerprint read directly from VM13
+(`SHA256:UfYGtQUohibqwf71gOna4qLk7iJsTqlzA4+vMwp4daw`).
+The target is fixed at `ubuntu@43.133.185.154`; optional
+`EVENTGRAPH_VM13_URL` defaults to `http://43.133.185.154`.
 
 The job runs `scripts/ci/deploy-vm13-preview.sh` through the existing SSH
 Action. It pulls the immutable digest, reconciles **only** the Web service,
@@ -80,6 +78,7 @@ After successful deployment `scripts/ci/smoke-vm13-browser.sh` executes on
 cn-dev using its already-installed Chromium. No databases, workers or
 knowledge services are started on VM13.
 
-These repository settings have **not yet been verified/configured by this PR**;
-a green pull-request CI run alone does not demonstrate the real SSH deployment.
+The CI key's public half is installed on VM13, but a green pull-request CI
+run alone does not demonstrate the real end-to-end SSH deployment. Verify the
+first develop push's deploy_vm13_preview and e2e_vm13_preview job logs.
 VM09 production remains entirely separate.
