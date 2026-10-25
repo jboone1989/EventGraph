@@ -2,7 +2,7 @@
 
 ## Audit basis, accuracy and scope
 
-- **Verified Git**: `develop` has **72 configured sources** (69 RSS, 1 JSON list, 2 web lists), with 63 editorial and 9 hot signals. Those counts say **nothing** about DB activation, live ingestion or evidence quality. `PR #133` adds 10 further sources (82 total **only if merged**); do not count pending changes as active. `PR #132` separately adds DeepSeek Search/Fetch and must pass Check and Claude review before use.
+- **Verified Git**: `develop` now has **82 configured sources** (79 RSS, 1 JSON list, 2 web lists), with 69 editorial and 13 hot signals, after **PR #133 merged**. Those counts say **nothing** about DB activation, live ingestion or evidence quality; the 10 newly merged feeds still require deployment and DB ingestion confirmation. `PR #132` separately adds DeepSeek Search/Fetch and must pass Check and Claude review before use.
 - Existing source mix is concentrated in **AI, crypto, central banks, and headline finance**. Government defence/foreign affairs, formal sanctions, bilateral policy, supply-chain entities, ports, cyber incidents and regional conflict witnesses remain disproportionately sparse. US Fed/ECB/EIA/BIS etc. are valuable; they do not make the omissions irrelevant.
 - The aim is **not** comprehensive web crawling. Only legal, low-maintenance RSS/Atom, official JSON/API and **scoped DeepSeek Search/Fetch** if access permits. No custom per-publisher HTML/CSS scraping and no processing historical backlog. A publisher's homepage or API documentation is a **candidate**, not a verified ingestion endpoint.
 - Do not use crude "news websites per domain" as a coverage statistic. Multiple independent original reporters, all affected actors, independent corroborators, legal and data sources provide **different evidence roles**.
@@ -13,8 +13,8 @@
 
 | Event layer / region | Existing or pending coverage | Critical missing primary/corroborating source types (candidate examples) | Priority |
 |---|---|---|---|
-| Military conflict: incident/actor | UN Geneva and EU Council, BBC World; Japan MoD **pending PR#133**; Defense News, Breaking Defense **pending** | CENTCOM official notices; NATO direct releases; both/all conflict parties' official statements **as attributed claims**, local and independent cross-checks; UCDP Candidate Events API; ACLED if legally licensed | P0 |
-| Military aid, weapons transfer, defence industry | Japan MoD **pending**, defence press **pending** | **DSCA Major Arms Sales RSS** and policy RSS, NATO; US DoD, UK MoD, regional defence agencies; contractor SEC 8-K/earnings and export licensing | P0 |
+| Military conflict: incident/actor | UN Geneva and EU Council, BBC World; Japan MoD, Defense News, Breaking Defense **present** | CENTCOM official notices; NATO direct releases; both/all conflict parties' official statements **as attributed claims**, local and independent cross-checks; UCDP Candidate Events API; ACLED if legally licensed | P0 |
+| Military aid, weapons transfer, defence industry | Japan MoD, Defense News, Breaking Defense and War on the Rocks **present** | **DSCA Major Arms Sales RSS** and policy RSS, NATO; US DoD, UK MoD, regional defence agencies; contractor SEC 8-K/earnings and export licensing | P0 |
 | Sanctions: formal legal designations | EU Council general press | **OFAC Sanctions List Service (SLS) API/SDN**, **UNSC consolidated XML/list updates**, UK Sanctions List (current, **do not** use closed OFSI list), European Commission restrictive measures and EU Official Journal | P0 |
 | Tariffs/export controls/industrial restrictions | China PBoC and MIIT (some web_list); no verified dedicated trade control stream | China MOFCOM/GACC, US BIS/Commerce, US Federal Register (custom official feeds/API), WTO notifications; EU trade/dual-use controls, Japan METI, Korean MOTIE, Taiwan MOEA | P0 |
 | Shipping, chokepoints, navigation risk | No dedicated primary maritime-security source in manifest | **MARAD advisories/alerts**, UKMTO, US NAVCEN/NGA warnings, ReCAAP Asia, EU NAVFOR, Singapore IFC, ONI Worldwide Threat to Shipping; port authorities, Suez/Panama Canal notices | P0 |
@@ -23,7 +23,7 @@
 | Cyber and critical infrastructure | No dedicated cyber incident catalog | **CISA KEV official JSON**, NVD/CVE records, CERT-EU, national CERTs, vendor disclosure feeds, telecom/grid outage authority, FIRST EPSS if needed | P1 |
 | Natural hazards / climate / epidemics | **GDACS and USGS present** | WMO, NOAA/NHC tropical weather, JMA, regional disaster agencies, WHO outbreak bulletins; transport/port and industrial consequence sources | P1 |
 | Macro policy / central banks | Fed, ECB, BOJ, BOK, RBI, BIS, BLS, Chinese NBS/PBoC | Bank of England, Bank of Canada, Swiss National Bank, Brazil and Middle East central banks; national statistical agencies where an event affects that country | P1 |
-| Conflicting accounts and regional media | BBC/CNS world; Guardian, NPR, Arab News, France 24, Al Jazeera, Diplomat **pending PR#133** | Regional independent reporting including Africa, Latin America, South and Southeast Asia, conflict-border communities; cross-language attribution and claims comparison, not one "neutral" outlet replacing all others | P0 |
+| Conflicting accounts and regional media | BBC/CNS world; Guardian, NPR, Arab News, France 24, Al Jazeera and The Diplomat **present** | Regional independent reporting including Africa, Latin America, South and Southeast Asia, conflict-border communities; cross-language attribution and claims comparison, not one "neutral" outlet replacing all others | P0 |
 | State, treaty, elections, domestic policy | BBC politics, EU Council, UN Geneva | Legislature and executive official documents, national election commissions, government gazettes and foreign ministries by region; USA Federal Register/GovInfo | P1 |
 | Finance/trade transmission (market facts) | SEC press, BLS, EIA, central banks, crypto venues | Bond yields, FX, commodities, sector indices and order-flow/funding/OI where accessible; company-specific market moves **as observation, not proof of causality** | P1 |
 | AI/crypto technology | Strong: OpenAI, DeepMind, NVIDIA, research, CoinDesk/Decrypt etc. | Keep multiple official publisher and practitioner perspectives; measure duplicate narratives, not a need to remove valuable independent sources automatically | Maintain |
@@ -58,7 +58,7 @@ A bounded read-only probe using EventGraph's **own** `fetchRss` or `fetchJsonLis
 | NATO guessed `/cps/en/natohq/news.xml` | HTTP 404 | Do not register guessed path |
 | State.gov guessed press RSS | Network failure | Not verified |
 
-**Three independent states** must be recorded separately for any source: (1) valuable candidate, (2) technical endpoint tested, (3) actually **enabled and producing unique useful current material in development**. Even #133's 10 successful network previews have not necessarily been registered in DB.
+**Three independent states** must be recorded separately for any source: (1) valuable candidate, (2) technical endpoint tested, (3) actually **enabled and producing unique useful current material in development**. The 10 feeds merged from #133 passed bounded network previews before merge, but they have not been independently confirmed as enabled, ingesting and healthy in the development DB.
 
 ## Second cn-dev live feed probe — candidate discovery examples
 
