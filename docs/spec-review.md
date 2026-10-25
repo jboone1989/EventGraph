@@ -15,7 +15,7 @@
 
 ## GitHub 强制门禁
 
-现有 `Check / check` 任务中运行 `scripts/ci/check-spec.mjs`，复用 develop 的现有 Ruleset（`check` 为必需状态）；不用第二套 CI。该脚本基于 PR 改动和 base/head SHA 判定：产品实现/配置/测试修改必须引用目标分支**事先存在且未变更的 Spec**；纯文档、Spec 和 CI 治理修改不阻塞。缺失、伪造提交 SHA、Spec 在本实现分支新建、Spec 中途漂移均使 Check 失败。
+现有 `Check / check` 任务中运行 `scripts/ci/check-spec.mjs`，复用 develop 的现有 Ruleset（`check` 为必需状态）；不用第二套 CI。该脚本基于 PR 改动和 base/head SHA 判定：产品实现/配置/测试修改必须引用目标分支**事先存在且未变更的 Spec**；纯文档、Spec、CI 治理修改，以及同仓库的 `develop → main` 正式提升合并不阻塞（此前实现 PR 已在 `develop` 检查）。直接提交到 `main` 的其他实现 PR 不豁免。缺失、伪造提交 SHA、Spec 在本实现分支新建、**与实现代码在同一 PR 修改已批准 Spec**、Spec 中途漂移均使 Check 失败。
 
 脚本证明的是 Spec 版本存在、锁定且在实现前；**无法自动证明用户真的批准、或每一条需求都已实现**。Claude 必须进一步核对 PR 的审批依据和实际行为，不允许用填模板或测试替身冒充验证。
 
