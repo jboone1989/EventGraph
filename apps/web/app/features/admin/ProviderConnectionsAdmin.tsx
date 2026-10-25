@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import type {ProviderManagement,ProviderConnection,RegisteredModel,ConnectionInput,ModelInput,ModelCapability} from '@aihot/contracts/providers';
-import {Button,Input,Select,Textarea,Card} from './ui';
+import {Button,Input,Select,Textarea,Card,Badge,Time} from './ui';
+import {workflowStageStatus} from './workflow-status';
 import {useAdminAction} from './action';
 
 type Problem={detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>};
@@ -31,23 +32,50 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  return <div className="space-y-5">
   {notice&&<p role="status" className="text-sm">{notice}</p>}
   {!editor&&!deleting&&!discovery&&!workflow&&errors}
-  <Card title="工作流模型 · 实际运行路径">
-   <p className="mb-3 text-[12px] text-ink-3">每个阶段独立选模型。连接已添加并不代表已分配；能力测试过期时，模型虽显示启用却不能接任务。切换付费模型将实际产生 API 费用。</p>
-   <div className="divide-y divide-line-soft">{data.workflows.map(w=>{
-    const currentModel=data.models.find(m=>'model:'+m.id===w.model);
-    const vendor=currentModel?data.providers.find(c=>c.id===currentModel.providerId)?.name:null;
-    const usable=!!currentModel?.routing.eligibleCapabilities.length;
-    return <div className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center" key={w.key}>
-     <div className="min-w-0 flex-1"><p className="text-[13px] font-medium">{w.label}</p>
-      <p className="break-all text-[12px] text-ink-3">{vendor?vendor+' · ':''}{currentModel?.modelId??w.model} · {w.source==='admin'?'后台指定':w.source==='env'?'环境变量':'默认配置'}</p>
-      {currentModel&&!usable&&<p className="mt-1 text-[12px] text-hot">不可路由：{currentModel.routing.reasons.join('；')||'缺少当前有效能力测试'}</p>}
-     </div>
-     <div className="flex items-center justify-between gap-3 sm:justify-end">
-      <span className={`text-[12px] ${currentModel?(usable?'text-accent':'text-hot'):'text-ink-3'}`}>{currentModel?(usable?'已验证可用':'需重新测试'):'使用预设'}</span>
-      <Button size="sm" disabled={busy} onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>切换</Button>
-     </div>
-    </div>;
-   })}</div>
+  <Card title="工作流路由 · 当前实际选择" right={<span className="text-xs text-ink-3">绑定 ≠ 可用 · 按阶段独立验证</span>}>
+   <p className="mb-3 text-[12px] leading-relaxed text-ink-3">
+    模型已添加、已启用、允许路由及完成有效能力测试是不同状态。点击“测试”会实际调用该 Provider；
+    选择模型前先看不可路由原因，不会自动替你切换到其他服务商。
+   </p>
+   <div className="mb-3 flex flex-wrap gap-3 text-[12px] text-ink-3">
+    <span>阶段 {data.workflows.length}</span>
+    <span className="text-ok">可用 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='ready').length}</span>
+    <span className="text-hot">需处理 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='problem').length}</span>
+    <span>待核验 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='unverified').length}</span>
+   </div>
+   <div className="divide-y divide-line-soft">
+    {data.workflows.map(w=>{
+     const health=workflowStageStatus(w,data);
+     const model=health.model;
+     const provider=health.provider;
+     return <div key={w.key} className="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-center">
+      <div className="min-w-0 space-y-1">
+       <p className="text-[13.5px] font-semibold text-ink">{w.label}</p>
+       <p className="text-[11.5px] text-ink-4">{w.source==='admin'?'后台绑定':w.source==='env'?'环境变量':'默认配置'} · {w.key}</p>
+      </div>
+      <div className="min-w-0 space-y-1.5">
+       <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={health.kind==='ready'?'ok':health.kind==='problem'?'bad':'warn'}>
+         {health.kind==='ready'?'可路由':health.kind==='problem'?'不可路由':'待核验'}
+        </Badge>
+        <span className="break-all font-mono text-[12px] text-ink-2">{model?.modelId ?? w.model ?? '未分配'}</span>
+       </div>
+       <p className="break-words text-[12px] text-ink-3">{provider?provider.name+' · '+provider.vendor+' · ':''}{health.reason}</p>
+       {health.check&&<p className="text-[11px] text-ink-4">
+        文本测试 {health.check.status} · <Time at={health.check.verifiedAt}/> {health.check.latencyMs!=null?' · '+health.check.latencyMs+' ms':''}
+       </p>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 md:justify-end">
+       {model&&<Button size="sm" disabled={busy||!health.canTest} title={!health.canTest?'此模型未配置文本测试或连接不可用':undefined} onClick={async()=>{
+        const r=await command<{status:string;elapsedMs:number;detail:string}>('POST','/api/admin/provider-models/'+model.id+'/test',{capability:'text'});
+        if(r)setNotice(model.modelId+'：'+r.status+' · '+r.elapsedMs+' ms · '+r.detail);
+       }}>测试</Button>}
+       <Button size="sm" tone={health.kind==='problem'?'primary':'secondary'} disabled={busy}
+        onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>选择模型</Button>
+      </div>
+     </div>;
+    })}
+   </div>
   </Card>
   <Card title="厂商连接" right={<Button disabled={busy} onClick={()=>open({kind:'connection',value:null})}>添加连接</Button>}>
    <div className="space-y-3">{data.providers.length===0&&<p>暂无连接，请先添加厂商的 API 地址和凭据。</p>}
