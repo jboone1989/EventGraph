@@ -1541,6 +1541,241 @@
       "syndicate_fulltext": false
     },
     {
+      "id": "rss-japan-mod-press",
+      "name": "Japan Ministry of Defense · Press Notices",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.mod.go.jp/j/rss/news.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        },
+        "itemUrlPrefixRewrite": {
+          "from": "/j/",
+          "to": "https://www.mod.go.jp/j/"
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "日本",
+        "军事",
+        "国防",
+        "外交",
+        "官方"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-defensenews-global",
+      "name": "Defense News · Military and Defense",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "军事",
+        "国防",
+        "军工",
+        "市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-breaking-defense",
+      "name": "Breaking Defense · Defense Industry",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://breakingdefense.com/feed/",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "军事",
+        "军工",
+        "国防政策",
+        "供应链"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-aljazeera-global",
+      "name": "Al Jazeera · Global News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.aljazeera.com/xml/rss/all.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 120,
+      "tags": [
+        "中东",
+        "军事冲突",
+        "政治",
+        "国际",
+        "突发事件"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-france24-world",
+      "name": "France 24 · World News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.france24.com/en/rss",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "欧洲",
+        "国际",
+        "政治",
+        "军事"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-arabnews-global",
+      "name": "Arab News · Middle East",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.arabnews.com/rss.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 180,
+      "tags": [
+        "中东",
+        "能源",
+        "政治",
+        "供应链"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-the-diplomat-asia",
+      "name": "The Diplomat · Asia-Pacific",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://thediplomat.com/feed/",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "亚洲",
+        "地缘政治",
+        "贸易",
+        "军事"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-war-on-the-rocks",
+      "name": "War on the Rocks · Defense Analysis",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://warontherocks.com/feed/",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "军事",
+        "国家安全",
+        "地缘政治",
+        "分析"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-guardian-world",
+      "name": "The Guardian · World",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.theguardian.com/world/rss",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "国际",
+        "政治",
+        "突发事件"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-npr-news",
+      "name": "NPR · US and World News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://feeds.npr.org/1001/rss.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "美国",
+        "政治",
+        "政策",
+        "国际"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
       "id": "rss-ustr-trade-policy",
       "name": "USTR · Official US Trade Policy",
       "kind": "rss",
