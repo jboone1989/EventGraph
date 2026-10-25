@@ -71,6 +71,26 @@ test("trial: no preview means no source; a passed preview creates a T2 hot_signa
   assert.equal((await startTrial(id, ACTOR)).started, false);
 });
 
+test("startTrial recovers an orphan source created before candidate attachment", async () => {
+  const candidate = cand("orphan");
+  const id = candidate.id;
+  await registerCandidates({ actor: ACTOR, candidates: [candidate] });
+  await markPreviewed(id, { ok: true, count: 2, dated: 2, actor: ACTOR });
+  // Simulate a crash between createSource and candidate UPDATE. createSource will
+  // report the existing matching id as {created:false,duplicate}, not throw.
+  await sql`INSERT INTO sources (id, name, kind, config, tier, participation_mode, interval_minutes, tags)
+    VALUES (${`lc-${id}`}, ${candidate.name}, 'rss',
+      ${sql.json({ ...candidate.config, publishedAfter: new Date().toISOString() })},
+      'T2', 'hot_signal', 60, ${sql.array([...candidate.tags, 'lifecycle-trial'])})`;
+  const recovered = await startTrial(id, ACTOR);
+  assert.equal(recovered.started, true);
+  assert.equal(recovered.sourceId, `lc-${id}`);
+  const [row] = await sql`SELECT status, attached_source_id FROM source_candidates WHERE id = ${id}`;
+  assert.equal(row.status, 'trial');
+  assert.equal(row.attached_source_id, `lc-${id}`);
+  assert.equal((await startTrial(id, ACTOR)).started, false);
+});
+
 const day = (n: number) => new Date(Date.now() - n * 86_400_000);
 
 async function makeTrial(id: string, patch: Record<string, unknown>, evidence: {
