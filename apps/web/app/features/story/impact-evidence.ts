@@ -91,8 +91,8 @@ export function impactLeadsAt(
 }
 
 /** Only show a market observation after BOTH underlying snapshots were observed. */
-export function marketObservationAt(
-  market: { eventAt: string; assets: Array<{ before: { at: string }; after: { at: string } }> } | null,
+export function marketObservationAt<A extends { before: { at: string }; after: { at: string } }>(
+  market: { eventAt: string; assets: A[] } | null,
   asOf: string | null | undefined,
 ) {
   if (!market || !timestamp(asOf)) return null;
