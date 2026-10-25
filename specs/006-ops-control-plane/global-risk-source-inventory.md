@@ -2,6 +2,14 @@
 
 ## Purpose and scope
 
+## Final source-selection decision (2026-10-25; supersedes earlier broad-coverage instructions)
+
+**Do not develop new traditional webpage scraping for this initiative.** No new site-specific HTML/CSS selector rules, sitemap crawling, browser-rendered scraping, or per-publisher crawler adapters, even if a source could theoretically be parsed. Comprehensive coverage is not a goal; skipping difficult sources is acceptable. Keep current legacy collectors unchanged rather than expanding them.
+
+Only onboard **selected, high-value and low-maintenance** feeds through (1) official RSS/Atom, (2) stable official API/JSON, or (3) scoped DeepSeek Search with optional on-demand DeepSeek Fetch. Search/Fetch are third-party retrieval services and do not confer reuse rights or make snippets confirmed evidence. A source that cannot be covered reliably by these methods is **out of scope**. No obligation to test every source in the research inventory and no requirement to reach a numerical source target.
+
+Control DeepSeek request cost independently of model usage; disabled until credentials, a finite budget, domain scope and preview have been verified. Maintain original publisher links and timestamps; avoid syndicated full text. Current six entries are only code-config candidates pending live preview. Remove or disable any feed that is stale or nonfunctional rather than writing bespoke parser fixes.
+
 Cover market-relevant geopolitics, military conflict, international sanctions and trade disruptions, and major natural disasters without turning EventGraph into a second monitoring platform. Preserve the existing AI/crypto/finance editorial focus; add facts/primary-source corroboration and risk discovery. Use current RSS collector, admin preview, seeded source registry and existing grouping pipeline.
 
 ## Implemented on branch (config only, **not** a live-source success claim)
@@ -28,18 +36,9 @@ Initial imports are bounded to two entries per source; each feed starts with an 
 5. Track: `enabled`, `health`, last fetch, discovered 7d, actually analyzed, public article count and grouped fact count. Do not mistake `hot_signal` visibility for indexable news or successful fact grouping.
 6. Stage through the existing develop-to-main release process after checks and dev preview. Do not reprocess old news or bulk reopen historical failed jobs.
 
-## Next candidates — not implemented or verified as collectors
+## Optional research candidates (not a development backlog)
 
-- **OFAC:** official RSS was retired 2025-02-06. Build a `web_list` on official Recent Actions / Press Releases only after preview of real CSS selectors and dates; no dead RSS URL.
-  https://ofac.treasury.gov/recent-actions/20250206
-- **UKMTO:** shipping incident notices in Strait of Hormuz, Red Sea, Arabian Sea; requires site-specific listing/date preview.
-  https://www.ukmto.org/
-- **MARAD:** official US Maritime Advisories, including Red Sea, Black Sea and Strait of Hormuz; requires careful active/cancelled item extraction and effective versus published date.
-  https://www.maritime.dot.gov/msci-advisories
-- **Military primary publishers:** CENTCOM, Taiwan defense department, mainland China defense department, NATO, US DSCA arms-sales RSS. Each needs official fresh article list/feed and parser preview.
-- **Trade and sanctions:** China MOFCOM, European targeted sanctions and trade releases; prioritize first-party updates and avoid scraping opaque homepages.
-- **Other alert systems:** CISA actively exploited vulnerabilities, major outages and regional alerts where tied to key infrastructure or market transmission.
-- **Newswire corroboration:** Reuters/AP/AFP or licensed aggregators only where terms and feeds permit; don't mirror paywalled full text.
+Sources such as **OFAC, UKMTO, MARAD, CENTCOM, NATO, China MOFCOM and defense releases, Taiwan defense releases, UN Security Council, US DSCA, CISA, ReliefWeb, Reuters/AP/AFP** matter when they are relevant to an event. Try an official machine-readable feed/API or site-restricted DeepSeek discovery; otherwise omit them. **Do not** convert this inventory into web-list, HTML scraping or browser automation tasks. Rights-restricted sources require appropriate permission regardless of retrieval route.
 
 ## Event reasoning guardrails
 
