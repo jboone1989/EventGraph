@@ -64,7 +64,7 @@ export const EN_SOURCE_NAMES: Record<string, string> = {
 };
 
 export function englishSourceName(name: string, originalUrl?: string | null): string {
-  const normalized = name.replace(/\\s+/g, " ").trim();
+  const normalized = name.replace(/\s+/g, " ").trim();
   if (!hasHan(normalized)) return normalized || "Source";
   const known = EN_SOURCE_NAMES[normalized];
   if (known) return known;
@@ -74,7 +74,7 @@ export function englishSourceName(name: string, originalUrl?: string | null): st
     try {
       const parsed = new URL(originalUrl);
       if (parsed.protocol === "https:" || parsed.protocol === "http:") {
-        const host = parsed.hostname.replace(/^www\\./, "");
+        const host = parsed.hostname.replace(/^www\./, "");
         if (host && !hasHan(host)) return host;
       }
     } catch { /* Do not derive a name from malformed source URLs. */ }
