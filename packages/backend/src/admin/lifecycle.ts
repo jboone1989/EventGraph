@@ -347,8 +347,23 @@ export async function startTrial(id: string, actor: string, db: Db = sql): Promi
       interval_minutes: 60, tags: [...new Set([...c.tags, "lifecycle-trial"])],
       site_fulltext: false, syndicate_fulltext: false,
     }, actor);
-    if (!created.created) return { started: false, reason: `duplicate-source:${created.duplicate.id}` };
-    attachedId = created.source.id;
+    if (!created.created) {
+      if (created.duplicate.id !== sourceId) {
+        return { started: false, reason: `duplicate-source:${created.duplicate.id}` };
+      }
+      // createSource checks identity before id: a crash after creation but before
+      // candidate attachment returns {created:false}, not an exception.
+      const [orphan] = await db<{ id: string; kind: string; config: Record<string, unknown>;
+        tier: string; participation_mode: string }[]>`
+        SELECT id, kind, config, tier, participation_mode FROM sources WHERE id = ${sourceId}`;
+      if (!orphan || orphan.tier !== "T2" || orphan.participation_mode !== "hot_signal" ||
+          sourceIdentity(orphan.kind, orphan.config) !== c.identity) {
+        return { started: false, reason: "orphan-source-mismatch" };
+      }
+      attachedId = orphan.id;
+    } else {
+      attachedId = created.source.id;
+    }
   } catch (error) {
     // An interrupted run might have created the source but failed before
     // attaching it to its candidate. A retry is safe if the existing source
