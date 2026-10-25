@@ -81,7 +81,7 @@ function ArchiveGroup({ g, kind, current, initiallyOpen }: {
       {(kind !== "daily" || open) && <ul className="space-y-0.5 pb-3">
         {entries.map((e) => {
           const on = e.key === current;
-          const title = lang === "en" ? englishText(e.title) ?? `${KIND_LABEL_EN[kind]} · ${e.key}` : e.title ?? `${KIND_LABEL[kind]} ${e.key}`;
+          const title = lang === "en" ? englishText(e.titleEn) ?? englishText(e.title) ?? `${KIND_LABEL_EN[kind]} · ${e.key}` : e.title ?? `${KIND_LABEL[kind]} ${e.key}`;
           return (
             <li key={e.key}>
               <IntentLink
