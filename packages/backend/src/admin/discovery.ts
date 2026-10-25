@@ -22,7 +22,7 @@ export const DISCOVERY_SETTINGS_KEY = "sourceLifecycle.discovery";
 export const DISCOVERY_DEFAULTS = { enabled: false, maxGaps: 6, maxCandidates: 8 } as const;
 
 /** A feed-looking endpoint (rss/atom/xml) is offered as an rss candidate and verified by its preview. */
-const FEED_PATH = /(?:^|\/)(feed|rss|rss\.xml|feed\.xml|atom|atom\.xml|index\.xml)(\/|$|\?)/i;
+const FEED_PATH = /(?:^|\/)(?:feed|feeds|rss|atom)(?:\/|$|\?|\.)|\.(?:rss|atom|xml|rdf)(?:$|\?)/i;
 /** Governments, armies and multilateral bodies: their pages are primary sources and publish rarely. */
 const OFFICIAL_HOST = /(?:^|\.)(gov|mil|int|edu)(?:\.[a-z]{2})?$/;
 /** Hosts anyone can publish on: a search hit there is never a publisher lead. */
