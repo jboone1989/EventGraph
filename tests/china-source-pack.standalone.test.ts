@@ -31,3 +31,29 @@ test("nine Chinese-source configs use existing RSS collector with safe bounded i
  const keys = additions.map(id => String(byId.get(id)!.config.feedUrl));
  assert.equal(new Set(keys).size, additions.length, "no duplicated feeds");
 });
+
+test("PBOC/CSRC/MIIT official sources reuse supported collectors, normalized links and actual publication dates", () => {
+ const byId = new Map(sources.map(x => [x.id, x]));
+ const official = ["rss-cn-pboc-official", "rss-cn-csrc-official", "rss-cn-miit-official"];
+ for (const id of official) {
+   const source = byId.get(id);
+   assert.ok(source, id);
+   assert.equal(source.tier, "T1", id);
+   assert.equal(source.participation_mode, "editorial", id);
+   assert.equal(source.site_fulltext, false, id);
+   assert.equal(source.syndicate_fulltext, false, id);
+   assert.doesNotThrow(() => assertSupportedConfig(source.kind as "rss" | "web_list", source.config));
+   assert.equal((source.config._aihot as {initialBackfillLimit:number}).initialBackfillLimit, 2);
+   assert.equal(typeof source.config.publishedAfter, "string");
+ }
+ const pbc = byId.get("rss-cn-pboc-official")!;
+ assert.equal(pbc.kind, "rss");
+ assert.deepEqual(pbc.config.itemUrlPrefixRewrite, { from:"www.pbc.gov.cn/",to:"https://www.pbc.gov.cn/" });
+ assert.equal((pbc.config.detail as {titleAuthoritative:boolean}).titleAuthoritative, true);
+ for(const id of official.slice(1)){
+   const src=byId.get(id)!;
+   assert.equal(src.kind,"web_list");
+   assert.equal((src.config.detail as {publishedAtAuthoritative:boolean}).publishedAtAuthoritative,true);
+   assert.ok((src.config.allowUrlPrefixes as string[]).length);
+ }
+});
