@@ -58,7 +58,13 @@ function Masthead({ report, index, quiet, lang }: { report: ReportDetail; index:
             <span className="sr-only">
               {en ? `${KIND_LABEL_EN[report.kind]} · ${dateLine(report.kind, report.key, lang)}` : `${label} · ${dateLine(report.kind, report.key)}`}
             </span>
-            <Nameplate which={report.kind} className="block h-[44px] w-auto @[520px]:h-[58px] @[880px]:h-[74px] @[1040px]:h-[84px]" />
+            {en ? (
+              <span aria-hidden="true" className="block max-w-full font-serif text-[32px] font-bold leading-[1.05] tracking-[-0.04em] text-ink @[520px]:text-[50px] @[880px]:text-[67px] @[1040px]:text-[76px]">
+                {KIND_LABEL_EN[report.kind]}
+              </span>
+            ) : (
+              <Nameplate which={report.kind} className="block h-[44px] w-auto @[520px]:h-[58px] @[880px]:h-[74px] @[1040px]:h-[84px]" />
+            )}
           </h1>
           <p className="mt-3 text-[11.5px] tracking-[0.36em] text-ink-4 @[880px]:mt-4 @[880px]:text-[12.5px]">{REPORTS.imprint}</p>
         </div>
