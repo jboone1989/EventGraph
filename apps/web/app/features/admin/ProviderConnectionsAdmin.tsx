@@ -39,12 +39,13 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
    // Existing authenticated API performs the capability probe and saves the result.
    // These are independent requests, not a new testing worker or an invented shared timeout.
    const results=await Promise.all(testableModels.map(async m=>{
+    let failure='网络请求失败';
     const response=await run<{status:string;elapsedMs:number;detail:string}>(
       'POST','/api/admin/provider-models/'+m.id+'/test',
       {capability:m.probeSpec!.capability},
-      {label:'batch-probe-'+m.id,revalidate:false});
+      {label:'batch-probe-'+m.id,revalidate:false,quietError:true,onError:p=>{failure=p.detail}});
     return {model:m.modelId,status:response?.status??'failed',
-      detail:response?response.elapsedMs+' ms · '+response.detail:'测试失败，请查看具体请求或审计记录'};
+      detail:response?response.elapsedMs+' ms · '+response.detail:failure};
    }));
    setBatchResults(results);
    setNotice('已完成 '+results.length+' 项独立能力测试；逐项结果见下方。');
