@@ -1,0 +1,44 @@
+# VM13: development Web preview only; reads VM09 public API through a GET-only forwarder.
+# cn-dev remains a development workstation and runs Playwright, not EventGraph services.
+name: eventgraph-vm13-preview
+services:
+  api-forward:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - ./deploy/vm13-readonly.Caddyfile:/etc/caddy/Caddyfile:ro
+    mem_limit: 128m
+    cpus: 0.20
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/health"]
+      interval: 20s
+      timeout: 8s
+      retries: 4
+      start_period: 15s
+
+  web:
+    image: ${EVENTGRAPH_APP_IMAGE:?Immutable GHCR image digest required}
+    command: ["node", "apps/web/server.ts"]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.50
+    environment:
+      NODE_ENV: production
+      WEB_HOST: "0.0.0.0"
+      WEB_PORT: "3000"
+      API_BASE_URL: "http://api-forward:8080"
+      SITE_URL: "http://43.133.185.154"
+      TRUST_PROXY: "false"
+      AIHOT_RELEASE: "${EVENTGRAPH_PREVIEW_RELEASE:?Source commit required}"
+    ports:
+      - "80:3000"
+    depends_on:
+      api-forward:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
