@@ -75,6 +75,14 @@ case "$previous" in
     docker image inspect "$previous" >/dev/null
     ;;
 esac
+# Development only: apply the new image's existing online migrations before
+# replacing API/worker/Web. CI already rejects unsafe migration patterns.
+# On failure, leave the previously running app image intact.
+echo "Applying any pending cn-dev schema migrations from the tested image"
+if ! compose run --rm --no-deps --pull never --entrypoint node setup scripts/migrate.ts; then
+  echo "Development schema migration failed; app containers unchanged" >&2
+  exit 1
+fi
 # Read-only migration parity check: abort before updating any service if the
 # new image expects schema files the target database has not applied.
 if ! compose run --rm --no-deps --pull never --entrypoint node setup --input-type=module -e '
