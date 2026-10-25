@@ -52,6 +52,8 @@ const windowBucket = () => Math.floor(Date.now() / (15 * 60_000));
  */
 export async function deepseekSearch(query: string, opts: { purpose: string; subject: string; count?: number }): Promise<DeepSeekResult[]> {
   await requireWebBudget();
+  // Credential failure is local, before paidRequest claims a receipt: no false "unknown" result.
+  const key = apiKey();
   const count = Math.min(Math.max(Math.trunc(opts.count ?? 10), 1), 50);
   const receipt = await paidRequest(
     { service: "deepseek_web", model: null, purpose: opts.purpose, subject: opts.subject,
@@ -59,7 +61,7 @@ export async function deepseekSearch(query: string, opts: { purpose: string; sub
     async () => {
       const res = await guardedFetch(`${apiBase()}/tools/search`, {
         method: "POST",
-        headers: { authorization: `Bearer ${apiKey()}`, "content-type": "application/json", accept: "application/json" },
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({ query, count }),
         timeoutMs: 30_000,
       });
@@ -100,6 +102,7 @@ export async function deepseekFetchSuppressedToday(url: string): Promise<boolean
  */
 export async function deepseekFetch(url: string, opts: { purpose: string; subject: string }): Promise<{ title: string; content: string }> {
   await requireWebBudget();
+  const key = apiKey();
   const day = new Date().toISOString().slice(0, 10);
   const receipt = await paidRequest(
     { service: "deepseek_web", model: null, purpose: opts.purpose, subject: opts.subject,
@@ -107,7 +110,7 @@ export async function deepseekFetch(url: string, opts: { purpose: string; subjec
     async () => {
       const res = await guardedFetch(`${apiBase()}/tools/fetch`, {
         method: "POST",
-        headers: { authorization: `Bearer ${apiKey()}`, "content-type": "application/json", accept: "application/json" },
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({ url }),
         timeoutMs: 60_000,
         maxBytes: 6 * 1024 * 1024,
