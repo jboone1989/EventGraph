@@ -59,7 +59,11 @@ export EVENTGRAPH_APP_IMAGE="$EVENTGRAPH_IMAGE"
 compose config --quiet
 printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null
 unset GHCR_TOKEN
-docker pull "$EVENTGRAPH_IMAGE"
+if docker image inspect "$EVENTGRAPH_IMAGE" >/dev/null 2>&1; then
+  echo "Immutable image already cached locally; no registry transfer needed"
+else
+  docker pull "$EVENTGRAPH_IMAGE"
+fi
 # Keep a usable rollback image even after host-level image pruning.
 case "$previous" in
   ghcr.io/*)

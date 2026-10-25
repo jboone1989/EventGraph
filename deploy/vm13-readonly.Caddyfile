@@ -1,0 +1,11 @@
+:8080 {
+  @write {
+    not method GET HEAD
+  }
+  respond @write "Development preview is read-only" 405
+  reverse_proxy https://www.livingruntime.com {
+    header_up Host www.livingruntime.com
+    header_up -Authorization
+    header_up -Cookie
+  }
+}
