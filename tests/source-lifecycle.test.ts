@@ -175,6 +175,48 @@ test("autoPromote on: pure duplicates are demoted and disabled, officials are pr
   assert.equal(officialSrc.enabled, true);
 });
 
+
+test("a corrected preflight failure can be registered and recovered", async () => {
+  const invalid = cand("fixed", {
+    config: { feedUrl: `https://fixed.example.org/feed-${T}.xml`,
+      _aihot: { initialBackfillLimit: 2 } },
+  });
+  const [failed] = await registerCandidates({ actor: ACTOR, candidates: [invalid] });
+  assert.equal(failed.status, "preflight_failed");
+  const [corrected] = await registerCandidates({ actor: ACTOR, candidates: [cand("fixed", {
+    config: { ...invalid.config as object, publishedAfter: new Date().toISOString() },
+  })] });
+  assert.equal(corrected.status, "discovered");
+  assert.deepEqual(corrected.preflightReasons, []);
+  const [row] = await sql`SELECT status FROM source_candidates WHERE id = ${corrected.id}`;
+  assert.equal(row.status, "discovered");
+});
+
+test("a final promotion decision survives a later evaluation", async () => {
+  const cid = `winner-${T}`;
+  const [before] = await sql`SELECT status, last_decision FROM source_candidates WHERE id = ${cid}`;
+  assert.equal(before.status, "promoted");
+  assert.equal(before.last_decision, "promote");
+  await evaluateCandidate(cid, { actor: ACTOR });
+  const [after] = await sql`SELECT status, last_decision FROM source_candidates WHERE id = ${cid}`;
+  assert.equal(after.status, "promoted");
+  assert.equal(after.last_decision, "promote");
+});
+
+test("trial assessment waits for seven *complete* days", async () => {
+  const cid = await makeTrial("six-and-half", {}, {
+    items: [[1, true], [2, true]],
+    runs: [[1, "ok"], [2, "ok"]],
+    startDays: 10,
+  });
+  await sql`UPDATE source_candidates SET trial_started_at = now() - interval '6 days 18 hours' WHERE id = ${cid}`;
+  const result = await evaluateCandidate(cid, { actor: ACTOR });
+  assert.equal(result?.decision.action, "keep");
+  assert.ok(result?.decision.reasons.includes("trial-too-young"));
+  const [row] = await sql`SELECT status FROM source_candidates WHERE id = ${cid}`;
+  assert.equal(row.status, "trial");
+});
+
 after(async () => {
   await stopBoss();
   await closeDb();
