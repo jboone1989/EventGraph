@@ -22,11 +22,11 @@ Configure in the existing source admin as `kind: json_list`, `tier: T2` (a disco
 
 Use an appropriate interval such as 120 minutes, not a sub-minute polling loop. An explicit prefix is mandatory; cross-domain matches are excluded. Use *publication dates from the result*; an undated match is not automatically fresh. Adjust domain scope and query based on real results, not solely HTTP status.
 
-For occasional detail fetches, add `detail: { "maxFetches": 1, "fetchVia": "deepseek" }`. Prefer not to fetch every search hit. Date extraction is not inferred from page prose: when necessary configure an explicit `publishedAtRegex` based on the source's published date. If this approach is unreliable for a publisher, omit it rather than adding a bespoke scraper.
+For occasional detail fetches, add `detail: { "maxFetches": 1, "fetchVia": "deepseek" }`. Prefer not to fetch every search hit. Date extraction is not inferred from page prose: when necessary configure an explicit `publishedAtRegex` based on the source's published date. Do not use HTML-only detail selectors (`summarySelector`, `titleSelector`, `publishedAtSelector`) with DeepSeek Markdown Fetch; the config validator rejects them. When no configured field can use a detail result, Fetch is skipped without charge. If this approach is unreliable for a publisher, omit it rather than adding a bespoke scraper.
 
 ## Credential, cost and rollout
 
-- The DeepSeek API key is read on the backend from `DEEPSEEK_API_KEY` in the collector credential group or the environment. Never put a key into a source config or logs.
+- The DeepSeek API key and optional base URL are read from the existing **models credential group** (`DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`) or the environment; no duplicate collectors credential file is needed. Never put a key into a source config or logs.
 - **Before use, the operator must create a separate `budgets` record for service `deepseek_web` via existing admin budget management**, with explicit finite positive per-minute, per-hour and per-day request limits. This is separate from the model's `deepseek` budget. With a missing, zero or disabled budget the adapter intentionally stops without making a request.
 - Official price at time of integration: **CNY 5 per 1,000 successful Search calls** and **CNY 5 per 1,000 successful Fetch calls** (estimate CNY 0.005/call). Charges depend on the provider's actual invoice. Cached receipt answers are reused within the request key's window.
 - Start with one narrow source using admin preview; verify source URLs, freshness, dedup, receipt status and cost before enabling periodic collection. No historical replay or full-site crawling.
