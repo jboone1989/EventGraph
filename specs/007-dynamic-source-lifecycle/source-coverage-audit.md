@@ -10,14 +10,14 @@
 ## 全局结论（先读这个）
 
 1. **事件链一手（制裁/出口管制/贸易政策）是最大缺口**：develop 上只有 EU Council 一个相关源。OFAC 无 RSS，USTR 有官方 RSS（今日抽查 200）。美国方向应走 Federal Register API（OFAC/BIS/USTR 文件全在，官方 JSON，免费），这是比抓网页可靠得多的一手管道。
-2. **军事冲突"双方视角"完全没有**：develop 上没有俄罗斯/中东/冲突当事方官方或媒体源；PR#133 补了 6 家英文国防媒体（二手）与日本防卫省（一手）。第三方（联合国、红十字、ReliefWeb）只有 UN Geneva 一家。
+2. **军事冲突"双方视角"完全没有**：develop 上没有俄罗斯/中东/冲突当事方官方或媒体源；PR#133 补了 3 家英文国防媒体（二手）和若干地区媒体，并增加日本防卫省（一手）。第三方（联合国、红十字、ReliefWeb）只有 UN Geneva 一家。
 3. **海运物流为零**：任何信源都没有。UKMTO 无确认 RSS；可用起点是 gCaptain（二手，今日 200）与 MARAD/NMFTC 公告（待测）。
 4. **网络（CISA 等）全部被 Akamai 式 bot 拦截（403）**：当前采集器无法直接用；NVD API 2.0 可行但要免费 key（要授权）。
 5. **能源只有 EIA**（美国一手数据）。IEA RSS 403、Ember 403；OPEC/JODI 待测或要 key。
 6. **灾害已及格**：GDACS + USGS（均为一手 hot_signal）。缺人道灾情文本面，可补 UN OCHA/ReliefWeb。
 7. **金融市场与央行覆盖最好**（Fed/SEC/BIS/ECB/BOJ/RBI/BOK/HKMA/FCA/St.Louis/BLS×4），但仍缺市场异动即时面（交易所公告/市场数据 API）。
-8. **中国官方已有 PBoC/CSRC/MIIT/NBS**（注：PR#133 分支上的 3 条在 develop 已以 `rss-cn-{pboc,csrc,miit}-official` 存在，勿重复接入）；缺 MOFCOM（贸易战事件链必需）、NDRC、外交部。
-9. **多国媒体**：develop 有 BBC×2；PR#133 待合并 8 家（Guardian/NPR/France24/AlJazeera/ArabNews/NPR/Diplomat + 3 家国防媒体，共 10 条）。Reuters/AP/彭博/Bloomberg 均无免费 RSS（要授权/无法用）。
+8. **中国官方已有 PBoC/CSRC/MIIT/NBS**（PBoC/CSRC/MIIT 已在 develop 配置中；PR#133 新增的是 10 条国防与国际地区 RSS，并未新增这三个机构）；缺 MOFCOM（贸易战事件链必需）、NDRC、外交部。
+9. **多国媒体**：develop 有 BBC×2；PR#133 待合并 10 条（Guardian、NPR、France24、AlJazeera、ArabNews、Diplomat、3 家国防媒体、日本防卫省）。Reuters/AP/彭博/Bloomberg 均无免费 RSS（要授权/无法用）。
 
 ## 分领域明细
 
@@ -37,7 +37,7 @@
 | UK OFSI（HMT）制裁清单/OFSI 新闻 | `https://www.gov.uk/government/news.atom?departments[]=hm-treasury` | 一手 Atom | **待测** | gov.uk 全站标准 atom 接口，历史上稳定 |
 | EU 制裁官方公报（OJ 制裁条例） | `https://eur-lex.europa.eu/rss-feeds/oj-content.html` 系列条目 | 一手 RSS | **待测** | EUR-Lex 有官方 RSS 列表页，需选定条例类目 |
 | 日本 METI 安全保障贸易管制 | `https://www.meti.go.jp/english/press/` | 一手 | **待测**（METI 有英文 press 列表；RSS 需确认） | DeepSeek Search 可定域发现 |
-| 中国 MOFCOM 公告（出口管制/反制） | `http://english.mofcom.gov.cn/news/` | 一手 | **无法用（仅网页）**：无官方 RSS，需 web_list 或 DeepSeek | 事件链（贸易反制）必需，优先想办法 |
+| 中国 MOFCOM 公告（出口管制/反制） | `http://english.mofcom.gov.cn/news/` | 一手 | **无法用（仅网页）**：无官方 RSS，优先 DeepSeek 定向发现，不新增传统网页抓取 | 事件链（贸易反制）必需，优先想办法 |
 
 ### 2. 贸易政策与关税
 
@@ -52,7 +52,7 @@
 | 美国防部 press releases | `https://www.defense.gov/news/press-releases/` | 一手 | **无法用**（今日 403 bot-block；DVIDS 镜像 `https://www.dvidshub.net/rss/issue/…` 今日 200 但条目结构待核，**待测**） |
 | 美中央司令部 CENTCOM 新闻 | `https://www.centcom.mil/MEDIA/PRESS-RELEASES/` | 一手 | **待测**（specs/006 已列为候选，未验证） |
 | 日本防卫省（press） | PR#133 `rss-japan-mod-press` | 一手 | **待合并（PR#133 已预演验证）** |
-| 台湾国防部（每日记者会/共机动态） | `https://www.mnd.gov.tw/`（English/PublishTable） | 一手 | **待测**（无确认 RSS，页面表格需 web_list；台海事件高价值） |
+| 台湾国防部（每日记者会/共机动态） | `https://www.mnd.gov.tw/`（English/PublishTable） | 一手 | **待测**（无确认 RSS，不开发页面表格抓取，优先 DeepSeek；台海事件高价值） |
 | 俄国防部（冲突方一手） | 无官方英文 RSS | 一手 | **无法用**；用 TASS 作"冲突方官方口径"代理（见领域 4 表） |
 | 中国国防部 | `http://eng.mod.gov.cn/` | 一手 | **待测**（网页列表） |
 
@@ -115,13 +115,13 @@
 
 ### 10. 多国媒体（英文区域矩阵）
 
-现状：BBC×2（已注册）；PR#133 待合并 10 条含 Guardian/NPR/France24/AlJazeera/ArabNews/NPR/Diplomat/3 国防媒体。
+现状：BBC×2（已注册）；PR#133 待合并 10 条，含 Guardian、NPR、France24、AlJazeera、ArabNews、Diplomat、3 家国防媒体与日本防卫省。
 缺口（按「同一事件多区域视角」要求）：半岛之外的南亚（Yonhap `https://en.yna.co.kr/RSS/news.xml` 今日 200，**待测**）；东南亚（Straits Times 待测）；德语区（DW `rss.dw.com` 本机超时，**待测**）；日本 NHK World（今日超时，**待测**）；俄区（见 TASS）；Reuters/AP/Bloomberg/FT（**要授权/无法用**，无免费合法 feed，不抓）。
 
 ### 11. 中国官方与中文媒体
 
-现状（develop 已注册）：PBoC/CSRC/MIIT/NBS×2（一手）+ 中新网×4/量子位/IT之家/PANews×2（二手）。**注意 PR#133 分支的 pboc/csrc/miit 3 条与 develop 已有 ID 重复（#121 已改用 develop ID），合并时勿双开。**
-缺口：MOFCOM（贸易事件链必需，无法用/需 web_list）、NDRC（待测）、外交部（`https://www.mfa.gov.cn/eng/`，待测）、国家能源局（待测）、财新/第一财经/金十（待测，部分要订阅）。Binance/OKX 行情已有原生 API 路线（specs/006），不假造 RSS。
+现状（develop 已注册）：PBoC/CSRC/MIIT/NBS×2（一手）+ 中新网×4/量子位/IT之家/PANews×2（二手）。**PBoC/CSRC/MIIT 已存在于 develop；PR#133 并不包含这三个机构的重复配置。**
+缺口：MOFCOM（贸易事件链必需，无原生接口时仅用 DeepSeek 定向发现）、NDRC（待测）、外交部（`https://www.mfa.gov.cn/eng/`，待测）、国家能源局（待测）、财新/第一财经/金十（待测，部分要订阅）。Binance/OKX 行情已有原生 API 路线（specs/006），不假造 RSS。
 
 ### 12. 企业供应链与 SEC 披露
 
