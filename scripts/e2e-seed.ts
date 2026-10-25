@@ -71,6 +71,21 @@ await sql`INSERT INTO story_english (story_id, inputs_hash, outcome, title, dige
           FROM stories st WHERE st.id = ${storyId}
           ON CONFLICT (story_id) DO UPDATE SET inputs_hash = EXCLUDED.inputs_hash, outcome = 'written', title = EXCLUDED.title, digest = EXCLUDED.digest`;
 
+// A published daily makes archive navigation a required, non-vacuous E2E assertion.
+const day = new Date();
+const issueKey = day.toLocaleDateString("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+const issueContent = {
+  leadItemId: ids[0],
+  highlights: [ids[0]],
+  overview: "端到端测试日报。",
+  overviewEn: "A sample daily report for end-to-end navigation checks.",
+  sections: [{ label: "AI", items: [{ itemId: ids[0], title: ARTICLES[0]!.zh }] }],
+  metrics: { totalStories: 1, sourcesCount: 1, firstPartyEvents: 1 },
+};
+await sql`INSERT INTO reports (kind, key, window_start, window_end, content, generated_at, origin)
+          VALUES ('daily', ${issueKey}, ${new Date(day.getTime() - 86400000)}, ${day}, ${sql.json(issueContent)}, ${day}, 'manual')
+          ON CONFLICT (kind, key) DO NOTHING`;
+
 const hot = await computeHotRanking();
 console.log(`seeded ${ids.length} articles and 1 event; hot board has ${hot.entries} entr${hot.entries === 1 ? "y" : "ies"}`);
 await stopBoss();
