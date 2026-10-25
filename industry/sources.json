@@ -1539,53 +1539,6 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-gdelt-conflict-discovery",
-      "name": "GDELT · Conflict Discovery",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://api.gdeltproject.org/api/v2/doc/doc?query=(%22airstrike%22%20OR%20%22missile%20attack%22%20OR%20%22military%20conflict%22%20OR%20%22naval%20attack%22%20OR%20%22ceasefire%22)&mode=artlist&maxrecords=75&timespan=1d&sort=datedesc&format=rss",
-        "publishedAfter": "2026-10-01T00:00:00.000Z",
-        "_aihot": {
-          "initialBackfillLimit": 2
-        }
-      },
-      "tier": "T2",
-      "participation_mode": "hot_signal",
-      "interval_minutes": 120,
-      "tags": [
-        "政治",
-        "军事",
-        "冲突",
-        "发现"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
-    },
-    {
-      "id": "rss-gdelt-trade-risk-discovery",
-      "name": "GDELT · Trade and Supply Risk Discovery",
-      "kind": "rss",
-      "config": {
-        "feedUrl": "https://api.gdeltproject.org/api/v2/doc/doc?query=(%22export%20controls%22%20OR%20%22new%20tariffs%22%20OR%20%22economic%20sanctions%22%20OR%20%22shipping%20disruption%22%20OR%20%22oil%20supply%20disruption%22)&mode=artlist&maxrecords=75&timespan=1d&sort=datedesc&format=rss",
-        "publishedAfter": "2026-10-01T00:00:00.000Z",
-        "_aihot": {
-          "initialBackfillLimit": 2
-        }
-      },
-      "tier": "T2",
-      "participation_mode": "hot_signal",
-      "interval_minutes": 120,
-      "tags": [
-        "政治",
-        "制裁",
-        "贸易",
-        "供应链",
-        "发现"
-      ],
-      "site_fulltext": false,
-      "syndicate_fulltext": false
     }
   ]
 }
