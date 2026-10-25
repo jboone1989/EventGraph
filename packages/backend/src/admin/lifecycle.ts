@@ -229,6 +229,41 @@ export async function registerCandidates(input: { candidates: unknown[]; actor: 
       out.push({ id: c.id, status: "preflight_failed", preflightReasons: ["duplicate-source"], duplicateOf: { id: dup.id, name: dup.name } });
       continue;
     }
+    // Corrected validation must be able to revive a previously failed
+    // candidate. Failed records remain auditable; terminal retired/promoted
+    // records are never overwritten automatically.
+    const revive = async (field: "id" | "identity"): Promise<{ id: string } | undefined> => {
+      const [r] = field === "id"
+        ? await db<{ id: string }[]>`
+          UPDATE source_candidates SET identity = ${pre.identity}, status = 'discovered',
+            origin_channel = ${c.origin.channel}, origin_note = ${c.origin.note ?? null},
+            kind = ${c.kind}, name = ${c.name}, config = ${db.json(c.config as never)},
+            tags = ${c.tags}, rationale = ${c.rationale},
+            official_low_frequency = ${c.officialLowFrequency},
+            expires_at = ${c.expiresAt ? new Date(c.expiresAt) : null},
+            preflight = ${db.json({ ok: true, reasons: [] } as never)}, updated_at = now()
+          WHERE id = ${c.id} AND status = 'preflight_failed'
+            AND NOT EXISTS(SELECT 1 FROM source_candidates v WHERE v.identity = ${pre.identity} AND v.id <> ${c.id})
+          RETURNING id`
+        : await db<{ id: string }[]>`
+          UPDATE source_candidates SET status = 'discovered',
+            origin_channel = ${c.origin.channel}, origin_note = ${c.origin.note ?? null},
+            kind = ${c.kind}, name = ${c.name}, config = ${db.json(c.config as never)},
+            tags = ${c.tags}, rationale = ${c.rationale},
+            official_low_frequency = ${c.officialLowFrequency},
+            expires_at = ${c.expiresAt ? new Date(c.expiresAt) : null},
+            preflight = ${db.json({ ok: true, reasons: [] } as never)}, updated_at = now()
+          WHERE identity = ${pre.identity} AND status = 'preflight_failed'
+          RETURNING id`;
+      return r;
+    };
+    const revived = await revive("id") ?? await revive("identity");
+    if (revived) {
+      await audit(input.actor, "sourceLifecycle.revalidate", `candidate:${revived.id}`, null,
+        { status: "preflight_failed" }, { status: "discovered", identity: pre.identity }, { db });
+      out.push({ id: revived.id, status: "discovered", preflightReasons: [] });
+      continue;
+    }
     const [row] = await db<{ id: string }[]>`
       INSERT INTO source_candidates (id, identity, status, origin_channel, origin_note, kind, name, config, tags, rationale,
           official_low_frequency, expires_at, preflight)
