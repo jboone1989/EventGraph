@@ -1146,6 +1146,209 @@
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-chinanews-finance",
+      "name": "中国新闻网 · 财经",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.chinanews.com.cn/rss/finance.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "财经",
+        "经济",
+        "媒体"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-chinanews-china",
+      "name": "中国新闻网 · 时政",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.chinanews.com.cn/rss/china.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "政策",
+        "政治",
+        "媒体"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-chinanews-world",
+      "name": "中国新闻网 · 国际",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.chinanews.com.cn/rss/world.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "国际",
+        "政治",
+        "地缘事件"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-chinanews-gba",
+      "name": "中国新闻网 · 粤港澳大湾区",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.chinanews.com.cn/rss/dwq.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "大湾区",
+        "港澳",
+        "产业"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-qbitai-ai",
+      "name": "量子位 · AI 产业与研究",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.qbitai.com/feed",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "AI",
+        "产业",
+        "研究"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-ithome-tech",
+      "name": "IT之家 · 科技动态",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.ithome.com/rss/",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "科技",
+        "AI",
+        "信号"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-hkma-press",
+      "name": "香港金融管理局 · 新闻稿",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.hkma.gov.hk/chi/other-information/rss/rss_press-release.xml",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "香港",
+        "货币政策",
+        "金融监管",
+        "官方"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-panews-articles",
+      "name": "PANews · 中文文章",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.panewslab.com/rss.xml?lang=zh&type=NORMAL",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "加密货币",
+        "Web3",
+        "媒体"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-panews-flashes",
+      "name": "PANews · 中文快讯",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.panewslab.com/rss.xml?lang=zh&type=NEWS",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 120,
+      "tags": [
+        "中国",
+        "加密货币",
+        "市场快讯",
+        "信号"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
     }
   ]
 }
