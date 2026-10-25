@@ -4,9 +4,11 @@ import { guardedFetch } from "../lib/http-fetch.ts";
 import { fetchListing } from "./listing-fetch.ts";
 import { identityKeyForUrl, normalizeUrl } from "../lib/url.ts";
 import { collapseWhitespace, stripTags } from "../lib/text.ts";
-import { readable, type ExtractedBody } from "../content/extract.ts";
+import { readable, MIN_BODY_CHARS, type ExtractedBody } from "../content/extract.ts";
 import { sanitizeBody } from "../content/sanitize.ts";
+import { markdownBody } from "../content/markdown.ts";
 import { jinaRead } from "../providers/jina.ts";
+import { deepseekFetch } from "../providers/deepseek-web.ts";
 import { articleUtcOffset, parseLooseDate } from "./dates.ts";
 import { FetchError, type Candidate, type SourceRow } from "./types.ts";
 
@@ -358,13 +360,47 @@ export interface DetailNeed {
 }
 
 /**
+ * A page read through the paid DeepSeek Fetch API as Markdown, for sites a direct fetch cannot read
+ * (paywalls aside: DeepSeek's policy refuses those with 403/404, and those are not retried). Date and
+ * title come from the operator's regexes over that Markdown, the title from the API when no regex is
+ * set; the Markdown is the body when it is long enough. Each read is on demand, inside the source's
+ * detail budget (detail.maxFetches), never a sweep over all results.
+ */
+async function deepseekDetail(url: string, source: SourceRow, need: DetailNeed): Promise<{ publishedAt: Date | null; title: string | null; summary: string | null; body: ExtractedBody | null }> {
+  const d = source.config.detail ?? {};
+  // No billable fetch if the requested field cannot be extracted from Markdown.
+  if (!(need.date && d.publishedAtRegex) && !(need.title && d.titleRegex) && !need.body) {
+    return { publishedAt: null, title: null, summary: null, body: null };
+  }
+  const offset = articleUtcOffset(source.config);
+  const page = await deepseekFetch(url, { purpose: "source_detail", subject: `source:${source.id}` });
+  let publishedAt: Date | null = null;
+  if (need.date && d.publishedAtRegex) {
+    publishedAt = parseLooseDate(new RegExp(d.publishedAtRegex).exec(page.content)?.[1], offset);
+  }
+  let title: string | null = null;
+  if (need.title) {
+    title = d.titleRegex ? (collapseWhitespace(new RegExp(d.titleRegex, "m").exec(page.content)?.[1] ?? "") || null) : (collapseWhitespace(page.title) || null);
+  }
+  let body: ExtractedBody | null = null;
+  if (need.body) {
+    const html = markdownBody(page.content, url);
+    const text = stripTags(html);
+    if (text.length >= MIN_BODY_CHARS) body = { html, text, images: [], via: "deepseek" };
+  }
+  return { publishedAt, title, summary: null, body };
+}
+
+/**
  * What a listing's detail pages add (config.detail): the date, title and summary its rules find. Each
  * rule reads the rendering it was written for. For a listing read through Jina, regexes match Jina's
  * text ("Published Time: …", "# Heading"), so that paid rendering is bought only when such a rule is
- * needed; selectors and page metadata read the page's own HTML.
+ * needed; selectors and page metadata read the page's own HTML. `detail.fetchVia: "deepseek"` reads
+ * the page through the DeepSeek Fetch API instead of a direct request.
  */
 export async function fetchDetail(url: string, source: SourceRow, need: DetailNeed): Promise<{ publishedAt: Date | null; title: string | null; summary: string | null; body: ExtractedBody | null }> {
   const d = source.config.detail ?? {};
+  if (d.fetchVia === "deepseek") return deepseekDetail(url, source, need);
   const offset = articleUtcOffset(source.config);
   const jinaListing = String(source.config.url ?? "").startsWith(JINA_PREFIX);
   const dateInJina = need.date && jinaListing && !!d.publishedAtRegex;

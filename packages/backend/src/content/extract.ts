@@ -20,12 +20,12 @@ export interface ExtractedBody {
   html: string;
   text: string;
   images: Array<{ kind: "image"; url: string; width: number | null; height: number | null }>;
-  via: "readability" | "jina";
+  via: "readability" | "jina" | "deepseek";
   /** The page's publication metadata; neither modification time nor dates mentioned in its prose. */
   publishedAt?: Date | null;
 }
 
-const MIN_BODY_CHARS = 200;
+export const MIN_BODY_CHARS = 200;
 
 /** Restore only completed React streaming boundaries, without evaluating any page script. */
 function settleStreamedContent(document: ReturnType<typeof parseHTML>["document"]) {
