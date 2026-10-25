@@ -27,6 +27,14 @@ const OFFICIAL_HOST = /(?:^|\.)(gov|mil|int|edu)(?:\.[a-z]{2})?$/;
 /** Hosts anyone can publish on: a search hit there is never a publisher lead. */
 const BLOG_HOSTS = new Set(["medium.com", "substack.com", "wordpress.com", "blogspot.com", "tumblr.com", "zhihu.com", "weibo.com", "x.com", "twitter.com", "youtube.com", "reddit.com"]);
 /** Only items newer than this are admitted at trial: enough for a dated preview, no history replay. */
+/** DeepSeek Search hard limit; preserve the site: scope when trimming long events. */
+export const MAX_DEEPSEEK_QUERY = 128;
+const withinSearchLimit = (subject: string, suffix: string): string => {
+  const reserve = Array.from(suffix).length;
+  const prefix = Array.from(subject.trim()).slice(0, Math.max(0, MAX_DEEPSEEK_QUERY - reserve)).join("");
+  return `${prefix.trimEnd()}${suffix}`;
+};
+
 const TRIAL_WINDOW_DAYS = 7;
 /** A breaking-event source is wanted while the event is; two weeks, then it retires unless it proved itself. */
 const EVENT_HORIZON_DAYS = 14;
@@ -100,10 +108,11 @@ export function leadFromResult(s: GapSubject, r: DeepSeekResult, now: Date): Dis
   // A publisher lead is either the feed endpoint itself or an official domain we scope a search to;
   // everything else (media homepages, aggregators, blog spam) is not a source we can verify.
   if (!feed && !official) return null;
+  const siteQuery = withinSearchLimit(s.subject, ` site:${domain}`);
   const publishedAfter = new Date(now.getTime() - TRIAL_WINDOW_DAYS * 86_400_000).toISOString();
   const provenance = `publisher=${domain} authority=${r.authority} via=${r.url}`;
   const base = {
-    id: idFrom(feed ? r.url : `${s.subject} site:${domain}`),
+    id: idFrom(feed ? r.url : siteQuery),
     origin: {
       channel: (s.event ? "breaking_event" : "deepseek") as "breaking_event" | "deepseek",
       note: `${s.event ? "active event" : "coverage gap"}: ${s.subject}; ${provenance}`,
@@ -121,7 +130,7 @@ export function leadFromResult(s: GapSubject, r: DeepSeekResult, now: Date): Dis
       ...base, kind: "json_list",
       config: {
         mode: "deepseek_search",
-        deepseekQuery: `${s.subject} site:${domain}`.slice(0, 300),
+        deepseekQuery: siteQuery,
         deepseekCount: 5,
         allowUrlPrefixes: [`${u.origin.replace(/\/$/, "")}/`],
         publishedAfter,
@@ -147,7 +156,7 @@ export async function discoverViaDeepSeek(
     // One failing subject must not discard successful searches for other regions or topics.
     let results: DeepSeekResult[];
     try {
-      results = await search(`${s.subject} official newsroom press release RSS feed`, {
+      results = await search(withinSearchLimit(s.subject, " official newsroom press release RSS feed"), {
         count: 8, purpose: "source_discovery", subject: s.event ? `event:${s.subject}` : `gap:${s.subject}`,
       });
     } catch (error) {
