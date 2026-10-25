@@ -8,7 +8,7 @@ import { z } from "zod";
 import { audit } from "../audit.ts";
 // admin is the top layer: it may import the collectors below, and this lifecycle is an operator
 // control-plane concern (it decides which sources exist), not a collection concern.
-import { createSource, findDuplicateSource, sourceIdentity, updateSource } from "./sources.ts";
+import { createSource, findDuplicateSource, previewSource, sourceIdentity, updateSource } from "./sources.ts";
 import { sql, type Db } from "../db.ts";
 import { budgetMessage } from "../providers/receipts.ts";
 import { unsupportedConfig } from "../sources/config-keys.ts";
@@ -98,6 +98,7 @@ export function preflightCandidate(c: DiscoveredSource): PreflightResult {
   if (typeof backfill !== "number" || !Number.isInteger(backfill) || backfill < 1 || backfill > BACKFILL_LIMIT_MAX) reasons.push("backfill-limit");
   if (!utcInstant(c.config.publishedAfter)) reasons.push("published-after");
   if (c.origin.channel === "breaking_event" && !c.expiresAt) reasons.push("expires-at");
+  if (c.officialLowFrequency && c.origin.channel !== "operator") reasons.push("official-requires-operator-verification");
   return { ok: reasons.length === 0, reasons, identity };
 }
 
@@ -261,6 +262,25 @@ export async function markPreviewed(id: string, preview: { ok: boolean; count: n
   return true;
 }
 
+/** Run the existing collector preview before accepting a newly discovered source.
+ * No article writes; paid DeepSeek previews still obey receipts and finite budgets.
+ */
+export async function previewCandidate(id: string, actor: string, db: Db = sql): Promise<{ passed: boolean; count: number; dated: number; error?: string }> {
+  const [row] = await db<CandidateRow[]>`SELECT * FROM source_candidates WHERE id = ${id}`;
+  if (!row || row.status !== "discovered") return { passed: false, count: 0, dated: 0, error: "candidate-not-discovered" };
+  if (row.manual_hold) return { passed: false, count: 0, dated: 0, error: "manual-hold" };
+  try {
+    const sample = await previewSource({ id: row.id, kind: row.kind, config: row.config } as never);
+    const dated = sample.items.filter(item => item.publishedAt !== null).length;
+    const passed = sample.count > 0 && dated > 0;
+    await markPreviewed(id, { ok: passed, count: sample.count, dated, actor, db });
+    return { passed, count: sample.count, dated };
+  } catch (error) {
+    await markPreviewed(id, { ok: false, count: 0, dated: 0, actor, db });
+    return { passed: false, count: 0, dated: 0, error: String(error).slice(0, 220) };
+  }
+}
+
 /** Whether auto actions may run at all; off unless the settings key says otherwise. */
 export async function lifecycleEnabled(db: Db = sql): Promise<boolean> {
   const [row] = await db<{ value: { enabled?: boolean } }[]>`SELECT value FROM settings WHERE key = 'sourceLifecycle.autoPromote'`;
@@ -276,8 +296,12 @@ export async function startTrial(id: string, actor: string, db: Db = sql): Promi
   if (!c) return { started: false, reason: "unknown-candidate" };
   if (c.status !== "discovered") return { started: false, reason: `status:${c.status}` };
   if (!c.preflight.previewPassed) return { started: false, reason: "preview-not-passed" };
+  if (c.manual_hold) return { started: false, reason: "manual-hold" };
   const created = await createSource({
-    id: `lc-${id}`, name: c.name, kind: c.kind, config: c.config, tier: "T2", participation_mode: "hot_signal",
+    id: `lc-${id}`, name: c.name, kind: c.kind,
+    // Future-only trial: never bulk-ingest previously published items.
+    config: { ...c.config, publishedAfter: new Date(Math.max(Date.parse(String(c.config.publishedAfter)), Date.now())).toISOString() },
+    tier: "T2", participation_mode: "hot_signal",
     interval_minutes: 60, tags: [...new Set([...c.tags, "lifecycle-trial"])], site_fulltext: false, syndicate_fulltext: false,
   }, actor);
   if (!created.created) return { started: false, reason: `duplicate-source:${created.duplicate.id}` };
