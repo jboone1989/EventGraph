@@ -6,14 +6,15 @@
 - [x] 编码：模型路由暂时不可用恢复、付费健康模型 fallback、自动重测窗口。
 - [x] 添加最少官方亚洲一手信源 BOJ/RBI/BOK/日本 FSA 及小回填量。
 - [x] 编码：运行页增加文章级问题指标、后台导航按运营流程重排。
-- [ ] 验证 GitHub CI + 既有 Claude PR review，无门禁失败后合入 develop。
+- [x] PR #116：Check/Docker/E2E + Claude 复审成功，已合并到 develop（提交 `5a89d501`）。**开发部署与模型实际恢复另需证据。**
 - [ ] 验证开发镜像确实部署、真 API 与后台实际显示；1440/390、亮暗视觉审查。
 - [ ] 小额测试开发环境**智谱直连**并在已通过后通过现有有审计的模型分配 API 把必要阶段选到付费模型；核对 MODEL_PROVIDER_REGISTRY_ENABLED/MODEL_CALLS_ENABLED 状态，不暴露密钥。
 - [ ] 在开发环境对失败组执行受控 requeue，并测算每小时吞吐与调用成本；不要直接全量跑生产。
 - [ ] 试跑 BOJ/RBI/BOK/日本 FSA 数据源从 Feed→文章→事件的真实处理；开发环境启用后确认成功，生产按发布流程再启用。
 - [x] 2026-10-25 对遗漏的中国媒体/监管/科技/加密信息源做 Search First 和现有 collector 真机预览，记录在 `china-and-asia-source-inventory.md`。
-- [x] 新增九条开发机已可解析的中文/中国相关 RSS 配置（中国新闻网四频道、量子位、IT之家、HKMA、PANews 文章与快讯）及静态配置测试；**不是已在数据库运行**。
-- [ ] 本批中国信源 merge 后执行开发环境增量 `seed.ts`，逐条 source preview/fetch_runs/articles/events 检查，验证已有亚洲四条和中国九条都真实入库、更新且无重复。
+- [x] PR #117：新增九条中国相关 RSS 配置与测试；Check/Docker/E2E/Claude 通过并合并 develop（提交 `e12892f2`）。九源也已用现有开发后台 API 实际入库并拉取，具体数据见 `china-and-asia-source-inventory.md`。
+- [x] **中国九源**已从开发环境现有后台 `createSource` + `fetchNow` 入库并采集（九源 health=ok，318 篇原始文章）；**首次回填 2 条只限制首轮，第二次会导入更多新近条目**。
+- [ ] **未完成**：九源文章的付费 GLM 处理与事件证据关联（首次快照 0 关联）、原日韩/印度四源的真实开发/生产入库核验、生产发布。开发库的 225 个 `publications.visibility=public` 含大量 `hot_signal`，并非 225 篇索引新闻。
 - [ ] 中国人民银行、证监会、发改委、工信部、商务部、财政部、沪深交易所、港交所/香港证监会：通过官方 URL 的现有 web_list/RSS/JSON 接入并验证；先保证 CPI/利率/交易制度/政策等一级公告可用。
 - [ ] 财新、第一财经、界面、金十、财联社、证券时报、新华社、人民网、经济观察网、36氪；中文 AI 企业公告/机器之心/新智元/智东西；加密 BlockBeats/Odaily/金色财经：逐个找稳定有权限的 RSS/API 或现有 web_list，不用假 URL/无授权全文镜像。
 - [ ] 别忘记三个商业目标：搜索新闻页流量、新闻到事件深读、长期关注复访。新来源要测对事件证据和站内阅读的有效贡献，不以 RSS 条数充当增长。
