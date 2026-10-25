@@ -14,7 +14,7 @@ function Author({ quoted }: { quoted: Pick<Quoted, "authorName" | "handle"> }) {
     <>
       <span className="text-ink-4">{t("引用", "Quoted")}</span>
       <span className="font-semibold text-ink-2">{en && hasHan(quoted.authorName ?? "") ? `@${quoted.handle}` : quoted.authorName || `@${quoted.handle}`}</span>
-      {quoted.authorName && quoted.handle && <span className="text-ink-4">@{quoted.handle}</span>}
+      {quoted.authorName && quoted.handle && !(en && hasHan(quoted.authorName)) && <span className="text-ink-4">@{quoted.handle}</span>}
     </>
   );
 }
