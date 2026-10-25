@@ -1364,6 +1364,11 @@
           "from": "www.pbc.gov.cn/",
           "to": "https://www.pbc.gov.cn/"
         },
+        "detail": {
+          "maxFetches": 6,
+          "titleRegex": "<title[^>]*>\\s*([^<]+)\\s*</title>",
+          "titleAuthoritative": true
+        },
         "_aihot": {
           "initialBackfillLimit": 2
         }

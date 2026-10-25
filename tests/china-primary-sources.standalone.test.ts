@@ -33,6 +33,11 @@ test("PBoC RSS keeps only its own links and rewrites them to https", () => {
   assert.equal(config.feedUrl, "https://www.pbc.gov.cn/goutongjiaoliu/113456/2986536/index.html");
   assert.equal(config.publishedAtUtcOffset, "+08:00");
   assert.deepEqual(config.allowUrlPrefixes, ["www.pbc.gov.cn/"]);
+  // The official RSS may truncate titles; fetchDetail restores the article's full heading.
+  assert.equal(config.detail.maxFetches, 6);
+  assert.equal(config.detail.titleAuthoritative, true);
+  const fullTitle = "潘功胜在2026年金融工作会议上的讲话";
+  assert.equal(new RegExp(config.detail.titleRegex).exec(`<title>${fullTitle}</title>`)?.[1], fullTitle);
   const rw = config.itemUrlPrefixRewrite;
   const url = "www.pbc.gov.cn/goutongjiaoliu/113456/4012345/4012346/index.html";
   assert.equal(rw.to + url.slice(rw.from.length), "https://" + url);
