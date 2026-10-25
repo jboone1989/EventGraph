@@ -1,7 +1,7 @@
-import { Link, useLoaderData } from "react-router";
+import { data, Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/knowledge-entity";
 import { beijingDate } from "@aihot/contracts/time";
-import { cachedPage, apiGet } from "../lib/api.server";
+import { cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { localized, pageMeta, siteUrl } from "../lib/seo";
 import { PhoneBar } from "../components/shell/PhoneBar";
@@ -22,13 +22,16 @@ interface EntityProfile extends KnowledgeGraph {
   reports?: Array<{ id: string; title: string; originalTitle: string | null; source: { name: string; firstParty: boolean }; publishedAt: string }>;
   stories?: Array<{ publicId: string; title: string; englishTitle: string | null; reportCount: number; latestAt: string }>;
 }
-const UNAVAILABLE: EntityProfile = { entity: null, entities: 0, edges: [], status: "unavailable" };
 const hasHan = (s: string) => /[㐀-鿿]/u.test(s);
 const day = (iso: string | null) => (iso ? beijingDate(iso) : null);
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const profile = await apiGet<EntityProfile>(`/api/site/knowledge/entities/${encodeURIComponent(params.key)}`, { signal: request.signal, timeoutMs: 4_000 })
-    .catch(() => UNAVAILABLE);
+  // A temporary knowledge API failure must not turn an already indexed entity into a 200/noindex page.
+  const profile = await loadOr404<EntityProfile>(`/api/site/knowledge/entities/${encodeURIComponent(params.key)}`, { signal: request.signal, timeoutMs: 4_000 });
+  // The knowledge backend reports Graphiti outages inside a 200 JSON response.
+  // Do not cache that as a successful empty, noindex page for search crawlers.
+  if (profile.status === "unavailable" || profile.status === "disabled")
+    throw data({ message: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "300" } });
   return cachedPage(120, { profile });
 }
 
@@ -36,8 +39,10 @@ export function meta({ loaderData, params, location }: Route.MetaArgs) {
   const p = loaderData?.profile;
   const name = p?.entity?.name;
   const path = `/knowledge/entity/${encodeURIComponent(params.key)}`;
-  // An entity with sourced relations is a page worth finding; an empty or unknown one is not.
-  if (!name || !p.edges.length) return pageMeta({ title: `${name ?? "实体档案"} · 知识网络`, path, noindex: true });
+  // An entity with sourced relations is a page worth finding, unless its "name" is a raw source URL.
+  // Source URLs can appear as Graphiti entity labels; preserve the useful page without indexing that label.
+  if (!name || !p.edges.length || /^https?:\/\//i.test(name.trim()))
+    return pageMeta({ title: `${name ?? "实体档案"} · 知识网络`, path, noindex: true });
   const current = p.edges.filter((e) => !e.invalidAt).length;
   const summary = p.entity?.summary ?? null;
   return localized(pageMeta({

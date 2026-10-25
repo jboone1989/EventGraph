@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLoaderData, useSearchParams } from "react-router";
 import type { Route } from "./+types/explore";
-import type { ExploreGalleryResponse, HotResponse, StoryDetail } from "@aihot/contracts/site";
+import type { ExploreGalleryResponse, HotResponse, StoryDetail, StoryRoute } from "@aihot/contracts/site";
+import type { StoryMarket } from "../features/story/EventPrices";
 import { SITE } from "@aihot/site";
 import { apiGet, cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
@@ -31,13 +32,17 @@ export async function loader({ request }: Route.LoaderArgs) {
     const prefix = url.pathname.startsWith("/en") ? "/en" : "";
     const story = await loadOr404<StoryDetail>(`/api/site/stories/${encodeURIComponent(storyId)}`,
       { signal: request.signal, merged: (mergedId) => `${prefix}/explore?story=${mergedId}` });
-    return cachedPage(30, { story, hot: null, gallery: null });
+    const [route, market] = await Promise.all([
+      apiGet<StoryRoute>("/api/site/stories/" + encodeURIComponent(story.publicId) + "/route", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null),
+      apiGet<StoryMarket>("/api/market/stories/" + encodeURIComponent(story.publicId), { signal: request.signal, timeoutMs: 1_500 }).catch(() => null),
+    ]);
+    return cachedPage(30, { story, hot: null, gallery: null, route, market });
   }
   const [hot, gallery] = await Promise.all([
     apiGet<HotResponse>("/api/site/hot", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null),
     apiGet<ExploreGalleryResponse>("/api/site/explore/gallery", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null),
   ]);
-  return cachedPage(60, { story: null, hot, gallery });
+  return cachedPage(60, { story: null, hot, gallery, route: null, market: null });
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
@@ -124,7 +129,7 @@ function EntityTimeBar({ clock, asOf, onTime }: {
 }
 
 export default function ExplorePage() {
-  const { story, hot, gallery } = useLoaderData<typeof loader>();
+  const { story, hot, gallery, route, market } = useLoaderData<typeof loader>();
   const t = useText();
   const lang = useUiLanguage();
   const prefix = lang === "en" ? "/en" : "";
@@ -184,7 +189,7 @@ export default function ExplorePage() {
         {t("打开事件页 ↗","Open the event page ↗")}
       </Link>
     </div>
-    <EventExplorer key={story.publicId} story={story} initialTime={initialTime ?? undefined} onTimeState={syncTime} standalone />
+    <EventExplorer key={story.publicId} story={story} route={route} market={market} initialTime={initialTime ?? undefined} onTimeState={syncTime} standalone />
   </div>;
   const entries = hot?.entries ?? [];
   return <div className="pb-8">

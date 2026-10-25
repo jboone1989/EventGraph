@@ -31,6 +31,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
   // Failure group to put back into processing ("" = every failure of the last 30 days).
   const [requeue, setRequeue] = useState<string | null>(null);
+  const [requeueLimit, setRequeueLimit] = useState("5");
 
   // Live view: refresh every 20 s while visible.
   useEffect(() => {
@@ -46,6 +47,26 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
 
   return (
     <AdminPage title="运行" subtitle={<>任务、队列、信源延迟与需要人工核对的回执和投递。每 20 秒自动刷新 · 最近检查 {bj(r.checkedAt)}</>}>
+      <Card className="mb-5" title="新新闻处理链路 · 最近 24 小时"
+        right={<span className="text-[11px]">不含历史回填和仅作热度信号的内容 · 最近发现 <Time at={r.live24h.newestAt} /></span>}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+          <Stat label="新发现" value={num(r.live24h.discovered)} hint="进入编辑处理的新闻" />
+          <Stat label="已分析" value={num(r.live24h.analyzed)} tone="ok" hint="含已完成归组" />
+          <Stat label="已归组" value={num(r.live24h.grouped)} tone="ok" hint="事件身份确认完成" />
+          <Stat label="等待处理" value={num(r.live24h.waiting)} tone={r.live24h.stalled ? "warn" : undefined} hint="含正常等待重试" />
+          <Stat label="超过 15 分钟" value={num(r.live24h.stalled)} tone={r.live24h.stalled ? "bad" : "ok"} hint="等待处理中的子集" />
+          <Stat label="处理失败" value={num(r.live24h.failed)} tone={r.live24h.failed ? "bad" : "ok"} hint="仅最近发现的新闻" />
+        </div>
+        <div className="mt-3 flex flex-col justify-between gap-2 text-[12px] text-ink-3 sm:flex-row sm:items-center">
+          <span>正常预筛过滤 {num(r.live24h.filtered)} 条，不算故障；各处理阶段会重叠，不能把数字相加。</span>
+          <span className="flex flex-wrap gap-3">
+            <Link className="text-accent hover:underline" to="/admin/models">检查模型路由</Link>
+            <Link className="text-accent hover:underline" to="/admin/sources">检查采集信源</Link>
+            <Link className="text-accent hover:underline" to="/admin/content">查看新文章</Link>
+          </span>
+        </div>
+      </Card>
+
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat
           label="worker"
@@ -57,6 +78,17 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         <Stat label="回执结果未知" value={num(r.receipts.issues.filter((x) => x.status === "unknown").length)} tone={r.receipts.issues.some((x) => x.status === "unknown") ? "bad" : "ok"} hint={`7 天 ${num(Object.values(r.receipts.counts).reduce((a, b) => a + b, 0))} 次付费请求`} />
         <Stat label="投递待核实" value={num(r.deliveries.filter((d) => d.status === "unknown").length)} tone={r.deliveries.some((d) => d.status === "unknown") ? "bad" : "ok"} />
       </div>
+
+      <Card className="mb-5" title="内容处理 · 实际文章状态"
+        right={<Link className="text-[12px] text-accent hover:underline" to="/admin/models">检查工作流模型与能力测试 →</Link>}>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Stat label="等待首次处理" value={num(r.articleProcessing.waiting)} hint="new，尚未计入失败" />
+          <Stat label="等待恢复" value={num(r.articleProcessing.retrying)} tone={r.articleProcessing.retrying ? "warn" : undefined} hint="已尝试，等待重试时间" />
+          <Stat label="处理失败" value={num(r.articleProcessing.failed)} tone={r.articleProcessing.failed ? "bad" : undefined} hint="需要检查原因或重新入队" />
+          <Stat label="模型不可路由" value={num(r.articleProcessing.unavailableModel)} tone={r.articleProcessing.unavailableModel ? "bad" : undefined} hint="包含在等待或失败中，非额外总量" />
+        </div>
+        <p className="mt-3 text-[12px] text-ink-4">预筛过滤的 {num(r.articleProcessing.filtered)} 条属于正常内容筛选，不计作积压。模型连接已添加也不代表工作流已选择或通过能力测试。</p>
+      </Card>
 
       {r.grouping.waiting > 0 && (
         <Card className="mb-5" title="等待去重确认的精选" right={<span>{num(r.grouping.waiting)} 条等待 · {num(r.grouping.needsAttention)} 条超过 10 分钟</span>} pad={false} scrollable>
@@ -176,7 +208,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           right={
             <span className="flex items-center gap-3">
               {r.retrying.count > 0 && <span>等待重试 {num(r.retrying.count)} 条 · 下一次 <Time at={r.retrying.next} /></span>}
-              {r.errors.length > 0 && <Button size="sm" onClick={() => setRequeue("")}>全部重新处理</Button>}
+              {r.errors.length > 0 && <Button size="sm" onClick={() => setRequeue("")}>分批重新处理</Button>}
             </span>
           }
           pad={false} scrollable
@@ -265,13 +297,22 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       </ReasonDialog>
       <ReasonDialog
         open={requeue !== null}
-        title={requeue ? "重新处理这一类失败" : "重新处理全部失败"}
-        description="这些文章会重新进入处理队列（正文、判断、发布）。模型调用会重新计费；供应商拒绝的内容可能再次失败。"
+        title={requeue ? "分批恢复这一类失败" : "分批恢复失败文章"}
+        description="默认每次只恢复 5 条，避免在模型能力恢复后一次性重新发出几百次付费调用。需要时可明确选择全部。" 
         confirmLabel="重新处理"
         busy={pending === "requeue"}
         onClose={() => setRequeue(null)}
-        onSubmit={async (reason) => (await run("POST", "/api/admin/processing/requeue", { group: requeue || null, reason }, { label: "requeue", success: "已重新排队" })) !== null}
-      />
+        onSubmit={async (reason) => (await run("POST", "/api/admin/processing/requeue", { group: requeue || null, reason, ...(requeueLimit === "all" ? {} : { limit: Number(requeueLimit) }) }, { label: "requeue", success: "已重新排队" })) !== null}
+      >
+        <Field label="本批恢复数量">
+          <Select value={requeueLimit} onChange={(e) => setRequeueLimit(e.target.value)}>
+            <option value="2">2 条（先验证）</option>
+            <option value="5">5 条（默认）</option>
+            <option value="20">20 条</option>
+            <option value="all">全部（可能产生较多模型费用）</option>
+          </Select>
+        </Field>
+      </ReasonDialog>
       <ReasonDialog
         open={!!delivery}
         title="处理投递"

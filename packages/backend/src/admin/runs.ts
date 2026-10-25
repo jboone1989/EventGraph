@@ -13,6 +13,24 @@ const STALE_HEARTBEAT_MS = 3 * 60_000;
 
 type Runs = BeforeJson<AdminRuns>;
 
+/** New-news operational funnel; backfills and signal-only records cannot obscure current reliability. */
+export async function livePipelineOverview(): Promise<Runs["live24h"]> {
+  const [row] = await sql<Runs["live24h"][]>`
+    SELECT count(*)::int AS discovered,
+      count(*) FILTER (WHERE a.processing_state = 'analyzed')::int AS analyzed,
+      count(*) FILTER (WHERE a.grouping_status = 'complete')::int AS grouped,
+      count(*) FILTER (WHERE a.processing_state = 'new')::int AS waiting,
+      count(*) FILTER (WHERE a.processing_state = 'failed')::int AS failed,
+      count(*) FILTER (WHERE a.processing_state = 'blocked')::int AS filtered,
+      count(*) FILTER (WHERE a.processing_state = 'new'
+        AND a.discovered_at < now() - interval '15 minutes')::int AS stalled,
+      max(a.discovered_at) AS "newestAt"
+    FROM articles a JOIN sources s ON s.id = a.source_id
+    WHERE a.discovered_at > now() - interval '24 hours'
+      AND NOT a.backfill AND s.participation_mode = 'editorial'`;
+  return row ?? { discovered: 0, analyzed: 0, grouped: 0, waiting: 0, failed: 0, filtered: 0, stalled: 0, newestAt: null };
+}
+
 export async function runsOverview(): Promise<Runs> {
   const currentJobs = (await Promise.all(serverModules().flatMap((m) => m.admin?.currentJobs ? [m.admin.currentJobs()] : []))).flat();
   const [
@@ -20,6 +38,8 @@ export async function runsOverview(): Promise<Runs> {
     latest,
     timeline,
     queues,
+    [articleProcessing],
+    live24h,
     failedJobs,
     lagging,
     receipts,
@@ -52,6 +72,15 @@ export async function runsOverview(): Promise<Runs> {
     sql<Runs["queues"]>`
       SELECT name, state, count(*)::int AS n, min(created_on) AS oldest FROM pgboss.job
       WHERE state IN ('created', 'retry', 'active') GROUP BY 1, 2 ORDER BY 1, 2`,
+    sql<Runs["articleProcessing"][]> `
+      SELECT count(*) FILTER (WHERE processing_state='new' AND processing_attempts=0)::int AS waiting,
+        count(*) FILTER (WHERE processing_state='new' AND processing_attempts>0)::int AS retrying,
+        count(*) FILTER (WHERE processing_state='failed')::int AS failed,
+        count(*) FILTER (WHERE processing_state='blocked')::int AS filtered,
+        count(*) FILTER (WHERE processing_state IN ('new','failed') AND
+          (processing_error ILIKE '%No eligible configured model%' OR processing_error ILIKE '%Model cannot route%'))::int AS "unavailableModel"
+      FROM articles`,
+    livePipelineOverview(),
     sql<Runs["failedJobs"]>`
       SELECT name, count(*)::int AS failed, max(completed_on) AS last, left((array_agg(output::text ORDER BY completed_on DESC))[1], 300) AS last_output
       FROM pgboss.job WHERE state = 'failed' AND completed_on > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC, 1`,
@@ -93,6 +122,8 @@ export async function runsOverview(): Promise<Runs> {
     jobs: latest,
     timeline,
     queues,
+    articleProcessing: articleProcessing ?? {waiting:0,retrying:0,failed:0,filtered:0,unavailableModel:0},
+    live24h,
     failedJobs,
     grouping: groupingOverview(grouping, now),
     lagging,
@@ -106,9 +137,9 @@ export async function runsOverview(): Promise<Runs> {
 }
 
 /** Failed articles (one failure group, or all of the last 30 days) back into processing. */
-export async function requeueFailedArticles(input: { group: string | null; reason: string }, actor: string) {
+export async function requeueFailedArticles(input: { group: string | null; reason: string; limit?: number }, actor: string) {
   if (!input.reason?.trim()) throw new Error("reason is required");
-  const result = await requeueFailed(input.group);
+  const result = await requeueFailed(input.group, input.limit ?? null);
   await audit(actor, "processing.requeue", input.group ? `failure:${input.group.slice(0, 80)}` : "failure:all", input.reason, null, result);
   return result;
 }

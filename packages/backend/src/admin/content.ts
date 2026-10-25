@@ -215,15 +215,15 @@ export async function setSeoIndexed(id: string, input: { indexed: boolean; reaso
 
 /**
  * The daily curation queue (specs/002-adsense-readiness FR-008): model-selected public reports from the
- * last few days that no editor has decided on yet — with curatedIndexOnly these stay out of the index
- * until an editor marks them here.
+ * last few days the editor hasn't endorsed yet. These public pages are already eligible
+ * for Google indexing; endorsement is optional and still recorded for editorial operations.
  */
 export async function curatePending(days = 3): Promise<BeforeJson<AdminContentRow>[]> {
   return sql<BeforeJson<AdminContentRow>[]>`
     SELECT a.id, coalesce(p.title, a.title) AS title, a.url, s.name AS source, a.discovered_at, a.processing_state,
            p.visibility, p.selected, p.score
     FROM articles a JOIN sources s ON s.id = a.source_id JOIN publications p ON p.article_id = a.id
-    WHERE p.selected AND p.visibility = 'public' AND NOT p.indexable AND p.seo_excluded_at IS NULL
+    WHERE p.selected AND p.visibility = 'public' AND p.seo_indexed_at IS NULL AND p.seo_excluded_at IS NULL
       AND p.timeline_at > now() - (${Math.min(Math.max(days, 1), 14)} || ' days')::interval
     ORDER BY p.timeline_at DESC LIMIT 200`;
 }
@@ -236,10 +236,10 @@ export async function setSeoIndexedBatch(input: { ids: string[]; indexed: boolea
     const changed: string[] = [];
     for (const id of ids) {
       await tx`SELECT id FROM articles WHERE id = ${id} FOR UPDATE`;
-      const [before] = await tx<{ indexable: boolean }[]>`SELECT indexable FROM publications WHERE article_id = ${id}`;
-      if (!before || before.indexable === parsed.indexed) continue;
+      const [before] = await tx<{ seo_indexed_at: Date | null; seo_excluded_at: Date | null }[]>`SELECT seo_indexed_at, seo_excluded_at FROM publications WHERE article_id = ${id}`;
+      if (!before || (parsed.indexed ? before.seo_indexed_at !== null && before.seo_excluded_at === null : before.seo_excluded_at !== null)) continue;
       await setSeoDecision(tx, id, parsed.indexed);
-      await audit(actor, "content.seo", `content:${id}`, parsed.reason, { indexed: before.indexable }, { indexed: parsed.indexed }, { db: tx });
+      await audit(actor, "content.seo", `content:${id}`, parsed.reason, { editorApproved: before.seo_indexed_at !== null, editorExcluded: before.seo_excluded_at !== null }, { indexed: parsed.indexed }, { db: tx });
       changed.push(id);
     }
     return { changed };

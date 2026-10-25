@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   check:
+    if: github.event_name != 'push' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -71,6 +72,8 @@ jobs:
       - name: Release script validation
         run: |
           bash -n scripts/deploy-prod.sh
+          sh -n scripts/ci/deploy-vm13-preview.sh
+          sh -n scripts/ci/smoke-vm13-browser.sh
           python3 -m py_compile scripts/production-env-check.py
           python3 - <<'PY'
           import importlib.util
@@ -121,6 +124,7 @@ jobs:
         run: tail -n 60 "$RUNNER_TEMP/api.log" "$RUNNER_TEMP/web.log" 2>/dev/null || true
 
   e2e:
+    if: github.event_name != 'push' || github.ref_name == 'develop'
     # Its own job, so a red backend test does not hide what the browser checks find.
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -217,7 +221,7 @@ jobs:
   # CI success on develop/main publishes one immutable image; only develop auto-deploys.
   publish:
     needs: [check, e2e]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref_name == 'develop'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -356,49 +360,163 @@ jobs:
             docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" down -v
           fi
 
-  deploy_development:
-    needs: publish
-    concurrency:
-      group: eventgraph-dev-rollout
-      cancel-in-progress: false
+  # Main consumes exactly the already tested develop image digest, never rebuilds.
+  promote:
+    if: github.event_name == 'push' && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: read
+      checks: read
+    outputs:
+      image_ref: ${{ steps.pin.outputs.image_ref }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate pinned develop release
+        id: pin
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source .github/production-image.env
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$IMAGE_REF" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]]
+          git fetch origin "$SOURCE_SHA"
+          # Source equivalence except automation and host-only deployment files.
+          git diff --quiet "$SOURCE_SHA" HEAD -- . \
+            ':(exclude).github/**' ':(exclude)scripts/deploy-prod.sh' \
+            ':(exclude)docs/ci-cd.md' ':(exclude)docs/production-deployment.md'
+          gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100" \
+            --jq '.check_runs[] | select(.conclusion == "success") | .name' > "$RUNNER_TEMP/develop-checks"
+          for check in check e2e publish; do
+            grep -Fxq "$check" "$RUNNER_TEMP/develop-checks" || { echo "::error::Missing successful develop $check"; exit 1; }
+          done
+          echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR (read only)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Confirm immutable digest exists (no rebuild)
+        env:
+          IMAGE_REF: ${{ steps.pin.outputs.image_ref }}
+        run: docker buildx imagetools inspect "$IMAGE_REF"
+
+  # VM09 production deployment is opt-in until host SSH credentials are configured.
+  deploy_production:
+    needs: promote
     if: >-
-      ${{ needs.publish.outputs.image_ref != '' &&
+      ${{ needs.promote.outputs.image_ref != '' &&
+          vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: eventgraph-prod-rollout
+      cancel-in-progress: false
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Deploy pinned image on VM09
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ vars.EVENTGRAPH_PROD_HOST }}
+          username: ${{ vars.EVENTGRAPH_PROD_USER }}
+          key: ${{ secrets.EVENTGRAPH_PROD_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+          envs: GHCR_TOKEN,GHCR_USER
+          command_timeout: 13m
+          version: '1.8.2'
+          script: |
+            cd /home/ubuntu/livingruntime-prod-source
+            bash scripts/deploy-prod.sh
+
+
+  # VM13 is now the sole persistent development Web service.
+  # cn-dev remains an SSH-invoked Playwright runner, not a deployed API/DB/worker.
+  deploy_vm13_preview:
+    needs: publish
+    if: >-
+      ${{ github.event_name == 'push' &&
           github.ref_name == 'develop' &&
+          needs.publish.outputs.image_ref != '' &&
           vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
+    concurrency:
+      group: eventgraph-vm13-preview
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: development
     permissions:
       contents: read
       packages: read
+    outputs:
+      deployed: ${{ steps.current.outputs.deploy }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.publish.outputs.source_sha }}
           persist-credentials: false
-      - name: Skip stale release
+      - name: Skip superseded release
         id: current
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
+        shell: bash
         run: |
           if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Pull image and restart development app
+      - name: Deploy only VM13 Web with read-only production API
         if: steps.current.outputs.deploy == 'true'
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
           EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
-          EVENTGRAPH_DIR: ${{ vars.EVENTGRAPH_DEV_ROOT || '/home/ubuntu/livingruntime-aihot' }}
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.publish.outputs.source_sha }}
+        with:
+          host: 43.133.185.154
+          username: ubuntu
+          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+          fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_PREVIEW_RELEASE
+          command_timeout: 12m
+          version: '1.8.2'
+          script_path: scripts/ci/deploy-vm13-preview.sh
+
+  # Browser process and Playwright remain on cn-dev; the target is VM13.
+  e2e_vm13_preview:
+    needs: deploy_vm13_preview
+    if: ${{ needs.deploy_vm13_preview.outputs.deployed == 'true' &&
+             needs.deploy_vm13_preview.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: development
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run cn-dev Chromium against VM13
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_PREVIEW_URL: http://43.133.185.154
         with:
           host: ${{ vars.EVENTGRAPH_DEV_HOST }}
           username: ${{ vars.EVENTGRAPH_DEV_USER }}
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
-          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
-          command_timeout: 15m
+          envs: EVENTGRAPH_PREVIEW_URL
+          command_timeout: 8m
           version: '1.8.2'
-          script_path: scripts/ci/deploy-image.sh
+          script_path: scripts/ci/smoke-vm13-browser.sh

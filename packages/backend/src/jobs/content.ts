@@ -12,6 +12,7 @@ import { isHistorical } from "../content/materials.ts";
 import { publishArticle } from "../publication/publish.ts";
 import { BudgetExceededError, ProviderRejectedError, ReceiptBusyError, ReceiptUnknownError } from "../providers/receipts.ts";
 import { ModelOutputError } from "../providers/llm.ts";
+import { ProviderConfigError } from "../providers/registry/connection-types.ts";
 import { enqueue, QUEUES, shutdownSignal, work } from "./queue.ts";
 
 /** Minutes to wait after the n-th failed attempt; one more failure after the last ends in "failed". */
@@ -162,9 +163,11 @@ async function afterFailure(articleId: string, revision: number, error: unknown)
   // failure and must neither consume processing_attempts nor turn an incomplete chain terminal.
   if (error instanceof AnalysisInterruptedError || shutdownSignal.signal.aborted) throw error;
   const message = String(error instanceof Error ? error.message : error).slice(0, 500);
-  if (error instanceof ReceiptBusyError || error instanceof BudgetExceededError) {
-    // Not the article's fault: the same request is in flight, or the budget window is full.
-    const seconds = error instanceof BudgetExceededError ? error.retryAfterSeconds : 60;
+  const needsProviderRecovery = error instanceof ProviderConfigError && error.statusCode === 409 &&
+    /(?:cannot route|retest required|current successful capability test)/i.test(message);
+  if (error instanceof ReceiptBusyError || error instanceof BudgetExceededError || needsProviderRecovery) {
+    // Provider recovery is not article failure: do not consume attempts while a verified route is unavailable.
+    const seconds = error instanceof BudgetExceededError ? error.retryAfterSeconds : needsProviderRecovery ? 300 : 60;
     const retryAt = new Date(Date.now() + seconds * 1000);
     await sql`UPDATE articles SET processing_state = 'new', processing_error = ${message}, processing_retry_at = ${retryAt}, processing_queued_at = NULL
               WHERE id = ${articleId} AND revision = ${revision}`;
@@ -282,15 +285,24 @@ export const failureGroupSql = (column = "processing_error") =>
   sql.unsafe(`regexp_replace(left(coalesce(${column}, '(no message)'), 120), '[0-9a-f]{8,}|[0-9]{4,}', '…', 'g')`);
 
 /**
- * Admin: failed articles of the last 30 days back into processing, all or one failure group. The
- * first ones are queued now; the sweep picks up the rest within minutes.
+ * Admin: reset failed articles, optionally in a bounded batch. An explicit batch cap is useful when
+ * recovering a now-routable *paid* model without restarting hundreds of calls at once.
+ * Without a cap, retain the pre-existing all/group behavior for the operations UI.
  */
-export async function requeueFailed(group: string | null): Promise<{ requeued: number }> {
+export async function requeueFailed(group: string | null, limit: number | null = null): Promise<{ requeued: number }> {
+  if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 500)) throw new Error("requeue limit must be 1..500");
   const rows = await sql<{ id: string }[]>`
-    UPDATE articles SET processing_state = 'new', processing_attempts = 0, processing_retry_at = NULL, processing_error = NULL
-    WHERE processing_state = 'failed' AND discovered_at > now() - interval '30 days'
-      AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
-    RETURNING id`;
+    WITH picked AS (
+      SELECT id FROM articles
+      WHERE processing_state = 'failed' AND discovered_at > now() - interval '30 days'
+        AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
+      ORDER BY discovered_at DESC, id
+      LIMIT ${limit ?? 1000000}
+      FOR UPDATE SKIP LOCKED
+    )
+    UPDATE articles a SET processing_state = 'new', processing_attempts = 0,
+      processing_retry_at = NULL, processing_error = NULL
+    FROM picked WHERE a.id = picked.id RETURNING a.id`;
   for (const r of rows.slice(0, 500)) await queueProcessing(r.id);
   return { requeued: rows.length };
 }

@@ -974,9 +974,15 @@
       "config": {
         "url": "https://hn.algolia.com/api/v1/search_by_date?tags=story&query=AI&hitsPerPage=100",
         "itemsPath": "hits",
-        "titlePaths": ["title"],
-        "summaryPaths": ["story_text"],
-        "authorPaths": ["author"],
+        "titlePaths": [
+          "title"
+        ],
+        "summaryPaths": [
+          "story_text"
+        ],
+        "authorPaths": [
+          "author"
+        ],
         "publishedAtPath": "created_at",
         "externalIdPath": "objectID",
         "urlTemplate": "https://news.ycombinator.com/item?id={raw:objectID}"
@@ -1049,6 +1055,722 @@
       "tags": [
         "监管",
         "金融"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-bank-of-japan",
+      "name": "Bank of Japan · What's New",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.boj.or.jp/en/rss/whatsnew.xml",
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "亚洲",
+        "日本",
+        "金融",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-rbi-press",
+      "name": "Reserve Bank of India · Press Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://rbi.org.in/pressreleases_rss.xml",
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "亚洲",
+        "印度",
+        "金融",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-bank-of-korea-english",
+      "name": "Bank of Korea · English Press Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.bok.or.kr/eng/bbs/E0000634/news.rss?menuNo=400069",
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "亚洲",
+        "韩国",
+        "金融",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-japan-fsa-english",
+      "name": "Japan FSA · English News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.fsa.go.jp/fsaEnNewsList_rss2.xml",
+        "_aihot": {
+          "initialBackfillLimit": 3
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "亚洲",
+        "日本",
+        "金融监管",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-chinanews-finance",
+      "name": "中国新闻网 · 财经",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.chinanews.com.cn/rss/finance.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "财经",
+        "经济",
+        "媒体"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-chinanews-china",
+      "name": "中国新闻网 · 时政",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.chinanews.com.cn/rss/china.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "政策",
+        "政治",
+        "媒体"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-chinanews-world",
+      "name": "中国新闻网 · 国际",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.chinanews.com.cn/rss/world.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "国际",
+        "政治",
+        "地缘事件"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-chinanews-gba",
+      "name": "中国新闻网 · 粤港澳大湾区",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.chinanews.com.cn/rss/dwq.xml",
+        "publishedAtUtcOffset": "+08:00",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "大湾区",
+        "港澳",
+        "产业"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-qbitai-ai",
+      "name": "量子位 · AI 产业与研究",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.qbitai.com/feed",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "AI",
+        "产业",
+        "研究"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-ithome-tech",
+      "name": "IT之家 · 科技动态",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.ithome.com/rss/",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "科技",
+        "AI",
+        "信号"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-hkma-press",
+      "name": "香港金融管理局 · 新闻稿",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.hkma.gov.hk/chi/other-information/rss/rss_press-release.xml",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "香港",
+        "货币政策",
+        "金融监管",
+        "官方"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-panews-articles",
+      "name": "PANews · 中文文章",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.panewslab.com/rss.xml?lang=zh&type=NORMAL",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "加密货币",
+        "Web3",
+        "媒体"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-panews-flashes",
+      "name": "PANews · 中文快讯",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.panewslab.com/rss.xml?lang=zh&type=NEWS",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 120,
+      "tags": [
+        "中国",
+        "加密货币",
+        "市场快讯",
+        "信号"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-pboc-official",
+      "name": "中国人民银行 · 交流资讯",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.pbc.gov.cn/goutongjiaoliu/113456/2986536/index.html",
+        "publishedAtUtcOffset": "+08:00",
+        "allowUrlPrefixes": [
+          "www.pbc.gov.cn/"
+        ],
+        "itemUrlPrefixRewrite": {
+          "from": "www.pbc.gov.cn/",
+          "to": "https://www.pbc.gov.cn/"
+        },
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "中国",
+        "金融监管",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-csrc-official",
+      "name": "中国证监会 · 发布公告",
+      "kind": "web_list",
+      "config": {
+        "url": "https://www.csrc.gov.cn/",
+        "parseMode": "html",
+        "allowUrlPrefixes": [
+          "https://www.csrc.gov.cn/csrc/c100028/"
+        ],
+        "denyUrlPrefixes": [
+          "https://www.csrc.gov.cn/csrc/c100028/common_xq_list.shtml"
+        ],
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "detail": {
+          "maxFetches": 4,
+          "publishedAtRegex": "日期：\\s*(\\d{4}-\\d{2}-\\d{2})",
+          "publishedAtUtcOffset": "+08:00",
+          "publishedAtAuthoritative": true
+        },
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "金融监管",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-cn-miit-official",
+      "name": "工业和信息化部 · 工作动态",
+      "kind": "web_list",
+      "config": {
+        "url": "https://www.miit.gov.cn/",
+        "parseMode": "html",
+        "allowUrlPrefixes": [
+          "https://www.miit.gov.cn/xwfb/gxdt/"
+        ],
+        "denyUrlPrefixes": [
+          "https://www.miit.gov.cn/xwfb/gxdt/index.html"
+        ],
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "detail": {
+          "maxFetches": 8,
+          "publishedAtRegex": "发布时间：\\s*(\\d{4}-\\d{2}-\\d{2})",
+          "publishedAtUtcOffset": "+08:00",
+          "publishedAtAuthoritative": true
+        },
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "中国",
+        "产业政策",
+        "官方公告"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-eu-council-press",
+      "name": "Council of the EU · Press Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.consilium.europa.eu/en/rss/pressreleases.ashx",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 120,
+      "tags": [
+        "政治",
+        "欧洲",
+        "制裁",
+        "国防",
+        "贸易"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-un-geneva-press",
+      "name": "UN Geneva · Press Releases",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.ungeneva.org/news-media/press-releases-list/rss.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 120,
+      "tags": [
+        "政治",
+        "外交",
+        "军事",
+        "联合国"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-gdacs-disasters-24h",
+      "name": "GDACS · Global Disasters (24h)",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://gdacs.org/xml/rss_24h.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 60,
+      "tags": [
+        "突发事件",
+        "灾害",
+        "供应链"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-usgs-earthquakes-m45",
+      "name": "USGS · M4.5+ Earthquakes (24h)",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.atom",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 60,
+      "tags": [
+        "突发事件",
+        "地震",
+        "供应链"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-japan-mod-press",
+      "name": "Japan Ministry of Defense · Press Notices",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.mod.go.jp/j/rss/news.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        },
+        "itemUrlPrefixRewrite": {
+          "from": "/j/",
+          "to": "https://www.mod.go.jp/j/"
+        }
+      },
+      "tier": "T1",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "日本",
+        "军事",
+        "国防",
+        "外交",
+        "官方"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-defensenews-global",
+      "name": "Defense News · Military and Defense",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "军事",
+        "国防",
+        "军工",
+        "市场"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-breaking-defense",
+      "name": "Breaking Defense · Defense Industry",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://breakingdefense.com/feed/",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "军事",
+        "军工",
+        "国防政策",
+        "供应链"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-aljazeera-global",
+      "name": "Al Jazeera · Global News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.aljazeera.com/xml/rss/all.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 120,
+      "tags": [
+        "中东",
+        "军事冲突",
+        "政治",
+        "国际",
+        "突发事件"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-france24-world",
+      "name": "France 24 · World News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.france24.com/en/rss",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 180,
+      "tags": [
+        "欧洲",
+        "国际",
+        "政治",
+        "军事"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-arabnews-global",
+      "name": "Arab News · Middle East",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.arabnews.com/rss.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 180,
+      "tags": [
+        "中东",
+        "能源",
+        "政治",
+        "供应链"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-the-diplomat-asia",
+      "name": "The Diplomat · Asia-Pacific",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://thediplomat.com/feed/",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 240,
+      "tags": [
+        "亚洲",
+        "地缘政治",
+        "贸易",
+        "军事"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-war-on-the-rocks",
+      "name": "War on the Rocks · Defense Analysis",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://warontherocks.com/feed/",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "editorial",
+      "interval_minutes": 360,
+      "tags": [
+        "军事",
+        "国家安全",
+        "地缘政治",
+        "分析"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-guardian-world",
+      "name": "The Guardian · World",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://www.theguardian.com/world/rss",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "国际",
+        "政治",
+        "突发事件"
+      ],
+      "site_fulltext": false,
+      "syndicate_fulltext": false
+    },
+    {
+      "id": "rss-npr-news",
+      "name": "NPR · US and World News",
+      "kind": "rss",
+      "config": {
+        "feedUrl": "https://feeds.npr.org/1001/rss.xml",
+        "publishedAfter": "2026-10-01T00:00:00.000Z",
+        "_aihot": {
+          "initialBackfillLimit": 2
+        }
+      },
+      "tier": "T2",
+      "participation_mode": "hot_signal",
+      "interval_minutes": 240,
+      "tags": [
+        "美国",
+        "政治",
+        "政策",
+        "国际"
       ],
       "site_fulltext": false,
       "syndicate_fulltext": false

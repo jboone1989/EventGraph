@@ -110,14 +110,10 @@ export const POLICY = {
 } as const;
 
 /**
- * 搜索收录策略。依据 specs/002-adsense-readiness（FR-006~009）与 Google 发布商政策：不得在
- * 「未经人工审核或策展的自动生成内容」上放广告——收录（索引/sitemap）只认编辑策展标记，
- * 模型精选本身不再自动让页面进索引。
+ * Public content is eligible for search by default; manual approval is not an AdSense prerequisite.
+ * Keep a small guard for empty single-source event pages (which redirect to their source item).
  */
 export const SEO = {
-  /** true：只有后台标记「可收录」（seo_indexed_at）的页面进索引与 sitemap；false：精选仍自动收录（旧行为）。 */
-  curatedIndexOnly: true,
-  /** 事件页收录的薄页门槛：单来源事件的 AI 综述至少这么多字，否则该事件页不收录。 */
   minSingleSourceDigestChars: 100,
 } as const;
 
