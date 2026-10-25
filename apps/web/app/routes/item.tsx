@@ -271,11 +271,11 @@ function ItemPreview({ preview }: { preview: FeedItemSummary }) {
   const briefHidesForX = isX && !en && preview.summary?.replace(/\s+/g, " ").trim() === preview.title;
   return (
     <div className="mx-auto max-w-[var(--page-max-reading)] pb-8">
-      <PhoneBar back={preview.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }} title={isX ? preview.x!.authorName : title} />
+      <PhoneBar back={preview.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }} title={isX ? (en && hasHan(preview.x!.authorName) ? `@${preview.x!.handle}` : preview.x!.authorName) : title} />
       <article className="pb-6 pt-3" aria-busy="true">
         <div className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-ink-3">
           <span className="font-semibold text-ink-2">{isX ? (en && hasHan(preview.x!.authorName) ? `@${preview.x!.handle}` : preview.x!.authorName) : localizedSourceName(preview.source.name, language, preview.links?.original)}</span>
-          {isX && <span>· @{preview.x!.handle} · X</span>}
+          {isX && <span>· {en && hasHan(preview.x!.authorName) ? "X" : `@${preview.x!.handle} · X`}</span>}
           <span>·</span>
           {!preview.publishedAt && <span>{t("收录于", "Collected")}</span>}
           <time dateTime={shownAt} className="mono">{fullDateTime(shownAt)}</time>
@@ -478,7 +478,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
     <RailSection title={t("来源", "Source")}>
       <div className="text-[14px] font-semibold leading-snug text-ink">{isX ? (en && hasHan(item.x!.authorName) ? `@${item.x!.handle}` : item.x!.authorName) : localizedSourceName(item.source.name, preference, item.links.original)}</div>
       <div className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
-        {isX ? `@${item.x!.handle} · X` : (en && hasHan(item.author ?? "") ? null : item.author) ?? hostOf(item.links.original)}
+        {isX ? (en && hasHan(item.x!.authorName) ? "X" : `@${item.x!.handle} · X`) : (en && hasHan(item.author ?? "") ? null : item.author) ?? hostOf(item.links.original)}
       </div>
       <div className="mt-3 text-[12px] text-ink-4">{timeLabel}</div>
       <time dateTime={shownAt} className="mono mt-0.5 block text-[12.5px] text-ink-2">
@@ -537,7 +537,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
       {/* Phones: back to where the reader came from, the title once it has scrolled away, more actions. */}
       <PhoneBar
         back={item.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }}
-        title={isX ? item.x!.authorName : displayTitle}
+        title={isX ? (en && hasHan(item.x!.authorName) ? `@${item.x!.handle}` : item.x!.authorName) : displayTitle}
         actions={
           <BarButton label={t("更多操作", "More actions")} onClick={() => setActionsOpen(true)}>
             <IconMore size={22} />
@@ -567,7 +567,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
         <article className="pb-6 pt-3 lg:pt-2 2xl:pt-1">
           <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-ink-3 2xl:hidden ${isX ? "" : "mb-3"}`}>
             <span className="font-semibold text-ink-2">{isX ? (en && hasHan(item.x!.authorName) ? `@${item.x!.handle}` : item.x!.authorName) : localizedSourceName(item.source.name, preference, item.links.original)}</span>
-            {isX && <span>· @{item.x!.handle} · X</span>}
+            {isX && <span>· {en && hasHan(item.x!.authorName) ? "X" : `@${item.x!.handle} · X`}</span>}
             {item.author && !isX && (!en || !hasHan(item.author)) && <span>· {item.author}</span>}
             <span>·</span>
             {!item.publishedAt && <span>{t("收录于", "Collected")}</span>}
