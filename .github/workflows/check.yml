@@ -497,7 +497,7 @@ jobs:
           github.ref_name == 'develop' &&
           needs.publish.outputs.image_ref != '' &&
           needs.deploy_development.result == 'success' &&
-          vars.EVENTGRAPH_VM13_AUTO_DEPLOY == 'true' }}
+          vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
@@ -518,10 +518,10 @@ jobs:
           EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
           EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.publish.outputs.source_sha }}
         with:
-          host: ${{ vars.EVENTGRAPH_VM13_HOST }}
-          username: ${{ vars.EVENTGRAPH_VM13_USER }}
-          key: ${{ secrets.EVENTGRAPH_VM13_SSH_KEY }}
-          fingerprint: ${{ secrets.EVENTGRAPH_VM13_SSH_FINGERPRINT }}
+          host: 43.133.185.154
+          username: ubuntu
+          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+          fingerprint: SHA256:UfYGtQUohibqwf71gOna4qLk7iJsTqlzA4+vMwp4daw
           envs: EVENTGRAPH_IMAGE,EVENTGRAPH_PREVIEW_RELEASE
           command_timeout: 12m
           version: '1.8.2'
