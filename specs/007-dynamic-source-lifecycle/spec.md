@@ -42,17 +42,17 @@ rejected（人工或安全原因，任何状态可进）
 
 ### D · 发现
 
-- 输入：覆盖缺口标签（对照审计文档 + `industry/topics.json`）、活跃事件主题（近 24h 精选分组标题）。
-- 执行者：发现接口 `SourceDiscoverer`。**本阶段交付为空实现**（返回空数组并注明原因）：真正的 DeepSeek Search 调用来自 PR#132（`deepseekSearch`，`deepseek_web` 预算与回执已就绪），合并后接入；运营者也可从后台/脚本手工登记候选（`origin.channel = "operator"`）。
-- 产出：`DiscoveryCandidate{ origin, kind, name, config, tags, rationale, officialLowFrequency?, expiresAt? }`。`kind` 只允许 `rss|json_list`（`x_search`/`mp_account` 不参与自动生命周期）。**不满足官方RSS/API或DeepSeek模式的URL允许只登记为研究线索，不自动建立网页抓取源（status 仍为 discovered），不写爬虫。**
-- 频率：每日一次；每领域每日新增候选上限 5（防 flooding），全站 30。
+- 输入：覆盖缺口（`industry/topics.json` 主题里没有任何启用信源携带其标签的）、活跃事件分组（近 48h `stories.active` 标题）；`admin/discovery.ts` 每日一跑（`cron.sources.discover`）。
+- 执行者：`admin/discovery.ts` 的 DeepSeek 发现（依赖 PR#132 的 `deepseekSearch`，付费走 `deepseek_web` 预算与回执，缺预算/缺凭证当日安全跳过）：每个缺口/活跃事件一次限定查询，只认两种发布者线索——像 feed 端点的 URL（候选 `rss`，由预览实探验证）或官方域（候选 `json_list` `mode=deepseek_search`，查询 `site:` 限定 + `allowUrlPrefixes`）；博客平台域跳过。去重按候选身份（`sourceIdentity`：RSS 的归一化 URL、DeepSeek 查询+发布者前缀），不按整域——同一发布者可有多个独立 feed。运营者仍可手工登记（`origin.channel = "operator"`）。
+- 产出：`DiscoveryCandidate{ origin, kind, name, config, tags, rationale, officialLowFrequency?, expiresAt? }`。`kind` 只允许 `rss|json_list`（`x_search`/`mp_account` 不参与自动生命周期）。**不满足官方RSS/API或DeepSeek模式的URL允许只登记为研究线索，不自动建立网页抓取源（status 仍为 discovered），不写爬虫。**自动候选不分配 T1：一律由试运行从 T2 hot_signal 争取（见 §T）；`officialLowFrequency` 仅能由运营者登记时声明（预检拒绝自动渠道声明，见 §P）；自动事件候选不与 `breaking_event` 的到期退场叠加（事件源必须能退场）。标签保留一手/二手区分，发布者来源记在 `origin.note`。
+- 频率：每日一次；settings 键 `sourceLifecycle.discovery`（`{ enabled, maxGaps, maxCandidates }`，默认 `false/6/8`，封顶 20）控制开关与查询成本（每缺口一次搜索、每候选一次预览，预览付费查询在 15 分钟回执窗口内复用）。新信源数量不设总量上限：候选凭试运行证据竞争存留。
 
 ### P · 预检（纯函数，可单测）
 
 候选必须全部通过，否则 `preflight_failed` 并留档原因：
 
 1. `assertSupportedConfig(kind, config)` 不报不支持键（复用 config-keys 白名单——这同时排除了"站点专用爬虫"配置）。
-2. 地址合法：`http(s)`、无凭据、`normalizeUrl` 归一后有 host；r.jina.ai 前缀先剥离（与 `sourceIdentity` 一致）。
+2. 地址合法：`http(s)`、无凭据、`normalizeUrl` 归一后有 host；r.jina.ai 前缀先剥离（与 `sourceIdentity` 一致）；`deepseek_search` 候选无自有 URL，校验其 `deepseekQuery` 与 `allowUrlPrefixes`（查询 + 前缀即地址）。自动渠道不得声明 `officialLowFrequency=true`（需运营者核实）。
 3. 不与现有 `sources` 或其他候选重复（按 `sourceIdentity` + 候选表自身唯一索引）。
 4. 首采封顶：`_aihot.initialBackfillLimit` ≤ 8 且 `publishedAfter` 存在且为合法 UTC instant（不重跑历史）。
 5. 权利保守：候选建源一律 `site_fulltext=false`、`syndicate_fulltext=false`（只有来源明确允许才由人工打开）。
@@ -107,14 +107,15 @@ rejected（人工或安全原因，任何状态可进）
 
 ## 分阶段
 
-- **本 PR（MVP）**：候选表 + 预检 + 打分/决定 + dry-run/自动晋升（默认禁用）+ 单测；发现接口空实现（`operator` 通道可手工登记）。
-- **PR#132 合并后**：`SourceDiscoverer` 接 DeepSeek Search（每日一跑，走 `deepseek_web` 预算），预检前置去重同本 PR。
-- **后续**：候选后台页、突发事件触发器（监听活跃事件分组自动生成 `breaking_event` 候选）、退场源的一键复活。
+- **本 PR（MVP）**：候选表 + 预检 + 打分/决定 + dry-run/自动晋升（默认禁用）+ 单测。
+- **自动发现（本分支，依赖 PR#132）**：`admin/discovery.ts` 每日跑 DeepSeek Search 发现（`sourceLifecycle.discovery` 默认关），预检前置去重按候选身份同本 PR。
+- **后续**：候选后台页、退场源的一键复活。
 
 ## MVP code-level safeguards / current implementation boundary (2026-10-25)
 
 - Candidate kinds accepted by the new lifecycle are **RSS or JSON/API only**. Existing legacy `web_list` sources are left as-is but no new traditional HTML/CSS scraper can enter through this automation.
 - Discovery output must **not** self-assert protected official status: `officialLowFrequency=true` requires operator verification during this MVP. Future discovery can propose such a flag, but not auto-authorize it.
+- Discovery de-duplication is per candidate identity (canonical RSS URL, or DeepSeek query + publisher prefix), never one candidate per whole domain: the same publisher may hold multiple valuable independent feeds.
 - Use `previewCandidate(id, actor)` to call the actual existing `previewSource` before an automatic trial. `markPreviewed` remains the manual audit/attestation path for operators; a boolean supplied by an external search result is **not** proof of successful preview.
 - Start of trial clamps `publishedAfter` to no earlier than activation time (UTC), preserving future-only acquisition even if candidate discovery used an older window. Thus its first fetch may have zero articles until the next real publication.
 - Current score's exclusivity and cost are **proxies** based on source discoveries and items-per-request; real independent fact contribution and DeepSeek spend must be linked before fully automated unattended retirement of important sources. Never cap high-value sources to a fixed top-N.
