@@ -40,7 +40,7 @@ export async function listSources(f: SourceListFilters): Promise<BeforeJson<Admi
            (SELECT count(*)::int FROM publications p WHERE p.source_id = s.id AND p.selected AND p.discovered_at > now() - interval '30 days') AS selected_30d
     FROM (
       SELECT * FROM sources
-      WHERE (${q}::text IS NULL OR name ILIKE ${q} OR id ILIKE ${q} OR config::text ILIKE ${q})
+      WHERE (${q}::text IS NULL OR name ILIKE ${q} OR id ILIKE ${q} OR tags::text ILIKE ${q} OR config::text ILIKE ${q})
         AND (${f.kind ?? null}::text IS NULL OR kind = ${f.kind ?? null})
         AND (${f.health ?? null}::text IS NULL OR health = ${f.health ?? null})
         AND (${f.mode ?? null}::text IS NULL OR participation_mode = ${f.mode ?? null})

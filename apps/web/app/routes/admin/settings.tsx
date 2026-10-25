@@ -53,6 +53,7 @@ function BudgetRow({ b }: { b: AdminSettings["budgets"][number] }) {
   const { run, pending } = useAdminAction();
   const [v, setV] = useState({ perMinute: b.per_minute, perHour: b.per_hour, perDay: b.per_day });
   const [open, setOpen] = useState(false);
+  const [unlimitedOpen, setUnlimitedOpen] = useState(false);
   const changed = v.perMinute !== b.per_minute || v.perHour !== b.per_hour || v.perDay !== b.per_day;
   return (
     <tr className="border-b border-line/70 last:border-0">
@@ -65,6 +66,7 @@ function BudgetRow({ b }: { b: AdminSettings["budgets"][number] }) {
       <td className="num px-3 py-2 text-right text-ink-3">{num(b.used_hour)} / {num(b.used_day)}</td>
       <td className="px-3 py-2 text-right">
         <Button size="sm" tone="primary" disabled={!changed} onClick={() => setOpen(true)}>保存</Button>
+        <Button size="sm" onClick={() => setUnlimitedOpen(true)}>不限额</Button>
         <ReasonDialog
           open={open}
           title={`调整 ${b.service} 的请求上限`}
@@ -73,6 +75,15 @@ function BudgetRow({ b }: { b: AdminSettings["budgets"][number] }) {
           busy={pending === "budget"}
           onClose={() => setOpen(false)}
           onSubmit={async (reason) => (await run("PUT", `/api/admin/budgets/${encodeURIComponent(b.service)}`, { ...v, reason }, { label: "budget", success: "上限已更新" })) !== null}
+        />
+        <ReasonDialog
+          open={unlimitedOpen}
+          title={`取消 ${b.service} 的内部请求上限`}
+          description="仅移除本站自行设定的请求额度；服务商的真实限流、失败重试与回执机制仍有效。"
+          confirmLabel="设为不限额"
+          busy={pending === "budget-unlimited"}
+          onClose={() => setUnlimitedOpen(false)}
+          onSubmit={async (reason) => (await run("DELETE", `/api/admin/budgets/${encodeURIComponent(b.service)}`, { reason }, { label: "budget-unlimited", success: "内部限额已取消" })) !== null}
         />
       </td>
     </tr>
@@ -122,7 +133,7 @@ export default function SettingsAdmin({ loaderData: s }: Route.ComponentProps) {
           />
         </Card>
       </div>
-      <Card className="mt-5" title="付费请求上限" right={<span>已用：近 1 小时 / 近 24 小时</span>} pad={false}>
+      <Card className="mt-5" title="可选请求上限" right={<span>未列出的服务不受本站配额限制；服务商限流仍有效</span>} pad={false}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] text-[13px]">
             <thead>
