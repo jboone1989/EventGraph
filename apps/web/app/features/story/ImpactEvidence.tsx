@@ -6,11 +6,11 @@ import type { StoryMarket } from "./EventPrices";
 import { IMPACT_AREAS, impactLeadsAt, marketObservationAt, type ImpactArea } from "./impact-evidence";
 
 const COPY: Record<ImpactArea, [string, string, string, string]> = {
-  policy: ["政策变化", "Policy", "没有可核查的政策报道线索，不能据此断言没有政策变化。",
+  policy: ["政策报道线索", "Policy reporting", "没有可核查的政策报道线索，不能据此断言没有政策变化。",
     "No policy reporting lead found; this does not prove there was no policy change."],
   logistics: ["航运与供应链", "Logistics & supply", "没有可核查的航运或供应链线索；不推断供应中断。",
     "No shipping or supply-chain lead found; disruption is not inferred."],
-  companies: ["企业暴露", "Company exposure", "没有可核查的企业影响线索；公司被提及不等于受到损失。",
+  companies: ["企业影响线索", "Company-impact reporting", "没有可核查的企业影响线索；公司被提及不等于受到损失。",
     "No company exposure lead found; a mention alone does not establish impact."],
 };
 const price = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 1 : 4 });
