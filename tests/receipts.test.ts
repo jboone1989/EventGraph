@@ -11,6 +11,7 @@ import { chatJson, ModelOutputError } from "@aihot/backend/providers/llm";
 import { embeddingsAvailable } from "@aihot/backend/providers/embeddings";
 import { BudgetExceededError, logicalKeyFor, markStalePendingReceipts, paidRequest, ReceiptUnknownError } from "@aihot/backend/providers/receipts";
 import { autoReleaseUnknownReceipts } from "@aihot/backend/operations/recover";
+import { removeBudgetLimit } from "@aihot/backend/admin/settings";
 
 const usage = { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 };
 let answer: (hit: number) => string = () => '{"ok":true}';
@@ -30,6 +31,27 @@ test("the migrations seed a budget for every paid service", async () => {
   const rows = await sql<{ service: string }[]>`SELECT service FROM budgets`;
   const services = new Set(rows.map((r) => r.service));
   for (const s of ["jina", "socialdata", "dajiala", "zhipu", "deepseek", "mimo", "dashscope"]) assert.ok(services.has(s), `no budget for ${s}`);
+});
+
+test("an audited unlimited policy removes only the local throttle, preserving receipts", async () => {
+  const service = `unlimited-model-${tag()}`;
+  await sql`INSERT INTO budgets (service,per_minute,per_hour,per_day) VALUES (${service},0,0,0)`;
+  let calls = 0;
+  const send = async () => { calls++; return { response: { ok: true } }; };
+  await assert.rejects(
+    paidRequest({ service, purpose: "invariant_test", identity: "first" }, send),
+    (err: unknown) => err instanceof BudgetExceededError,
+  );
+  const result = await removeBudgetLimit(service, { reason: "operator approved unlimited usage" }, "test-operator");
+  assert.deepEqual(result, { service, unlimited: true });
+  const rows = await sql`SELECT service FROM budgets WHERE service=${service}`;
+  assert.equal(rows.length, 0);
+  await paidRequest({ service, purpose: "invariant_test", identity: "first" }, send);
+  await paidRequest({ service, purpose: "invariant_test", identity: "second" }, send);
+  assert.equal(calls, 2);
+  const [entry] = await sql`SELECT action, reason FROM audit_log WHERE subject=${"budget:" + service} ORDER BY id DESC LIMIT 1`;
+  assert.equal(entry?.action, "budget.unlimited");
+  assert.equal(entry?.reason, "operator approved unlimited usage");
 });
 
 test("an answer already received is reused instead of bought again", async () => {
