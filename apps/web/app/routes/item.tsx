@@ -478,7 +478,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
     <RailSection title={t("来源", "Source")}>
       <div className="text-[14px] font-semibold leading-snug text-ink">{isX ? (en && hasHan(item.x!.authorName) ? `@${item.x!.handle}` : item.x!.authorName) : localizedSourceName(item.source.name, preference, item.links.original)}</div>
       <div className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
-        {isX ? `@${item.x!.handle} · X` : item.author ?? hostOf(item.links.original)}
+        {isX ? `@${item.x!.handle} · X` : (en && hasHan(item.author ?? "") ? null : item.author) ?? hostOf(item.links.original)}
       </div>
       <div className="mt-3 text-[12px] text-ink-4">{timeLabel}</div>
       <time dateTime={shownAt} className="mono mt-0.5 block text-[12.5px] text-ink-2">
