@@ -234,7 +234,7 @@ test("a missing service budget fails closed instead of invoking unlimited paid s
   try {
     const run = await collectSource(source, { force: true });
     assert.equal(run.status, "failed");
-    assert.match(run.error!, /Budget for deepseek_web exhausted \\(stopped\\)/);
+    assert.ok(run.error?.includes("Budget for deepseek_web exhausted (stopped)"));
     assert.equal(deepseek.hits(), hits, "no API call without an explicitly configured budget");
   } finally {
     await sql`INSERT INTO budgets (service, per_minute, per_hour, per_day, note)
