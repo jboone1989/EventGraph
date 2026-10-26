@@ -56,20 +56,20 @@ export function readFilters(params: URLSearchParams): TimelineFilters {
   };
 }
 
-/** The public feed's overview is hidden when browsing a filter or a search. */
-export function showsFeedOverview(url: URL): boolean {
+/** Search-only pages still show Trending and share the full feed frame with the homepage. */
+export function needsFullFeedFrame(url: URL): boolean {
   const filters = readFilters(url.searchParams);
-  return !url.searchParams.get("q")?.trim() && !filters.tag && !filters.category && filters.channel === "all";
+  return !filters.tag && !filters.category && filters.channel === "all";
 }
 
 /** Keep filtered feed-frame snapshots separate from the full overview in pageReuse. */
 export function feedFrameKey(url: URL): string {
-  return showsFeedOverview(url) ? "feed-frame:overview" : "feed-frame:filtered";
+  return needsFullFeedFrame(url) ? "feed-frame:overview" : "feed-frame:filtered";
 }
 
 /** A filtered frame may display the already-fresh full overview; never the other way around. */
 export function feedFrameFallbackKey(url: URL): string | null {
-  return showsFeedOverview(url) ? null : "feed-frame:overview";
+  return needsFullFeedFrame(url) ? null : "feed-frame:overview";
 }
 
 /** Feed filters as list address parameters: the default channel and unset filters are left out. */
