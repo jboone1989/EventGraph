@@ -116,3 +116,28 @@ test("revival re-enables the source, restarts the trial window and is audited", 
   assert.equal(again.json().revived, false);
   assert.match(again.json().reason, /status:trial/);
 });
+
+
+test("expired event candidates are not revived into an immediately expired trial", async () => {
+  const id = `expired-${T}`;
+  const [registered] = await registerCandidates({ actor: "test", candidates: [cand("expired")] });
+  assert.equal(registered.status, "discovered");
+  await markPreviewed(id, { ok: true, count: 2, dated: 2, actor: "test" });
+  assert.equal((await startTrial(id, "test")).started, true);
+  await sql`UPDATE source_candidates
+    SET status = 'retired', expires_at = now() - interval '1 day'
+    WHERE id = ${id}`;
+  await sql`UPDATE sources SET enabled = false WHERE id = ${`lc-${id}`}`;
+
+  const res = await app.inject({
+    method: "POST", url: `/api/admin/source-candidates/${id}/revive`,
+    headers, payload: { reason: "重新启用已结束事件" },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().revived, false);
+  assert.equal(res.json().reason, "expired");
+  const [candidate] = await sql`SELECT status FROM source_candidates WHERE id = ${id}`;
+  const [source] = await sql`SELECT enabled FROM sources WHERE id = ${`lc-${id}`}`;
+  assert.equal(candidate!.status, "retired");
+  assert.equal(source!.enabled, false);
+});

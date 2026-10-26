@@ -40,11 +40,16 @@ export async function listCandidates(f: CandidateListFilters): Promise<BeforeJso
  */
 export async function reviveCandidate(id: string, reason: string, actor: string): Promise<{ revived: boolean; reason?: string }> {
   if (!reason?.trim()) throw Object.assign(new Error("reason is required"), { statusCode: 400 });
-  const [c] = await sql<{ status: string; attached_source_id: string | null; manual_hold: boolean }[]>`
-    SELECT status, attached_source_id, manual_hold FROM source_candidates WHERE id = ${id}`;
+  const [c] = await sql<{ status: string; attached_source_id: string | null; manual_hold: boolean; expired: boolean }[]>`
+    SELECT status, attached_source_id, manual_hold,
+      (expires_at IS NOT NULL AND expires_at <= now()) AS expired
+    FROM source_candidates WHERE id = ${id}`;
   if (!c) return { revived: false, reason: "unknown-candidate" };
   if (c.status !== "demoted" && c.status !== "retired") return { revived: false, reason: `status:${c.status}` };
   if (c.manual_hold) return { revived: false, reason: "manual-hold" };
+  // A retired breaking-event source must not be re-enabled after its event expiry.
+  // Keep the expiry intact; a fresh event needs a separately bounded trial.
+  if (c.expired) return { revived: false, reason: "expired" };
   if (c.attached_source_id) {
     const [src] = await sql<{ updated_at: Date }[]>`SELECT updated_at FROM sources WHERE id = ${c.attached_source_id}`;
     if (!src) return { revived: false, reason: "source-missing" };
