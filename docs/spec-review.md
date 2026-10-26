@@ -6,7 +6,7 @@
 
 ## 对新开发任务使用
 
-- 小 Bug 也先写一个**轻量 Spec**（问题、可复现根因、期望结果、验收方式），不强制拆出 plan.md/tasks.md；纯文案/文档/CI 治理可直接走 PR。不要用‘小修复’口头标签绕过 Spec。
+- 小 Bug 也先写一个**轻量 Spec**（问题、可复现根因、期望结果、验收方式），不强制拆出 plan.md/tasks.md；纯文案/文档可直接走 PR；可执行 CI、生产配置和部署脚本的变更也需事先确定轻量 Spec。不要用‘小修复’口头标签绕过 Spec。
 - 跨模块功能：让开发 Agent 执行 `speckit-specify → speckit-plan → speckit-tasks → speckit-analyze → speckit-implement → speckit-converge`。在 Codex 使用 `$speckit-...`，在 Claude Code 使用 `/speckit-...`（由各自集成安装的 Skills 提供）。
 - **Search Before Build**：先核对 EventGraph 当前代码、AIHOT 上游及官方资料，写入 `plan.md` 的复用依据，禁止另造并行系统。
 - `specs/<feature>/spec.md` 写用户可验证的行为，`plan.md` 写技术方案，`tasks.md` 写任务与测试。只通过 Agent Skills 使用官方流程，不额外部署调度服务。
