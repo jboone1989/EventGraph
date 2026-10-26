@@ -1,6 +1,6 @@
 # Tasks and verification
 
-- [ ] A: Keep search-only Trending while skipping hidden overview requests only for tag/category/channel filters. Verify filtered → unfiltered → filtered and warm unfiltered → filtered, including cached fallback and no redundant fetch.
+- [ ] A: Search-only keeps Trending but skips hidden knowledge-graph/stats; tag/category/channel filtered views skip hot too. Test cold/warm overview → search → filtered and reverse, ensuring no poisoned cache and no redundant fetch when a fresh broader frame exists.
 - [ ] B: Stream optional report graph, retain bilingual report text and fallback semantics. Verify 1s late-success and 3s timeout/error cases separately.
 - [ ] C: Review Cloudflare cache rule access. If available, cache only anonymous public HTML/.data with origin freshness and never admin/auth/API. Confirm HIT/BYPASS with headers.
 - [ ] D: Run targeted tests/typecheck/e2e and mandatory independent review; merge to develop after green gates. Promote to main and deploy VM09 only under the existing **weekly production release policy**, not immediately on CI success.
