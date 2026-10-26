@@ -8,7 +8,7 @@ import type { HotResponse, ReportIndexResponse, SiteStats } from "@aihot/contrac
 import { subjectAfter } from "@aihot/site";
 import { cachedPage, apiGet } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
-import { readFilters } from "../lib/seo";
+import { readFilters, feedFrameKey, showsFeedOverview } from "../lib/seo";
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
 import type { KnowledgeGraph, KnowledgeStats } from "../components/KnowledgeNetwork";
@@ -20,15 +20,6 @@ import { useText } from "../components/LanguageSwitch";
 
 const EMPTY_GRAPH: KnowledgeGraph = { entities: 0, edges: [], status: "unavailable" };
 const EMPTY_STATS: KnowledgeStats = { entities: 0, relations: 0, episodes: 0, status: "unavailable" };
-
-// Keep the loader's work and the browser reuse key aligned: filtered results must never
-// replace the featured overview cached for / and /all.
-export function showsFeedOverview(url: URL): boolean {
-  const filters = readFilters(url.searchParams);
-  return !url.searchParams.get("q")?.trim() && !filters.tag && !filters.category && filters.channel === "all";
-}
-
-export const feedFrameKey = (url: URL): string => showsFeedOverview(url) ? "feed-frame:overview" : "feed-frame:filtered";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
