@@ -4,8 +4,9 @@ import { tag } from "./setup.ts";
 import { closeDb, sql } from "@aihot/backend/db";
 import { upsertMaterial } from "@aihot/backend/content/materials";
 import { stopBoss } from "@aihot/backend/jobs/queue";
+import { rerun } from "@aihot/backend/admin/content";
 import { expireStaleWork } from "@aihot/backend/operations/stale-work";
-import { sweepUnprocessed, queueProcessing } from "@aihot/backend/jobs/content";
+import { sweepUnprocessed, queueProcessing, resumeAfterRelease } from "@aihot/backend/jobs/content";
 
 const unique = tag();
 const source = `freshness-${unique}`;
@@ -31,6 +32,8 @@ test("24h expiry clears stale queue/failed news but retains today's work and sto
     processing_retry_at = now() + interval '1 hour' WHERE id = ${oldFailed}`;
   await sql`UPDATE pgboss.job SET created_on = now() - interval '2 days'
     WHERE id = ${oldJob}`;
+  assert.equal(await resumeAfterRelease({ purpose: "score_article", subject: `article:${oldFailed}@1` }, sql), false);
+  assert.equal((await sql`SELECT processing_state FROM articles WHERE id = ${oldFailed}`)[0]!.processing_state, "failed");
   const first = await expireStaleWork();
   assert.ok(first.deletedStaleJobs >= 1);
   assert.equal(first.skippedStaleArticles, 2);
@@ -46,6 +49,8 @@ test("24h expiry clears stale queue/failed news but retains today's work and sto
   assert.equal(repeated.deletedStaleJobs, 0);
   assert.equal(repeated.skippedStaleArticles, 0);
   assert.equal(await queueProcessing(old), null);
+  await assert.rejects(rerun(old, "analyze", `expired-${unique}`, "test"), /新闻超过 24 小时/);
+  assert.equal((await sql`SELECT processing_state FROM articles WHERE id = ${old}`)[0]!.processing_state, "skipped");
   const sweep = await sweepUnprocessed();
   assert.equal(typeof sweep.enqueued, "number");
   assert.equal((await sql`SELECT count(*)::int n FROM pgboss.job WHERE data->>'articleId' = ${old}`)[0]!.n, 0);
