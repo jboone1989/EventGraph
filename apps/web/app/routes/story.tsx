@@ -159,7 +159,7 @@ function useActiveSection(keys: SectionKey[]): [SectionKey, (k: SectionKey) => v
 }
 
 /** One report on the story timeline: time, source and marks, title, a summary that opens on demand. */
-function TimelineRow({ r, station }: { r: StoryReportView; station?: StoryRoute["stations"][number] }) {
+function TimelineRow({ r }: { r: StoryReportView }) {
   const lang = useUiLanguage();
   const t = useText();
   const title = lang === "en" ? (englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
@@ -181,14 +181,11 @@ function TimelineRow({ r, station }: { r: StoryReportView; station?: StoryRoute[
           <span className="min-w-0 truncate">{localizedSourceName(r.source.name, lang, r.originalUrl)}</span>
           {r.selected && <SelectedBadge />}
           {r.source.firstParty && <span className="rounded border border-line-soft px-1.5">{t("一手资料", "First-party source")}</span>}
-          {station?.uncertainty.singleSource && <span className="rounded border border-line-soft px-1.5">{t("单一来源", "Single source")}</span>}
-          {station?.uncertainty.occurredAtMissing && <span className="rounded border border-line-soft px-1.5">{t("时间来自报道", "Report-time only")}</span>}
-          {station?.uncertainty.revised && <span className="rounded border border-line-soft px-1.5">{t("有修订", "Revised")}</span>}
         </div>
         <IntentLink viewTransition to={lang === "en" ? `/en/items/${r.id}` : `/items/${r.id}`} className="mt-1 block text-[16px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent lg:text-[15.5px]">
           {title}
         </IntentLink>
-        {station?.timeEffective && <p className="mt-1 text-[11.5px] text-ink-4">{t("事实发生/生效", "Occurred/effective")} {localizedMonthDayTime(station.timeEffective, lang)} · {t("本站记录", "Recorded")} {localizedMonthDayTime(station.timeRecorded, lang)}</p>}
+        {r.discoveredAt && <p className="mt-1 text-[11.5px] text-ink-4">{t("本站收录于", "Report first recorded")} {localizedMonthDayTime(r.discoveredAt, lang)}</p>}
         {summary && (
           <>
             <p ref={ref} className={`mt-1 text-[14px] leading-[1.75] text-ink-3 ${open ? "" : "line-clamp-2"}`}>
@@ -298,13 +295,6 @@ export default function StoryPage() {
   const observed = story.status !== "settled" || story.heat.length > 0 || story.whyHot.participants48h > 0 || story.whyHot.rank !== null;
   const sectionKeys: SectionKey[] = observed ? ["overview", "reports", "heat"] : ["overview", "reports"];
   const [activeSection, goSection] = useActiveSection(sectionKeys);
-  const stationByReportId = useMemo(() => {
-    const stations = new Map<string, StoryRoute["stations"][number]>();
-    for (const station of route?.stations ?? []) {
-      for (const report of station.reports) stations.set(report.articleId, station);
-    }
-    return stations;
-  }, [route]);
   const counts = {
     all: story.timeline.length,
     official: story.timeline.filter((r) => r.source.firstParty).length,
@@ -479,7 +469,7 @@ export default function StoryPage() {
                   <div className="pb-0.5 pt-5 text-[14px] font-semibold text-ink">{localizedMonthDay(day, uiLang)}</div>
                   <ol>
                     {rows.map((r) => (
-                      <TimelineRow key={r.id} r={r} station={stationByReportId.get(r.id)} />
+                      <TimelineRow key={r.id} r={r} />
                     ))}
                   </ol>
                 </div>
