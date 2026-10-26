@@ -132,6 +132,24 @@ test("executable scripts in documentation directories are not exempt", () => {
     } finally { rmSync(cwd, { recursive: true, force: true }); }
   }
 });
+test("only same-repo generated AIHOT upstream sync can omit a prior Spec", () => {
+  const { cwd, base } = fixture();
+  try {
+    const head = commit(cwd, "apps/app.ts", "export const value = 2;\n");
+    const sha = "a".repeat(40);
+    const env = { SPEC_BASE_REF: "develop",
+                  SPEC_HEAD_REF: "chore/aihot-upstream-" + sha.slice(0, 12),
+                  SPEC_HEAD_REPO: "jboone1989/EventGraph",
+                  SPEC_REPOSITORY: "jboone1989/EventGraph" };
+    const body = "## AIHOT upstream synchronization\n\n- Upstream: https://github.com/KKKKhazix/AIHOT/commit/" + sha + "\n";
+    assert.equal(check(cwd, base, head, body, env).status, 0);
+    assert.equal(check(cwd, base, head, body, { ...env, SPEC_HEAD_REF: "feature/pretend" }).status, 1);
+    assert.equal(check(cwd, base, head, body, { ...env, SPEC_HEAD_REPO: "someone/EventGraph" }).status, 1);
+    assert.equal(check(cwd, base, head, body, { ...env, SPEC_BASE_REF: "main" }).status, 1);
+    assert.equal(check(cwd, base, head, body.replace(sha, "b".repeat(40)), env).status, 1);
+    assert.equal(check(cwd, base, head, "Upstream sync\n", env).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
 test("governance-only PR does not demand a product spec", () => {
   const { cwd, base } = fixture(false);
   try {
