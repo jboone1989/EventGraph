@@ -56,6 +56,17 @@ export function readFilters(params: URLSearchParams): TimelineFilters {
   };
 }
 
+/** The public feed's overview is hidden when browsing a filter or a search. */
+export function showsFeedOverview(url: URL): boolean {
+  const filters = readFilters(url.searchParams);
+  return !url.searchParams.get("q")?.trim() && !filters.tag && !filters.category && filters.channel === "all";
+}
+
+/** Keep filtered feed-frame snapshots separate from the full overview in pageReuse. */
+export function feedFrameKey(url: URL): string {
+  return showsFeedOverview(url) ? "feed-frame:overview" : "feed-frame:filtered";
+}
+
 /** Feed filters as list address parameters: the default channel and unset filters are left out. */
 export function filterParams(f: TimelineFilters) {
   return { channel: f.channel === "all" ? null : f.channel, category: f.category, tag: f.tag };
