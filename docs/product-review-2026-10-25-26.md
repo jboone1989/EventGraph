@@ -1,8 +1,8 @@
 # EventGraph · 2026-10-25—26 产品讨论完整研究纪要与执行地图
 
 > **状态：持续研究 / 已确认边界 + 待审定实施方案。** 文档补回此前跨会话讨论中被单一可视化 Spec 漏掉的新闻解释、公共讨论、流量增长和长期事件研究。
-> **它不是统一实施授权，也不替代各条产品需求的 Spec。** 真实的用户决定优先于后续模型建议，新的争议在 GitHub 历史中追加，不覆写旧立场。
-> 权威入口：[长期产品论题](product-thesis.md)；已批准的增长边界：[005 新闻获客—深读—复访](../specs/005-news-growth-funnel/spec.md)；影响证据：[事件影响追踪](../specs/event-impact-tracing/spec.md)；多线研究：[跨 Story 实验](../specs/event-evolution-experiment/spec.md)。
+> **它不是统一实施授权，也不替代各条产品需求的 Spec。**本纪要是对已经能核实的讨论结论与仓库文件的结构化恢复，并非逐字聊天记录。**** 真实的用户决定优先于后续模型建议，新的争议在 GitHub 历史中追加，不覆写旧立场。
+> 权威入口：[长期产品论题](product-thesis.md)；已批准的增长边界：[005 新闻获客—深读—复访](../specs/005-news-growth-funnel/spec.md)；影响证据：[事件影响追踪](../specs/event-impact-tracing/spec.md)。待批准的三个子规格：[新闻解释层](../specs/news-explainer/spec.md) · [长期演化实验](../specs/event-evolution-experiment/spec.md) · [公共讨论](../specs/public-discussions/spec.md)。
 
 ## 1. 为什么研究（同一个产品，不是互不相干的三项功能）
 
@@ -33,7 +33,7 @@
 
 **Why（为什么发生）不等于 So What（为什么重要）**；**What Next 不是预测、交易建议、战争结果推演**。来源说“因为 X”属于带署名主张，不代表 EventGraph 已证明 X→Y。金融/政策/军事等领域尤其要严格区分报道、推测、指标变化和因果。
 
-实施时先研究现有 `apps/web/app/routes/item.tsx`、`StoryFollowups`、`packages/backend/src/publication/items.ts` 和已有摘要/事实来源；不要在浏览器打开时调用大模型，不另建第二套文章实体或独立解释 CMS。优先用少量真实样本判定哪些字段可稳定提取，再确定是否需要离线 editorial worker 生成补充字段。**生成策略、缓存/修订、文本质量、双语、来源可见性、无数据空状态和具体验收仍需独立 Spec**。避免把 5W1H 做成六个空的模板栏目或覆盖原新闻正文。
+实施时先研究现有 `apps/web/app/routes/item.tsx`、`StoryFollowups`、`packages/backend/src/publication/items.ts` 和已有摘要/事实来源；不要在浏览器打开时调用大模型，不另建第二套文章实体或独立解释 CMS。优先用少量真实样本判定哪些字段可稳定提取，再确定是否需要离线 editorial worker 生成补充字段。生成策略、缓存/修订、文本质量、双语、来源可见性、无数据空状态和具体验收已另列 [新闻解释层草案](../specs/news-explainer/spec.md)，**仍待用户批准**。避免把 5W1H 做成六个空的模板栏目或覆盖原新闻正文。
 
 其与长期研究的关系：新闻页介绍一个**当下切面**，`So What` 可链接有出处的已有过程/状态变化，`What Next` 可指向已确认的后续观察点；更复杂的分叉、汇聚留给 `/story` 与 `/explore`。
 
@@ -66,7 +66,7 @@
 
 ### 已核实状态与待验证
 
-2026-10-26 GitHub REST `repos/jboone1989/EventGraph` 显示 **`has_discussions: true`，仓库公开**。这不证明 giscus 已安装、类别已配置或网站评论已运行。正式实施前核实 giscus GitHub App 安装、repository/category ID、站点 CSP、移动端、懒加载、两种语言一致、GitHub 授权体验及审核权限。官方资料：
+2026-10-26 GitHub REST `repos/jboone1989/EventGraph` 显示 **`has_discussions: true`，仓库公开**。这不证明 giscus 已安装、类别已配置或网站评论已运行。正式实施依 [GitHub 公共讨论 Spec 草案](../specs/public-discussions/spec.md) 核实 giscus GitHub App 安装、repository/category ID、站点 CSP、移动端、懒加载、两种语言一致、GitHub 授权体验及审核权限。官方资料：
 - [giscus 官方](https://github.com/giscus/giscus)；[页面映射/配置](https://giscus.app/)
 - [GitHub Discussions 管理](https://docs.github.com/en/discussions/managing-discussions-for-your-community)
 - [GitHub Discussions Moderation](https://docs.github.com/en/discussions/managing-discussions-for-your-community/moderating-discussions)
@@ -83,9 +83,9 @@
 
 | 工作流 | 首先复用 | 不重复造什么 | 下一步审定文件 |
 | --- | --- | --- | --- |
-| 新闻解释 5W1H + So What + What Next | `/items`、现有 editorial 摘要、StoryFollowups、publication 事实/来源、已有模型 Provider/worker | 第二套新闻采集、文章数据源、无证据模板引擎、页面打开时 LLM | 本纪要第 3 节 + [005](../specs/005-news-growth-funnel/spec.md)；实施前独立小 Spec |
+| 新闻解释 5W1H + So What + What Next | `/items`、现有 editorial 摘要、StoryFollowups、publication 事实/来源、已有模型 Provider/worker | 第二套新闻采集、文章数据源、无证据模板引擎、页面打开时 LLM | [新闻解释草案](../specs/news-explainer/spec.md) + [005](../specs/005-news-growth-funnel/spec.md) |
 | 跨 Story 演化 | `/explore`、StoryRoute、TimeMachine、Cytoscape、Graphiti | 第二套关系图数据库、因果引擎、通用时间轴库或前端浏览器推理 | [实验 Spec 草案](../specs/event-evolution-experiment/spec.md) |
-| 社区讨论 | GitHub Discussions + giscus、既有稳定 Story ID 与页面路由 | 自建评论 DB、账号系统、通知/审核后端 | 本纪要第 5 节；启用前独立小 Spec / 配置清单 |
+| 社区讨论 | GitHub Discussions + giscus、既有稳定 Story ID 与页面路由 | 自建评论 DB、账号系统、通知/审核后端 | [GitHub Discussions 草案](../specs/public-discussions/spec.md)；实施前核对官方配置/权限 |
 
 ### 三条路线不是一个 PR 一口气实现
 
