@@ -8,6 +8,7 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [develop, main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -59,7 +60,17 @@ jobs:
           SPEC_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           SPEC_REPOSITORY: ${{ github.repository }}
           SPEC_PR_BODY: ${{ github.event.pull_request.body }}
-        run: node scripts/ci/check-spec.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          # On future PRs, execute the gate from trusted base rather than the PR's changed copy.
+          if git cat-file -e "${SPEC_BASE_SHA}:scripts/ci/check-spec.mjs" 2>/dev/null; then
+            git show "${SPEC_BASE_SHA}:scripts/ci/check-spec.mjs" > "$RUNNER_TEMP/check-spec.mjs"
+            node "$RUNNER_TEMP/check-spec.mjs"
+          else
+            # Bootstrap: base does not have a gate; required independent review still applies.
+            node scripts/ci/check-spec.mjs
+          fi
       - name: Install
         run: npm ci --no-audit --no-fund
       - name: Online migration safety
