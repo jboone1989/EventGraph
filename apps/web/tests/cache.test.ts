@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import { CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { UNSAFE_decodeViaTurboStream } from "react-router";
 import { startWebServer, type WebServer } from "./web-server.ts";
-import { pageReuse } from "../app/lib/page-reuse.ts";
+import { pageReuse, hasFreshPage } from "../app/lib/page-reuse.ts";
 import { feedFrameKey, feedFrameFallbackKeys, feedFrameScope } from "../app/lib/seo.ts";
 
 let web: WebServer;
@@ -162,6 +162,66 @@ test("feed-frame scopes reuse only superset snapshots, without cache poisoning",
   assert.equal((await searchFirst.visit(filtered, "should-not-fetch")).source, "search");
   assert.equal((await searchFirst.visit(home, "overview")).source, "overview");
   assert.equal(searchFirst.count(), 2, "search can satisfy filters but cannot replace the homepage");
+});
+
+test("explicit same-address revalidation bypasses even a fresh superset cache", async () => {
+  const category = CATEGORY_KEYS.at(-1)!;
+  const home = new URL("http://retry.example.test/");
+  const search = new URL("http://retry.example.test/all?q=term");
+  const filtered = new URL(`http://retry.example.test/all?category=${category}`);
+  const { clientLoader, shouldRevalidate } = pageReuse<{ expiresAt: number; source: string }>(
+    feedFrameKey, feedFrameFallbackKeys,
+  );
+  let requests = 0;
+  const visit = (url: URL, source: string) => clientLoader({
+    request: new Request(url),
+    serverLoader: async () => {
+      requests++;
+      return { expiresAt: Date.now() + 60_000, source };
+    },
+  } as unknown as Parameters<typeof clientLoader>[0]);
+
+  assert.equal((await visit(home, "overview")).source, "overview");
+  assert.equal((await visit(search, "search-should-use-overview")).source, "overview");
+  assert.equal((await visit(filtered, "filter-should-use-overview")).source, "overview");
+  assert.equal(requests, 1);
+
+  for (const url of [search, filtered]) {
+    assert.equal(shouldRevalidate({
+      currentUrl: url, nextUrl: url, defaultShouldRevalidate: true,
+    } as Parameters<typeof shouldRevalidate>[0]), true);
+    const refreshed = await visit(url, `refreshed-${requests}`);
+    assert.ok(refreshed.source.startsWith("refreshed-"), "explicit revalidation must reach the server");
+  }
+  assert.equal(requests, 3);
+  assert.equal((await visit(home, "should-not-fetch")).source, "overview", "the broad cache remains reusable");
+  assert.equal(requests, 3);
+});
+
+test("IntentLink freshness matches the frame and the child list separately", async () => {
+  const home = new URL("http://prefetch.example.test/");
+  const search = new URL("http://prefetch.example.test/all?q=term");
+  const filtered = new URL("http://prefetch.example.test/all?tag=research");
+  const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(
+    feedFrameKey, feedFrameFallbackKeys,
+  );
+  assert.equal(hasFreshPage(home, "routes/feed-layout"), false);
+  const load = (url: URL) => clientLoader({
+    request: new Request(url),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source: "overview" }),
+  } as unknown as Parameters<typeof clientLoader>[0]);
+  await load(home);
+  for (const url of [home, search, filtered]) {
+    assert.equal(hasFreshPage(url, "routes/feed-layout"), true, "superset frame must be recognized");
+    assert.equal(hasFreshPage(url), false, "a warm frame alone cannot hide an uncached child list");
+  }
+  const { clientLoader: listLoader } = pageReuse<{ expiresAt: number; source: string }>();
+  await listLoader({
+    request: new Request(home),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source: "list" }),
+  } as unknown as Parameters<typeof listLoader>[0]);
+  assert.equal(hasFreshPage(home), true);
+  assert.equal(hasFreshPage(search), false, "search results still need their own child loader");
 });
 
 test("navigation streams are plain text for download managers, including errors", async () => {
