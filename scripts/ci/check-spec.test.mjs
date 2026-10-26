@@ -109,6 +109,20 @@ test("first gate installation is the only CI-only bootstrap exception", () => {
     assert.equal(check(cwd, base, head).status, 0);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+test("runtime Markdown prompts are product behavior and need an approved spec", () => {
+  const { cwd, base } = fixture();
+  try {
+    const head = commit(cwd, "industry/prompts/selection-score.md", "Return a fixed score");
+    assert.equal(check(cwd, base, head).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("agent guidance Markdown remains documentation-only", () => {
+  const { cwd, base } = fixture(false);
+  try {
+    const head = commit(cwd, ".claude/agents/reviewer.md", "Review carefully");
+    assert.equal(check(cwd, base, head).status, 0);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
 test("governance-only PR does not demand a product spec", () => {
   const { cwd, base } = fixture(false);
   try {
