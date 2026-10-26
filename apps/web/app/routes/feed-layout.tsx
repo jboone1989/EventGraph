@@ -8,7 +8,7 @@ import type { HotResponse, ReportIndexResponse, SiteStats } from "@aihot/contrac
 import { subjectAfter } from "@aihot/site";
 import { cachedPage, apiGet } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
-import { readFilters, feedFrameKey, showsFeedOverview } from "../lib/seo";
+import { readFilters, feedFrameKey, feedFrameFallbackKey, showsFeedOverview } from "../lib/seo";
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
 import type { KnowledgeGraph, KnowledgeStats } from "../components/KnowledgeNetwork";
@@ -42,7 +42,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // One result for both scopes: switching 精选/全部 re-runs this loader but reads the same fresh
 // entry, so the frame never asks the server for data the list switch did not change.
-export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>(feedFrameKey);
+export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>(feedFrameKey, feedFrameFallbackKey);
 
 export const handle: Screen = { tab: "featured" };
 
