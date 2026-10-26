@@ -292,6 +292,8 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
     // records the outcome itself; its dates are the preview's proof, not a search result's claim.
     // An already-passed preview is never paid for twice — it goes straight to the trial decision.
     if (c.preflight?.previewPassed !== true) {
+      // A missing paid budget or credential is not evidence that a source is invalid.
+      if (run.skipped === "budget" || run.skipped === "credential") continue;
       if (run.previewed >= settings.maxCandidates) continue;
       const preview = await previewCandidate(c.id, ACTOR, db);
       run.previewed += 1;
