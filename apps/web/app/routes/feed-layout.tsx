@@ -8,7 +8,7 @@ import type { HotResponse, ReportIndexResponse, SiteStats } from "@aihot/contrac
 import { subjectAfter } from "@aihot/site";
 import { cachedPage, apiGet } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
-import { readFilters, feedFrameKey, feedFrameFallbackKey, needsFullFeedFrame } from "../lib/seo";
+import { readFilters, feedFrameKey, feedFrameFallbackKeys, feedFrameScope } from "../lib/seo";
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
 import type { KnowledgeGraph, KnowledgeStats } from "../components/KnowledgeNetwork";
@@ -23,13 +23,15 @@ const EMPTY_STATS: KnowledgeStats = { entities: 0, relations: 0, episodes: 0, st
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const showOverview = needsFullFeedFrame(url);
+  const scope = feedFrameScope(url);
+  const showOverview = scope === "overview";
+  const showTrending = scope !== "filtered";
   const upstream = new Headers();
   const signal = request.signal;
   const [graph, stats, hot, site, dailies] = await Promise.all([
     showOverview ? apiGet<KnowledgeGraph>("/api/site/knowledge/overview", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH) : EMPTY_GRAPH,
     showOverview ? apiGet<KnowledgeStats>("/api/site/knowledge/stats", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_STATS) : EMPTY_STATS,
-    showOverview ? apiGet<HotResponse>("/api/site/hot", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
+    showTrending ? apiGet<HotResponse>("/api/site/hot", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
     showOverview ? apiGet<SiteStats>("/api/site/stats", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
     apiGet<ReportIndexResponse>("/api/site/reports/daily", { signal, timeoutMs: 1_800 }).catch(() => null),
   ]);
@@ -42,7 +44,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // One result for both scopes: switching 精选/全部 re-runs this loader but reads the same fresh
 // entry, so the frame never asks the server for data the list switch did not change.
-export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>(feedFrameKey, feedFrameFallbackKey);
+export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>(feedFrameKey, feedFrameFallbackKeys);
 
 export const handle: Screen = { tab: "featured" };
 
