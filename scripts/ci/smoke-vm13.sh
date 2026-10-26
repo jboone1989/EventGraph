@@ -42,7 +42,25 @@ const me = await meRes.json();
 assert(typeof me.csrf === "string" && me.csrf.length > 0, "no CSRF principal");
 const admin = { cookie, "x-csrf-token": me.csrf };
 
-// 3. Non-destructive development write: through the VM13 API, read back through the
+// 3. Verify the newly shipped sources were inserted into the DEVELOPMENT DB.
+// An updated image without source seeding must fail deployment acceptance.
+const sourceRes = await fetch(root + "/api/admin/sources?page=1", { headers: { cookie } });
+assert(sourceRes.status === 200, "admin sources status " + sourceRes.status);
+const sourceList = await sourceRes.json();
+assert(sourceList.totals?.total >= 86, "new source pack missing: " + JSON.stringify(sourceList.totals));
+for (const id of ["rss-cn-pboc-official", "rss-cn-csrc-official", "rss-un-geneva-press", "rss-gcaptain-maritime"]) {
+  assert(sourceList.rows.some(s => s.id === id), "new source not seeded: " + id);
+}
+
+// 4. The English archive should expose real English headlines in the API, not
+// only the uniform date fallback. Source-original English titles are accepted.
+const dailyRes = await fetch(root + "/api/site/reports/daily?en=1");
+assert(dailyRes.status === 200, "daily archive API status " + dailyRes.status);
+const dailyIndex = await dailyRes.json();
+assert(dailyIndex.items?.some(item => item.titleEn && !/[\u3400-\u9fff]/u.test(item.titleEn)),
+  "English daily index has no actual English news headline");
+
+// 5. Non-destructive development write: through the VM13 API, read back through the
 //    API and directly from the cn-dev development database, then restore.
 const day = new Date().toISOString().slice(0, 10);
 const before = await (await fetch(root + "/api/admin/notes?days=365", { headers: { cookie } })).json();
