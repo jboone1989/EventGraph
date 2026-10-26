@@ -75,7 +75,6 @@ test("a zero deepseek_web budget skips discovery for the day without a search", 
   const run = await runDailyDiscovery();
   assert.equal(run.skipped, "budget");
   assert.equal(hits, before);
-  await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
 });
 
 test("a missing credential skips discovery without a search and without a paid receipt", async () => {
@@ -176,14 +175,13 @@ test("failed previews and expired event candidates are not retried or trialled",
     VALUES (${expiredId}, ${`deepseek:expired query ${T}`}, 'discovered', 'breaking_event', 'json_list',
       'Expired publisher', ${configValue}, ARRAY['测试'], 'test',
       ${sql.json({ ok: true, reasons: [], previewPassed: true })}, now() - interval '1 day')`;
-  await sql`UPDATE budgets SET per_day = 0 WHERE service = 'deepseek_web'`;
-  const first = await runDailyDiscovery();
+  const first = await runDailyDiscovery({ search: async () => [] });
   assert.equal(first.previewed, 1);
   assert.equal(first.previewPassed, 0);
   const candidates = await sql<{ id: string; status: string }[]>`
-    SELECT id, status FROM source_candidates WHERE id IN (${[failedId, expiredId]})`;
+    SELECT id, status FROM source_candidates WHERE id = ANY(${[failedId, expiredId]}::text[])`;
   assert.deepEqual(candidates.map(c => c.status).sort(), ["preflight_failed", "preflight_failed"]);
-  const second = await runDailyDiscovery();
+  const second = await runDailyDiscovery({ search: async () => [] });
   assert.equal(second.previewed, 0, "terminal failures are not re-previewed at a cost");
   assert.equal(second.trialsStarted, 0, "expired event candidates never enter trials");
   await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
