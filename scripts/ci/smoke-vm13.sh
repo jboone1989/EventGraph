@@ -49,7 +49,8 @@ assert(sourceRes.status === 200, "admin sources status " + sourceRes.status);
 const sourceList = await sourceRes.json();
 assert(sourceList.totals?.total >= 86, "new source pack missing: " + JSON.stringify(sourceList.totals));
 for (const id of ["rss-cn-pboc-official", "rss-cn-csrc-official", "rss-un-geneva-press", "rss-gcaptain-maritime"]) {
-  assert(sourceList.rows.some(s => s.id === id), "new source not seeded: " + id);
+  const res = await fetch(root + "/api/admin/sources?q=" + encodeURIComponent(id), { headers: { cookie } });
+  assert(res.status === 200 && (await res.json()).rows.some(s => s.id === id), "new source not seeded: " + id);
 }
 
 // 4. The English archive should expose real English headlines in the API, not
