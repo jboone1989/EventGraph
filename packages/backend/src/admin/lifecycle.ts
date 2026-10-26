@@ -9,7 +9,7 @@ import { audit } from "../audit.ts";
 // control-plane concern (it decides which sources exist), not a collection concern.
 import { createSource, findDuplicateSource, previewSource, sourceIdentity, updateSource } from "./sources.ts";
 import { sql, type Db } from "../db.ts";
-import { budgetMessage } from "../providers/receipts.ts";
+import { BudgetExceededError, budgetMessage } from "../providers/receipts.ts";
 import { unsupportedConfig } from "../sources/config-keys.ts";
 
 export const CANDIDATE_KINDS = ["rss", "json_list"] as const;
@@ -301,7 +301,7 @@ export async function markPreviewed(id: string, preview: { ok: boolean; count: n
 /** Run the existing collector preview before accepting a newly discovered source.
  * No article writes; paid DeepSeek previews still obey receipts and finite budgets.
  */
-export async function previewCandidate(id: string, actor: string, db: Db = sql): Promise<{ passed: boolean; count: number; dated: number; error?: string }> {
+export async function previewCandidate(id: string, actor: string, db: Db = sql): Promise<{ passed: boolean; count: number; dated: number; error?: string; skipped?: "budget" | "credential" }> {
   const [row] = await db<CandidateRow[]>`SELECT * FROM source_candidates WHERE id = ${id}`;
   if (!row || row.status !== "discovered") return { passed: false, count: 0, dated: 0, error: "candidate-not-discovered" };
   if (row.manual_hold) return { passed: false, count: 0, dated: 0, error: "manual-hold" };
@@ -312,6 +312,12 @@ export async function previewCandidate(id: string, actor: string, db: Db = sql):
     await markPreviewed(id, { ok: passed, count: sample.count, dated, actor, db });
     return { passed, count: sample.count, dated };
   } catch (error) {
+    const message = String((error as Error)?.message ?? error);
+    if (error instanceof BudgetExceededError || /DEEPSEEK_API_KEY/.test(message)) {
+      // Operator-recoverable conditions must not permanently reject the publisher.
+      return { passed: false, count: 0, dated: 0, error: message.slice(0, 220),
+        skipped: error instanceof BudgetExceededError ? "budget" : "credential" };
+    }
     await markPreviewed(id, { ok: false, count: 0, dated: 0, actor, db });
     return { passed: false, count: 0, dated: 0, error: String(error).slice(0, 220) };
   }

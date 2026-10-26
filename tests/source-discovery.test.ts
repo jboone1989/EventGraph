@@ -187,3 +187,28 @@ test("failed previews and expired event candidates are not retried or trialled",
   assert.equal(second.trialsStarted, 0, "expired event candidates never enter trials");
   await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
 });
+
+test("budget exhausted at preview time does not permanently reject the candidate", async () => {
+  const id = `test-discovery-late-budget-${T}`;
+  const query = `late budget ${T} site:unavailable.example.gov`;
+  await sql`INSERT INTO source_candidates
+    (id, identity, status, origin_channel, kind, name, config, tags, rationale, preflight)
+    VALUES (${id}, ${`deepseek:${query.toLowerCase()}|https://unavailable.example.gov/`},
+      'discovered', 'deepseek', 'json_list', 'Preview interrupted by budget',
+      ${sql.json({ mode: "deepseek_search", deepseekQuery: query,
+        allowUrlPrefixes: ["https://unavailable.example.gov/"],
+        publishedAfter: new Date().toISOString() })},
+      ARRAY['测试'], 'test', ${sql.json({ ok: true, reasons: [] })})`;
+  await sql`UPDATE budgets SET per_day = 0 WHERE service = 'deepseek_web'`;
+  try {
+    // Injected discovery has no paid work; paid preview runs after discovery.
+    const run = await runDailyDiscovery({ search: async () => [] });
+    assert.equal(run.skipped, "budget");
+    const [candidate] = await sql<{ status: string; preflight: { previewPassed?: boolean } }[]>`
+      SELECT status, preflight FROM source_candidates WHERE id = ${id}`;
+    assert.equal(candidate.status, "discovered");
+    assert.notEqual(candidate.preflight.previewPassed, false);
+  } finally {
+    await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
+  }
+});
