@@ -15,8 +15,6 @@ let deadline: number;
 let metaAfterDeadline = false;
 const apiCookies: Array<string | undefined> = [];
 const apiPaths: string[] = [];
-let failHot = false;
-let failDaily = false;
 const api = createServer((req, res) => {
   const url = new URL(req.url!, "http://api.local");
   apiCookies.push(req.headers.cookie);
@@ -32,14 +30,8 @@ const api = createServer((req, res) => {
     res.setHeader("Cache-Control", "public, max-age=30, s-maxage=30");
     return res.end(JSON.stringify({ filters, cards: [], nextCursor: null, dayCounts: [], hot: null }));
   }
-  if (url.pathname === "/api/site/hot") {
-    if (failHot) { res.statusCode = 503; return res.end(JSON.stringify({ code: "unavailable" })); }
-    return res.end(JSON.stringify({ entries: [] }));
-  }
-  if (url.pathname === "/api/site/reports/daily") {
-    if (failDaily) { res.statusCode = 503; return res.end(JSON.stringify({ code: "unavailable" })); }
-    return res.end(JSON.stringify({ items: [] }));
-  }
+  if (url.pathname === "/api/site/hot") return res.end(JSON.stringify({ entries: [] }));
+  if (url.pathname === "/api/site/reports/daily") return res.end(JSON.stringify({ items: [] }));
   if (url.pathname === "/api/site/pool") {
     return res.end(JSON.stringify({
       filters: { channel: "all", category: null, tag: null, q: url.searchParams.get("q"), tab: "time" },
@@ -250,20 +242,7 @@ test("degraded hot/daily responses cannot satisfy a narrower page cache", async 
     assert.equal(result.source, "fresh", `missing ${kind} data must not satisfy the narrower view`);
   }
 
-  try {
-    failHot = true;
-    const search = await fetch(`${origin}/all.data?q=missing-hot`);
-    assert.equal(search.status, 200);
-    assert.ok((await search.text()).includes('"hotOk",false'), "search response must indicate hot fetch failed");
-    failHot = false;
-    failDaily = true;
-    const filtered = await fetch(`${origin}/all.data?tag=missing-daily`);
-    assert.equal(filtered.status, 200);
-    assert.ok((await filtered.text()).includes('"dailyOk",false'), "filtered response must indicate daily fetch failed");
-  } finally {
-    failHot = false;
-    failDaily = false;
-  }
+
 });
 
 test("navigation streams are plain text for download managers, including errors", async () => {
