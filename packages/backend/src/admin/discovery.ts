@@ -304,11 +304,11 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
       if (run.skipped === "budget" || run.skipped === "credential") continue;
       if (run.previewed >= settings.maxCandidates) continue;
       const preview = await previewCandidate(c.id, ACTOR, db);
-      run.previewed += 1;
       if (preview.skipped) {
         run.skipped = preview.skipped;
-        break;
+        continue;
       }
+      run.previewed += 1;
       if (!preview.passed) {
         await db`UPDATE source_candidates SET status = 'preflight_failed', updated_at = now()
           WHERE id = ${c.id} AND status = 'discovered'`;
