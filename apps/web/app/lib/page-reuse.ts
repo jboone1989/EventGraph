@@ -1,7 +1,7 @@
 // Public pages already rendered in this document can be revisited until their server deadline.
 // Nothing persists across a document reload; list snapshots separately own the reader's position.
 import type { ClientLoaderFunctionArgs, ShouldRevalidateFunction } from 'react-router';
-import { feedFrameKey, feedFrameFallbackKeys } from "./seo";
+import { feedFrameKey, feedFrameFallbackKeys } from "./seo.ts";
 
 const pages = new Map<string, unknown>();
 const MAX_PAGES = 16;
