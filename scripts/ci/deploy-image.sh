@@ -86,34 +86,15 @@ case "$previous" in
     docker image inspect "$previous" >/dev/null
     ;;
 esac
-# Read-only migration parity check: abort before updating any service if the
-# new image expects schema files the target database has not applied.
-if ! compose run --rm --no-deps --pull never --entrypoint node setup --input-type=module -e '
-import { existsSync, readdirSync } from "node:fs";
-import path from "node:path";
-import { REPO_ROOT } from "@aihot/backend/config";
-import { sql, closeDb } from "@aihot/backend/db";
-const modules = path.join(REPO_ROOT, "modules");
-const dirs = [path.join(REPO_ROOT, "database/migrations"),
-  ...(existsSync(modules) ? readdirSync(modules).map(m => path.join(modules, m, "migrations")) : [])];
-const expected = new Set(dirs.flatMap(dir => existsSync(dir) ?
-  readdirSync(dir).filter(name => name.endsWith(".sql")) : []));
-try {
-  const rows = await sql.unsafe("SELECT name FROM schema_migrations");
-  const applied = new Set(rows.map(r => r.name));
-  const pending = [...expected].filter(name => !applied.has(name));
-  if (pending.length) throw new Error("Pending database migrations: " + pending.join(", "));
-  console.log("Schema already up to date; proceeding with image-only release");
-} catch (error) {
-  console.error("Release blocked: " + error.message);
-  process.exitCode = 1;
-} finally {
-  await closeDb();
-}
-'; then
-  echo "Schema preflight failed; no app containers were changed" >&2
+# Run the existing idempotent setup on every development release:
+# migrations apply only once; seed inserts missing source IDs without
+# overriding admin edits. The DB is the isolated cn-dev instance.
+compose up -d --no-deps --no-build --pull never db
+if ! compose run --rm --no-deps --pull never setup; then
+  echo "Development migration/source seed failed; app containers unchanged" >&2
   exit 1
 fi
+
 rollback() {
   echo "Deployment failed, restoring previous app image where available" >&2
   if [ -n "$previous" ] && [ "$previous" != "$EVENTGRAPH_IMAGE" ]; then
@@ -123,11 +104,7 @@ rollback() {
   fi
   exit 1
 }
-# Apply the loopback database port binding before the app services so the tunnel
-# target exists; Compose only recreates db when its definition changed.
-compose up -d --no-deps --no-build --pull never db || rollback
-# Image-only rollout: schema migrations require a separately reviewed, backed-up release.
-# Database/Neo4j services and persistent volumes are not touched.
+# Development database and Neo4j persistent volumes are untouched.
 if ! compose up -d --no-deps --no-build --pull never api worker web; then
   rollback
 fi
