@@ -146,7 +146,7 @@ test("feed-frame scopes reuse only superset snapshots, without cache poisoning",
         request: new Request(url),
         serverLoader: async () => {
           calls++;
-          return { expiresAt: Date.now() + 60_000, source };
+          return { expiresAt: Date.now() + 60_000, source, hotOk: true, dailyOk: true };
         },
       } as unknown as Parameters<typeof clientLoader>[0]),
       count: () => calls,
@@ -186,7 +186,7 @@ test("explicit same-address revalidation bypasses even a fresh superset cache", 
     request: new Request(url),
     serverLoader: async () => {
       requests++;
-      return { expiresAt: Date.now() + 60_000, source };
+      return { expiresAt: Date.now() + 60_000, source, hotOk: true, dailyOk: true };
     },
   } as unknown as Parameters<typeof clientLoader>[0]);
 
@@ -217,7 +217,7 @@ test("IntentLink freshness matches the frame and the child list separately", asy
   // Earlier tests may have populated the same global scope key; absence is not guaranteed.
   const load = (url: URL) => clientLoader({
     request: new Request(url),
-    serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source: "overview" }),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source: "overview", hotOk: true, dailyOk: true }),
   } as unknown as Parameters<typeof clientLoader>[0]);
   await load(home);
   for (const url of [home, search, filtered]) {
@@ -233,20 +233,33 @@ test("IntentLink freshness matches the frame and the child list separately", asy
   assert.equal(hasFreshPage(search), false, "search results still need their own child loader");
 });
 
-test("failed optional data is never stored as a reusable feed-frame snapshot", async () => {
+test("degraded hot/daily responses cannot satisfy a narrower page cache", async () => {
+  for (const [kind, upstream, destination] of [
+    ["hot", { hotOk: false, dailyOk: true }, "http://example.test/all?q=must-refetch"],
+    ["daily", { hotOk: true, dailyOk: false }, "http://example.test/?tag=must-refetch"],
+  ] as const) {
+    const key = (url: URL) => `unavailable-${kind}:${feedFrameKey(url)}`;
+    const fallback = (url: URL) => feedFrameFallbackKeys(url).map(k => `unavailable-${kind}:${k}`);
+    const { clientLoader } = pageReuse<{ expiresAt: number; source: string; hotOk: boolean; dailyOk: boolean }>(key, fallback);
+    const load = (url: URL, source: string, status: { hotOk: boolean; dailyOk: boolean }) => clientLoader({
+      request: new Request(url),
+      serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source, ...status }),
+    } as unknown as Parameters<typeof clientLoader>[0]);
+    await load(new URL("http://example.test/"), "degraded", upstream);
+    const result = await load(new URL(destination), "fresh", { hotOk: true, dailyOk: true });
+    assert.equal(result.source, "fresh", `missing ${kind} data must not satisfy the narrower view`);
+  }
+
   try {
     failHot = true;
     const search = await fetch(`${origin}/all.data?q=missing-hot`);
     assert.equal(search.status, 200);
-    const searchBody = await search.text();
-    assert.ok(searchBody.includes('"expiresAt",0'), "failed search Trending must expire immediately");
-
+    assert.ok((await search.text()).includes('"hotOk",false'), "search response must indicate hot fetch failed");
     failHot = false;
     failDaily = true;
     const filtered = await fetch(`${origin}/all.data?tag=missing-daily`);
     assert.equal(filtered.status, 200);
-    const filteredBody = await filtered.text();
-    assert.ok(filteredBody.includes('"expiresAt",0'), "failed daily must not poison a reusable frame");
+    assert.ok((await filtered.text()).includes('"dailyOk",false'), "filtered response must indicate daily fetch failed");
   } finally {
     failHot = false;
     failDaily = false;
