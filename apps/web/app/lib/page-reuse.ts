@@ -22,7 +22,7 @@ export function hasFreshPage(url: URL, routeId?: string): boolean {
       .some((k, i) => deadlineOf(pages.get(k)) > Date.now() && (i === 0 || canReuseFrame(pages.get(k), url)));
   }
   const own = deadlineOf(pages.get(addressOf(url))) > Date.now();
-  if (routeId || (url.pathname !== "/" && url.pathname !== "/all")) return own;
+  if (routeId || (url.pathname !== "/" && url.pathname !== "/all" && url.pathname !== "/en")) return own;
   // A warm frame alone does not mean the list child loader is warm.
   return own && hasFreshPage(url, "feed-layout");
 }
@@ -49,6 +49,9 @@ export function pageReuse<T>(key: (url: URL) => string = addressOf, fallbackKeys
     if (!force) for (const fallback of fallbackKeys?.(url) ?? []) {
       const value = pages.get(fallback);
       if (deadlineOf(value) > Date.now() && canReuseFrame(value, url)) {
+        // Reading a superset counts as using it; preserve the existing LRU eviction order.
+        pages.delete(fallback);
+        pages.set(fallback, value);
         return value as Awaited<ReturnType<typeof serverLoader<T>>>;
       }
     }
