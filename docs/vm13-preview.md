@@ -1,37 +1,58 @@
-# EventGraph development: VM13 Web preview, production read-only data
+# EventGraph development: VM13 Web + API, isolated cn-dev development database
 
 **This is development, not production.** Production remains exclusively on VM09,
 with PostgreSQL, Neo4j, API, worker, collection, and public website unchanged.
 
 | Role | Host |
 | --- | --- |
-| Developer workstation, source builds, Pi, Playwright Chromium | cn-dev (43.142.127.40) |
-| EventGraph development Web preview + small GET-only Caddy proxy | VM13 (43.133.185.154) |
-| API, processing, all live data, public website | VM09 |
+| Isolated development PostgreSQL/Neo4j, worker, collection, knowledge stack, public 80/8080 Web ingress, Playwright Chromium | cn-dev (43.142.127.40) |
+| Development Web + API preview from the tested GHCR digest | VM13 (43.133.185.154) |
+| Production | VM09 (untouched) |
 
-VM13 URL: http://43.133.185.154/. No production database credentials
-are copied to VM13 or cn-dev. `api-forward` proxies **GET/HEAD only**
-to `https://www.livingruntime.com`, rewrites the upstream Host header,
-removes Authorization/Cookie and rejects methods that could mutate production.
-Do not test admin sign-in, ingestion or mutable operations against production.
+VM13 URL: http://43.133.185.154/. Both VM13 containers run the immutable
+develop digest; Web reaches only the local API (`http://api:3001`), never
+production.
 
-GitHub Actions `develop` builds/publishes a pinned GHCR digest, then
-`deploy_vm13_preview` deploys only VM13 `api-forward` and `web`,
-and `e2e_vm13_preview` executes installed Playwright Chromium **on cn-dev**
-against VM13. Existing development CI SSH credentials are reused; no new
-secrets and no SSH agent on VM13. The job first checks the current develop
-HEAD so stale runs never downgrade Web. The deploy script pulls the exact
-image, stages Compose and the Caddyfile from the exact source SHA, validates
-Caddy, updates Web and the forwarder, performs health checks and attempts
-rollback on failure.
+## Database path (private, SSH only)
 
-Production `main` deployment is entirely separate. PostgreSQL images and
-containers are not data volumes: Docker volumes survive image rebuilds.
-The old cn-dev EventGraph stack can be removed **after** the first complete
-VM13 CD + cn-dev browser acceptance; never use `docker compose down -v`
-against production. If schema or worker tests need a DB, use the existing
-isolated `aihot-test-pg` or an ephemeral development DB seeded with a small
-non-sensitive production sample, not the production DB.
+The development PostgreSQL stays on the cn-dev Compose network with no public
+port. `docker-compose.dev-db.yml` (cn-dev only) publishes it on **host loopback
+`127.0.0.1:5432`**, and a systemd unit on VM13
+(`eventgraph-dev-db-tunnel.service`, written by `scripts/ci/deploy-vm13-preview.sh`)
+forwards `127.0.0.1:15432` and `<docker-bridge-gateway>:15432` on VM13 to
+`127.0.0.1:5432` on cn-dev over the existing VM13→cn-dev SSH key
+(`~ubuntu/.ssh/id_ed25519`, already authorized on cn-dev). The Compose API
+service resolves `devdb` to the docker bridge gateway via `host-gateway`, so
+`DATABASE_URL` targets `devdb:15432`. No database port is open to the internet
+on either host, and no new cloud security-group rule is used.
 
-The VM13 preview is currently HTTP-only on a public IP and is not private
-access restricted; avoid credentials and sensitive data in that interface.
+## GitHub Actions (single pipeline, develop pushes)
+
+1. `check` + `e2e` + published-digest Compose smoke gate `publish`, which builds
+   one immutable GHCR digest (`ghcr.io/jboone1989/eventgraph-app@sha256:…`).
+2. `deploy_development` SSHes to cn-dev and runs `scripts/ci/deploy-image.sh`:
+   pulls the digest, asserts its `org.opencontainers.image.revision` label,
+   stages `docker-compose.dev-db.yml` from the exact release SHA, applies the
+   loopback DB binding, then recreates only `api`/`worker`/`web` with digest
+   and health assertions and rollback to the last good image.
+3. `deploy_vm13_preview` SSHes to VM13 and runs
+   `scripts/ci/deploy-vm13-preview.sh`: stages the Compose file from the SHA,
+   asserts the image label, refreshes the SSH tunnel unit, recreates
+   `api` + `web` (the old read-only Caddy forwarder is gone), verifies the
+   running containers use exactly the published digest and the site answers,
+   and rolls back on failure.
+4. `e2e_vm13_preview` runs `scripts/ci/smoke-vm13.sh` **on cn-dev** against
+   VM13: `/api/health` reports `db: ok` and `release` equal to the deployed
+   SHA; a real admin password login yields a session and CSRF principal; a
+   probe note written through the VM13 API is read back through the API and
+   directly from the cn-dev development database, then restored; knowledge
+   endpoints return their built-in `disabled` state; Chromium checks the zh/en
+   desktop/mobile pages. Production is never contacted.
+
+`vm13.env` (host-only on VM13, never committed) holds
+`DATABASE_URL=postgres://aihot:…@devdb:15432/aihot`, `SESSION_SECRET`,
+`ADMIN_PASSWORD` and `IMG_PROXY_SIGN_SECRET` (development values, matching
+cn-dev).
+
+The VM13 preview is HTTP-only on a public IP; treat everything in it as
+development data. Never copy production credentials to VM13 or cn-dev.

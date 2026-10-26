@@ -668,8 +668,17 @@ export { siteUrl };
 export function reportNavigation(kind: ReportKind, index: ReportIndexEntry[], key: string): ReportNavigationEntry[] {
   const at = index.findIndex((e) => e.key === key);
   return index.map((entry, n) => ({ key: entry.key, issueNumber: entry.issueNumber,
-    ...(kind !== "daily" || entry.key.slice(0, 7) === key.slice(0, 7) || n < 3 || Math.abs(n - at) <= 1 ? { title: entry.title } : {}),
+    ...(kind !== "daily" || entry.key.slice(0, 7) === key.slice(0, 7) || n < 3 || Math.abs(n - at) <= 1
+      ? { title: entry.title, ...(entry.titleEn ? { titleEn: entry.titleEn } : {}) } : {}),
   }));
+}
+
+/** Prefer a publisher's original English headline; use saved translation only for non-English sources. */
+export function preferredEnglishHeadline(original: string | null | undefined, translated: string | null | undefined): string | null {
+  const source = original?.trim();
+  return source && /[a-z]/i.test(source) && !/[\u3400-\u9fff]/u.test(source)
+    ? source
+    : translated?.trim() || null;
 }
 
 /** Reuse already-published English article copies for archive headlines, without translating on read. */
@@ -684,7 +693,10 @@ async function englishNavigation<T extends ReportNavigationEntry>(kind: ReportKi
     .filter((r): r is { key: string; id: string } => !!r.id);
   const copies = await availability([...new Set(leads.map((r) => r.id))]);
   const titles = new Map(leads.flatMap(({ key, id }) => {
-    const english = copies.get(id)?.english?.title;
+    const article = copies.get(id);
+    // Preserve a publisher's original English headline before generated English copy.
+    // Chinese originals still use the existing English translation; never translate on read.
+    const english = preferredEnglishHeadline(article?.originalTitle, article?.english?.title);
     return english ? [[key, english] as const] : [];
   }));
   return entries.map((e) => ({ ...e, ...(titles.has(e.key) ? { titleEn: titles.get(e.key) } : {}) }));

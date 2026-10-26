@@ -104,10 +104,10 @@ os.chmod(p,0o600)
 WRITE_RELEASE
 python3 scripts/production-env-check.py .env --role production --compare config/environments/production.flags.env.example --enforce
 "${COMPOSE[@]}" config --quiet
-echo "[4/5] Apply schema migration only if migration files changed"
-if [[ "$SCHEMA_CHANGED" == 1 ]]; then
- "${COMPOSE[@]}" run --rm --no-deps setup
-fi
+echo "[4/5] Apply pending schema migrations and seed new sources"
+# Idempotent setup inserts only missing source IDs; existing admin changes remain.
+# Always run it: source pack changes do not necessarily change schema files.
+"${COMPOSE[@]}" run --rm --no-deps setup
 # Compose compares image/config hashes; no --force-recreate, no --build, and
 # no dependencies => PostgreSQL and Neo4j are never recreated for an app release.
 echo "[4/5] Reconcile application containers only; leave Graphiti/Neo4j running"
