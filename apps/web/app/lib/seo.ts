@@ -56,20 +56,22 @@ export function readFilters(params: URLSearchParams): TimelineFilters {
   };
 }
 
-/** Search-only pages still show Trending and share the full feed frame with the homepage. */
-export function needsFullFeedFrame(url: URL): boolean {
+/** Data required by the shared feed frame, ordered from most to least complete. */
+export function feedFrameScope(url: URL): "overview" | "search" | "filtered" {
   const filters = readFilters(url.searchParams);
-  return !filters.tag && !filters.category && filters.channel === "all";
+  if (filters.tag || filters.category || filters.channel !== "all") return "filtered";
+  return url.searchParams.get("q")?.trim() ? "search" : "overview";
 }
 
-/** Keep filtered feed-frame snapshots separate from the full overview in pageReuse. */
 export function feedFrameKey(url: URL): string {
-  return needsFullFeedFrame(url) ? "feed-frame:overview" : "feed-frame:filtered";
+  return `feed-frame:${feedFrameScope(url)}`;
 }
 
-/** A filtered frame may display the already-fresh full overview; never the other way around. */
-export function feedFrameFallbackKey(url: URL): string | null {
-  return needsFullFeedFrame(url) ? null : "feed-frame:overview";
+/** A narrower view may reuse any fresh broader frame; not vice versa. */
+export function feedFrameFallbackKeys(url: URL): string[] {
+  const scope = feedFrameScope(url);
+  return scope === "filtered" ? ["feed-frame:overview", "feed-frame:search"]
+    : scope === "search" ? ["feed-frame:overview"] : [];
 }
 
 /** Feed filters as list address parameters: the default channel and unset filters are left out. */
