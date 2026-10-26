@@ -234,7 +234,8 @@ test("selected identity delays show reader impact, recovery state and the affect
     assert.match(warning!.heals!, /人工|处理后/);
     assert.match(warning!.detail!, /group-alert-failed/);
     const runs = await runsOverview();
-    assert.equal(runs.grouping.waiting, 3, "the runs page includes normal waits but no false candidates");
+    assert.equal(runs.grouping.waiting, 2, "the runs page excludes news older than 24 hours while retaining live waits");
+    assert.ok(!runs.grouping.items.some((item) => item.articleId === "group-alert-revision"), "an old revision does not revive expired news");
     assert.equal(runs.grouping.needsAttention, 1);
     assert.ok(runs.grouping.items.some((item) => item.articleId === "group-alert-failed" && item.recovery === "manual"));
 
