@@ -67,6 +67,11 @@ export function feedFrameKey(url: URL): string {
   return showsFeedOverview(url) ? "feed-frame:overview" : "feed-frame:filtered";
 }
 
+/** A filtered frame may display the already-fresh full overview; never the other way around. */
+export function feedFrameFallbackKey(url: URL): string | null {
+  return showsFeedOverview(url) ? null : "feed-frame:overview";
+}
+
 /** Feed filters as list address parameters: the default channel and unset filters are left out. */
 export function filterParams(f: TimelineFilters) {
   return { channel: f.channel === "all" ? null : f.channel, category: f.category, tag: f.tag };
