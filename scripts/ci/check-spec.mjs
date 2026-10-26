@@ -23,17 +23,36 @@ if (process.env.SPEC_BASE_REF === "main" &&
   process.exit(0);
 }
 const ancestor = git("merge-base", base, head).trim();
-const files = git("diff", "--name-only", "-z", ancestor, head).split("\0").filter(Boolean);
+const files = git("diff", "--no-renames", "--name-only", "-z", ancestor, head).split("\0").filter(Boolean);
 if (files.length === 0) fail("No changed files found; cannot validate PR scope.");
 
-// Governance, specification and documentation changes do not implement product behavior.
-const governance = /^(?:docs\/|specs\/|\.github\/|\.specify\/|\.agents\/|\.claude\/|scripts\/ci\/)/;
+// Executable CI, deployment flags and scripts are implementation, not docs.
+const governance = /^(?:docs\/|specs\/|\.specify\/|\.agents\/|\.claude\/)/;
 const rootDocs = /^(?:AGENTS|CLAUDE|README|CONTRIBUTING)\.md$/;
 const implementation = files.filter(file => !governance.test(file) && !rootDocs.test(file) && !file.endsWith(".md"));
 if (implementation.length === 0) {
-  console.log("Spec gate PASS: documentation/governance-only PR.");
+  console.log("Spec gate PASS: documentation-only PR.");
   process.exit(0);
 }
+// Only initial installation may add this gate without an older copy on base.
+// The separate required Claude reviewer still checks that bootstrap PR.
+let baseHasGate = true;
+try {
+  git("cat-file", "-e", `${base}:scripts/ci/check-spec.mjs`);
+} catch {
+  baseHasGate = false;
+}
+const bootstrapFiles = new Set([
+  ".github/pull_request_template.md",
+  ".github/workflows/check.yml",
+  "scripts/ci/check-spec.mjs",
+  "scripts/ci/check-spec.test.mjs",
+]);
+if (!baseHasGate && implementation.every(file => bootstrapFiles.has(file))) {
+  console.log("Spec gate PASS: first installation; independent reviewer required.");
+  process.exit(0);
+}
+
 const match = body.match(/^Spec:\s*(specs\/[a-zA-Z0-9_./-]+\/spec\.md)@([0-9a-f]{40})\s*$/mi);
 if (!match) fail("Implementation PR must contain 'Spec: specs/<feature>/spec.md@<40-char-approved-commit>' in its description.");
 const [, path, specSha] = match;
