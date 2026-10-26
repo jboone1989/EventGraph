@@ -4,7 +4,7 @@ import "./setup.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ReportCitation } from "@aihot/contracts/site";
-import { leadItemOf } from "@aihot/backend/publication/reports";
+import { leadItemOf, reportNavigation } from "@aihot/backend/publication/reports";
 
 const cite = (itemId: string, title: string, available = true) => ({ itemId, title, available }) as ReportCitation;
 const arena = cite("a", "Claude Opus 5.5 (High) 以 1509 分登顶 Arena Text Arena 榜首");
@@ -25,4 +25,14 @@ test("without an editors' lead the first highlight leads", () => {
 test("a withdrawn highlight never leads the front page", () => {
   const withdrawn = cite("w", "已下架", false);
   assert.equal(leadItemOf(undefined, [withdrawn, arena], [withdrawn, arena, openai])?.itemId, "a");
+});
+
+test("English report titles survive the latest-page navigation projection", () => {
+  const entries = [
+    { key: "2026-10-26", issueNumber: 2, title: "中文头条", titleEn: "English headline" },
+    { key: "2026-10-25", issueNumber: 1, title: "昨日中文头条", titleEn: "Yesterday's headline" },
+  ];
+  const nav = reportNavigation("daily", entries, "2026-10-26");
+  assert.equal(nav[0]?.titleEn, "English headline");
+  assert.equal(nav[1]?.titleEn, "Yesterday's headline");
 });
