@@ -102,6 +102,7 @@ export default function ContentItem({ loaderData }: Route.ComponentProps) {
               ) : (
                 <span className="text-ink-4">只有初始版本</span>
               )}
+            </Step>
             <Step title="模型判断" meta={`${c.analyses.length} 次`} tone={c.analyses.length ? "accent" : "muted"}>
               {c.analyses.length ? (
                 <div className="space-y-3">
