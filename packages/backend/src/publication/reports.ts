@@ -673,6 +673,14 @@ export function reportNavigation(kind: ReportKind, index: ReportIndexEntry[], ke
   }));
 }
 
+/** Prefer a publisher's original English headline; use saved translation only for non-English sources. */
+export function preferredEnglishHeadline(original: string | null | undefined, translated: string | null | undefined): string | null {
+  const source = original?.trim();
+  return source && /[a-z]/i.test(source) && !/[\u3400-\u9fff]/u.test(source)
+    ? source
+    : translated?.trim() || null;
+}
+
 /** Reuse already-published English article copies for archive headlines, without translating on read. */
 async function englishNavigation<T extends ReportNavigationEntry>(kind: ReportKind, entries: T[]): Promise<T[]> {
   const needingTitles = entries.filter((e) => e.title && !e.titleEn);
@@ -686,11 +694,9 @@ async function englishNavigation<T extends ReportNavigationEntry>(kind: ReportKi
   const copies = await availability([...new Set(leads.map((r) => r.id))]);
   const titles = new Map(leads.flatMap(({ key, id }) => {
     const article = copies.get(id);
-    // Prefer the saved English translation, then the source's own English title.
-    // Neither path translates a Chinese heading on read.
-    const original = article?.originalTitle;
-    const english = article?.english?.title
-      || (original && !/[\u3400-\u9fff]/u.test(original) ? original : null);
+    // Preserve a publisher's original English headline before generated English copy.
+    // Chinese originals still use the existing English translation; never translate on read.
+    const english = preferredEnglishHeadline(article?.originalTitle, article?.english?.title);
     return english ? [[key, english] as const] : [];
   }));
   return entries.map((e) => ({ ...e, ...(titles.has(e.key) ? { titleEn: titles.get(e.key) } : {}) }));
