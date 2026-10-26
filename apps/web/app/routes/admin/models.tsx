@@ -1,4 +1,3 @@
-import {Link} from "react-router";
 import type {Route} from "./+types/models";
 import type {ProviderManagement} from "@aihot/contracts/providers";
 import {SITE} from "@aihot/site";
@@ -12,7 +11,7 @@ export async function loader({request}:Route.LoaderArgs){
 export const meta:Route.MetaFunction=()=>[{title:"Provider 管理 · "+SITE.name+" 后台"}];
 export default function ModelsAdmin({loaderData}:Route.ComponentProps){
  return <AdminPage title="Provider 管理" subtitle="管理厂商连接、凭据和模型；支持手动添加、发现导入及独立能力测试。"
-  actions={<Link to="/admin/selectbench" className="text-sm text-accent hover:underline">SelectBench 评测 →</Link>}>
+  >
   <ProviderConnectionsAdmin data={loaderData}/>
  </AdminPage>;
 }

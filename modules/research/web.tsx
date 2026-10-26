@@ -10,7 +10,4 @@ export const researchWeb = defineWebModule({
     items: [{ to: "/research", label: "研究", labelEn: "Research", icon: IconDoc }],
   },
   tools: [{ to: "/research", label: "研究", icon: <IconDoc size={20} /> }],
-  admin: {
-    content: [{ to: "/admin/research", label: "研究稿件" }],
-  },
 });
