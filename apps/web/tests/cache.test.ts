@@ -73,8 +73,10 @@ test("public route subsets produce the same complete navigation data; filters st
     assert.ok(body.includes("root") && body.includes("routes/home"));
     return body;
   }));
-  // Each server request can generate a new fresh timestamp; the route data itself must agree.
-  const withoutClock = (body: string) => body.replace(/("expiresAt",)\d+/g, "$1<deadline>");
+  // Each server request can generate a new fresh timestamp; the route data itself must agree. Turbo-stream
+  // writes repeated keys (both loaders carry "expiresAt") as references, so only the first stays a literal
+  // followed by digits; normalize every epoch-millisecond number wherever the stream happens to put it.
+  const withoutClock = (body: string) => body.replace(/\b1\d{12}\b/g, "<deadline>");
   assert.ok(answers.every((body) => withoutClock(body) === withoutClock(answers[0]!)));
   const category = CATEGORY_KEYS.at(-1)!;
   const filtered = await fetch(`${origin}/_.data?category=${category}&_routes=root`);
