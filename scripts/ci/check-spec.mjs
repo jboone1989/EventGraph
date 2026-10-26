@@ -28,9 +28,10 @@ if (files.length === 0) fail("No changed files found; cannot validate PR scope."
 
 // Executable CI, deployment flags and scripts are implementation, not docs.
 const governance = /^(?:docs\/|specs\/|\.specify\/)/;
-const agentDocs = /^(?:\.agents\/|\.claude\/).*\.md$/;
+
 const rootDocs = /^(?:AGENTS|CLAUDE|README|CONTRIBUTING)\.md$/;
-const implementation = files.filter(file => !governance.test(file) && !rootDocs.test(file) && !agentDocs.test(file));
+const prose = /\.(?:md|txt|rst|adoc)$/i;
+const implementation = files.filter(file => !rootDocs.test(file) && !(governance.test(file) && prose.test(file)));
 if (implementation.length === 0) {
   console.log("Spec gate PASS: documentation-only PR.");
   process.exit(0);
