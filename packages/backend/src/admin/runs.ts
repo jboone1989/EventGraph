@@ -79,7 +79,7 @@ export async function runsOverview(): Promise<Runs> {
         count(*) FILTER (WHERE processing_state='blocked')::int AS filtered,
         count(*) FILTER (WHERE processing_state IN ('new','failed') AND
           (processing_error ILIKE '%No eligible configured model%' OR processing_error ILIKE '%Model cannot route%'))::int AS "unavailableModel"
-      FROM articles`,
+      FROM articles WHERE discovered_at >= now() - interval '24 hours'`,
     livePipelineOverview(),
     sql<Runs["failedJobs"]>`
       SELECT name, count(*)::int AS failed, max(completed_on) AS last, left((array_agg(output::text ORDER BY completed_on DESC))[1], 300) AS last_output
@@ -102,12 +102,12 @@ export async function runsOverview(): Promise<Runs> {
     sql<Runs["errors"]>`
       SELECT ${failureGroupSql()} AS error, count(*)::int AS n, max(discovered_at) AS last,
              (array_agg(id ORDER BY discovered_at DESC))[1] AS example
-      FROM articles WHERE processing_state = 'failed' AND discovered_at > now() - interval '30 days' GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
+      FROM articles WHERE processing_state = 'failed' AND discovered_at > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
     sql<Runs["ingest"]>`SELECT client, kind, status, left(error, 200) AS error, summary, created_at FROM ingest_events ORDER BY created_at DESC, id DESC LIMIT 20`,
     waitingSelectedNews(),
     // Articles waiting to retry after a passing provider problem (they are not failed).
     sql<{ n: number; next: Date | null }[]>`
-      SELECT count(*)::int AS n, min(processing_retry_at) AS next FROM articles WHERE processing_state = 'new' AND processing_attempts > 0`,
+      SELECT count(*)::int AS n, min(processing_retry_at) AS next FROM articles WHERE processing_state = 'new' AND processing_attempts > 0 AND discovered_at >= now() - interval '24 hours'`,
     Promise.all(serverModules().flatMap((m) => (m.admin?.runs ? [m.admin.runs().then((part) => [m.name, part] as const)] : []))),
   ]);
   const now = Date.now();

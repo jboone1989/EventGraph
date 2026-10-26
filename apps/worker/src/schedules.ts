@@ -16,6 +16,7 @@ import { computeHotRanking, snapshotHeat } from "@aihot/backend/events/hot";
 import { linkRelatedStories } from "@aihot/backend/events/consolidate";
 import { composeDueReports } from "@aihot/backend/reports/compose";
 import { dailyRetention } from "@aihot/backend/operations/retention";
+import { expireStaleWork } from "@aihot/backend/operations/stale-work";
 import { submitIndexNow } from "@aihot/backend/operations/indexnow";
 import { checkAlerts, sendDigest } from "@aihot/backend/operations/alerts";
 import { recoverStaleWork } from "@aihot/backend/operations/recover";
@@ -37,6 +38,7 @@ const ENGINE_SCHEDULES: Scheduled[] = [
   // Paid probes of registered models whose 24 h success is about to expire (both registry and model-call flags).
   ...(retestEnabled() ? [{ name: "models.registry.retest", cron: "*/30 * * * *", run: () => retestExpiringModels() }] : []),
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
+  { name: "ops.expire-stale-work", cron: "*/10 * * * *", run: expireStaleWork },
   // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).
   { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },
   // English copy of selected reports and story digests for the /en edition (model calls; off with MODEL_CALLS_ENABLED=false).

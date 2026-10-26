@@ -27,6 +27,7 @@ export async function sweepUngrouped(): Promise<{ enqueued: number }> {
     const rows = await tx<{ id: string }[]>`
       SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
       WHERE a.grouping_status = 'pending' AND a.created_at < now() - interval '3 minutes'
+        AND a.discovered_at >= now() - interval '24 hours'
         AND s.participation_mode = 'editorial' AND a.processing_state = 'analyzed' AND EXISTS (
           SELECT 1 FROM analyses an WHERE an.article_id = a.id AND an.input_revision = a.revision AND an.relevance = 'pass')
         AND NOT EXISTS (SELECT 1 FROM pgboss.job j WHERE j.name = ${QUEUES.group}
