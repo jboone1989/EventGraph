@@ -12,7 +12,7 @@ test("Story begins with its overview, not the research workbench", () => {
 });
 
 test("The full report list keeps internal and original-source links", () => {
-  assert.match(story, /<TimelineRow key=\{r\.id\} r=\{r\} station=\{stationByReportId\.get\(r\.id\)\}/);
+  assert.match(story, /<TimelineRow key=\{r\.id\} r=\{r\} \/>/);
   assert.match(story, /<IntentLink viewTransition to=\{lang === "en"/);
   assert.match(story, /href=\{r\.originalUrl\}[^\n]*target="_blank"/);
   assert.doesNotMatch(story, /完整来源索引（截至目前）/);
@@ -20,8 +20,11 @@ test("The full report list keeps internal and original-source links", () => {
 });
 
 test("Route uncertainty remains accessible without a second expanded timeline", () => {
-  assert.match(story, /station\?\.uncertainty\.singleSource/);
-  assert.match(story, /station\?\.uncertainty\.occurredAtMissing/);
-  assert.match(story, /station\?\.uncertainty\.revised/);
+  const reportRow = story.slice(story.indexOf("function TimelineRow"), story.indexOf("type Filter"));
+  assert.doesNotMatch(reportRow, /station\?\.|stationByReportId/);
+  assert.match(reportRow, /r\.discoveredAt/);
+  assert.match(story, /s\.uncertainty\.singleSource/);
+  assert.match(story, /s\.uncertainty\.occurredAtMissing/);
+  assert.match(story, /s\.uncertainty\.revised/);
   assert.match(story, /<details className="order-3/);
 });
