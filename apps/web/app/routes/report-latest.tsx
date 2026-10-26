@@ -1,4 +1,5 @@
-import { useLoaderData } from "react-router";
+import { Await, useLoaderData } from "react-router";
+import { Suspense } from "react";
 import type { Route } from "./+types/report-latest";
 import type { ReportLatestPage } from "@aihot/contracts/site";
 import { REPORTS, subjectAfter, withSubject } from "@aihot/site";
@@ -22,9 +23,10 @@ export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 export async function loader({ request }: Route.LoaderArgs) {
   const kind = kindFromPath(new URL(request.url).pathname);
   const { index, report } = await loadOr404<ReportLatestPage>(`/api/site/reports/${kind}/latest-page`, { signal: request.signal });
+  // The report is the critical content; graph changes are supplementary and may be slower.
   const graph = kind === "daily" && report
-    ? await apiGet<DailyGraphChanges>(`/api/site/knowledge/daily/${report.key}`, { signal: request.signal, timeoutMs: 2_000 }).catch(() => null)
-    : null;
+    ? apiGet<DailyGraphChanges>(`/api/site/knowledge/daily/${report.key}`, { signal: request.signal, timeoutMs: 2_000 }).catch(() => null)
+    : Promise.resolve(null);
   // The daily's editor note rides here too (FR-001): cap its page cache at the api's 120s freshness.
   return cachedPage(kind === "daily" ? 120 : 600, { kind, report, index, graph, today: beijingDate(Date.now()) });
 }
@@ -59,7 +61,9 @@ export default function ReportLatestPage() {
       {report ? (
         <>
           <ReportPaper report={report} index={index} lang={language} editorNote={editorNote} />
-          <GraphChanges changes={graph} />
+          <Suspense fallback={null}>
+            <Await resolve={graph}>{(changes) => <GraphChanges changes={changes} />}</Await>
+          </Suspense>
         </>
       ) : (
         <EmptyState title={t(kind === "daily" ? "还没有发布日报" : subjectAfter("还没有发布", KIND_LABEL[kind]), `No ${kindLabel(kind, "en").toLowerCase()} published yet`)}>
