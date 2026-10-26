@@ -9,6 +9,7 @@ import { config } from "@aihot/backend/config";
 import { closeDb, sql } from "@aihot/backend/db";
 import { stopBoss } from "@aihot/backend/jobs/queue";
 import { runDailyDiscovery } from "@aihot/backend/admin/discovery";
+import { sourceIdentity } from "@aihot/backend/admin/sources";
 
 const T = tag();
 const EVENT = `红海航运中断升级-${T}`;
@@ -199,6 +200,18 @@ test("budget exhausted at preview time does not permanently reject the candidate
         allowUrlPrefixes: ["https://unavailable.example.gov/"],
         publishedAfter: new Date().toISOString() })},
       ARRAY['测试'], 'test', ${sql.json({ ok: true, reasons: [] })})`;
+  // A previously verified source comes after the unpreviewed candidate in the daily walk.
+  // Running out of budget must not stop its free trial activation.
+  const readyId = `test-discovery-ready-after-budget-${T}`;
+  const readyConfig = { mode: "deepseek_search", deepseekQuery: `ready source ${T} site:verified.example.gov`,
+    allowUrlPrefixes: ["https://verified.example.gov/"], publishedAfter: new Date().toISOString() };
+  const readyIdentity = sourceIdentity("json_list", readyConfig);
+  assert.ok(readyIdentity);
+  await sql`INSERT INTO source_candidates
+    (id, identity, status, origin_channel, kind, name, config, tags, rationale, preflight)
+    VALUES (${readyId}, ${readyIdentity}, 'discovered', 'deepseek', 'json_list',
+      'Already verified publisher', ${sql.json(readyConfig)}, ARRAY['测试'], 'test',
+      ${sql.json({ ok: true, reasons: [], previewPassed: true, previewCount: 1, previewDated: 1 })})`;
   await sql`UPDATE budgets SET per_day = 0 WHERE service = 'deepseek_web'`;
   try {
     // Injected discovery has no paid work; paid preview runs after discovery.
@@ -208,6 +221,10 @@ test("budget exhausted at preview time does not permanently reject the candidate
       SELECT status, preflight FROM source_candidates WHERE id = ${id}`;
     assert.equal(candidate.status, "discovered");
     assert.notEqual(candidate.preflight.previewPassed, false);
+    const [ready] = await sql<{ status: string }[]>`SELECT status FROM source_candidates WHERE id = ${readyId}`;
+    assert.equal(ready.status, "trial", "already-verified candidate still enters trial");
+    assert.equal(run.previewed, 0, "unavailable paid preview is not counted as a completed preview");
+    assert.ok(run.trialsStarted >= 1);
   } finally {
     await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
   }
