@@ -21,8 +21,10 @@ export { pageHeaders as headers } from "../lib/api.server";
 export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const kind = kindFromPath(new URL(request.url).pathname);
-  const { index, report } = await loadOr404<ReportLatestPage>(`/api/site/reports/${kind}/latest-page`, { signal: request.signal });
+  const pathname = new URL(request.url).pathname;
+  const kind = kindFromPath(pathname);
+  const en = pathname.startsWith("/en/");
+  const { index, report } = await loadOr404<ReportLatestPage>(`/api/site/reports/${kind}/latest-page${en ? "?en=1" : ""}`, { signal: request.signal });
   // The report is the critical content; graph changes are supplementary and may be slower.
   const graph = kind === "daily" && report
     ? apiGet<DailyGraphChanges>(`/api/site/knowledge/daily/${report.key}`, { signal: request.signal, timeoutMs: 2_000 }).catch(() => null)
