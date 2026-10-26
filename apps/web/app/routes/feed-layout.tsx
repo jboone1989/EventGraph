@@ -8,7 +8,7 @@ import type { HotResponse, ReportIndexResponse, SiteStats } from "@aihot/contrac
 import { subjectAfter } from "@aihot/site";
 import { cachedPage, apiGet } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
-import { readFilters } from "../lib/seo";
+import { readFilters, feedFrameKey, feedFrameFallbackKeys, feedFrameScope } from "../lib/seo";
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
 import type { KnowledgeGraph, KnowledgeStats } from "../components/KnowledgeNetwork";
@@ -22,25 +22,35 @@ const EMPTY_GRAPH: KnowledgeGraph = { entities: 0, edges: [], status: "unavailab
 const EMPTY_STATS: KnowledgeStats = { entities: 0, relations: 0, episodes: 0, status: "unavailable" };
 
 export async function loader({ request }: Route.LoaderArgs) {
+  const url = new URL(request.url);
+  const scope = feedFrameScope(url);
+  const showOverview = scope === "overview";
+  const showTrending = scope !== "filtered";
   const upstream = new Headers();
   const signal = request.signal;
   const [graph, stats, hot, site, dailies] = await Promise.all([
-    apiGet<KnowledgeGraph>("/api/site/knowledge/overview", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH),
-    apiGet<KnowledgeStats>("/api/site/knowledge/stats", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_STATS),
-    apiGet<HotResponse>("/api/site/hot", { signal, timeoutMs: 1_800 }).catch(() => null),
-    apiGet<SiteStats>("/api/site/stats", { signal, timeoutMs: 1_800 }).catch(() => null),
+    showOverview ? apiGet<KnowledgeGraph>("/api/site/knowledge/overview", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH) : EMPTY_GRAPH,
+    showOverview ? apiGet<KnowledgeStats>("/api/site/knowledge/stats", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_STATS) : EMPTY_STATS,
+    showTrending ? apiGet<HotResponse>("/api/site/hot", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
+    showOverview ? apiGet<SiteStats>("/api/site/stats", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
     apiGet<ReportIndexResponse>("/api/site/reports/daily", { signal, timeoutMs: 1_800 }).catch(() => null),
   ]);
   const lead = hot?.entries[0] ?? null;
-  const storyGraph = lead
+  const storyGraph = showOverview && lead
     ? await apiGet<KnowledgeGraph>(`/api/site/knowledge/stories/${encodeURIComponent(lead.story.publicId)}`, { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH)
     : EMPTY_GRAPH;
-  return cachedPage(60, { graph, stats, hot: hot?.entries ?? [], site, storyGraph, daily: dailies?.items[0] ?? null }, upstream);
+  // Preserve ordinary page caching, including offline revisits. Only fallback reuse
+  // checks which optional upstream requests actually succeeded.
+  return cachedPage(60, {
+    graph, stats, hot: hot?.entries ?? [], site, storyGraph,
+    daily: dailies?.items[0] ?? null,
+    hotOk: hot !== null, dailyOk: dailies !== null,
+  }, upstream);
 }
 
 // One result for both scopes: switching 精选/全部 re-runs this loader but reads the same fresh
 // entry, so the frame never asks the server for data the list switch did not change.
-export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>(() => "feed-frame");
+export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>(feedFrameKey, feedFrameFallbackKeys);
 
 export const handle: Screen = { tab: "featured" };
 
