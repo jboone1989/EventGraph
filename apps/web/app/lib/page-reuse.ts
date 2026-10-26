@@ -1,18 +1,25 @@
 // Public pages already rendered in this document can be revisited until their server deadline.
 // Nothing persists across a document reload; list snapshots separately own the reader's position.
 import type { ClientLoaderFunctionArgs, ShouldRevalidateFunction } from 'react-router';
-import { feedFrameKey, feedFrameFallbackKeys } from "./seo.ts";
+import { feedFrameKey, feedFrameFallbackKeys, feedFrameScope } from "./seo.ts";
 
 const pages = new Map<string, unknown>();
 const MAX_PAGES = 16;
 const addressOf = (url: URL) => url.pathname + url.search;
 const deadlineOf = (value: unknown) => (value as { expiresAt?: number } | null)?.expiresAt ?? 0;
+/** A fallback must include the target view's successfully loaded optional fields. */
+const canReuseFrame = (value: unknown, target: URL): boolean => {
+  const frame = value as { hotOk?: boolean; dailyOk?: boolean } | null;
+  const scope = feedFrameScope(target);
+  return scope === "search" ? frame?.hotOk === true && frame?.dailyOk === true
+    : scope === "filtered" ? frame?.dailyOk === true : true;
+};
 
 /** Prefetch and clientLoader consult the same cache keys for each matched route. */
 export function hasFreshPage(url: URL, routeId?: string): boolean {
   if (routeId === "routes/feed-layout") {
     return [feedFrameKey(url), ...feedFrameFallbackKeys(url)]
-      .some(k => deadlineOf(pages.get(k)) > Date.now());
+      .some((k, i) => deadlineOf(pages.get(k)) > Date.now() && (i === 0 || canReuseFrame(pages.get(k), url)));
   }
   const own = deadlineOf(pages.get(addressOf(url))) > Date.now();
   if (routeId || (url.pathname !== "/" && url.pathname !== "/all")) return own;
@@ -41,7 +48,7 @@ export function pageReuse<T>(key: (url: URL) => string = addressOf, fallbackKeys
     // Explicit same-address revalidation must reach the server, not a warm superset.
     if (!force) for (const fallback of fallbackKeys?.(url) ?? []) {
       const value = pages.get(fallback);
-      if (deadlineOf(value) > Date.now()) {
+      if (deadlineOf(value) > Date.now() && canReuseFrame(value, url)) {
         return value as Awaited<ReturnType<typeof serverLoader<T>>>;
       }
     }
