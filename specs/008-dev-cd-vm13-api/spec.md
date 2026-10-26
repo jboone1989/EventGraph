@@ -7,6 +7,7 @@
 
 1. `develop` pushes that pass `check` + `e2e` publish one immutable GHCR digest (unchanged), then in one pipeline:
    - `deploy_development` (restored job) updates the cn-dev development app (api/worker/web) against the cn-dev development database; cn-dev's public 80/8080 Web ingress, database container, knowledge stack and data volumes are untouched.
+   - Every development rollout runs the existing idempotent `setup` (migrations + missing sources from `industry/sources.json`); production `deploy-prod.sh` does the same on **every** release, not only when schema changes. Existing source edits are not overwritten.
    - `deploy_vm13_preview` deploys **api + web** containers from that digest to VM13; Web reaches only `http://api:3001` locally; the read-only Caddy forwarder is removed.
    - `e2e_vm13_preview` runs on cn-dev and accepts the deployment.
 2. VM13's API connects to the cn-dev development PostgreSQL through an SSH tunnel from VM13 to cn-dev using the pre-existing, pre-authorized VM13 host key; the database is published only on cn-dev host loopback (`docker-compose.dev-db.yml`) and the tunnel port only on VM13 loopback plus the Docker bridge gateway. No database port is exposed to the internet on either host; no new security-group rule is used.
@@ -20,6 +21,12 @@
 ## Out of scope
 
 - VM09 production, its secrets and data; the promotion flow; new ports in the cloud security group; new SSH keys or forwarders; moving the worker or the knowledge stack off cn-dev; changes to cn-dev's public 80/8080 ingress.
+
+## Activation and English report acceptance (2026-10-26 approved scope)
+
+- Both deploy paths insert missing `sourceLifecycle.discovery={enabled:true,maxGaps:6,maxCandidates:8}` and `sourceLifecycle.autoPromote={enabled:true}` through the existing seed; operator edits after activation are not overwritten on later releases. The existing `cron.sources.discover` runs daily only when collection is enabled; DeepSeek credentials and request budget must be present for actual searches.
+- The English report latest-page requests an English-aware index and carries `titleEn` into the left archive menu. Prefer the source's original English title to a model-translated title, falling back to saved English copy for Chinese-language originals; do not translate on page view.
+- The published image smoke test verifies that both activation keys are enabled in a fresh database. Real cn-dev and VM13 acceptance must independently check the running release SHA and data read/write, and production acceptance follows promotion separately.
 
 ## Acceptance criteria
 
