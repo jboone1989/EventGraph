@@ -85,6 +85,30 @@ test("same-repo develop to main promotion is exempt, fork promotion is not", () 
     assert.equal(check(cwd, base, head, "", { ...env, SPEC_HEAD_REPO: "other/EventGraph" }).status, 1);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+test("moving product code into docs still requires a spec", () => {
+  const { cwd, base } = fixture();
+  try {
+    mkdirSync(join(cwd, "docs"), { recursive: true });
+    git(cwd, "mv", "apps/app.ts", "docs/app.ts");
+    git(cwd, "commit", "-qm", "move product code");
+    const head = git(cwd, "rev-parse", "HEAD");
+    assert.equal(check(cwd, base, head).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("deployment config is not exempted as documentation", () => {
+  const { cwd, base } = fixture();
+  try {
+    const head = commit(cwd, ".github/production-image.env", "PROD_IMAGE=example");
+    assert.equal(check(cwd, base, head).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("first gate installation is the only CI-only bootstrap exception", () => {
+  const { cwd, base } = fixture();
+  try {
+    const head = commit(cwd, "scripts/ci/check-spec.mjs", "console.log('gate')");
+    assert.equal(check(cwd, base, head).status, 0);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
 test("governance-only PR does not demand a product spec", () => {
   const { cwd, base } = fixture(false);
   try {
