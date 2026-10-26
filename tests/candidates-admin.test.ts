@@ -83,6 +83,14 @@ test("hold is applied by the session actor with the operator's reason, and unkno
   const [row] = await sql`SELECT manual_hold FROM source_candidates WHERE id = ${id}`;
   assert.equal(row!.manual_hold, true);
 
+  // Malformed requests must never silently release a hold.
+  for (const payload of [{ reason: "x" }, { hold: "false", reason: "x" }, { hold: false }, { hold: false, reason: "  " }]) {
+    const rejected = await app.inject({ method: "POST", url: `/api/admin/source-candidates/${id}/hold`, headers, payload });
+    assert.equal(rejected.statusCode, 400);
+    const [stillHeld] = await sql`SELECT manual_hold FROM source_candidates WHERE id = ${id}`;
+    assert.equal(stillHeld!.manual_hold, true);
+  }
+
   // The refusal is a 404, not a silent success (a truthy unresolved promise would be).
   assert.equal((await app.inject({ method: "POST", url: `/api/admin/source-candidates/no-such-${T}/hold`, headers, payload: { hold: true, reason: "x" } })).statusCode, 404);
 });

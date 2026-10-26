@@ -40,10 +40,12 @@ export async function listCandidates(f: CandidateListFilters): Promise<BeforeJso
  */
 export async function reviveCandidate(id: string, reason: string, actor: string): Promise<{ revived: boolean; reason?: string }> {
   if (!reason?.trim()) throw Object.assign(new Error("reason is required"), { statusCode: 400 });
-  const [c] = await sql<{ status: string; attached_source_id: string | null; manual_hold: boolean; expired: boolean }[]>`
+  return sql.begin(async (tx) => {
+  // Serialize operator actions against this candidate before enabling the attached source.
+  const [c] = await tx<{ status: string; attached_source_id: string | null; manual_hold: boolean; expired: boolean }[]>`
     SELECT status, attached_source_id, manual_hold,
       (expires_at IS NOT NULL AND expires_at <= now()) AS expired
-    FROM source_candidates WHERE id = ${id}`;
+    FROM source_candidates WHERE id = ${id} FOR UPDATE`;
   if (!c) return { revived: false, reason: "unknown-candidate" };
   if (c.status !== "demoted" && c.status !== "retired") return { revived: false, reason: `status:${c.status}` };
   if (c.manual_hold) return { revived: false, reason: "manual-hold" };
@@ -51,15 +53,16 @@ export async function reviveCandidate(id: string, reason: string, actor: string)
   // Keep the expiry intact; a fresh event needs a separately bounded trial.
   if (c.expired) return { revived: false, reason: "expired" };
   if (c.attached_source_id) {
-    const [src] = await sql<{ updated_at: Date }[]>`SELECT updated_at FROM sources WHERE id = ${c.attached_source_id}`;
+    const [src] = await tx<{ updated_at: Date }[]>`SELECT updated_at FROM sources WHERE id = ${c.attached_source_id}`;
     if (!src) return { revived: false, reason: "source-missing" };
-    await updateSource(c.attached_source_id, { patch: { enabled: true }, version: new Date(src.updated_at).toISOString(), reason: `lifecycle revive: ${reason}` }, actor);
+    await updateSource(c.attached_source_id, { patch: { enabled: true }, version: new Date(src.updated_at).toISOString(), reason: `lifecycle revive: ${reason}` }, actor, tx);
   }
-  const [row] = await sql`UPDATE source_candidates SET status = 'trial', trial_started_at = now(),
+  const [row] = await tx`UPDATE source_candidates SET status = 'trial', trial_started_at = now(),
       last_decision = 'revived', last_decision_at = now(), updated_at = now()
     WHERE id = ${id} AND status IN ('demoted', 'retired') RETURNING id`;
   if (!row) return { revived: false, reason: "status-changed" };
   await audit(actor, "sourceLifecycle.revive", `candidate:${id}`, reason,
-    { status: c.status }, { status: "trial", sourceId: c.attached_source_id });
+    { status: c.status }, { status: "trial", sourceId: c.attached_source_id }, { db: tx });
   return { revived: true };
+  });
 }

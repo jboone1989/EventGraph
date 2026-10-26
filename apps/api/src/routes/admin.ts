@@ -186,8 +186,11 @@ export function registerAdmin(app: FastifyInstance) {
   app.post("/api/admin/source-candidates/:id/evaluate", adminHandler(async (req, reply, admin) =>
     orNotFound(req, reply, await evaluateCandidate(param(req, "id"), { actor: actorOf(admin) }))));
   app.post("/api/admin/source-candidates/:id/hold", adminHandler(async (req, reply, admin) => {
-    const held = await holdCandidate(param(req, "id"), body<{ hold: boolean }>(req).hold === true,
-      actorOf(admin), String(body<{ reason: string }>(req).reason ?? ""));
+    const payload = body<{ hold?: unknown; reason?: unknown }>(req);
+    if (typeof payload.hold !== "boolean" || typeof payload.reason !== "string" || !payload.reason.trim()) {
+      throw Object.assign(new Error("hold boolean and non-empty reason are required"), { statusCode: 400 });
+    }
+    const held = await holdCandidate(param(req, "id"), payload.hold, actorOf(admin), payload.reason);
     return orNotFound(req, reply, held ? { held: true } : null);
   }));
   app.post("/api/admin/source-candidates/:id/revive", adminHandler(async (req, _reply, admin) =>
