@@ -2,6 +2,7 @@
 # Transport supplied by appleboy/ssh-action. No git pull, npm install, or build on host.
 set -eu
 : "${EVENTGRAPH_IMAGE:?Missing image digest}"
+: "${EVENTGRAPH_RELEASE_SHA:?Missing release SHA}"
 : "${EVENTGRAPH_DIR:?Missing deployment directory}"
 : "${GHCR_USER:?Missing registry account}"
 : "${GHCR_TOKEN:?Missing registry access token}"
@@ -32,13 +33,19 @@ services:
     image: ${EVENTGRAPH_APP_IMAGE:?}
 OVERLAY
 cleanup() {
-  rm -f "$overlay"
+  rm -f "$overlay" "${db_overlay:-}"
   rm -rf -- "$dockercfg"
 }
 trap cleanup EXIT
 compose() {
-  docker compose -f docker-compose.yml -f "$overlay" "$@"
+  docker compose -f docker-compose.yml -f "$overlay" -f "$db_overlay" "$@"
 }
+
+# The development database stays private: this cn-dev-only overlay from the exact
+# release publishes it on host loopback for the VM13 SSH tunnel, nothing public.
+git fetch --quiet --no-tags origin develop
+db_overlay="$(mktemp "$EVENTGRAPH_DIR/.ci-dev-db.XXXXXXXX.yml")"
+git show "$EVENTGRAPH_RELEASE_SHA:docker-compose.dev-db.yml" > "$db_overlay"
 previous=""
 if [ -f .eventgraph-last-good-image ]; then
   previous="$(cat .eventgraph-last-good-image)"
@@ -64,6 +71,10 @@ if docker image inspect "$EVENTGRAPH_IMAGE" >/dev/null 2>&1; then
 else
   docker pull "$EVENTGRAPH_IMAGE"
 fi
+revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$EVENTGRAPH_IMAGE")"
+[ "$revision" = "$EVENTGRAPH_RELEASE_SHA" ] \
+  || { echo "Image revision $revision does not match release $EVENTGRAPH_RELEASE_SHA" >&2; exit 1; }
+image_id="$(docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")"
 # Keep a usable rollback image even after host-level image pruning.
 case "$previous" in
   ghcr.io/*)
@@ -112,6 +123,9 @@ rollback() {
   fi
   exit 1
 }
+# Apply the loopback database port binding before the app services so the tunnel
+# target exists; Compose only recreates db when its definition changed.
+compose up -d --no-deps --no-build --pull never db || rollback
 # Image-only rollout: schema migrations require a separately reviewed, backed-up release.
 # Database/Neo4j services and persistent volumes are not touched.
 if ! compose up -d --no-deps --no-build --pull never api worker web; then
@@ -121,6 +135,10 @@ for service in api worker web; do
   container_id="$(compose ps -q "$service" || true)"
   if [ -z "$container_id" ] || [ "$(docker inspect -f '{{.State.Running}}' "$container_id")" != "true" ]; then
     echo "Service not running: $service" >&2
+    rollback
+  fi
+  if [ "$(docker inspect -f '{{.Image}}' "$container_id")" != "$image_id" ]; then
+    echo "Service $service is not running the published digest" >&2
     rollback
   fi
 done
