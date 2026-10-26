@@ -55,6 +55,20 @@ if (!baseHasGate && implementation.every(file => bootstrapFiles.has(file))) {
   process.exit(0);
 }
 
+// The scheduled AIHOT vendor-sync is generated upstream code, not a local feature.
+// Allow only the exact same-repo sync branch tied to its declared upstream SHA;
+// full Check plus independent Claude review remain mandatory before merge.
+const upstream = /^chore\/aihot-upstream-([0-9a-f]{12})$/.exec(process.env.SPEC_HEAD_REF || "");
+const upstreamSource = /^- Upstream: https:\/\/github\.com\/KKKKhazix\/AIHOT\/commit\/([0-9a-f]{40})\s*$/m.exec(body);
+if (upstream &&
+    process.env.SPEC_BASE_REF === "develop" &&
+    process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY &&
+    process.env.SPEC_REPOSITORY === "jboone1989/EventGraph" &&
+    body.startsWith("## AIHOT upstream synchronization\n") &&
+    upstreamSource && upstreamSource[1].startsWith(upstream[1])) {
+  console.log(`Spec gate PASS: verified AIHOT vendor-sync ${upstreamSource[1]}; independent review still required.`);
+  process.exit(0);
+}
 const match = body.match(/^Spec:\s*(specs\/[a-zA-Z0-9_./-]+\/spec\.md)@([0-9a-f]{40})\s*$/mi);
 if (!match) fail("Implementation PR must contain 'Spec: specs/<feature>/spec.md@<40-char-approved-commit>' in its description.");
 const [, path, specSha] = match;
