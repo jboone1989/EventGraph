@@ -8,7 +8,7 @@ import type { HotResponse, ReportIndexResponse, SiteStats } from "@aihot/contrac
 import { subjectAfter } from "@aihot/site";
 import { cachedPage, apiGet } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
-import { readFilters, feedFrameKey, feedFrameFallbackKey, showsFeedOverview } from "../lib/seo";
+import { readFilters, feedFrameKey, feedFrameFallbackKey, needsFullFeedFrame } from "../lib/seo";
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
 import type { KnowledgeGraph, KnowledgeStats } from "../components/KnowledgeNetwork";
@@ -23,7 +23,7 @@ const EMPTY_STATS: KnowledgeStats = { entities: 0, relations: 0, episodes: 0, st
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const showOverview = showsFeedOverview(url);
+  const showOverview = needsFullFeedFrame(url);
   const upstream = new Headers();
   const signal = request.signal;
   const [graph, stats, hot, site, dailies] = await Promise.all([
@@ -75,7 +75,7 @@ export default function FeedLayout() {
       )}
       <div className="lr-home-grid">
         <div className="min-w-0">
-          {!filtered && !q && inNav("/hot") && <Trending entries={hot.slice(1, 5)} />}
+          {!filtered && inNav("/hot") && <Trending entries={hot.slice(1, 5)} />}
           {base === "/" ? (
             <div className="lr-feed-heading">
               <div>
