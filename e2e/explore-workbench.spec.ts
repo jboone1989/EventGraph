@@ -81,7 +81,7 @@ test("the story page links into the standalone workbench with its event", async 
   test.skip(!seeded.story, "No public event available");
   await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
   await open(page, "/en/story/" + seeded.story);
-  const entry = page.getByRole("link", {name: /Open in the standalone explorer/}).first();
+  const entry = page.getByRole("link", {name: /Explore the timeline, relations and evidence/}).first();
   await expect(entry).toBeVisible();
   expect(await entry.getAttribute("href")).toContain(`/en/explore?story=${seeded.story}`);
   await entry.click();
@@ -94,7 +94,7 @@ test("the workbench itself does not link back to itself as the standalone explor
   await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
   await open(page, `/en/explore?story=${seeded.story}`);
   await expect(page.getByRole("region", {name: "Event Explorer"})).toBeVisible();
-  await expect(page.getByRole("link", {name: /Open in the standalone explorer/})).toHaveCount(0);
+  await expect(page.getByRole("link", {name: /Explore the timeline, relations and evidence/})).toHaveCount(0);
 });
 
 test("a deep link before the earliest frame says earlier material cannot be restored", async ({page}) => {
