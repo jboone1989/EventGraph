@@ -155,7 +155,7 @@ export function leadFromResult(s: GapSubject, r: DeepSeekResult, now: Date): Dis
     id: idFrom(feed ? r.url : siteQuery),
     origin: {
       channel: (s.event ? "breaking_event" : "deepseek") as "breaking_event" | "deepseek",
-      note: `${s.event ? "active event" : "coverage gap"}: ${s.subject}; ${provenance}`,
+      note: `${s.event ? "active event" : "coverage gap"}: ${s.subject}; ${provenance}`.slice(0, 500),
     },
     name: (r.site_name?.trim() || domain).slice(0, 200),
     // officialLowFrequency is an operator-verified attestation (preflight refuses it from auto
@@ -185,7 +185,7 @@ const identityOf = (c: DiscoveredSource): string | null =>
 /** The DeepSeek discovery: one scoped search per subject, de-duplicated by candidate identity. */
 export async function discoverViaDeepSeek(
   subjects: GapSubject[], existing: Set<string>, opts: { maxCandidates: number; now?: Date; search?: Search },
-): Promise<{ candidates: DiscoveredSource[]; queries: number; failures: number; firstError: string | null }> {
+): Promise<{ candidates: DiscoveredSource[]; queries: number; failures: number; firstError: string | null; skipped?: "budget" | "credential" }> {
   const search = opts.search ?? deepseekSearch;
   const now = opts.now ?? new Date();
   const seen = new Set(existing);
@@ -193,6 +193,7 @@ export async function discoverViaDeepSeek(
   let queries = 0;
   let failures = 0;
   let firstError: string | null = null;
+  let skipped: "budget" | "credential" | undefined;
   for (const s of subjects) {
     if (candidates.length >= opts.maxCandidates) break;
     // One failing subject must not discard successful searches for other regions or topics.
@@ -202,7 +203,10 @@ export async function discoverViaDeepSeek(
         count: 8, purpose: "source_discovery", subject: s.event ? `event:${s.subject}` : `gap:${s.subject}`,
       });
     } catch (error) {
-      if (error instanceof BudgetExceededError || /DEEPSEEK_API_KEY/.test(String(error))) throw error;
+      if (error instanceof BudgetExceededError || /DEEPSEEK_API_KEY/.test(String(error))) {
+        skipped = error instanceof BudgetExceededError ? "budget" : "credential";
+        break;
+      }
       failures += 1;
       firstError ??= String((error as Error)?.message ?? error).slice(0, 200);
       continue;
@@ -210,15 +214,18 @@ export async function discoverViaDeepSeek(
     queries += 1;
     for (const r of results) {
       if (candidates.length >= opts.maxCandidates) break;
-      const lead = leadFromResult(s, r, now);
-      if (!lead) continue;
-      const identity = identityOf(lead);
-      if (!identity || seen.has(identity)) continue;
-      seen.add(identity);
-      candidates.push(lead);
+      // A malformed provider hit must not discard otherwise valid leads.
+      try {
+        const lead = leadFromResult(s, r, now);
+        if (!lead) continue;
+        const identity = identityOf(lead);
+        if (!identity || seen.has(identity)) continue;
+        seen.add(identity);
+        candidates.push(lead);
+      } catch { continue; }
     }
   }
-  return { candidates, queries, failures, firstError };
+  return { candidates, queries, failures, firstError, skipped };
 }
 
 export interface DiscoveryRun {
@@ -258,6 +265,7 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
     });
     candidates = found.candidates;
     run.queries = found.queries;
+    run.skipped = found.skipped;
     run.searchFailures = found.failures;
     if (found.failures) run.note = `search: ${found.failures} subject(s) failed: ${found.firstError}`;
   } catch (error) {

@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { chooseDiscoverySubjects, discoverViaDeepSeek, leadFromResult, type GapSubject } from "../packages/backend/src/admin/discovery.ts";
 import { preflightCandidate, DiscoveredSource } from "../packages/backend/src/admin/lifecycle.ts";
 import { sourceIdentity } from "../packages/backend/src/admin/sources.ts";
+import { BudgetExceededError } from "../packages/backend/src/providers/receipts.ts";
 
 const NOW = new Date("2026-10-25T12:00:00.000Z");
 const gap: GapSubject = { subject: "算力与 AI 成本", tags: ["算力与芯片", "AI 成本"], event: false };
@@ -178,4 +179,30 @@ test("official news.xml feeds are RSS leads; they are previewed rather than scra
   assert.equal(lead.config.feedUrl, "https://www.mod.go.jp/j/rss/news.xml");
   assert.equal(preflightCandidate(lead).ok, true);
   assert.equal(lead.officialLowFrequency, false);
+});
+
+test("a long feed URL does not abort discovery or overflow candidate provenance", async () => {
+  const longUrl = "https://feeds.example-media.com/market/rss.xml?q=" + "a".repeat(700);
+  const result = await discoverViaDeepSeek([gap], new Set(), {
+    maxCandidates: 4, now: NOW,
+    search: async () => [hit({ url: longUrl }), hit({ url: "https://www.sanctions.example.gov/press/feed.xml" })],
+  });
+  assert.equal(result.candidates.length, 2);
+  assert.ok((result.candidates[0]!.origin.note ?? "").length <= 500);
+});
+
+test("a later budget outage preserves leads from earlier successful searches", async () => {
+  let calls = 0;
+  const result = await discoverViaDeepSeek([gap, event], new Set(), {
+    maxCandidates: 4, now: NOW,
+    search: async () => {
+      calls++;
+      if (calls === 2) throw new BudgetExceededError("deepseek_web", "day", 60);
+      return [hit({ url: "https://www.sanctions.example.gov/press/feed.xml" })];
+    },
+  });
+  assert.equal(calls, 2);
+  assert.equal(result.skipped, "budget");
+  assert.equal(result.queries, 1);
+  assert.equal(result.candidates.length, 1);
 });
