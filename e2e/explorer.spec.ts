@@ -15,7 +15,7 @@ for (const english of [false, true]) {
       if(new URL(req.url()).pathname.includes("/api/site/knowledge/stories/")) requests.push(req.url());
     });
     await open(page, `${english?"/en":""}/explore?story=${seeded.story}`);
-    await expect(page.getByRole("region",{name:"Event Explorer"})).toBeVisible();
+    await expect(page.getByRole("region",{name:english?"Event Explorer":"事件探索工作台"})).toBeVisible();
     const known = page.getByRole("button",{name:english?"Recorded-time reconstruction":"按收录时间重建"});
     const valid = page.getByRole("button",{name:english?"Valid time":"事实生效时间"});
     await expect(known).toHaveAttribute("aria-pressed","true");
