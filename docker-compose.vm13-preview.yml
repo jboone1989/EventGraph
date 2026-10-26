@@ -1,5 +1,5 @@
-# VM13: development Web preview; the HTTP bridge targets the existing cn-dev development API.
-# cn-dev owns the development API, PostgreSQL and workers; VM09 production stays separate.
+# VM13: development Web preview only; reads VM09 public API through a GET-only forwarder.
+# cn-dev remains a development workstation and runs Playwright, not EventGraph services.
 name: eventgraph-vm13-preview
 services:
   api-forward:
