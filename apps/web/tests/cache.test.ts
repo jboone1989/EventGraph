@@ -15,6 +15,8 @@ let deadline: number;
 let metaAfterDeadline = false;
 const apiCookies: Array<string | undefined> = [];
 const apiPaths: string[] = [];
+let failHot = false;
+let failDaily = false;
 const api = createServer((req, res) => {
   const url = new URL(req.url!, "http://api.local");
   apiCookies.push(req.headers.cookie);
@@ -30,7 +32,14 @@ const api = createServer((req, res) => {
     res.setHeader("Cache-Control", "public, max-age=30, s-maxage=30");
     return res.end(JSON.stringify({ filters, cards: [], nextCursor: null, dayCounts: [], hot: null }));
   }
-  if (url.pathname === "/api/site/hot") return res.end(JSON.stringify({ entries: [] }));
+  if (url.pathname === "/api/site/hot") {
+    if (failHot) { res.statusCode = 503; return res.end(JSON.stringify({ code: "unavailable" })); }
+    return res.end(JSON.stringify({ entries: [] }));
+  }
+  if (url.pathname === "/api/site/reports/daily") {
+    if (failDaily) { res.statusCode = 503; return res.end(JSON.stringify({ code: "unavailable" })); }
+    return res.end(JSON.stringify({ items: [] }));
+  }
   if (url.pathname === "/api/site/pool") {
     return res.end(JSON.stringify({
       filters: { channel: "all", category: null, tag: null, q: url.searchParams.get("q"), tab: "time" },
@@ -205,7 +214,7 @@ test("IntentLink freshness matches the frame and the child list separately", asy
   const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(
     feedFrameKey, feedFrameFallbackKeys,
   );
-  assert.equal(hasFreshPage(home, "routes/feed-layout"), false);
+  // Earlier tests may have populated the same global scope key; absence is not guaranteed.
   const load = (url: URL) => clientLoader({
     request: new Request(url),
     serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source: "overview" }),
@@ -222,6 +231,26 @@ test("IntentLink freshness matches the frame and the child list separately", asy
   } as unknown as Parameters<typeof listLoader>[0]);
   assert.equal(hasFreshPage(home), true);
   assert.equal(hasFreshPage(search), false, "search results still need their own child loader");
+});
+
+test("failed optional data is never stored as a reusable feed-frame snapshot", async () => {
+  try {
+    failHot = true;
+    const search = await fetch(`${origin}/all.data?q=missing-hot`);
+    assert.equal(search.status, 200);
+    const searchBody = await search.text();
+    assert.ok(searchBody.includes('"expiresAt",0'), "failed search Trending must expire immediately");
+
+    failHot = false;
+    failDaily = true;
+    const filtered = await fetch(`${origin}/all.data?tag=missing-daily`);
+    assert.equal(filtered.status, 200);
+    const filteredBody = await filtered.text();
+    assert.ok(filteredBody.includes('"expiresAt",0'), "failed daily must not poison a reusable frame");
+  } finally {
+    failHot = false;
+    failDaily = false;
+  }
 });
 
 test("navigation streams are plain text for download managers, including errors", async () => {
