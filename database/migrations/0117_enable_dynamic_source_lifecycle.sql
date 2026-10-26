@@ -7,8 +7,3 @@ ON CONFLICT (key) DO UPDATE
 SET value = jsonb_set(settings.value, '{enabled}', 'true'::jsonb),
     updated_by = 'migration:0117', updated_at = now();
 
-INSERT INTO settings (key, value, updated_by)
-VALUES ('sourceLifecycle.autoPromote', '{"enabled":true}'::jsonb, 'migration:0117')
-ON CONFLICT (key) DO UPDATE
-SET value = jsonb_set(settings.value, '{enabled}', 'true'::jsonb),
-    updated_by = 'migration:0117', updated_at = now();
