@@ -22,17 +22,21 @@ const EMPTY_GRAPH: KnowledgeGraph = { entities: 0, edges: [], status: "unavailab
 const EMPTY_STATS: KnowledgeStats = { entities: 0, relations: 0, episodes: 0, status: "unavailable" };
 
 export async function loader({ request }: Route.LoaderArgs) {
+  const url = new URL(request.url);
+  const filters = readFilters(url.searchParams);
+  // The lead, graph and activity strip are hidden on filtered or searched feeds.
+  const showOverview = !url.searchParams.get("q")?.trim() && !filters.tag && !filters.category && filters.channel === "all";
   const upstream = new Headers();
   const signal = request.signal;
   const [graph, stats, hot, site, dailies] = await Promise.all([
-    apiGet<KnowledgeGraph>("/api/site/knowledge/overview", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH),
-    apiGet<KnowledgeStats>("/api/site/knowledge/stats", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_STATS),
-    apiGet<HotResponse>("/api/site/hot", { signal, timeoutMs: 1_800 }).catch(() => null),
-    apiGet<SiteStats>("/api/site/stats", { signal, timeoutMs: 1_800 }).catch(() => null),
+    showOverview ? apiGet<KnowledgeGraph>("/api/site/knowledge/overview", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH) : EMPTY_GRAPH,
+    showOverview ? apiGet<KnowledgeStats>("/api/site/knowledge/stats", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_STATS) : EMPTY_STATS,
+    showOverview ? apiGet<HotResponse>("/api/site/hot", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
+    showOverview ? apiGet<SiteStats>("/api/site/stats", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
     apiGet<ReportIndexResponse>("/api/site/reports/daily", { signal, timeoutMs: 1_800 }).catch(() => null),
   ]);
   const lead = hot?.entries[0] ?? null;
-  const storyGraph = lead
+  const storyGraph = showOverview && lead
     ? await apiGet<KnowledgeGraph>(`/api/site/knowledge/stories/${encodeURIComponent(lead.story.publicId)}`, { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH)
     : EMPTY_GRAPH;
   return cachedPage(60, { graph, stats, hot: hot?.entries ?? [], site, storyGraph, daily: dailies?.items[0] ?? null }, upstream);
@@ -73,7 +77,7 @@ export default function FeedLayout() {
       )}
       <div className="lr-home-grid">
         <div className="min-w-0">
-          {!filtered && inNav("/hot") && <Trending entries={hot.slice(1, 5)} />}
+          {!filtered && !q && inNav("/hot") && <Trending entries={hot.slice(1, 5)} />}
           {base === "/" ? (
             <div className="lr-feed-heading">
               <div>
