@@ -17,7 +17,7 @@ export function IntentLink({ onFocus, onBlur, onMouseEnter, onMouseLeave, onTouc
   // assets nor that revalidation decision, which is reserved for an actual refresh.
   const shouldPrefetch = ready && differentPage && !hasFreshPage(target);
   const clients = shouldPrefetch && href.startsWith('/') && !href.startsWith('//')
-    ? context?.router.match(href)?.filter(m => framework?.manifest.routes[m.route.id]?.hasLoader && framework.manifest.routes[m.route.id]?.hasClientLoader).map(m => m.route.id) ?? []
+    ? context?.router.match(href)?.filter(m => framework?.manifest.routes[m.route.id]?.hasLoader && framework.manifest.routes[m.route.id]?.hasClientLoader && !hasFreshPage(target, m.route.id)).map(m => m.route.id) ?? []
     : [];
   target.hash = '';
   target.pathname += target.pathname.endsWith('/') ? '_.data' : '.data';
