@@ -225,6 +225,62 @@ test("IntentLink freshness matches the frame and the child list separately", asy
   assert.equal(hasFreshPage(search), false, "search results still need their own child loader");
 });
 
+test("English feed prefetch needs its shared frame even with a warm /en list", async () => {
+  const en = new URL("http://prefetch.example.test/en");
+  const { clientLoader: frameLoader, shouldRevalidate } = pageReuse<{
+    expiresAt: number; hotOk: boolean; dailyOk: boolean;
+  }>(feedFrameKey, feedFrameFallbackKeys);
+  shouldRevalidate({
+    currentUrl: en, nextUrl: en, defaultShouldRevalidate: true,
+  } as Parameters<typeof shouldRevalidate>[0]);
+  const { clientLoader: listLoader } = pageReuse<{ expiresAt: number }>();
+  await listLoader({
+    request: new Request(en),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000 }),
+  } as unknown as Parameters<typeof listLoader>[0]);
+  assert.equal(hasFreshPage(en), false, "warm English list alone cannot suppress frame prefetch");
+  await frameLoader({
+    request: new Request(en),
+    serverLoader: async () => ({
+      expiresAt: Date.now() + 60_000, hotOk: true, dailyOk: true,
+    }),
+  } as unknown as Parameters<typeof frameLoader>[0]);
+  assert.equal(hasFreshPage(en), true, "both list and frame are warm");
+});
+
+test("superset fallback accesses keep the overview alive under LRU pressure", async () => {
+  const home = new URL("http://lru.example.test/");
+  const filtered = new URL("http://lru.example.test/?tag=test");
+  const search = new URL("http://lru.example.test/all?q=test");
+  const key = (url: URL) => `lru:${feedFrameKey(url)}`;
+  const fallback = (url: URL) => feedFrameFallbackKeys(url).map(k => `lru:${k}`);
+  const { clientLoader: frameLoader } = pageReuse<{
+    expiresAt: number; source: string; hotOk: boolean; dailyOk: boolean;
+  }>(key, fallback);
+  let frameCalls = 0;
+  const visit = (url: URL) => frameLoader({
+    request: new Request(url),
+    serverLoader: async () => {
+      frameCalls++;
+      return {
+        expiresAt: Date.now() + 60_000,
+        source: `fetch-${frameCalls}`, hotOk: true, dailyOk: true,
+      };
+    },
+  } as unknown as Parameters<typeof frameLoader>[0]);
+  const { clientLoader: unrelatedLoader } = pageReuse<{ expiresAt: number }>();
+  const unrelated = async (index: number) => unrelatedLoader({
+    request: new Request(`http://lru.example.test/__lru-pressure-${index}`),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000 }),
+  } as unknown as Parameters<typeof unrelatedLoader>[0]);
+  await visit(home);
+  for (let i = 0; i < 12; i++) await unrelated(i);
+  assert.equal((await visit(filtered)).source, "fetch-1", "a filter reads the warm overview");
+  for (let i = 12; i < 18; i++) await unrelated(i);
+  assert.equal((await visit(search)).source, "fetch-1", "recent fallback usage prevents LRU eviction");
+  assert.equal(frameCalls, 1);
+});
+
 test("degraded hot/daily responses cannot satisfy a narrower page cache", async () => {
   for (const [kind, upstream, destination] of [
     ["hot", { hotOk: false, dailyOk: true }, "http://example.test/all?q=must-refetch"],
