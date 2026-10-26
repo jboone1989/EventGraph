@@ -6,7 +6,7 @@ import { CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { UNSAFE_decodeViaTurboStream } from "react-router";
 import { startWebServer, type WebServer } from "./web-server.ts";
 import { pageReuse } from "../app/lib/page-reuse.ts";
-import { feedFrameKey, feedFrameFallbackKey, needsFullFeedFrame } from "../app/lib/seo.ts";
+import { feedFrameKey, feedFrameFallbackKeys, feedFrameScope } from "../app/lib/seo.ts";
 
 let web: WebServer;
 let origin: string;
@@ -99,6 +99,11 @@ test("filtered pages skip hidden feed overview APIs, but unfiltered pages still 
   await search.text();
   const searchPaths = apiPaths.slice(searchBegin);
   assert.ok(searchPaths.includes("/api/site/hot"), "search-only Trending still needs ranking data");
+  for (const path of ["/api/site/knowledge/overview", "/api/site/knowledge/stats", "/api/site/stats"]) {
+    assert.equal(searchPaths.includes(path), false, `search must skip hidden endpoint: ${path}`);
+  }
+  assert.equal(searchPaths.some(path => path.startsWith("/api/site/knowledge/stories/")), false,
+    "search must not wait for the hidden lead story graph");
 
   const fullBegin = apiPaths.length;
   const full = await fetch(`${origin}/`);
@@ -110,61 +115,53 @@ test("filtered pages skip hidden feed overview APIs, but unfiltered pages still 
   }
 });
 
-test("a cached filtered frame never replaces the unfiltered home frame", async () => {
+test("feed-frame scopes reuse only superset snapshots, without cache poisoning", async () => {
   const category = CATEGORY_KEYS.at(-1)!;
-  const filteredUrl = new URL(`http://example.test/?category=${category}`);
-  const homeUrl = new URL("http://example.test/");
-  const allUrl = new URL("http://example.test/all");
-  assert.equal(needsFullFeedFrame(filteredUrl), false);
-  assert.equal(needsFullFeedFrame(homeUrl), true);
-  assert.notEqual(feedFrameKey(filteredUrl), feedFrameKey(homeUrl));
-  assert.equal(feedFrameKey(homeUrl), feedFrameKey(allUrl));
-  const searchUrl = new URL("http://example.test/all?q=example");
-  assert.equal(needsFullFeedFrame(searchUrl), true, "search-only keeps Trending");
-  assert.equal(feedFrameKey(searchUrl), feedFrameKey(homeUrl), "search-only keeps the fresh full-frame snapshot");
+  const home = new URL("http://example.test/");
+  const all = new URL("http://example.test/all");
+  const search = new URL("http://example.test/all?q=example");
+  const filtered = new URL(`http://example.test/?category=${category}`);
+  assert.deepEqual([home, all, search, filtered].map(feedFrameScope),
+    ["overview", "overview", "search", "filtered"]);
+  assert.deepEqual(feedFrameFallbackKeys(home), []);
+  assert.deepEqual(feedFrameFallbackKeys(search), ["feed-frame:overview"]);
+  assert.deepEqual(feedFrameFallbackKeys(filtered), ["feed-frame:overview", "feed-frame:search"]);
 
-  const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(feedFrameKey, feedFrameFallbackKey);
-  let serverCalls = 0;
-  async function visit(url: URL, source: string) {
-    return clientLoader({
-      request: new Request(url),
-      serverLoader: async () => {
-        serverCalls++;
-        return { expiresAt: Date.now() + 60_000, source };
-      },
-    } as unknown as Parameters<typeof clientLoader>[0]);
+  function session(prefix: string) {
+    const key = (url: URL) => `${prefix}:${feedFrameKey(url)}`;
+    const fallback = (url: URL) => feedFrameFallbackKeys(url).map(k => `${prefix}:${k}`);
+    const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(key, fallback);
+    let calls = 0;
+    return {
+      visit: async (url: URL, source: string) => clientLoader({
+        request: new Request(url),
+        serverLoader: async () => {
+          calls++;
+          return { expiresAt: Date.now() + 60_000, source };
+        },
+      } as unknown as Parameters<typeof clientLoader>[0]),
+      count: () => calls,
+    };
   }
-  const filtered = await visit(filteredUrl, "filtered");
-  const home = await visit(homeUrl, "full");
-  const all = await visit(allUrl, "should-not-fetch");
-  assert.equal(filtered.source, "filtered");
-  assert.equal(home.source, "full", "filter result must not poison the full overview");
-  assert.equal(all.source, "full", "/ and /all intentionally share the unfiltered overview");
-  assert.equal(serverCalls, 2);
 
-  // The reverse direction should reuse a fresh superset without fetching a second frame.
-  // Distinct test keys isolate this check from the first sequence's cache entries.
-  const key = (url: URL) => "test-superset:" + feedFrameKey(url);
-  const fallback = (url: URL) => {
-    const fresh = feedFrameFallbackKey(url);
-    return fresh ? "test-superset:" + fresh : null;
-  };
-  const { clientLoader: freshClientLoader } = pageReuse<{ expiresAt: number; source: string }>(key, fallback);
-  let freshCalls = 0;
-  async function visitFresh(url: URL, source: string) {
-    return freshClientLoader({
-      request: new Request(url),
-      serverLoader: async () => {
-        freshCalls++;
-        return { expiresAt: Date.now() + 60_000, source };
-      },
-    } as unknown as Parameters<typeof freshClientLoader>[0]);
-  }
-  const fullFirst = await visitFresh(homeUrl, "full-first");
-  const filteredAfterFull = await visitFresh(filteredUrl, "should-not-fetch");
-  assert.equal(fullFirst.source, "full-first");
-  assert.equal(filteredAfterFull.source, "full-first", "a filtered view can reuse a fresh full frame");
-  assert.equal(freshCalls, 1, "warm overview → filtered navigation adds no frame fetch");
+  const narrowFirst = session("narrow-first");
+  assert.equal((await narrowFirst.visit(filtered, "filtered")).source, "filtered");
+  assert.equal((await narrowFirst.visit(search, "search")).source, "search");
+  assert.equal((await narrowFirst.visit(home, "overview")).source, "overview");
+  assert.equal((await narrowFirst.visit(all, "should-not-fetch")).source, "overview");
+  assert.equal(narrowFirst.count(), 3, "narrow data must never populate broader caches");
+
+  const fullFirst = session("full-first");
+  assert.equal((await fullFirst.visit(home, "full")).source, "full");
+  assert.equal((await fullFirst.visit(search, "should-not-fetch")).source, "full");
+  assert.equal((await fullFirst.visit(filtered, "should-not-fetch")).source, "full");
+  assert.equal(fullFirst.count(), 1, "warm full frame satisfies search and filtered views");
+
+  const searchFirst = session("search-first");
+  assert.equal((await searchFirst.visit(search, "search")).source, "search");
+  assert.equal((await searchFirst.visit(filtered, "should-not-fetch")).source, "search");
+  assert.equal((await searchFirst.visit(home, "overview")).source, "overview");
+  assert.equal(searchFirst.count(), 2, "search can satisfy filters but cannot replace the homepage");
 });
 
 test("navigation streams are plain text for download managers, including errors", async () => {
