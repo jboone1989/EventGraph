@@ -668,7 +668,8 @@ export { siteUrl };
 export function reportNavigation(kind: ReportKind, index: ReportIndexEntry[], key: string): ReportNavigationEntry[] {
   const at = index.findIndex((e) => e.key === key);
   return index.map((entry, n) => ({ key: entry.key, issueNumber: entry.issueNumber,
-    ...(kind !== "daily" || entry.key.slice(0, 7) === key.slice(0, 7) || n < 3 || Math.abs(n - at) <= 1 ? { title: entry.title } : {}),
+    ...(kind !== "daily" || entry.key.slice(0, 7) === key.slice(0, 7) || n < 3 || Math.abs(n - at) <= 1
+      ? { title: entry.title, ...(entry.titleEn ? { titleEn: entry.titleEn } : {}) } : {}),
   }));
 }
 
@@ -684,7 +685,12 @@ async function englishNavigation<T extends ReportNavigationEntry>(kind: ReportKi
     .filter((r): r is { key: string; id: string } => !!r.id);
   const copies = await availability([...new Set(leads.map((r) => r.id))]);
   const titles = new Map(leads.flatMap(({ key, id }) => {
-    const english = copies.get(id)?.english?.title;
+    const article = copies.get(id);
+    // Prefer the saved English translation, then the source's own English title.
+    // Neither path translates a Chinese heading on read.
+    const original = article?.originalTitle;
+    const english = article?.english?.title
+      || (original && !/[\u3400-\u9fff]/u.test(original) ? original : null);
     return english ? [[key, english] as const] : [];
   }));
   return entries.map((e) => ({ ...e, ...(titles.has(e.key) ? { titleEn: titles.get(e.key) } : {}) }));
