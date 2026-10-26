@@ -31,6 +31,13 @@ const api = createServer((req, res) => {
     return res.end(JSON.stringify({ filters, cards: [], nextCursor: null, dayCounts: [], hot: null }));
   }
   if (url.pathname === "/api/site/hot") return res.end(JSON.stringify({ entries: [] }));
+  if (url.pathname === "/api/site/pool") {
+    return res.end(JSON.stringify({
+      filters: { channel: "all", category: null, tag: null, q: url.searchParams.get("q"), tab: "time" },
+      items: [], total: 0, page: 1, pageCount: 1, todayCount: 0,
+      freshness: "2026-10-26T00:00:00.000Z",
+    }));
+  }
   if (url.pathname === "/api/site/echo-client") return res.end(JSON.stringify({ forwarded: req.headers["x-forwarded-for"], real: req.headers["x-real-ip"] }));
   if (url.pathname === "/api/site/download") {
     res.setHeader("Content-Type", "text/markdown; charset=utf-8");
@@ -65,7 +72,9 @@ test("public route subsets produce the same complete navigation data; filters st
     assert.ok(body.includes("root") && body.includes("routes/home"));
     return body;
   }));
-  assert.ok(answers.every((body) => body === answers[0]));
+  // Each server request can generate a new fresh timestamp; the route data itself must agree.
+  const withoutClock = (body: string) => body.replace(/("expiresAt",)\d+/g, "$1<deadline>");
+  assert.ok(answers.every((body) => withoutClock(body) === withoutClock(answers[0]!)));
   const category = CATEGORY_KEYS.at(-1)!;
   const filtered = await fetch(`${origin}/_.data?category=${category}&_routes=root`);
   const body = await filtered.text();
@@ -84,16 +93,18 @@ test("filtered pages skip hidden feed overview APIs, but unfiltered pages still 
     assert.equal(filteredPaths.includes(path), false, `hidden request: ${path}`);
   }
 
+  const searchBegin = apiPaths.length;
   const search = await fetch(`${origin}/all?q=example`);
   assert.equal(search.status, 200);
   await search.text();
-  const searchPaths = apiPaths.slice(begin + filteredPaths.length);
+  const searchPaths = apiPaths.slice(searchBegin);
   assert.ok(searchPaths.includes("/api/site/hot"), "search-only Trending still needs ranking data");
 
+  const fullBegin = apiPaths.length;
   const full = await fetch(`${origin}/`);
   assert.equal(full.status, 200);
   await full.text();
-  const fullPaths = apiPaths.slice(begin + filteredPaths.length);
+  const fullPaths = apiPaths.slice(fullBegin);
   for (const path of ["/api/site/knowledge/overview", "/api/site/knowledge/stats", "/api/site/hot", "/api/site/stats"]) {
     assert.ok(fullPaths.includes(path), `unfiltered overview must fetch ${path}`);
   }
