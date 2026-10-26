@@ -123,6 +123,15 @@ test("agent guidance Markdown remains documentation-only", () => {
     assert.equal(check(cwd, base, head).status, 0);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+test("executable scripts in documentation directories are not exempt", () => {
+  for (const file of ["docs/run.mjs", ".specify/scripts/alter-check.sh", "specs/demo/deploy.sh"]) {
+    const { cwd, base } = fixture();
+    try {
+      const head = commit(cwd, file, "echo test");
+      assert.equal(check(cwd, base, head).status, 1, file);
+    } finally { rmSync(cwd, { recursive: true, force: true }); }
+  }
+});
 test("governance-only PR does not demand a product spec", () => {
   const { cwd, base } = fixture(false);
   try {
