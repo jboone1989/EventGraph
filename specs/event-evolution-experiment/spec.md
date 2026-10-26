@@ -3,6 +3,7 @@
 > **状态：DRAFT，等待用户审定验收条件；尚未实施、部署或验收。**
 > 2026-10-26 已确认的方向：保留首页与新闻获客，使用现有探索工作台试验跨 Story 的持续过程和变化。技术研究见 [research.md](research.md)，不得绕过 Search Before Build。
 > 这是一场验证读者理解能力的**小实验**，不是全站 EventTree/Graph 重构，不是发布自动因果推断的授权。
+> **这只是完整产品讨论中的跨 Story 实验子规格**；不是替代新闻阅读 5W1H + So What + What Next、GitHub Discussions + giscus、SEO/流量/留存的总 Spec。请先阅读 [本轮产品讨论完整索引](../../docs/product-review-2026-10-25-26.md)，它与 [005 增长规划](../005-news-growth-funnel/spec.md) 一同约束实施。
 
 ## 1. 要解决的问题
 
