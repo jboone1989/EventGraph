@@ -21,11 +21,18 @@ import { useText } from "../components/LanguageSwitch";
 const EMPTY_GRAPH: KnowledgeGraph = { entities: 0, edges: [], status: "unavailable" };
 const EMPTY_STATS: KnowledgeStats = { entities: 0, relations: 0, episodes: 0, status: "unavailable" };
 
+// Keep the loader's work and the browser reuse key aligned: filtered results must never
+// replace the featured overview cached for / and /all.
+export function showsFeedOverview(url: URL): boolean {
+  const filters = readFilters(url.searchParams);
+  return !url.searchParams.get("q")?.trim() && !filters.tag && !filters.category && filters.channel === "all";
+}
+
+export const feedFrameKey = (url: URL): string => showsFeedOverview(url) ? "feed-frame:overview" : "feed-frame:filtered";
+
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  const filters = readFilters(url.searchParams);
-  // The lead, graph and activity strip are hidden on filtered or searched feeds.
-  const showOverview = !url.searchParams.get("q")?.trim() && !filters.tag && !filters.category && filters.channel === "all";
+  const showOverview = showsFeedOverview(url);
   const upstream = new Headers();
   const signal = request.signal;
   const [graph, stats, hot, site, dailies] = await Promise.all([
@@ -44,7 +51,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // One result for both scopes: switching 精选/全部 re-runs this loader but reads the same fresh
 // entry, so the frame never asks the server for data the list switch did not change.
-export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>(() => "feed-frame");
+export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>(feedFrameKey);
 
 export const handle: Screen = { tab: "featured" };
 
