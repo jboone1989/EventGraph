@@ -9,7 +9,6 @@ import { pageReuse } from "../lib/page-reuse";
 import { breadcrumbLd, localized, pageMeta, storyLd, titled } from "../lib/seo";
 import { beijingDate, beijingTime } from "@aihot/contracts/time";
 import { localizedMonthDay, localizedMonthDayTime, relativeTime } from "../lib/format";
-import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
 import { englishText, localizedSourceName, enTopicName } from "../lib/english";
@@ -181,10 +180,12 @@ function TimelineRow({ r }: { r: StoryReportView }) {
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] leading-[20px] text-ink-4 lg:mt-0">
           <span className="min-w-0 truncate">{localizedSourceName(r.source.name, lang, r.originalUrl)}</span>
           {r.selected && <SelectedBadge />}
+          {r.source.firstParty && <span className="rounded border border-line-soft px-1.5">{t("一手资料", "First-party source")}</span>}
         </div>
         <IntentLink viewTransition to={lang === "en" ? `/en/items/${r.id}` : `/items/${r.id}`} className="mt-1 block text-[16px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent lg:text-[15.5px]">
           {title}
         </IntentLink>
+        {r.discoveredAt && <p className="mt-1 text-[11.5px] text-ink-4">{t("本站收录于", "Report first recorded")} {localizedMonthDayTime(r.discoveredAt, lang)}</p>}
         {summary && (
           <>
             <p ref={ref} className={`mt-1 text-[14px] leading-[1.75] text-ink-3 ${open ? "" : "line-clamp-2"}`}>
@@ -196,6 +197,11 @@ function TimelineRow({ r }: { r: StoryReportView }) {
               </button>
             )}
           </>
+        )}
+        {r.originalUrl && /^https?:\/\//i.test(r.originalUrl) && (
+          <a href={r.originalUrl} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open" className="mt-1 inline-block text-[12.5px] font-medium text-accent hover:underline">
+            {t("核对原始报道", "Read original source")} ↗
+          </a>
         )}
       </div>
     </li>
@@ -284,8 +290,6 @@ export default function StoryPage() {
   }, [entry, filter, order]);
   const status = STATUS[story.status];
   const displayTitle = uiLang === "en" ? (story.english?.title ?? englishText(story.englishTitle) ?? englishText(story.title) ?? "Event timeline") : story.title;
-  const reportTitle = (r: StoryReportView) => uiLang === "en" ? (englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
-  const visibleSummary = (text: string | null | undefined, r?: StoryReportView) => uiLang === "zh" ? text : (r?.english?.summary ?? englishText(text));
   const reportPath = (id: string) => uiLang === "en" ? `/en/items/${id}` : `/items/${id}`;
   // A settled story nobody watched (history pages) has no heat to explain or chart.
   const observed = story.status !== "settled" || story.heat.length > 0 || story.whyHot.participants48h > 0 || story.whyHot.rank !== null;
@@ -323,10 +327,6 @@ export default function StoryPage() {
       : story.excerpt
         ? { label: "报道摘要", text: story.excerpt.text, note: `摘自 ${story.excerpt.sourceName}` }
         : null;
-  const showOfficial = () => {
-    setFilter("official");
-    goSection("reports");
-  };
 
 
   return (
@@ -389,7 +389,7 @@ export default function StoryPage() {
       <div className="mt-5 grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:mt-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_340px]">
         {/* On phones the main column dissolves so the rail's cards can sit between its sections. */}
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-6">
-          <Panel id={SECTIONS.overview} title={t("当前事件综述（非历史快照）","Current overview (not historical)")} right={overview?.label} className="order-2">
+          <Panel id={SECTIONS.overview} title={t("当前事件综述（非历史快照）","Current overview (not historical)")} right={overview?.label} className="order-1">
             {overview ? (
               <>
                 <p className="whitespace-pre-line text-[15px] leading-[1.85] text-ink-2">{overview.text}</p>
@@ -421,47 +421,22 @@ export default function StoryPage() {
           </Panel>
 
           {story.timeline.length > 0 && (
-            <Panel title={t("事件探索工作台","EventGraph Explorer")}
-              sub={t("同一时点联动报道、关系与证据。","One time cutoff for reports, relations and evidence.")}
-              className="order-1">
-              <EventExplorer key={story.publicId} story={story} route={route} market={market}/>
-            </Panel>
+            <div className="order-2 rounded-panel border border-line-soft bg-bg-sunk/30 px-4 py-3">
+              <Link to={`${uiLang === "en" ? "/en" : ""}/explore?story=${encodeURIComponent(story.publicId)}`}
+                className="inline-flex items-center gap-1 text-[13.5px] font-semibold text-accent hover:underline">
+                {t("深入探索：历史回放、关系与证据", "Explore the timeline, relations and evidence")} <IconChevronRight size={15} />
+              </Link>
+            </div>
           )}
 
-          {route && <StoryRoutePanel route={route} storyPublicId={story.publicId}/>}
-
-          {/* Evidence is grouped by provenance, never synthesized into invented consensus. */}
-          <Panel title={t("完整来源索引（截至目前）","Full source archive (current)")} sub={t("目前公开的报道索引，不属于历史回放。","Current public reports; outside the historical replay.")} className="order-2">
-            <div className="grid gap-4 md:grid-cols-2">
-              {([
-                { key: "official", label: t("一手资料","First-party sources"), rows: story.timeline.filter(r => r.source.firstParty) },
-                { key: "independent", label: t("第三方报道","Independent coverage"), rows: story.timeline.filter(r => !r.source.firstParty) },
-              ] as const).map(group => (
-                <div key={group.key} className="rounded-panel border border-line-soft bg-bg-sunk/40 p-4">
-                  <h3 className="text-[13px] font-semibold text-ink">{group.label} · {group.rows.length} {t("篇","reports")}</h3>
-                  {group.rows.length ? (
-                    <ul className="mt-2 divide-y divide-line-soft">
-                      {group.rows.slice(0, 4).map(report => (
-                        <li key={report.id} className="py-3">
-                          <div className="text-[11.5px] text-ink-4">{localizedSourceName(report.source.name, uiLang, report.originalUrl)} · {when(report.publishedAt)}</div>
-                          <Link to={reportPath(report.id)} className="mt-1 block text-[13.5px] font-semibold leading-[1.55] text-ink hover:text-accent">{reportTitle(report)}</Link>
-                          {visibleSummary(report.summary, report) && <p className="mt-1 line-clamp-3 text-[12.5px] leading-[1.7] text-ink-3">{visibleSummary(report.summary, report)}</p>}
-                          {report.originalUrl && /^https?:\/\//i.test(report.originalUrl) &&
-                            <a href={report.originalUrl} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open"
-                              className="mt-2 inline-block text-[12.5px] font-medium text-accent hover:underline">{t("核对原始报道","Read original source")} ↗</a>}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : <p className="mt-3 text-[12.5px] leading-[1.7] text-ink-4">{t("目前尚未收录这一类可核实资料，不能把单方说法当作多方证据。","No verifiable reports in this group yet.")}</p>}
-                </div>
-              ))}
-            </div>
-            <p className="mt-3 text-[12px] leading-[1.6] text-ink-4">
-              {t("不同报道并不自动代表观点冲突；阅读原文核对事实、条件和发布日期。后续来源加入后此处会自动更新。","Different reports do not necessarily disagree. Check original sources and publication dates.")}
-            </p>
-          </Panel>
-
-
+          {route && (
+            <details className="order-3 rounded-panel border border-line-soft bg-bg-sunk/20 p-3">
+              <summary className="cursor-pointer px-2 py-1 text-[13.5px] font-medium text-ink">
+                {t("逐项查看事实路线与来源依据", "Expand the detailed fact route and sources")}
+              </summary>
+              <div className="mt-3"><StoryRoutePanel route={route} storyPublicId={story.publicId}/></div>
+            </details>
+          )}
           <Panel
             id={SECTIONS.reports}
             title={t("报道时间线","Report timeline")}
@@ -530,7 +505,7 @@ export default function StoryPage() {
           )}
         </div>
 
-        <aside className="order-2 flex min-w-0 flex-col gap-4 lg:order-none lg:gap-5">
+        <aside className="order-6 flex min-w-0 flex-col gap-4 lg:order-none lg:gap-5">
           <EventPrices market={market} />
           {observed && (
             <RailCard title={t("为什么热","Why trending")}>
@@ -550,27 +525,6 @@ export default function StoryPage() {
                   </>
                 )}
               </p>
-            </RailCard>
-          )}
-          {story.officialReports.length > 0 && (
-            <RailCard title={t("官方一手","First-party sources")} right={`${counts.official || story.officialReports.length} ${t("篇","reports")}`}>
-              <p className="text-[12px] text-ink-4">{t("直接了解当事方的说法","Read the original statements")}</p>
-              <ul className="mt-1 divide-y divide-line-soft">
-                {story.officialReports.slice(0, 5).map((r) => (
-                  <li key={r.id} className="py-3">
-                    <div className="truncate text-[11.5px] text-ink-4">{localizedSourceName(r.source.name, uiLang, r.originalUrl)}</div>
-                    <Link viewTransition to={reportPath(r.id)} className="group mt-1 block text-[13.5px] font-semibold leading-[1.6] text-ink transition-colors hover:text-accent">
-                      {reportTitle(r)}
-                      <IconChevronRight size={13} className="ml-0.5 inline -translate-y-px text-ink-4 transition-transform group-hover:translate-x-0.5" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-              {counts.official > 0 && (
-                <button type="button" onClick={showOfficial} className="text-[12px] text-ink-4 transition-colors hover:text-accent">
-                  {t("在时间线筛选全部官方报道","Filter first-party reports in timeline")}
-                </button>
-              )}
             </RailCard>
           )}
           {story.topics.length > 0 && (

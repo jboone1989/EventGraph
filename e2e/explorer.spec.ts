@@ -14,8 +14,8 @@ for (const english of [false, true]) {
     page.on("request",req=> {
       if(new URL(req.url()).pathname.includes("/api/site/knowledge/stories/")) requests.push(req.url());
     });
-    await open(page, `${english?"/en":""}/story/${seeded.story}`);
-    await expect(page.getByRole("heading",{name:english?"EventGraph Explorer":"事件探索工作台"})).toBeVisible();
+    await open(page, `${english?"/en":""}/explore?story=${seeded.story}`);
+    await expect(page.getByRole("region",{name:english?"Event Explorer":"事件探索工作台"})).toBeVisible();
     const known = page.getByRole("button",{name:english?"Recorded-time reconstruction":"按收录时间重建"});
     const valid = page.getByRole("button",{name:english?"Valid time":"事实生效时间"});
     await expect(known).toHaveAttribute("aria-pressed","true");
@@ -75,7 +75,7 @@ test("as-of replay changes the SAME focused atlas and excludes future evidence",
     await route.fulfill({json:{entities:selected.length+1,edges:selected,
       temporalSupport:"bitemporal-v1",fidelity:"bounded"}});
   });
-  await open(page, "/story/"+seeded.story);
+  await open(page, "/en/explore?story="+seeded.story);
   const panel=page.getByRole("region",{name:"Event Explorer"});
   const timeline=page.getByRole("region",{name:"Event report playback"});
   const graphTab=page.getByRole("tab",{name:"Relations",exact:true});
@@ -121,7 +121,7 @@ test("an event with no public relations links to the global graph without invent
   await page.route(/\/api\/site\/knowledge\/stories\/[^?]+\?/, async route => {
     await route.fulfill({json:{entities:0,edges:[],status:"ok",temporalSupport:"bitemporal-v1"}});
   });
-  await open(page, "/en/story/"+seeded.story);
+  await open(page, "/en/explore?story="+seeded.story);
   const graphTab = page.getByRole("tab",{name:"Relations",exact:true});
   if (await graphTab.isVisible()) await graphTab.click();
   await expect(page.getByText("No public relations are linked to this event at the selected time. The current global graph is not substituted for event evidence.")).toBeVisible();
@@ -144,7 +144,7 @@ test("event progress follows the selected historical cutoff", async ({page}) => 
   expect(frames.length, "Seeded event must have at least two distinct known-time frames for replay interaction").toBeGreaterThan(1);
   const expectedCounts = frames.map(frame => developmentsAt(story.developments ?? [], frame.publishedAt, "known").length);
 
-  await open(page, "/en/story/" + seeded.story);
+  await open(page, "/en/explore?story=" + seeded.story);
   const progress = page.getByRole("region",{name:"Event developments at selected time"});
   const count = progress.getByTestId("event-development-count");
   const slider = page.getByRole("region",{name:"Event report playback"}).getByRole("slider");
