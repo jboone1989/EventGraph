@@ -2,6 +2,7 @@
 
 > 2026-10-26；只读检索 + ChatGPT/Claude Opus 5.5 独立评估。**研究证据，不是实施授权或选型结论的性能测试。**
 > 对应草案 [spec.md](spec.md)；产品原则 [docs/product-thesis.md](../../docs/product-thesis.md)；已有影响追踪 [specs/event-impact-tracing/spec.md](../event-impact-tracing/spec.md)。
+> **本文件只研究跨 Story 演化这一条工作流，不是本轮完整产品方案。** 完整的新闻解释（5W1H + So What + What Next）、公共评论（GitHub Discussions + giscus）、SEO/获客与演化研究之间的关系见 [完整产品讨论纪要](../../docs/product-review-2026-10-25-26.md)。
 
 ## A. 用户已确定的边界
 
