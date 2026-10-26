@@ -56,6 +56,9 @@ test("a feed endpoint becomes an rss candidate; a breaking event expires and nev
 
 test("blog platforms, anonymous media homepages and non-http hits are not leads", () => {
   assert.equal(leadFromResult(gap, hit({ url: "https://medium.com/@someone/ai-costs" }), NOW), null);
+  assert.equal(leadFromResult(gap, hit({ url: "https://someone.substack.com/feed" }), NOW), null);
+  assert.equal(leadFromResult(gap, hit({ url: "https://foo.wordpress.com/feed/" }), NOW), null);
+  assert.equal(leadFromResult(gap, hit({ url: "https://x.blogspot.com/rss.xml" }), NOW), null);
   assert.equal(leadFromResult(gap, hit({ url: "ftp://example.gov/feed.xml" }), NOW), null);
   // A plain media page with no feed endpoint and no official domain: a search hit, not a source.
   assert.equal(leadFromResult(gap, hit({ url: "https://www.news.example.com/story/1" }), NOW), null);
@@ -116,6 +119,8 @@ test("one transiently failed search does not discard another subject's good publ
   const result = await discoverViaDeepSeek([gap, event], new Set(), { maxCandidates: 4, now: NOW, search });
   assert.equal(calls, 2);
   assert.equal(result.queries, 1);
+  assert.equal(result.failures, 1);
+  assert.match(result.firstError!, /temporary search outage/);
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0]?.kind, "rss");
 });

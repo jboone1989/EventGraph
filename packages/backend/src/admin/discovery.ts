@@ -142,7 +142,7 @@ export function leadFromResult(s: GapSubject, r: DeepSeekResult, now: Date): Dis
   try { u = new URL(r.url); } catch { return null; }
   if (!/^https?:$/.test(u.protocol)) return null;
   const domain = u.hostname.replace(/^www\./, "").toLowerCase();
-  if (!domain || BLOG_HOSTS.has(domain) || domain.length > 100) return null;
+  if (!domain || [...BLOG_HOSTS].some(host => domain === host || domain.endsWith(`.${host}`)) || domain.length > 100) return null;
   const official = OFFICIAL_HOST.test(domain);
   const feed = FEED_PATH.test(u.pathname);
   // A publisher lead is either the feed endpoint itself or an official domain we scope a search to;
@@ -185,12 +185,14 @@ const identityOf = (c: DiscoveredSource): string | null =>
 /** The DeepSeek discovery: one scoped search per subject, de-duplicated by candidate identity. */
 export async function discoverViaDeepSeek(
   subjects: GapSubject[], existing: Set<string>, opts: { maxCandidates: number; now?: Date; search?: Search },
-): Promise<{ candidates: DiscoveredSource[]; queries: number }> {
+): Promise<{ candidates: DiscoveredSource[]; queries: number; failures: number; firstError: string | null }> {
   const search = opts.search ?? deepseekSearch;
   const now = opts.now ?? new Date();
   const seen = new Set(existing);
   const candidates: DiscoveredSource[] = [];
   let queries = 0;
+  let failures = 0;
+  let firstError: string | null = null;
   for (const s of subjects) {
     if (candidates.length >= opts.maxCandidates) break;
     // One failing subject must not discard successful searches for other regions or topics.
@@ -201,6 +203,8 @@ export async function discoverViaDeepSeek(
       });
     } catch (error) {
       if (error instanceof BudgetExceededError || /DEEPSEEK_API_KEY/.test(String(error))) throw error;
+      failures += 1;
+      firstError ??= String((error as Error)?.message ?? error).slice(0, 200);
       continue;
     }
     queries += 1;
@@ -214,7 +218,7 @@ export async function discoverViaDeepSeek(
       candidates.push(lead);
     }
   }
-  return { candidates, queries };
+  return { candidates, queries, failures, firstError };
 }
 
 export interface DiscoveryRun {
@@ -223,6 +227,7 @@ export interface DiscoveryRun {
   skipped?: "disabled" | "budget" | "credential";
   subjects: string[];
   queries: number;
+  searchFailures: number;
   proposed: number;
   registered: number;
   previewed: number;
@@ -241,7 +246,7 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
   const db = opts.db ?? sql;
   const trials = await db<{ id: string }[]>`SELECT id FROM source_candidates WHERE status = 'trial' ORDER BY created_at`;
   for (const t of trials) await evaluateCandidate(t.id, { db });
-  const run: DiscoveryRun = { evaluated: trials.length, subjects: [], queries: 0, proposed: 0, registered: 0, previewed: 0, previewPassed: 0, trialsStarted: 0 };
+  const run: DiscoveryRun = { evaluated: trials.length, subjects: [], queries: 0, searchFailures: 0, proposed: 0, registered: 0, previewed: 0, previewPassed: 0, trialsStarted: 0 };
   const settings = await discoverySettings(db);
   if (!settings.enabled) return { ...run, skipped: "disabled" };
   const subjects = await buildGapSubjects(settings.maxGaps, db);
@@ -253,6 +258,8 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
     });
     candidates = found.candidates;
     run.queries = found.queries;
+    run.searchFailures = found.failures;
+    if (found.failures) run.note = `search: ${found.failures} subject(s) failed: ${found.firstError}`;
   } catch (error) {
     const message = String((error as Error | undefined)?.message ?? error).slice(0, 200);
     // Paid discovery can be unavailable without blocking already validated
@@ -267,16 +274,32 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
   const auto = await lifecycleEnabled(db);
   // Every pending candidate gets its daily walk, not only today's registrations: one registered while
   // autoPromote was off must still enter its trial once an operator enables it.
-  const pending = await db<{ id: string; preflight: { previewPassed?: boolean } }[]>`
-    SELECT id, preflight FROM source_candidates WHERE status = 'discovered' ORDER BY created_at`;
+  const pending = await db<{ id: string; preflight: { previewPassed?: boolean }; expires_at: Date | null }[]>`
+    SELECT id, preflight, expires_at FROM source_candidates
+    WHERE status = 'discovered' AND NOT manual_hold ORDER BY created_at`;
+  const now = opts.now ?? new Date();
   for (const c of pending) {
+    // Failed previews are terminal under the lifecycle spec: never re-pay for dead leads.
+    // Likewise, do not start an expired event source even if an earlier preview passed.
+    if (c.preflight?.previewPassed === false || (c.expires_at && new Date(c.expires_at) <= now)) {
+      const reason = c.preflight?.previewPassed === false ? "preview" : "expired";
+      await db`UPDATE source_candidates SET status = 'preflight_failed',
+        preflight = preflight || ${db.json({ ok: false, reasons: [reason] } as never)}, updated_at = now()
+        WHERE id = ${c.id} AND status = 'discovered'`;
+      continue;
+    }
     // previewCandidate runs the real collector preview (publication window enforced there) and
     // records the outcome itself; its dates are the preview's proof, not a search result's claim.
     // An already-passed preview is never paid for twice — it goes straight to the trial decision.
     if (c.preflight?.previewPassed !== true) {
+      if (run.previewed >= settings.maxCandidates) continue;
       const preview = await previewCandidate(c.id, ACTOR, db);
       run.previewed += 1;
-      if (!preview.passed) continue;
+      if (!preview.passed) {
+        await db`UPDATE source_candidates SET status = 'preflight_failed', updated_at = now()
+          WHERE id = ${c.id} AND status = 'discovered'`;
+        continue;
+      }
       run.previewPassed += 1;
     }
     if (auto && (await startTrial(c.id, ACTOR, db)).started) run.trialsStarted += 1;

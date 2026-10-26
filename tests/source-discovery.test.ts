@@ -159,3 +159,32 @@ test("the next day's run does not duplicate the candidate or restart its trial",
   const [c] = await candidateRow();
   assert.equal(c.status, "trial");
 });
+
+// A failed first preview is terminal (not a new paid DeepSeek preview every morning).
+// Expired breaking-event candidates must not launch trials, even with a passed preview.
+test("failed previews and expired event candidates are not retried or trialled", async () => {
+  const failedId = `test-discovery-failed-${T}`;
+  const expiredId = `test-discovery-expired-${T}`;
+  const configValue = sql.json({ mode: "deepseek_search", deepseekQuery: `unmatched query ${T}`,
+    allowUrlPrefixes: ["https://missing.example.gov/"], publishedAfter: new Date().toISOString() });
+  await sql`INSERT INTO source_candidates
+    (id, identity, status, origin_channel, kind, name, config, tags, rationale, preflight)
+    VALUES (${failedId}, ${`deepseek:unmatched query ${T}`}, 'discovered', 'deepseek', 'json_list',
+      'Missing publisher', ${configValue}, ARRAY['测试'], 'test', ${sql.json({ ok: true, reasons: [] })})`;
+  await sql`INSERT INTO source_candidates
+    (id, identity, status, origin_channel, kind, name, config, tags, rationale, preflight, expires_at)
+    VALUES (${expiredId}, ${`deepseek:expired query ${T}`}, 'discovered', 'breaking_event', 'json_list',
+      'Expired publisher', ${configValue}, ARRAY['测试'], 'test',
+      ${sql.json({ ok: true, reasons: [], previewPassed: true })}, now() - interval '1 day')`;
+  await sql`UPDATE budgets SET per_day = 0 WHERE service = 'deepseek_web'`;
+  const first = await runDailyDiscovery();
+  assert.equal(first.previewed, 1);
+  assert.equal(first.previewPassed, 0);
+  const candidates = await sql<{ id: string; status: string }[]>`
+    SELECT id, status FROM source_candidates WHERE id IN (${[failedId, expiredId]})`;
+  assert.deepEqual(candidates.map(c => c.status).sort(), ["preflight_failed", "preflight_failed"]);
+  const second = await runDailyDiscovery();
+  assert.equal(second.previewed, 0, "terminal failures are not re-previewed at a cost");
+  assert.equal(second.trialsStarted, 0, "expired event candidates never enter trials");
+  await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
+});
