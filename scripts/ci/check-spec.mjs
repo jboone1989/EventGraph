@@ -27,7 +27,7 @@ const files = git("diff", "--no-renames", "--name-only", "-z", ancestor, head).s
 if (files.length === 0) fail("No changed files found; cannot validate PR scope.");
 
 // Executable CI, deployment flags and scripts are implementation, not docs.
-const governance = /^(?:docs\/|specs\/|\.specify\/)/;
+const governance = /^(?:docs\/|specs\/|\.specify\/|\.agents\/|\.claude\/)/;
 
 const rootDocs = /^(?:AGENTS|CLAUDE|README|CONTRIBUTING)\.md$/;
 const prose = /\.(?:md|txt|rst|adoc)$/i;
