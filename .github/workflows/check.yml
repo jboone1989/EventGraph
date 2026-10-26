@@ -495,7 +495,7 @@ jobs:
 
   # Browser process and Playwright remain on cn-dev; the target is VM13.
   e2e_vm13_preview:
-    needs: deploy_vm13_preview
+    needs: [deploy_vm13_preview, publish]
     if: ${{ needs.deploy_vm13_preview.outputs.deployed == 'true' &&
              needs.deploy_vm13_preview.result == 'success' }}
     runs-on: ubuntu-latest
@@ -511,12 +511,13 @@ jobs:
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
           EVENTGRAPH_PREVIEW_URL: http://43.133.185.154
+          EVENTGRAPH_EXPECTED_SHA: ${{ needs.publish.outputs.source_sha }}
         with:
           host: ${{ vars.EVENTGRAPH_DEV_HOST }}
           username: ${{ vars.EVENTGRAPH_DEV_USER }}
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
-          envs: EVENTGRAPH_PREVIEW_URL
+          envs: EVENTGRAPH_PREVIEW_URL,EVENTGRAPH_EXPECTED_SHA
           command_timeout: 8m
           version: '1.8.2'
           script_path: scripts/ci/smoke-vm13-browser.sh
