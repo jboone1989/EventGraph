@@ -6,7 +6,7 @@ import { CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { UNSAFE_decodeViaTurboStream } from "react-router";
 import { startWebServer, type WebServer } from "./web-server.ts";
 import { pageReuse } from "../app/lib/page-reuse.ts";
-import { feedFrameKey, feedFrameFallbackKey, showsFeedOverview } from "../app/lib/seo.ts";
+import { feedFrameKey, feedFrameFallbackKey, needsFullFeedFrame } from "../app/lib/seo.ts";
 
 let web: WebServer;
 let origin: string;
@@ -84,6 +84,12 @@ test("filtered pages skip hidden feed overview APIs, but unfiltered pages still 
     assert.equal(filteredPaths.includes(path), false, `hidden request: ${path}`);
   }
 
+  const search = await fetch(`${origin}/all?q=example`);
+  assert.equal(search.status, 200);
+  await search.text();
+  const searchPaths = apiPaths.slice(begin + filteredPaths.length);
+  assert.ok(searchPaths.includes("/api/site/hot"), "search-only Trending still needs ranking data");
+
   const full = await fetch(`${origin}/`);
   assert.equal(full.status, 200);
   await full.text();
@@ -98,10 +104,13 @@ test("a cached filtered frame never replaces the unfiltered home frame", async (
   const filteredUrl = new URL(`http://example.test/?category=${category}`);
   const homeUrl = new URL("http://example.test/");
   const allUrl = new URL("http://example.test/all");
-  assert.equal(showsFeedOverview(filteredUrl), false);
-  assert.equal(showsFeedOverview(homeUrl), true);
+  assert.equal(needsFullFeedFrame(filteredUrl), false);
+  assert.equal(needsFullFeedFrame(homeUrl), true);
   assert.notEqual(feedFrameKey(filteredUrl), feedFrameKey(homeUrl));
   assert.equal(feedFrameKey(homeUrl), feedFrameKey(allUrl));
+  const searchUrl = new URL("http://example.test/all?q=example");
+  assert.equal(needsFullFeedFrame(searchUrl), true, "search-only keeps Trending");
+  assert.equal(feedFrameKey(searchUrl), feedFrameKey(homeUrl), "search-only keeps the fresh full-frame snapshot");
 
   const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(feedFrameKey, feedFrameFallbackKey);
   let serverCalls = 0;
