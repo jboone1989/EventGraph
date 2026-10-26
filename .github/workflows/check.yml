@@ -212,6 +212,10 @@ jobs:
           docker compose ps
           docker compose run --rm --no-deps --entrypoint node setup scripts/smoke.ts --base http://web:3000
           docker compose exec -T db psql -U aihot -d aihot -Atc "select count(*) from sources" | grep -qx "$(node -p "require('./industry/sources.json').sources.length")"
+          # The image setup must activate discovery/trial settings on a fresh
+          # install, not merely display the new source count in the UI.
+          docker compose exec -T db psql -U aihot -d aihot -Atc             "select key from settings where key in ('sourceLifecycle.discovery','sourceLifecycle.autoPromote') and value->>'enabled' = 'true' order by key"             | grep -Fxq 'sourceLifecycle.autoPromote'
+          docker compose exec -T db psql -U aihot -d aihot -Atc             "select key from settings where key in ('sourceLifecycle.discovery','sourceLifecycle.autoPromote') and value->>'enabled' = 'true' order by key"             | grep -Fxq 'sourceLifecycle.discovery'
       - name: Logs
         if: failure()
         run: docker compose logs --tail 80
