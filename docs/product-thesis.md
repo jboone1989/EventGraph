@@ -2,6 +2,7 @@
 
 > 2026-10-26 建立。**这是跨会话研究入口，不是已批准的实施 Spec，也不证明任何功能已部署。**
 > 适用于 ChatGPT、Claude Opus、Claude Sonnet 和其他协作 Agent。GitHub 版本历史是持久记录；模型自动记忆或单次会话总结不是产品决策的权威来源。
+> **完整讨论索引：[2026-10-25—26 产品研究纪要](product-review-2026-10-25-26.md)**：不要只读取最近的跨 Story 视觉研究；必须同时覆盖新闻 5W1H + So What + What Next、GitHub Discussions + giscus 公共讨论、首页/SEO 获客与跨事件演化。
 
 ## 一、已确认的定位与边界
 
