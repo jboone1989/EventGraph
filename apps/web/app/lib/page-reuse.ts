@@ -17,14 +17,14 @@ const canReuseFrame = (value: unknown, target: URL): boolean => {
 
 /** Prefetch and clientLoader consult the same cache keys for each matched route. */
 export function hasFreshPage(url: URL, routeId?: string): boolean {
-  if (routeId === "routes/feed-layout") {
+  if (routeId === "feed-layout") {
     return [feedFrameKey(url), ...feedFrameFallbackKeys(url)]
       .some((k, i) => deadlineOf(pages.get(k)) > Date.now() && (i === 0 || canReuseFrame(pages.get(k), url)));
   }
   const own = deadlineOf(pages.get(addressOf(url))) > Date.now();
   if (routeId || (url.pathname !== "/" && url.pathname !== "/all")) return own;
   // A warm frame alone does not mean the list child loader is warm.
-  return own && hasFreshPage(url, "routes/feed-layout");
+  return own && hasFreshPage(url, "feed-layout");
 }
 
 /**
