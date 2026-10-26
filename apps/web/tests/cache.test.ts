@@ -6,7 +6,7 @@ import { CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { UNSAFE_decodeViaTurboStream } from "react-router";
 import { startWebServer, type WebServer } from "./web-server.ts";
 import { pageReuse } from "../app/lib/page-reuse.ts";
-import { feedFrameKey, showsFeedOverview } from "../app/lib/seo.ts";
+import { feedFrameKey, feedFrameFallbackKey, showsFeedOverview } from "../app/lib/seo.ts";
 
 let web: WebServer;
 let origin: string;
@@ -103,7 +103,7 @@ test("a cached filtered frame never replaces the unfiltered home frame", async (
   assert.notEqual(feedFrameKey(filteredUrl), feedFrameKey(homeUrl));
   assert.equal(feedFrameKey(homeUrl), feedFrameKey(allUrl));
 
-  const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(feedFrameKey);
+  const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(feedFrameKey, feedFrameFallbackKey);
   let serverCalls = 0;
   async function visit(url: URL, source: string) {
     return clientLoader({
@@ -121,6 +121,30 @@ test("a cached filtered frame never replaces the unfiltered home frame", async (
   assert.equal(home.source, "full", "filter result must not poison the full overview");
   assert.equal(all.source, "full", "/ and /all intentionally share the unfiltered overview");
   assert.equal(serverCalls, 2);
+
+  // The reverse direction should reuse a fresh superset without fetching a second frame.
+  // Distinct test keys isolate this check from the first sequence's cache entries.
+  const key = (url: URL) => "test-superset:" + feedFrameKey(url);
+  const fallback = (url: URL) => {
+    const fresh = feedFrameFallbackKey(url);
+    return fresh ? "test-superset:" + fresh : null;
+  };
+  const { clientLoader: freshClientLoader } = pageReuse<{ expiresAt: number; source: string }>(key, fallback);
+  let freshCalls = 0;
+  async function visitFresh(url: URL, source: string) {
+    return freshClientLoader({
+      request: new Request(url),
+      serverLoader: async () => {
+        freshCalls++;
+        return { expiresAt: Date.now() + 60_000, source };
+      },
+    } as unknown as Parameters<typeof freshClientLoader>[0]);
+  }
+  const fullFirst = await visitFresh(homeUrl, "full-first");
+  const filteredAfterFull = await visitFresh(filteredUrl, "should-not-fetch");
+  assert.equal(fullFirst.source, "full-first");
+  assert.equal(filteredAfterFull.source, "full-first", "a filtered view can reuse a fresh full frame");
+  assert.equal(freshCalls, 1, "warm overview → filtered navigation adds no frame fetch");
 });
 
 test("navigation streams are plain text for download managers, including errors", async () => {
