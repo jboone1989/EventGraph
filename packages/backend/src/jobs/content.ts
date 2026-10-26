@@ -290,7 +290,7 @@ export const failureGroupSql = (column = "processing_error") =>
 /**
  * Admin: reset failed articles, optionally in a bounded batch. An explicit batch cap is useful when
  * recovering a now-routable *paid* model without restarting hundreds of calls at once.
- * Without a cap, retain the pre-existing all/group behavior for the operations UI.
+ * Without a cap, process all recent failures within the 24-hour news freshness window.
  */
 export async function requeueFailed(group: string | null, limit: number | null = null): Promise<{ requeued: number }> {
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 500)) throw new Error("requeue limit must be 1..500");

@@ -136,7 +136,7 @@ export async function runsOverview(): Promise<Runs> {
   };
 }
 
-/** Failed articles (one failure group, or all of the last 30 days) back into processing. */
+/** Failed articles (one failure group, or all of the last 24 hours) back into processing. */
 export async function requeueFailedArticles(input: { group: string | null; reason: string; limit?: number }, actor: string) {
   if (!input.reason?.trim()) throw new Error("reason is required");
   const result = await requeueFailed(input.group, input.limit ?? null);
