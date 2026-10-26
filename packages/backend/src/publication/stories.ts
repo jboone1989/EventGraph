@@ -1,6 +1,6 @@
 // Stories (events) and the hot ranking through the public read layer. The website sees heat values;
 // v1 and MCP only see ranks and counts.
-import type { HeatPoint, HotResponse, StoryDetail, StoryReportView } from "@aihot/contracts/site";
+import type { HeatPoint, HotResponse, ItemStoryContext, StoryDetail, StoryReportView } from "@aihot/contracts/site";
 import { SEO, SITE } from "@aihot/site";
 import { sql } from "../db.ts";
 import { cachedByKey, SHARED_ONLY } from "../lib/cache.ts";
@@ -227,6 +227,29 @@ export async function loadStoryDetail(storyId: number, now = new Date()): Promis
 }
 
 const SPARK_HOURS = 24;
+
+/**
+ * The What Next context a report page shows beside its event (specs/news-explainer): the event's status,
+ * scale and newest listed evidence, read by the same rules as the event page — counts over its listed
+ * reports (mentions included), the latest from storyTexts. No judgement of its own.
+ */
+export async function storyContextFor(storyId: number, now = new Date()): Promise<ItemStoryContext | null> {
+  const [counts] = await sql<{ reports: number; sources: number; latest_at: Date | null }[]>`
+    SELECT count(DISTINCT p.article_id)::int AS reports, count(DISTINCT p.source_id)::int AS sources,
+      max(coalesce(p.published_at, p.discovered_at)) AS latest_at
+    FROM facts f JOIN fact_articles fa ON fa.fact_id = f.id JOIN publications p ON p.article_id = fa.article_id
+      JOIN sources s ON s.id = p.source_id
+    WHERE f.story_id = ${storyId} AND ${storyReportCondition(now)}`;
+  if (!counts || (counts.reports === 0 && !counts.latest_at)) return null;
+  const latest = (await storyTexts([storyId], now)).get(storyId)?.latest ?? null;
+  return {
+    status: storyStatusFor(latest?.at ?? counts.latest_at, now.getTime()),
+    reportCount: counts.reports,
+    sourceCount: counts.sources,
+    latestAt: (latest?.at ?? counts.latest_at)?.toISOString() ?? null,
+    latest: latest ? { id: latest.id, title: latest.title } : null,
+  };
+}
 
 /** Hourly heat of the ranked stories over the day before the ranking, one slot per hour. */
 async function sparklines(storyIds: number[], at: Date): Promise<Map<number, Array<number | null>>> {

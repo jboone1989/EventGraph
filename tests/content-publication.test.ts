@@ -111,6 +111,10 @@ test("mentions cannot choose a timeline origin, anchor, representative, or a lat
   assert.equal(detail.firstReportAt, at(4).toISOString());
   assert.deepEqual(detail.latestReport, { id: latest });
   assert.equal(detail.latest, "Dots 后续更新");
+  const explainer = await loadItemDetail(official, "zh", now);
+  assert.equal(explainer.kind, "found");
+  if (explainer.kind !== "found") return;
+  assert.equal(explainer.item.storyContext!.latest!.title, detail.latest, "the explainer shows the event page's latest");
   assert.equal(detail.officialReports.length, 1, "only tier T1 has the first-party label");
   assert.equal(detail.developments[0]!.representative.source.firstParty, false);
   const edition = await candidates(at(100), now);
@@ -121,6 +125,10 @@ test("mentions cannot choose a timeline origin, anchor, representative, or a lat
   const after = (await loadStoryDetail(g.storyId, now))!;
   assert.equal(after.latestReport!.id, official);
   assert.equal(after.latest, "Dots 正式发布");
+  const explainerAfter = await loadItemDetail(official, "zh", now);
+  assert.equal(explainerAfter.kind, "found");
+  if (explainerAfter.kind !== "found") return;
+  assert.equal(explainerAfter.item.storyContext!.latest!.title, after.latest, "a withdrawn report stops supplying the explainer's latest");
   assert.equal((await v1Story(g.storyId))!.story.latest, after.latest);
   const firstParty = await loadTimeline({ ...q, channel: "firstParty" });
   assert.ok(!firstParty.cards.some(c => c.item.id === official), "a stale true projection flag cannot put T1_5 into first-party channel");
@@ -133,7 +141,7 @@ test("item detail counts the same fact evidence as its expanded group", async ()
   const other = await source("detail-count-other", "T2");
   const g = await story();
   const main = await report(s, g, { title: "事件原始报道", hours: 3 });
-  await report(other, g, { title: "事件补充报道", hours: 2 });
+  const supplement = await report(other, g, { title: "事件补充报道", hours: 2 });
   await report(other, g, { title: "只提及该事件", hours: 1, role: "mention" });
   const composite = await report(other, g, { title: "多个事件的综合稿", hours: 1 });
   await sql`UPDATE analyses SET output = output || '{"scope":"composite"}'::jsonb WHERE article_id = ${composite}`;
@@ -144,6 +152,15 @@ test("item detail counts the same fact evidence as its expanded group", async ()
   assert.equal(expanded.reports.length, 2);
   assert.equal(detail.item.group!.reportCount, expanded.reports.length);
   assert.equal(detail.item.group!.additionalSourceCount, 1);
+  // The explainer's What Next context counts the event page's reports (mentions included) and takes
+  // the latest from the same listed evidence the event page shows (specs/news-explainer E-04).
+  const context = detail.item.storyContext!;
+  assert.equal(context.reportCount, 4, "mentions and composites count as the event page's reports");
+  assert.equal(context.sourceCount, 2);
+  assert.equal(context.status, "active");
+  assert.equal(context.latest!.id, supplement);
+  assert.equal(context.latest!.title, "事件补充报道");
+  assert.equal(context.latestAt, at(2).toISOString());
 });
 
 // A newer archive report may remain readable without qualifying as news. It cannot become the

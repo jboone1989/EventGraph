@@ -9,7 +9,7 @@ import { articleLd, breadcrumbLd, localized, pageMeta, siteUrl, titled } from ".
 import { englishPath, isEnglishPath } from "../lib/edition";
 import { fullDateTime, localizedRelativeTime } from "../lib/format";
 import { markRead } from "../lib/local-state";
-import { SameEventBadge, SelectedBadge } from "../components/ui/Badge";
+import { SameEventBadge, SelectedBadge, Badge } from "../components/ui/Badge";
 import { ScoreLabel, shownScore } from "../components/ui/Score";
 import { PillTabs } from "../components/ui/Tabs";
 import { ArticleLayout, RailSection } from "../components/ui/Page";
@@ -339,6 +339,41 @@ function ItemGone() {
   );
 }
 
+/** The report's What Next layer (specs/news-explainer): its event's status, scale and newest listed
+ *  evidence — the same facts the event page shows, linking there. Only with evidence, never a template:
+ *  a lone report's event page just redirects back, so it stays out. */
+function EventContext({ story, context, currentId, en }: { story: NonNullable<SiteItemDetail["story"]>; context: NonNullable<SiteItemDetail["storyContext"]>; currentId: string; en: boolean }) {
+  const t = useText();
+  const tone = context.status === "active" ? "hot" : context.status === "watching" ? "amber" : "neutral";
+  const statusLabel = context.status === "active" ? t("持续更新", "Active") : context.status === "watching" ? t("观察中", "Watching") : t("历史事件", "Historical");
+  const storyPath = en ? englishPath(`/story/${story.publicId}`) ?? `/story/${story.publicId}` : `/story/${story.publicId}`;
+  // The newest development is news only when it is another report: this page's own report is already here.
+  const latest = context.latest && context.latest.id !== currentId ? context.latest : null;
+  const latestTitle = latest ? (en ? englishText(latest.title) : latest.title) : null;
+  return (
+    <section className="mt-7 rounded-panel border border-line-soft bg-bg-sunk/40 p-4 xl:mt-8">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[12px] font-semibold text-accent">{t("所属事件", "The event")}</span>
+        <Badge tone={tone}>{statusLabel}</Badge>
+      </div>
+      <Link viewTransition to={storyPath} className="mt-2 block text-[15.5px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent">
+        {en ? englishText(story.title) ?? story.title : story.title}
+      </Link>
+      {latest && latestTitle && (
+        <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">
+          {t("最新进展：", "Latest: ")}
+          <Link viewTransition to={en ? englishPath(`/items/${latest.id}`) ?? `/items/${latest.id}` : `/items/${latest.id}`} className="text-ink-2 transition-colors hover:text-accent">{latestTitle}</Link>
+          {context.latestAt && <span suppressHydrationWarning> · {localizedRelativeTime(context.latestAt, en ? "en" : "zh")}</span>}
+        </p>
+      )}
+      <div className="mt-2.5 flex items-center justify-between gap-3 text-[12px] text-ink-4">
+        <span className="num">{context.reportCount} {t("篇报道", "reports")} · {context.sourceCount} {t("个来源", "sources")}</span>
+        <Link viewTransition to={storyPath} className="font-medium text-accent hover:underline">{t("查看事件全部 →", "See the event →")}</Link>
+      </div>
+    </section>
+  );
+}
+
 function ItemView({ item }: { item: SiteItemDetail }) {
   const navigate = useNavigate();
   const preference = useUiLanguage();
@@ -403,6 +438,10 @@ function ItemView({ item }: { item: SiteItemDetail }) {
   const reasonText = en ? english?.reason ?? null : item.reason;
 
   const related = item.relatedStories.filter((s) => s.publicId !== item.story?.publicId);
+  // English keeps only the related events whose titles carry English, as everywhere else.
+  const relatedList = en
+    ? related.flatMap((s) => { const title = englishText(s.title); return title ? [{ s, title }] : []; })
+    : related.map((s) => ({ s, title: s.title }));
   // English pages name topics in English when the taxonomy has it, and drop the ones it hasn't.
   const enTopics = en
     ? item.topics.flatMap((topic) => {
@@ -612,6 +651,10 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             </section>
           )}
 
+          {item.story && item.storyContext && item.storyContext.reportCount > 1 && (
+            <EventContext story={item.story} context={item.storyContext} currentId={item.id} en={en} />
+          )}
+
           {item.sameEvent && !en && (
             <p className="mt-5 text-[13px] leading-relaxed text-ink-4">
               {t("同一新闻，精选展示", "The same news, shown as this event's selected report:")}
@@ -680,17 +723,17 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             </div>
           )}
 
-          {/* The follow-ups' headlines exist only in Chinese; English readers follow the event page instead. */}
-          {item.story && !en && <StoryFollowups story={item.story} currentId={item.id} />}
+          {/* The follow-ups load after the page; English shows the ones whose titles carry English. */}
+          {item.story && <StoryFollowups story={item.story} currentId={item.id} />}
 
-          {related.length > 0 && !en && (
+          {relatedList.length > 0 && (
             <section className="mt-8">
               <h2 className="mb-2 text-[14px] font-semibold text-ink">{t("相关事件", "Related events")}</h2>
               <ul className="divide-y divide-line-soft">
-                {related.map((s) => (
+                {relatedList.map(({ s, title }) => (
                   <li key={s.publicId}>
-                    <Link viewTransition to={`/story/${s.publicId}`} className="block py-2.5 text-[14px] text-ink-2 hover:text-accent">
-                      {s.title}
+                    <Link viewTransition to={en ? englishPath(`/story/${s.publicId}`) ?? `/story/${s.publicId}` : `/story/${s.publicId}`} className="block py-2.5 text-[14px] text-ink-2 hover:text-accent">
+                      {title}
                     </Link>
                   </li>
                 ))}
