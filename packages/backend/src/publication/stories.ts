@@ -242,12 +242,19 @@ export async function storyContextFor(storyId: number, now = new Date()): Promis
     WHERE f.story_id = ${storyId} AND ${storyReportCondition(now)}`;
   if (!counts || (counts.reports === 0 && !counts.latest_at)) return null;
   const latest = (await storyTexts([storyId], now)).get(storyId)?.latest ?? null;
+  const [latestEnglish] = latest ? await sql<{ english_title: string | null; original_title: string | null }[]>`
+    SELECT ec.title AS english_title, p.original_title
+    FROM publications p
+    LEFT JOIN english_copies ec ON ec.article_id = p.article_id
+      AND ec.outcome = 'written' AND ec.inputs_hash = ${ENGLISH_ITEM_INPUTS}
+    WHERE p.article_id = ${latest.id}
+    LIMIT 1` : [];
   return {
     status: storyStatusFor(latest?.at ?? counts.latest_at, now.getTime()),
     reportCount: counts.reports,
     sourceCount: counts.sources,
     latestAt: (latest?.at ?? counts.latest_at)?.toISOString() ?? null,
-    latest: latest ? { id: latest.id, title: latest.title } : null,
+    latest: latest ? { id: latest.id, title: latest.title, englishTitle: latestEnglish?.english_title ?? latestEnglish?.original_title ?? null } : null,
   };
 }
 

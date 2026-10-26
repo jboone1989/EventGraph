@@ -145,6 +145,7 @@ test("item detail counts the same fact evidence as its expanded group", async ()
   await report(other, g, { title: "只提及该事件", hours: 1, role: "mention" });
   const composite = await report(other, g, { title: "多个事件的综合稿", hours: 1 });
   await sql`UPDATE analyses SET output = output || '{"scope":"composite"}'::jsonb WHERE article_id = ${composite}`;
+  await sql`UPDATE publications SET original_title = 'Supplementary notice in English' WHERE article_id = ${supplement}`;
   const detail = await loadItemDetail(main, "zh", now);
   assert.equal(detail.kind, "found");
   if (detail.kind !== "found") return;
@@ -160,6 +161,7 @@ test("item detail counts the same fact evidence as its expanded group", async ()
   assert.equal(context.status, "active");
   assert.equal(context.latest!.id, supplement);
   assert.equal(context.latest!.title, "事件补充报道");
+  assert.equal(context.latest!.englishTitle, "Supplementary notice in English", "use a real English original title without inventing a translation");
   assert.equal(context.latestAt, at(2).toISOString());
 });
 

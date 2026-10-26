@@ -349,7 +349,7 @@ function EventContext({ story, context, currentId, en }: { story: NonNullable<Si
   const storyPath = en ? englishPath(`/story/${story.publicId}`) ?? `/story/${story.publicId}` : `/story/${story.publicId}`;
   // The newest development is news only when it is another report: this page's own report is already here.
   const latest = context.latest && context.latest.id !== currentId ? context.latest : null;
-  const latestTitle = latest ? (en ? englishText(latest.title) : latest.title) : null;
+  const latestTitle = latest ? (en ? englishText(latest.englishTitle ?? "") ?? englishText(latest.title) : latest.title) : null;
   return (
     <section className="mt-7 rounded-panel border border-line-soft bg-bg-sunk/40 p-4 xl:mt-8">
       <div className="flex items-center justify-between gap-3">
@@ -357,7 +357,7 @@ function EventContext({ story, context, currentId, en }: { story: NonNullable<Si
         <Badge tone={tone}>{statusLabel}</Badge>
       </div>
       <Link viewTransition to={storyPath} className="mt-2 block text-[15.5px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent">
-        {en ? englishText(story.title) ?? story.title : story.title}
+        {en ? englishText(story.title) ?? "View the event" : story.title}
       </Link>
       {latest && latestTitle && (
         <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">

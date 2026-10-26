@@ -95,7 +95,7 @@ export interface ItemStoryContext {
   sourceCount: number;
   latestAt: string | null;
   /** The newest listed report — the event page's 最新进展; null when no evidence is listed today. */
-  latest: { id: string; title: string } | null;
+  latest: { id: string; title: string; englishTitle?: string | null } | null;
 }
 
 export interface GroupInfo {
