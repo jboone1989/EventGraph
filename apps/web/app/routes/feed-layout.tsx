@@ -39,10 +39,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   const storyGraph = showOverview && lead
     ? await apiGet<KnowledgeGraph>(`/api/site/knowledge/stories/${encodeURIComponent(lead.story.publicId)}`, { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH)
     : EMPTY_GRAPH;
-  // Do not keep a failed hot/daily request as a fresh superset for a narrower page.
-  // Empty successful results are valid; only failed upstream requests disable reuse.
-  const ttl = (!dailies || (showTrending && !hot)) ? 0 : 60;
-  return cachedPage(ttl, { graph, stats, hot: hot?.entries ?? [], site, storyGraph, daily: dailies?.items[0] ?? null }, upstream);
+  // Preserve ordinary page caching, including offline revisits. Only fallback reuse
+  // checks which optional upstream requests actually succeeded.
+  return cachedPage(60, {
+    graph, stats, hot: hot?.entries ?? [], site, storyGraph,
+    daily: dailies?.items[0] ?? null,
+    hotOk: hot !== null, dailyOk: dailies !== null,
+  }, upstream);
 }
 
 // One result for both scopes: switching 精选/全部 re-runs this loader but reads the same fresh
