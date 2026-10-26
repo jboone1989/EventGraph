@@ -17,14 +17,20 @@ export function hasFreshPage(url: URL): boolean {
  * that result (the tabs of a page that reads the same data) and only the first read asks the server.
  * By default every address has its own.
  */
-export function pageReuse<T>(key: (url: URL) => string = addressOf) {
+export function pageReuse<T>(key: (url: URL) => string = addressOf, fallbackKey?: (url: URL) => string | null) {
   async function clientLoader({ request, serverLoader }: ClientLoaderFunctionArgs) {
-    const held = key(new URL(request.url));
+    const url = new URL(request.url);
+    const held = key(url);
     const previous = pages.get(held);
     pages.delete(held);
     if (deadlineOf(previous) > Date.now()) {
       pages.set(held, previous);
       return previous as Awaited<ReturnType<typeof serverLoader<T>>>;
+    }
+    // For a subset view, a fresh superset snapshot can satisfy the same frame without a network call.
+    const fallback = fallbackKey?.(url);
+    if (fallback && deadlineOf(pages.get(fallback)) > Date.now()) {
+      return pages.get(fallback) as Awaited<ReturnType<typeof serverLoader<T>>>;
     }
     // On hydration this is the HTML's own result, without another HTTP request.
     const result = await serverLoader<T>();
