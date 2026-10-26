@@ -213,7 +213,7 @@ test("IntentLink freshness matches the frame and the child list separately", asy
   } as unknown as Parameters<typeof clientLoader>[0]);
   await load(home);
   for (const url of [home, search, filtered]) {
-    assert.equal(hasFreshPage(url, "routes/feed-layout"), true, "superset frame must be recognized");
+    assert.equal(hasFreshPage(url, "feed-layout"), true, "superset frame must be recognized");
     assert.equal(hasFreshPage(url), false, "a warm frame alone cannot hide an uncached child list");
   }
   const { clientLoader: listLoader } = pageReuse<{ expiresAt: number; source: string }>();
