@@ -75,6 +75,7 @@ test("a zero deepseek_web budget skips discovery for the day without a search", 
   const run = await runDailyDiscovery();
   assert.equal(run.skipped, "budget");
   assert.equal(hits, before);
+  await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
 });
 
 test("a missing credential skips discovery without a search and without a paid receipt", async () => {
