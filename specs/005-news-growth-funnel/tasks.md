@@ -23,8 +23,8 @@ Status is evidence-backed; editing a file or opening a PR is not equivalent to r
 ## Next PR · US2 content + click paths
 
 - [ ] Choose 10–20 *actual* news URLs with Search Console impressions and compare within a similar cohort.
-- [ ] Reuse current source citations, `relatedStories` and `GroupSources` to surface incremental facts and one event next-step, only with evidence.
-- [ ] Validate mobile first-screen, English copy, source rights, item independent canonical and SEO metadata.
+- [x] Reuse current source citations, `relatedStories` and `GroupSources` to surface incremental facts and one event next-step, only with evidence. Evidence: PR `feat(item): show the report's event as its What Next layer (005 US2)` — `storyContextFor` in `packages/backend/src/publication/stories.ts` reuses the event page's own joins/latest/status; `EventContext` in `apps/web/app/routes/item.tsx` renders it only when the event has >1 report; follow-ups and related events now also render in English; tests in `tests/content-publication.test.ts`. No model calls, no new tables.
+- [ ] Validate mobile first-screen, English copy, source rights, item independent canonical and SEO metadata beyond the suite (item canonical/meta untouched; `seo-meta`/`entity-seo` web tests pass; browser check pending the Search Console cohort above).
 - [ ] Compare on-site second navigation after introducing changes; do not claim significant CTR improvements with tiny counts.
 
 ## Next PR · US3 return reasons

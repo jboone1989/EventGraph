@@ -87,6 +87,17 @@ export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "sum
   sameEvent?: { id: string; title: string } | null;
 }
 
+/** The event a report belongs to as its page's What Next layer (specs/news-explainer): the same status,
+ *  scale and newest evidence the event page shows, never a separate judgement. */
+export interface ItemStoryContext {
+  status: "active" | "watching" | "settled";
+  reportCount: number;
+  sourceCount: number;
+  latestAt: string | null;
+  /** The newest listed report — the event page's 最新进展; null when no evidence is listed today. */
+  latest: { id: string; title: string; englishTitle?: string | null } | null;
+}
+
 export interface GroupInfo {
   factId: string;
   /** Other public sources reporting this same news fact, under the current filters. */
@@ -172,6 +183,8 @@ export interface SiteItemDetail extends ItemSummary {
   englishIndexable: boolean;
   markdownAvailable: boolean;
   group: GroupInfo | null;
+  /** Absent in answers cached before the explainer shipped; null when the report has no event context. */
+  storyContext?: ItemStoryContext | null;
   hasTranslation: boolean;
   bodyLanguage: "zh" | "original";
 }
