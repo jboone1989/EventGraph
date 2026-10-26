@@ -66,7 +66,7 @@ EventGraph 的产品方向已在用户 + ChatGPT + Claude 独立反方讨论后�
 
 ## EventGraph Spec-driven development and independent review
 
-For non-trivial feature work, use the upstream [GitHub Spec Kit](https://github.com/github/spec-kit) artifact names and flow; see [docs/spec-review.md](docs/spec-review.md). Small fixes still require a short prior `specs/<feature>/spec.md` recording the bug, root cause, desired result and verification; plan/tasks may be omitted. Documentation-only or CI policy PRs need no product spec.
+For non-trivial feature work, use the upstream [GitHub Spec Kit](https://github.com/github/spec-kit) artifact names and flow; see [docs/spec-review.md](docs/spec-review.md). Small fixes still require a short prior `specs/<feature>/spec.md` recording the bug, root cause, desired result and verification; plan/tasks may be omitted. Documentation-only PRs need no product spec. Executable CI, deployment scripts and production settings changes follow the same prior Spec requirement.
 
 - **Search Before Build**: inspect current repository code, the AIHOT upstream implementation, and relevant official documentation before planning a new implementation. Record the reusable findings and alternatives in the Issue / plan; do not duplicate existing graph, CI, or provider subsystems.
 - **Spec before implementation**: write the user-visible behavior and testable acceptance criteria in `specs/<feature>/spec.md` **and merge it to the base branch before starting implementation**, then the implementation plan and tasks as appropriate. Keep `feature → develop → main`; the optional Spec Kit Git extension must not change this policy.
