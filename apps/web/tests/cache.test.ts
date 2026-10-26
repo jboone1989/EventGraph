@@ -5,6 +5,8 @@ import { after, before, test } from "node:test";
 import { CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { UNSAFE_decodeViaTurboStream } from "react-router";
 import { startWebServer, type WebServer } from "./web-server.ts";
+import { pageReuse } from "../app/lib/page-reuse.ts";
+import { feedFrameKey, showsFeedOverview } from "../app/lib/seo.ts";
 
 let web: WebServer;
 let origin: string;
@@ -12,9 +14,11 @@ let deadline: number;
 /** Root metadata answers only after the selected deadline has passed: a slow sibling loader. */
 let metaAfterDeadline = false;
 const apiCookies: Array<string | undefined> = [];
+const apiPaths: string[] = [];
 const api = createServer((req, res) => {
   const url = new URL(req.url!, "http://api.local");
   apiCookies.push(req.headers.cookie);
+  apiPaths.push(url.pathname);
   res.setHeader("Content-Type", "application/json");
   if (url.pathname === "/api/site/meta") {
     const respond = () => res.end(JSON.stringify({ changelogVersion: "2026-09-28T12:00" }));
@@ -67,6 +71,56 @@ test("public route subsets produce the same complete navigation data; filters st
   const body = await filtered.text();
   assert.ok(body.includes(category));
   assert.notEqual(body, answers[0]);
+});
+
+test("filtered pages skip hidden feed overview APIs, but unfiltered pages still request them", async () => {
+  const category = CATEGORY_KEYS.at(-1)!;
+  const begin = apiPaths.length;
+  const filtered = await fetch(`${origin}/?category=${category}`);
+  assert.equal(filtered.status, 200);
+  await filtered.text();
+  const filteredPaths = apiPaths.slice(begin);
+  for (const path of ["/api/site/knowledge/overview", "/api/site/knowledge/stats", "/api/site/hot", "/api/site/stats"]) {
+    assert.equal(filteredPaths.includes(path), false, `hidden request: ${path}`);
+  }
+
+  const full = await fetch(`${origin}/`);
+  assert.equal(full.status, 200);
+  await full.text();
+  const fullPaths = apiPaths.slice(begin + filteredPaths.length);
+  for (const path of ["/api/site/knowledge/overview", "/api/site/knowledge/stats", "/api/site/hot", "/api/site/stats"]) {
+    assert.ok(fullPaths.includes(path), `unfiltered overview must fetch ${path}`);
+  }
+});
+
+test("a cached filtered frame never replaces the unfiltered home frame", async () => {
+  const category = CATEGORY_KEYS.at(-1)!;
+  const filteredUrl = new URL(`http://example.test/?category=${category}`);
+  const homeUrl = new URL("http://example.test/");
+  const allUrl = new URL("http://example.test/all");
+  assert.equal(showsFeedOverview(filteredUrl), false);
+  assert.equal(showsFeedOverview(homeUrl), true);
+  assert.notEqual(feedFrameKey(filteredUrl), feedFrameKey(homeUrl));
+  assert.equal(feedFrameKey(homeUrl), feedFrameKey(allUrl));
+
+  const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(feedFrameKey);
+  let serverCalls = 0;
+  async function visit(url: URL, source: string) {
+    return clientLoader({
+      request: new Request(url),
+      serverLoader: async () => {
+        serverCalls++;
+        return { expiresAt: Date.now() + 60_000, source };
+      },
+    } as unknown as Parameters<typeof clientLoader>[0]);
+  }
+  const filtered = await visit(filteredUrl, "filtered");
+  const home = await visit(homeUrl, "full");
+  const all = await visit(allUrl, "should-not-fetch");
+  assert.equal(filtered.source, "filtered");
+  assert.equal(home.source, "full", "filter result must not poison the full overview");
+  assert.equal(all.source, "full", "/ and /all intentionally share the unfiltered overview");
+  assert.equal(serverCalls, 2);
 });
 
 test("navigation streams are plain text for download managers, including errors", async () => {
