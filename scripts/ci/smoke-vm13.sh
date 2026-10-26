@@ -134,6 +134,40 @@ try {
       await page.close();
     }
   }
+
+  // Admin control center: the deployed VM13 page, not just a GitHub CI fixture.
+  for (const width of [1440, 390]) {
+    const context = await browser.newContext({ viewport: { width, height: 844 } });
+    const equal = cookie.indexOf("=");
+    await context.addCookies([{ name: cookie.slice(0, equal), value: cookie.slice(equal + 1), url: root }]);
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", error => errors.push(String(error)));
+    try {
+      const response = await page.goto(root + "/admin", { waitUntil: "domcontentloaded", timeout: 30000 });
+      assert(response?.status() === 200, "admin overview route not 200");
+      assert(await page.getByRole("heading", { name: "运营总览" }).count() === 1, "admin overview missing");
+      assert(await page.getByText("最近 24 小时 · 新新闻处理链路").count() > 0, "admin processing funnel missing");
+      assert(!await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2), "admin horizontal overflow " + width);
+      if (width === 390) {
+        const more = page.locator("summary").filter({ hasText: "更多" });
+        await more.click();
+        const modelLink = page.getByRole("link", { name: "Provider 与模型" }).last();
+        assert(await modelLink.isVisible(), "admin More menu is hidden");
+        const bounds = await modelLink.boundingBox();
+        assert(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width + 2, "admin More menu clipped");
+        const nav = page.getByRole("navigation", { name: "后台主要操作" });
+        const overview = nav.getByRole("link", { name: "运营总览" });
+        assert(await overview.getAttribute("aria-current") === "page", "admin overview not selected");
+        await nav.getByRole("link", { name: /运行与积压/ }).click();
+        assert(await overview.getAttribute("aria-current") !== "page", "overview remains selected on child route");
+      }
+      assert(errors.length === 0, "admin JS errors: " + errors.join("; "));
+      console.log(JSON.stringify({ adminOverview: true, width, status: response?.status(), mobileMore: width === 390 ? "checked" : "n/a" }));
+    } finally {
+      await context.close();
+    }
+  }
 } finally {
   await browser.close();
 }
