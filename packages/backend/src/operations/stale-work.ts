@@ -13,7 +13,7 @@ export async function expireStaleWork(now = new Date()) {
     const articles = await tx`
       UPDATE articles SET processing_state = 'skipped', processing_error = NULL,
         processing_attempts = 0, processing_retry_at = NULL, processing_queued_at = NULL
-      WHERE processing_state IN ('new', 'failed') AND discovered_at < ${cutoff}`;
+      WHERE processing_state IN ('new', 'failed') AND greatest(discovered_at, updated_at) < ${cutoff}`;
     return { deletedStaleJobs: jobs.count, skippedStaleArticles: articles.count };
   });
 }
