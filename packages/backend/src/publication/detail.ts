@@ -7,6 +7,7 @@ import { stripTagMarkup } from "../lib/text.ts";
 import { proxyBodyImages } from "../media/imgproxy.ts";
 import { textToHtml } from "../content/sanitize.ts";
 import { exportTranslation, isChineseBody, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
+import { storyContextFor } from "./stories.ts";
 import { evidenceCondition, listedCondition } from "./scope.ts";
 import { itemUrl, siteUrl } from "./links.ts";
 import { hasItemPage, publicSourceName } from "./rules.ts";
@@ -19,6 +20,7 @@ interface DetailRow extends ItemRow {
   tr_html: string | null;
   tr_complete: boolean | null;
   topics: string[];
+  story_id: number | null;
 }
 
 export type DetailResult =
@@ -44,7 +46,7 @@ function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
 async function loadRow(id: string): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
-      ${topicMembership()} AS topics
+      st.id AS story_id, ${topicMembership()} AS topics
     ${ITEM_FROM}
     WHERE p.article_id = ${id}`;
   return row ?? null;
@@ -104,6 +106,7 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
       englishIndexable: false,
       markdownAvailable: false,
       group: null,
+      storyContext: null,
       hasTranslation: false,
       bodyLanguage: "original",
     };
@@ -169,6 +172,7 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     englishIndexable: row.indexable && !!row.en_title,
     markdownAvailable: markdownAvailable(row),
     group,
+    storyContext: row.story_id ? await storyContextFor(row.story_id, now) : null,
     hasTranslation: reading.hasTranslation,
     bodyLanguage: reading.bodyLanguage,
   };

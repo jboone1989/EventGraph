@@ -1,10 +1,10 @@
 # LivingRuntime production · VM09 (single current deployment)
 
-Official source: `main`. Current release source: `/home/ubuntu/livingruntime-prod-source` on VM09. The domain `livingruntime.com` and `www.livingruntime.com` stay on VM09. `43.133.185.154` is for Ferro; never deploy this site there.
+Official source: `main`. Current release source: `/home/ubuntu/livingruntime-prod-source` on VM09. The domain `livingruntime.com` and `www.livingruntime.com` stay on VM09. VM13 (`43.133.185.154`) hosts only the independent development Web + API preview on the cn-dev development database; see [vm13-preview.md](vm13-preview.md).
 
 ## One-stack architecture and single-command releases
 
-Production is **only** VM09 and the `livingruntime` Docker Compose project. Cloudflare Tunnel forwards to `127.0.0.1:3000`. Web, API, one worker, PostgreSQL, Graphiti and Neo4j run in the same Compose project. `43.133.185.154` remains Ferro-only.
+Production is **only** VM09 and the `livingruntime` Docker Compose project. Cloudflare Tunnel forwards to `127.0.0.1:3000`. Web, API, one worker, PostgreSQL, Graphiti and Neo4j run in the same Compose project. VM13 is not a production host; its separate Web + API development preview uses no production database volumes.
 
 **For every ordinary software release, from VM09:**
 

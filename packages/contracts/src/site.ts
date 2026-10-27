@@ -87,6 +87,17 @@ export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "sum
   sameEvent?: { id: string; title: string } | null;
 }
 
+/** The event a report belongs to as its page's What Next layer (specs/news-explainer): the same status,
+ *  scale and newest evidence the event page shows, never a separate judgement. */
+export interface ItemStoryContext {
+  status: "active" | "watching" | "settled";
+  reportCount: number;
+  sourceCount: number;
+  latestAt: string | null;
+  /** The newest listed report — the event page's 最新进展; null when no evidence is listed today. */
+  latest: { id: string; title: string; englishTitle?: string | null } | null;
+}
+
 export interface GroupInfo {
   factId: string;
   /** Other public sources reporting this same news fact, under the current filters. */
@@ -172,6 +183,8 @@ export interface SiteItemDetail extends ItemSummary {
   englishIndexable: boolean;
   markdownAvailable: boolean;
   group: GroupInfo | null;
+  /** Absent in answers cached before the explainer shipped; null when the report has no event context. */
+  storyContext?: ItemStoryContext | null;
   hasTranslation: boolean;
   bodyLanguage: "zh" | "original";
 }
@@ -370,6 +383,69 @@ export type StoryRoute = {
   coverage: { stations: number; reports: number; sources: number };
 };
 
+// Cross-event process experiments (specs/event-evolution-experiment): a manually curated case
+// laid out as parallel read-only tracks. Each track re-reads one public story's route through the
+// publication layer at request time, so withdrawn evidence drops out; cross-track links are
+// human annotations with verifiable sources — co-occurrence never becomes a link.
+
+export type CaseStudyLinkType =
+  | "response"
+  | "citation"
+  | "dependency"
+  | "claim"
+  | "follow-up";
+
+export interface CaseStudyLinkEvidence {
+  url: string;
+  source: string;
+  /** When the evidence itself was published. */
+  publishedAt: string;
+  /** Who makes the claim, for "claim" links; absent otherwise. */
+  attribution?: string;
+  attributionEn?: string;
+}
+
+export interface CaseStudyLink {
+  key: string;
+  /** Track key of the responding/citing/claiming side. */
+  from: string;
+  /** Track key of the side being pointed at. */
+  to: string;
+  type: CaseStudyLinkType;
+  note: string;
+  noteEn: string;
+  evidence: CaseStudyLinkEvidence;
+  /** When this annotation was curated (ISO date). */
+  curatedAt: string;
+}
+
+export interface CaseStudyTrack {
+  key: string;
+  label: string;
+  labelEn: string;
+  story: StoryRef;
+  status: "ok" | "insufficient";
+  stations: StoryRouteStation[];
+  coverage: { stations: number; reports: number; sources: number };
+}
+
+export interface CaseStudyResponse {
+  schemaVersion: 1;
+  id: string;
+  title: string;
+  titleEn: string;
+  summary: string;
+  summaryEn: string;
+  /** Last human update of the case definition (YYYY-MM-DD). */
+  updated: string;
+  generatedAt: string;
+  tracks: CaseStudyTrack[];
+  /** Only links whose both endpoints currently have public evidence. */
+  links: CaseStudyLink[];
+  /** Notes explaining deliberately unlinked tracks (the negative examples). */
+  unlinked: Array<{ track: string; note: string; noteEn: string }>;
+}
+
 // Reports (daily / weekly / monthly)
 
 export type ReportKind = "daily" | "weekly" | "monthly";
@@ -434,6 +510,7 @@ export interface ReportIndexEntry {
   key: string;
   issueNumber: number;
   title: string | null;
+  titleEn?: string | null;
   count: number;
 }
 
@@ -520,7 +597,7 @@ export interface ItemAvailability {
 }
 
 /** An issue in the archive and the calendar, numbered in its whole series; closed daily months omit their titles. */
-export interface ReportNavigationEntry { key: string; issueNumber: number; title?: string | null; count?: number }
+export interface ReportNavigationEntry { key: string; issueNumber: number; title?: string | null; titleEn?: string | null; count?: number }
 
 // Topics
 

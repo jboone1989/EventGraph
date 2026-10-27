@@ -11,6 +11,7 @@ import { KnowledgeAtlas } from "../components/KnowledgeAtlas";
 import { IntentLink } from "../components/ui/IntentLink";
 import { IconArrowLeft, IconArrowRight } from "../components/icons";
 import { useText, useUiLanguage } from "../components/LanguageSwitch";
+import { localizedSourceName } from "../lib/english";
 import { FollowControls } from "../components/FollowButton";
 
 export const handle: Screen = { tab: "knowledge", name: "实体档案" };
@@ -162,7 +163,7 @@ export default function KnowledgeEntity() {
                   <h3 id="entity-reports">{t("来源报道", "Source reports")} <small className="mono">{reports.length}</small></h3>
                   <ul className="lr-entity-list">
                     {reports.map((r) => {
-                      const source = lang === "en" && hasHan(r.source.name) ? "Publisher" : r.source.name;
+                      const source = localizedSourceName(r.source.name, lang);
                       const title = lang === "en" ? (r.originalTitle && !hasHan(r.originalTitle) ? r.originalTitle : !hasHan(r.title) ? r.title : `Original report from ${source}`) : r.title;
                       return (
                         <li key={r.id}>

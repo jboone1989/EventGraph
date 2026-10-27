@@ -7,3 +7,5 @@
 - [x] EO-E /calendar.ics（static.ts）+ sitemap 条目 + 测试
 - [x] EO-F 快讯页 302 收敛 + curation-visibility 测试改断言 + 移除快讯 Badge
 - [x] EO-G 终检（typecheck/构建/web+DB 测试）+ validation.md + changelog
+- [x] EO-H（FR-005）公开频道推送：迁移 0113–0116（chat_ref + kind 放宽）+ telegram 发送器 + selectedContent 双渲染 + deliver 分支与载荷包 + 两个默认关闭目标 + .env.example + tests/channel-push
+- ~~EO-I（FR-004）日报邮件订阅~~：**2026-10-27 产品决定取消，不再开发，不计入待完成任务**（SMTP、订阅/确认/退订和邮件投递均不做）。

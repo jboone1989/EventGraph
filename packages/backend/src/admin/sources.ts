@@ -137,9 +137,9 @@ const EDITABLE = z
 /** What the installed modules do for a source kind they collect themselves (their server.ts sourceKinds). */
 const kindHooks = (kind: string) => serverModules().flatMap((m) => m.sourceKinds?.[kind] ?? []);
 
-export async function updateSource(id: string, input: { patch: unknown; version: string; reason?: string }, actor: string) {
+export async function updateSource(id: string, input: { patch: unknown; version: string; reason?: string }, actor: string, db: Db = sql) {
   const patch = EDITABLE.parse(input.patch);
-  return sql.begin(async (tx) => {
+  const apply = async (tx: Db) => {
     // Creation and address edits share the lock: checking then inserting must not race.
     if (patch.config) await tx`SELECT pg_advisory_xact_lock(hashtext('admin-source-identity'))`;
     const [before] = await tx`SELECT * FROM sources WHERE id = ${id} FOR UPDATE`;
@@ -202,7 +202,8 @@ export async function updateSource(id: string, input: { patch: unknown; version:
       await enqueue(QUEUES.republishSource, { sourceId: id }, { singletonKey: id }, tx);
     }
     return after;
-  });
+  };
+  return db === sql ? sql.begin(apply) : apply(db);
 }
 
 /** Source fields the public projection reads (publication/rules.ts and the v1 payload). */
@@ -236,6 +237,10 @@ const CreateSchema = z
 
 /** The address a source collects from, used to find duplicates before creating one. */
 export function sourceIdentity(kind: string, config: Record<string, unknown>): string | null {
+  if (kind === "json_list" && config.mode === "deepseek_search") {
+    const query = String(config.deepseekQuery ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+    return query ? `deepseek:${query}` : null;
+  }
   const raw = (config.feedUrl ?? config.url ?? config.listUrl ?? config.endpoint ?? null) as string | null;
   if (kind === "x_search") {
     const m = /from:([A-Za-z0-9_]{1,15})/.exec(String(config.query ?? ""));

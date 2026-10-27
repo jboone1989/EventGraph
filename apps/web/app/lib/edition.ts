@@ -2,7 +2,7 @@
 // can index them (with hreflang to the Chinese page). Elsewhere English stays the reader's preference.
 const COUNTERPARTS = [
   /^\/$/, /^\/hot$/, /^\/knowledge$/, /^\/knowledge\/entity\/[^/]+$/, /^\/explore$/, /^\/story\/[^/]+$/,
-  /^\/daily$/, /^\/daily\/\d{4}-\d{2}-\d{2}$/, /^\/weekly$/, /^\/weekly\/[^/]+$/, /^\/monthly$/, /^\/monthly\/[^/]+$/,
+  /^\/daily$/, /^\/daily\/archive$/, /^\/daily\/\d{4}-\d{2}-\d{2}$/, /^\/weekly$/, /^\/weekly\/[^/]+$/, /^\/monthly$/, /^\/monthly\/[^/]+$/,
   /^\/topics$/, /^\/topics\/[^/]+$/, /^\/items\/[^/]+$/,
   /^\/privacy$/, /^\/terms$/,
   /^\/calendar$/,
