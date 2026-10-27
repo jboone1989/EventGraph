@@ -206,7 +206,7 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/reports/:kind/latest-page", siteHandler(async (req, reply) => {
     const kind = (req.params as { kind: string }).kind;
     if (!["daily", "weekly", "monthly"].includes(kind)) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "unknown report kind" });
-    const index = await listReports(kind as ReportKind);
+    const index = await listReports(kind as ReportKind, undefined, (req.query as { en?: string }).en === "1");
     const report = index[0] ? await loadReport(kind as ReportKind, index[0].key) : null;
     const body: ReportLatestPage = { index: reportNavigation(kind as ReportKind, index, report?.key ?? ""), report };
     return sendJsonWithEtag(req, reply, body, { etagPrefix: "report-latest", cacheControl: "public, max-age=60, s-maxage=60" });

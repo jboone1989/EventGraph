@@ -72,8 +72,9 @@ jobs:
       - name: Release script validation
         run: |
           bash -n scripts/deploy-prod.sh
+          sh -n scripts/ci/deploy-image.sh
           sh -n scripts/ci/deploy-vm13-preview.sh
-          sh -n scripts/ci/smoke-vm13-browser.sh
+          sh -n scripts/ci/smoke-vm13.sh
           python3 -m py_compile scripts/production-env-check.py
           python3 - <<'PY'
           import importlib.util
@@ -211,6 +212,8 @@ jobs:
           docker compose ps
           docker compose run --rm --no-deps --entrypoint node setup scripts/smoke.ts --base http://web:3000
           docker compose exec -T db psql -U aihot -d aihot -Atc "select count(*) from sources" | grep -qx "$(node -p "require('./industry/sources.json').sources.length")"
+          # Both keys must be enabled after the idempotent image setup.
+          docker compose exec -T db psql -U aihot -d aihot -Atc "select count(*) from settings where key in ('sourceLifecycle.discovery','sourceLifecycle.autoPromote') and value->>'enabled' = 'true'" | grep -qx '2'
       - name: Logs
         if: failure()
         run: docker compose logs --tail 80
@@ -442,9 +445,10 @@ jobs:
             bash scripts/deploy-prod.sh
 
 
-  # VM13 is now the sole persistent development Web service.
-  # cn-dev remains an SSH-invoked Playwright runner, not a deployed API/DB/worker.
-  deploy_vm13_preview:
+  # cn-dev keeps the isolated development database (loopback-only for the VM13 SSH
+  # tunnel), the worker and the collection workloads; develop releases update its
+  # api/worker/web. The public 80/8080 Web ingress and the knowledge stack are not touched.
+  deploy_development:
     needs: publish
     if: >-
       ${{ github.event_name == 'push' &&
@@ -452,7 +456,7 @@ jobs:
           needs.publish.outputs.image_ref != '' &&
           vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
     concurrency:
-      group: eventgraph-vm13-preview
+      group: eventgraph-dev-rollout
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -477,7 +481,63 @@ jobs:
           if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Deploy only VM13 Web with read-only production API
+      - name: Update cn-dev development app (api/worker/web)
+        if: steps.current.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_RELEASE_SHA: ${{ needs.publish.outputs.source_sha }}
+          EVENTGRAPH_DIR: ${{ vars.EVENTGRAPH_DEV_ROOT || '/home/ubuntu/livingruntime-aihot' }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ vars.EVENTGRAPH_DEV_HOST }}
+          username: ${{ vars.EVENTGRAPH_DEV_USER }}
+          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
+          command_timeout: 13m
+          version: '1.8.2'
+          script_path: scripts/ci/deploy-image.sh
+
+  # VM13 runs the development Web and API from the same tested digest; the API
+  # reaches the cn-dev development database only through the on-host SSH tunnel.
+  deploy_vm13_preview:
+    needs: [publish, deploy_development]
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref_name == 'develop' &&
+          needs.publish.outputs.image_ref != '' &&
+          needs.deploy_development.outputs.deployed == 'true' &&
+          vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
+    concurrency:
+      group: eventgraph-vm13-preview
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: development
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      deployed: ${{ steps.current.outputs.deploy }}
+      release: ${{ needs.publish.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.source_sha }}
+          persist-credentials: false
+      - name: Skip superseded release
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
+        shell: bash
+        run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Deploy VM13 Web and API on the cn-dev development database
         if: steps.current.outputs.deploy == 'true'
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
@@ -493,7 +553,8 @@ jobs:
           version: '1.8.2'
           script_path: scripts/ci/deploy-vm13-preview.sh
 
-  # Browser process and Playwright remain on cn-dev; the target is VM13.
+  # Acceptance runs on cn-dev: API digest/backend/admin/write checks in
+  # scripts/ci/smoke-vm13.sh plus the Chromium page checks; never on VM13 itself.
   e2e_vm13_preview:
     needs: deploy_vm13_preview
     if: ${{ needs.deploy_vm13_preview.outputs.deployed == 'true' &&
@@ -511,12 +572,13 @@ jobs:
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
           EVENTGRAPH_PREVIEW_URL: http://43.133.185.154
+          EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.deploy_vm13_preview.outputs.release }}
         with:
           host: ${{ vars.EVENTGRAPH_DEV_HOST }}
           username: ${{ vars.EVENTGRAPH_DEV_USER }}
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
-          envs: EVENTGRAPH_PREVIEW_URL
+          envs: EVENTGRAPH_PREVIEW_URL,EVENTGRAPH_PREVIEW_RELEASE
           command_timeout: 8m
           version: '1.8.2'
-          script_path: scripts/ci/smoke-vm13-browser.sh
+          script_path: scripts/ci/smoke-vm13.sh
