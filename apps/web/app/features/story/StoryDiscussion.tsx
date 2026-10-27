@@ -2,9 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useUiLanguage, useText } from "../../components/LanguageSwitch";
 import { discussionTermFor } from "../../lib/discussions";
+import { SITE } from "@aihot/site";
 
 const CATEGORY = import.meta.env.VITE_GISCUS_CATEGORY_ID?.trim() ?? "";
-const REPO_ID = "R_kgDOVHEeYA"; // Verified public GitHub repository node ID.
+const { repo: DISCUSSION_REPO, repoId: REPO_ID } = SITE.discussions;
 
 function Embed({ term, lang }: { term: string; lang: "en" | "zh-CN" }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -15,7 +16,7 @@ function Embed({ term, lang }: { term: string; lang: "en" | "zh-CN" }) {
     script.src = "https://giscus.app/client.js";
     script.async = true;
     script.crossOrigin = "anonymous";
-    script.dataset.repo = "jboone1989/EventGraph";
+    script.dataset.repo = DISCUSSION_REPO;
     script.dataset.repoId = REPO_ID;
     script.dataset.categoryId = CATEGORY;
     script.dataset.mapping = "specific";
@@ -39,7 +40,7 @@ export function StoryDiscussion({ storyPublicId }: { storyPublicId: string | nul
   const language = useUiLanguage();
   const term = discussionTermFor(storyPublicId);
   // Do not display a dead comments UI until GitHub Discussion category is configured.
-  if (!term || !CATEGORY) return null;
+  if (!term || !CATEGORY || !DISCUSSION_REPO || !REPO_ID) return null;
   return <section className="mt-7 min-w-0 rounded-panel border border-line-soft p-4" aria-label={t("事件讨论", "Event discussion")}>
     <h2 className="text-[16px] font-semibold text-ink">{t("事件讨论", "Event discussion")}</h2>
     <p className="mt-1 text-[12px] leading-relaxed text-ink-4">
@@ -51,7 +52,7 @@ export function StoryDiscussion({ storyPublicId }: { storyPublicId: string | nul
       {t("加载讨论", "Load discussion")}
     </button>}
     {expanded && <div className="mt-4"><Embed term={term} lang={language === "en" ? "en" : "zh-CN"} /></div>}
-    <a href="https://github.com/jboone1989/EventGraph/discussions" target="_blank" rel="noopener noreferrer"
+    <a href={`https://github.com/${DISCUSSION_REPO}/discussions`} target="_blank" rel="noopener noreferrer"
       className="mt-3 inline-block text-[12px] text-accent hover:underline">
       {t("在 GitHub 打开讨论", "Open GitHub Discussions")}
     </a>
