@@ -113,3 +113,18 @@ test("bounded vacuum settings apply without rewriting data or waiting for ordina
   assert.deepEqual([...after.reloptions].sort(), ["autovacuum_vacuum_insert_scale_factor=0.02", "autovacuum_vacuum_scale_factor=0.02"]);
   assert.deepEqual((await db`SELECT id FROM migration_vacuum ORDER BY id`).map((row) => row.id), [1, 2]);
 });
+
+// The two development CD jobs (VM13 Web/API and the cn-dev worker) run setup on
+// the same database concurrently; the advisory lock must serialize them so both
+// succeed and the shared migration is applied exactly once.
+test("concurrent runMigrations calls serialize instead of double-applying a migration", async () => {
+  const root = fixture({
+    "database/migrations/9009_concurrent.sql": "CREATE TABLE IF NOT EXISTS migration_concurrent (id int)",
+  });
+  await db`DROP TABLE IF EXISTS migration_concurrent`;
+  await db`DELETE FROM schema_migrations WHERE name = '9009_concurrent.sql'`;
+  const results = await Promise.all([runMigrations(db, root), runMigrations(other, root)]);
+  assert.equal(results[0] + results[1], 1);
+  assert.equal((await db`SELECT to_regclass('migration_concurrent') AS name`)[0].name, "migration_concurrent");
+  assert.equal(Number((await db`SELECT count(*) AS n FROM schema_migrations WHERE name = '9009_concurrent.sql'`)[0].n), 1);
+});

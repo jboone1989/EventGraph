@@ -5,7 +5,7 @@ with PostgreSQL, Neo4j, API, worker, collection, and public website unchanged.
 
 | Role | Host |
 | --- | --- |
-| Isolated development PostgreSQL/Neo4j, worker, collection, knowledge stack, public 80/8080 Web ingress, Playwright Chromium | cn-dev (43.142.127.40) |
+| Isolated development PostgreSQL/Neo4j, worker, collection, knowledge stack, Playwright Chromium (no public Web ingress) | cn-dev (43.142.127.40) |
 | Development Web + API preview from the tested GHCR digest | VM13 (43.133.185.154) |
 | Production | VM09 (untouched) |
 
@@ -30,11 +30,18 @@ on either host, and no new cloud security-group rule is used.
 
 1. `check` + `e2e` + published-digest Compose smoke gate `publish`, which builds
    one immutable GHCR digest (`ghcr.io/jboone1989/eventgraph-app@sha256:…`).
-2. `deploy_development` SSHes to cn-dev and runs `scripts/ci/deploy-image.sh`:
-   pulls the digest, asserts its `org.opencontainers.image.revision` label,
-   stages `docker-compose.dev-db.yml` from the exact release SHA, applies the
-   loopback DB binding, then recreates only `api`/`worker`/`web` with digest
-   and health assertions and rollback to the last good image.
+2. `deploy_dev_worker` (independent of the VM13 job below; neither gates the
+   other) ships the digest to cn-dev **without cn-dev contacting GHCR**:
+   `scripts/ci/export-image-vm13.sh` runs on VM13, pulls the digest there and
+   streams it over the pre-authorized VM13→cn-dev SSH path as a
+   content-addressed local tag (`docker save | docker load` cannot carry
+   registry digest references); then `scripts/ci/deploy-image.sh` runs on
+   cn-dev, asserts the local tag's image ID and
+   `org.opencontainers.image.revision` label, stages
+   `docker-compose.dev-db.yml` from the exact release SHA, applies the loopback
+   DB binding, and recreates only `worker` with digest and heartbeat
+   assertions plus rollback to the last good local image. No Web/API containers
+   are created on cn-dev.
 3. `deploy_vm13_preview` SSHes to VM13 and runs
    `scripts/ci/deploy-vm13-preview.sh`: stages the Compose file from the SHA,
    asserts the image label, refreshes the SSH tunnel unit, recreates
