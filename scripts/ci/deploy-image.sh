@@ -69,7 +69,8 @@ unset GHCR_TOKEN
 if docker image inspect "$EVENTGRAPH_IMAGE" >/dev/null 2>&1; then
   echo "Immutable image already cached locally; no registry transfer needed"
 else
-  docker pull "$EVENTGRAPH_IMAGE"
+  # Allow slow registry downloads to finish without an SSH runner cancelling the release.
+  timeout --signal=TERM --kill-after=10s 48m docker pull "$EVENTGRAPH_IMAGE"
 fi
 revision="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$EVENTGRAPH_IMAGE")"
 [ "$revision" = "$EVENTGRAPH_RELEASE_SHA" ] \

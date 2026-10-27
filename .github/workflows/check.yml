@@ -459,7 +459,7 @@ jobs:
       group: eventgraph-dev-rollout
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     environment: development
     permissions:
       contents: read
@@ -496,7 +496,7 @@ jobs:
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
           envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
-          command_timeout: 13m
+          command_timeout: 55m
           version: '1.8.2'
           script_path: scripts/ci/deploy-image.sh
 
