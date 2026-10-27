@@ -48,6 +48,7 @@ function Followups({items, more, story}: {items: StoryFollowup[]; more: boolean;
   const t = useText();
   const language = useUiLanguage();
   const en = language === "en";
+  const storyPath = en ? englishPath(`/story/${story.publicId}`) ?? `/story/${story.publicId}` : `/story/${story.publicId}`;
   // English omits the follow-ups whose titles have no English, as the report pages do.
   const shown = en ? items.map((d) => ({ d, title: englishText(d.representative.title) })).filter((x): x is { d: StoryFollowup; title: string } => !!x.title) : items.map((d) => ({ d, title: d.representative.title }));
   if (en && shown.length === 0) return null;
@@ -57,7 +58,7 @@ function Followups({items, more, story}: {items: StoryFollowup[]; more: boolean;
         <h2 className="text-[14px] font-semibold text-ink">
           {t("事件后续", "Follow-ups")} <span className="num font-normal text-ink-4">· {shown.length}{more ? "+" : ""}</span>
         </h2>
-        <MoreLink to={`/story/${story.publicId}`}>{t("查看事件全部", "See all")}</MoreLink>
+        <MoreLink to={storyPath}>{t("查看事件全部", "See all")}</MoreLink>
       </div>
       <ul className="divide-y divide-line-soft">
         {shown.map(({ d, title }) => (
