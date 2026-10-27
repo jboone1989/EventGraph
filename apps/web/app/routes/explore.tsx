@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLoaderData, useSearchParams } from "react-router";
 import type { Route } from "./+types/explore";
-import type { ExploreGalleryResponse, HotResponse, StoryDetail, StoryRoute } from "@aihot/contracts/site";
+import type { ExploreGalleryResponse, HotResponse, StoryDetail, StoryRoute, CaseStudyResponse } from "@aihot/contracts/site";
 import type { StoryMarket } from "../features/story/EventPrices";
 import { SITE } from "@aihot/site";
 import { apiGet, cachedPage, loadOr404 } from "../lib/api.server";
@@ -14,6 +14,7 @@ import { EmptyState } from "../components/ui/Page";
 import { IconArrowRight, IconSearch } from "../components/icons";
 import { useText, useUiLanguage } from "../components/LanguageSwitch";
 import { EventExplorer } from "../features/story/EventExplorer";
+import { CaseTracks } from "../features/story/CaseTracks";
 import { explorerTimeState, type ExplorerTimeState } from "../features/story/explore-state";
 import { KnowledgeAtlas } from "../components/KnowledgeAtlas";
 import type { AtlasNode } from "../lib/knowledge-atlas";
@@ -27,6 +28,12 @@ export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
+  // The evolution experiment's case mode: read-only curated tracks, off the index like story mode.
+  const caseId = url.searchParams.get("case")?.trim().slice(0, 100) || null;
+  if (caseId) {
+    const caseStudy = await loadOr404<CaseStudyResponse>(`/api/site/case-studies/${encodeURIComponent(caseId)}`, { signal: request.signal });
+    return cachedPage(30, { story: null, hot: null, gallery: null, route: null, market: null, caseStudy });
+  }
   const storyId = url.searchParams.get("story")?.trim().slice(0, 100) || null;
   if (storyId) {
     const prefix = url.pathname.startsWith("/en") ? "/en" : "";
@@ -36,24 +43,27 @@ export async function loader({ request }: Route.LoaderArgs) {
       apiGet<StoryRoute>("/api/site/stories/" + encodeURIComponent(story.publicId) + "/route", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null),
       apiGet<StoryMarket>("/api/market/stories/" + encodeURIComponent(story.publicId), { signal: request.signal, timeoutMs: 1_500 }).catch(() => null),
     ]);
-    return cachedPage(30, { story, hot: null, gallery: null, route, market });
+    return cachedPage(30, { story, hot: null, gallery: null, route, market, caseStudy: null });
   }
   const [hot, gallery] = await Promise.all([
     apiGet<HotResponse>("/api/site/hot", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null),
     apiGet<ExploreGalleryResponse>("/api/site/explore/gallery", { signal: request.signal, timeoutMs: 4_000 }).catch(() => null),
   ]);
-  return cachedPage(60, { story: null, hot, gallery, route: null, market: null });
+  return cachedPage(60, { story: null, hot, gallery, route: null, market: null, caseStudy: null });
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
   const story = loaderData?.story;
+  const caseStudy = loaderData?.caseStudy;
   return localized(pageMeta({
-    title: story ? `${story.title} · 探索工作台` : "探索工作台",
+    title: caseStudy ? `${caseStudy.title} · 跨事件阅读实验`
+      : story ? `${story.title} · 探索工作台` : "探索工作台",
     description: `在 ${SITE.name} 的事件探索工作台里回到任意时点，联动查看当时的报道、实体关系与可核查的证据来源。`,
     path: location.pathname,
-    noindex: !!story,
+    noindex: !!story || !!caseStudy,
   }), location.pathname, {
-    title: story ? `${story.title} · Event explorer` : "Event explorer",
+    title: caseStudy ? `${caseStudy.titleEn} · Cross-event reading experiment`
+      : story ? `${story.title} · Event explorer` : "Event explorer",
     description: "Replay a public event's reports, relations and evidence at any point in time, from the same records the site publishes.",
   });
 }
@@ -129,7 +139,7 @@ function EntityTimeBar({ clock, asOf, onTime }: {
 }
 
 export default function ExplorePage() {
-  const { story, hot, gallery, route, market } = useLoaderData<typeof loader>();
+  const { story, hot, gallery, route, market, caseStudy } = useLoaderData<typeof loader>();
   const t = useText();
   const lang = useUiLanguage();
   const prefix = lang === "en" ? "/en" : "";
@@ -163,6 +173,10 @@ export default function ExplorePage() {
     if (next.asOf) url.searchParams.set("asOf", next.asOf); else url.searchParams.delete("asOf");
     window.history.replaceState(null, "", url);
   }, []);
+  if (caseStudy) return <div className="pb-8">
+    <PhoneBar title={t("跨事件阅读实验", "Cross-event reading experiment")} />
+    <CaseTracks data={caseStudy} />
+  </div>;
   if (entityParam && !story) {
     const time = entityTime.asOf && Number.isFinite(Date.parse(entityTime.asOf))
       ? { asOf: entityTime.asOf, clock: entityTime.clock } : null;
