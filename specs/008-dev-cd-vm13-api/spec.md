@@ -6,13 +6,13 @@
 ## User-visible behavior
 
 1. `develop` pushes that pass `check` + `e2e` publish one immutable GHCR digest (unchanged), then in one pipeline:
-   - `deploy_development` (restored job) updates the cn-dev development app (api/worker/web) against the cn-dev development database; cn-dev's public 80/8080 Web ingress, database container, knowledge stack and data volumes are untouched.
-   - Every development rollout runs the existing idempotent `setup` (migrations + missing sources from `industry/sources.json`); production `deploy-prod.sh` does the same on **every** release, not only when schema changes. Existing source edits are not overwritten.
+   - There is **no cn-dev image-deployment gate**. cn-dev hosts the worker/ingest/models and private databases, but no Web/API or public development Web ingress. cn-dev's unreliable GHCR pull must never delay VM13.
+   - After VM13 pulls the immutable digest and opens its private tunnel to cn-dev PostgreSQL, it runs idempotent `migrate.ts` + `seed.ts` **inside the pinned VM13 image** before restarting Web/API. The seed inserts only missing sources; operator changes survive. Production `deploy-prod.sh` runs setup independently.
    - `deploy_vm13_preview` deploys **api + web** containers from that digest to VM13; Web reaches only `http://api:3001` locally; the read-only Caddy forwarder is removed.
    - `e2e_vm13_preview` runs on cn-dev and accepts the deployment.
 2. VM13's API connects to the cn-dev development PostgreSQL through an SSH tunnel from VM13 to cn-dev using the pre-existing, pre-authorized VM13 host key; the database is published only on cn-dev host loopback (`docker-compose.dev-db.yml`) and the tunnel port only on VM13 loopback plus the Docker bridge gateway. No database port is exposed to the internet on either host; no new security-group rule is used.
 3. Acceptance (smoke on cn-dev) proves, without ever contacting production:
-   - `/api/health` on VM13 reports `ok`, `db: ok` and `release` equal to the deployed source SHA; the deploy scripts additionally verified the pulled image's `org.opencontainers.image.revision` label and that the running containers use exactly the published digest (both hosts).
+   - `/api/health` on VM13 reports `ok`, `db: ok` and `release` equal to the deployed source SHA; deployment verifies image revision label and both VM13 containers' exact published digest. **Do not expect cn-dev's Worker to share this SHA until independent Worker-only delivery is implemented.**
    - A real admin password login (`/api/auth/password`) yields a session; `/api/admin/me` returns the CSRF principal.
    - A non-destructive write (`POST /api/admin/notes`) through the VM13 API is read back through the API **and** directly from the cn-dev development database, then the previous note state is restored.
    - The browser pages checks (zh/en, desktop/mobile, no console errors, no overflow) still pass.
@@ -20,13 +20,13 @@
 
 ## Out of scope
 
-- VM09 production, its secrets and data; the promotion flow; new ports in the cloud security group; new SSH keys or forwarders; moving the worker or the knowledge stack off cn-dev; changes to cn-dev's public 80/8080 ingress.
+- VM09 production, its secrets and data; the promotion flow; new cloud security-group ports; moving the worker or knowledge stack off cn-dev; automatically updating cn-dev Worker (a separate delivery path is needed, with no direct cn-dev GHCR pull).
 
 ## Activation and English report acceptance (2026-10-26 approved scope)
 
-- Both deploy paths insert missing `sourceLifecycle.discovery={enabled:true,maxGaps:6,maxCandidates:8}` and `sourceLifecycle.autoPromote={enabled:true}` through the existing seed; operator edits after activation are not overwritten on later releases. The existing `cron.sources.discover` runs daily only when collection is enabled; DeepSeek credentials and request budget must be present for actual searches.
+- VM13 development setup and the separate production release each insert missing `sourceLifecycle.discovery={enabled:true,maxGaps:6,maxCandidates:8}` and `sourceLifecycle.autoPromote={enabled:true}` through the existing seed; operator edits are not overwritten. The existing `cron.sources.discover` runs daily only when collection is enabled; DeepSeek credentials and request budget must be present for actual searches.
 - The English report latest-page requests an English-aware index and carries `titleEn` into the left archive menu. Prefer the source's original English title to a model-translated title, falling back to saved English copy for Chinese-language originals; do not translate on page view.
-- The published image smoke test verifies that both activation keys are enabled in a fresh database. Real cn-dev and VM13 acceptance must independently check the running release SHA and data read/write, and production acceptance follows promotion separately.
+- Published-image smoke verifies both activation keys in a fresh DB. VM13 acceptance checks its release SHA, real development DB read/write and browser pages; cn-dev Worker version and active discovery credentials/budgets are tracked independently, never assumed from VM13 Web success. Production acceptance follows its own promotion.
 
 ## Acceptance criteria
 
@@ -35,7 +35,11 @@
 | AC-1 | VM13 runs `api` + `web` from the pinned digest; no `api-forward` container | `docker ps` on VM13; `scripts/ci/deploy-vm13-preview.sh` |
 | AC-2 | VM13 Web calls only the local API | `docker-compose.vm13-preview.yml` (`API_BASE_URL: http://api:3001`) |
 | AC-3 | VM13 API reaches the cn-dev dev DB only via the SSH tunnel (loopback/bridge bindings, no public DB port) | `docker-compose.dev-db.yml` + `eventgraph-dev-db-tunnel.service` written by the deploy script; `ss -ltn` on both hosts |
-| AC-4 | cn-dev worker/api/web auto-update on develop publish from the exact SHA | restored `deploy_development` job + `scripts/ci/deploy-image.sh` |
+| AC-4 | VM13 runs the published digest's migration and additive source seed over the private tunnel before Web/API recreation; cn-dev is not asked to pull GHCR or run Web/API | `scripts/ci/deploy-vm13-preview.sh` + VM13 development DB source counts |
 | AC-5 | Smoke asserts SHA, health, admin login, write/readback+restore, knowledge disabled, browser pages | `scripts/ci/smoke-vm13.sh` run on cn-dev |
 | AC-6 | Production never contacted by dev CD/smoke | URL whitelist in smoke; no production host in compose/scripts |
 | AC-7 | Rollback restores the previous VM13 services on failure | deploy script `restore()` |
+
+## 2026-10-27 superseding operator decision
+
+VM13 alone runs the development Web/API, while cn-dev remains the private database and Worker host. The former cn-dev `deploy_development` dependency contradicted this design and made VM13 CD dependent on unreliable image pulls. This revision supersedes AC-4 and the former dual-host application deployment; source seeding migrates to VM13 over the private database tunnel. Worker-only delivery remains a separate acceptance item, not silently treated as successful when only VM13 updated.
