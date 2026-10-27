@@ -303,7 +303,7 @@ export async function rerun(id: string, step: "extract" | "analyze" | "group", r
       SELECT after FROM audit_log WHERE subject = ${`content:${id}`} AND action = ${`content.rerun.${step}`}
         AND actor = ${actor} AND request_id = ${requestId} ORDER BY id DESC LIMIT 1`;
     if (prior) return { jobId: prior.after.jobId };
-    if (a.discovered_at.getTime() < Date.now() - 24 * 60 * 60 * 1000) {
+    if (Math.max(a.discovered_at.getTime(), a.updated_at.getTime()) < Date.now() - 24 * 60 * 60 * 1000) {
       throw Object.assign(new Error("新闻超过 24 小时，不再重新处理"), { statusCode: 409 });
     }
     let jobId: string | null;
