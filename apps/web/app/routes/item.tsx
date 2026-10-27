@@ -1,3 +1,4 @@
+import { StoryDiscussion } from "../features/story/StoryDiscussion";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Await, isRouteErrorResponse, Link, useAsyncError, useLoaderData, useNavigate, useRevalidator, type ClientLoaderFunctionArgs } from "react-router";
 import type { Route } from "./+types/item";
@@ -653,6 +654,10 @@ function ItemView({ item }: { item: SiteItemDetail }) {
 
           {item.story && item.storyContext && item.storyContext.reportCount > 1 && (
             <EventContext story={item.story} context={item.storyContext} currentId={item.id} en={en} />
+          )}
+
+          {item.story && item.storyContext && item.storyContext.reportCount > 1 && (
+            <StoryDiscussion storyPublicId={item.story.publicId} />
           )}
 
           {item.sameEvent && !en && (
