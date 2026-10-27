@@ -237,14 +237,25 @@ const COMPANY_NAMES = Object.values(ENTITIES).map((e) => [e.name, ...e.aliases, 
 /** Words a writer may use that name nothing in particular: the pack's plain terms and the site's name. */
 const PLAIN = new Set([...PLAIN_TERMS, SITE.name.toLowerCase()]);
 
+/** `digits` shifted `places` decimal positions left: 104→1040 (B→亿), 1→100 (M→万), 0.5→5. */
+const scaled = (digits: string, places: number): string => {
+  const [whole, frac = ""] = digits.split(".");
+  const all = whole + frac;
+  const at = all.length - frac.length + places;
+  return (at >= all.length ? all + "0".repeat(at - all.length) : `${all.slice(0, at)}.${all.slice(at)}`).replace(/^0+(?=\d)/, "");
+};
+
 /**
  * Whether written text names only what the listed items name: every capitalised or numbered Latin token
  * (Acme, Nova-2.5, X1), every figure of three or more digits or with a decimal point or percent (845,
  * 129.3, 40%) and every company of the vocabulary appears in the items' own words; a company may be named
- * in either language (谷歌 for Google).
+ * in either language (谷歌 for Google). A magnitude the items write Latin (104B, 1M) counts as named in
+ * the Chinese style the brief asks for (1040亿, 100万) — only that exact conversion of the corpus's own
+ * number, never a different one (2026-10-26 dev: the day's only completed overview was discarded over 104B).
  */
 export function grounded(text: string, corpus: string): boolean {
-  const known = corpus.toLowerCase();
+  const known = corpus.toLowerCase().replace(/(\d+(?:\.\d+)?)\s*([bm])(?![a-z])/g, (m, digits: string, unit: string) =>
+    `${m} ${scaled(digits, unit === "b" ? 1 : 2)}`);
   const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
   const named = (word: string) => PLAIN.has(word) || known.includes(word) || companies.some((names) => names.includes(word));
   const words = (text.match(/[A-Za-z][A-Za-z0-9.+-]*/g) ?? []).map((w) => w.replace(/[.+-]+$/, "")).filter((w) => /[A-Z0-9]/.test(w));
