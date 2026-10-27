@@ -77,11 +77,11 @@ For non-trivial feature work, use the upstream [GitHub Spec Kit](https://github.
 
 ## Selected engineering skills (2026-10-27)
 
-Use the five locally installed skills from `.agents/skills/` (Pi/Codex) or `.claude/skills/` (Claude Code), selected by task rather than loaded all at once:
+Owner approved five skills in total. **This PR installs only `constraint-driven-development` and `source-driven-development`.** The remaining three (`context-engineering`, `debugging-and-error-recovery`, `code-simplification`) are pending companion PR #185. Once both PRs merge, use the five task-selectively from `.agents/skills/` (Pi/Codex) or `.claude/skills/` (Claude Code), not all at once:
 - `source-driven-development`: part of mandatory **Research First**; inspect current EventGraph code, AIHOT upstream and applicable official docs BEFORE choosing an implementation.
 - `constraint-driven-development`: read `.agents/CONSTRAINTS.md` as the current project quality contract. Do not weaken tests, checks, assertions or thresholds to pass a PR.
-- `context-engineering`: read the pinned Spec, task evidence, latest remote Git state and deployment receipts before resuming; persist concise handoff notes in the existing Issue/PR/task record instead of chat-only memory.
-- `debugging-and-error-recovery`: reproduce and isolate a real failure, fix root cause, then rerun the affected verification; do not retry an unchanged broken job or silently skip it.
-- `code-simplification`: prefer deleting unjustified wrappers, compatibility layers, flags and dead code within approved scope; preserve user-visible behavior and avoid unrelated refactors.
+- `context-engineering` (**pending PR #185**): read the pinned Spec, task evidence, latest remote Git state and deployment receipts before resuming; persist concise handoff notes in the existing Issue/PR/task record instead of chat-only memory.
+- `debugging-and-error-recovery` (**pending PR #185**): reproduce and isolate a real failure, fix root cause, then rerun the affected verification; do not retry an unchanged broken job or silently skip it.
+- `code-simplification` (**pending PR #185**): prefer deleting unjustified wrappers, compatibility layers, flags and dead code within approved scope; preserve user-visible behavior and avoid unrelated refactors.
 
 Keep the existing GitHub Spec Kit, approved-Spec PR gate, Check/E2E/Docker workflows and central Claude R01–R18 review as the ONLY governing pipeline. These skills supplement them; they do NOT authorize a second pipeline, a new queue, new infrastructure, coverage thresholds without baseline evidence, or extra approval requests for work already within an approved Spec. On small bug fixes, apply relevant skills without mechanical ceremony; on major requirement changes, obtain the usual Spec approval. Skill provenance and synchronization: `docs/agent-skills-adoption.md`.
