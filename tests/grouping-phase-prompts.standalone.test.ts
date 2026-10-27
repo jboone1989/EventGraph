@@ -15,7 +15,9 @@ test("same announced cohort in several outlets is one occurrence, regardless of 
 });
 
 test("later additions change the story, not the identity of an earlier occurrence", () => {
-  assert.match(definitions, /9 增至 16、再到 22/);
+  assert.match(definitions, /新一轮正式公告、独立提交批次或新增参与者名单/);
+  assert.match(definitions, /不能仅因数字增加就判定 SAME_STORY/);
+  assert.doesNotMatch(definitions, /9 增至 16、再到 22/);
   assert.match(definitions, /SAME_STORY/);
   assert.match(definitions, /当事方随后公开回应/);
 });
