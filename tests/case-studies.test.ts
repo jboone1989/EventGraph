@@ -149,6 +149,10 @@ test('the site API serves the curated case list and 404s unknown ids', { timeout
     assert.ok(Array.isArray(body.tracks));
     const missing = await app.inject({ method: 'GET', url: '/api/site/case-studies/no-such-case' });
     assert.equal(missing.statusCode, 404);
+    for (const reserved of ['constructor', 'toString', '__proto__']) {
+      const forged = await app.inject({ method: 'GET', url: '/api/site/case-studies/' + reserved });
+      assert.equal(forged.statusCode, 404, `inherited key ${reserved} is not a case`);
+    }
   } finally {
     app.server.closeAllConnections();
     await app.close();

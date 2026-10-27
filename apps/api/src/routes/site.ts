@@ -176,7 +176,8 @@ export function registerSite(app: FastifyInstance) {
 
   app.get("/api/site/case-studies/:id", siteHandler(async (req, reply) => {
     // The case list is curated config; the answer itself is rebuilt from today's public evidence.
-    const def = CASE_STUDIES[(req.params as { id: string }).id];
+    const id = (req.params as { id: string }).id;
+    const def = Object.hasOwn(CASE_STUDIES, id) ? CASE_STUDIES[id] : undefined;
     if (!def) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "case study not found", cacheControl: "public, max-age=60" });
     const data = await publicCaseStudy(def);
     return sendJsonWithEtag(req, reply, data, { etagPrefix: "case-study", cacheControl: "public, max-age=60, s-maxage=60" });
