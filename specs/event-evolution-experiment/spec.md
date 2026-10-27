@@ -62,7 +62,7 @@
 | 要求 | 落点 |
 | --- | --- |
 | FR-01 轨道复用公开 StoryRoute，撤稿即消失 | `packages/backend/src/publication/case-studies.ts`（每轨道重读 `publicStoryRoute`）；页面轨道头链到 `/explore?story=`，证据链原文 |
-| FR-02 时间口径 | 轨道站点直接携带 StoryRoute 的 `timeEffective`/`timeRecorded`，页面文案区分“事实发生于 / 收录”，未给出即明标 |
+| FR-02 时间口径 | 轨道站点直接携带 StoryRoute 的 `timeEffective`/`timeRecorded`，页面文案区分“事实发生于 / 收录”，站点按 timeRecorded（本站收录时刻）排列；原文发布时间独立显示、不作为排序依据，未知时间明标 |
 | FR-03/FR-04 联系人工标注、无证据不画线 | `site/case-studies.ts`（类型/方向/出处/署名/策展时间）；后端丢弃端点失去公开证据的联系；Keystone 负例保留在“同期但未画线” |
 | FR-05 复用出版读层，无新表/无页面 LLM | 后端仅经 `publication/` 组装；API `/api/site/case-studies/:id`；无新依赖 |
 | FR-06 双语、桌面/390px | `apps/web/app/features/story/CaseTracks.tsx`，中英文案、时区与站内既有口径一致 |
