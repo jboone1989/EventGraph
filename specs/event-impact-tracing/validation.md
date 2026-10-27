@@ -29,7 +29,7 @@ T06 要求：真实地缘冲突/航道事件的事实→政策→供应链→企
 | 9 | 双语 + 390px/桌面真实浏览器验收 | 不适用（本 PR 零代码） | EN 桌面+390px e2e 已在 develop；zh 变体留待 P1 实现 PR（草案 Spec 不实施代码） |
 | 10 | 许可合规 | PASS | audit §8 许可列；信源 RSS-only、`site_fulltext=false`（`tests/event-impact-sources.standalone.test.ts` 锁定） |
 
-## 复验记录（2026-10-27 15:0x–15:4x UTC，任意审查者可重复）
+## 复验记录（2026-10-27 07:0x–07:2x UTC，任意审查者可重复；时刻勘误见 audit §1 注）
 
 1. **DB 只读复读**（cn-dev `aihot-db-1`）：fact `fIEpWumpna_g`（v1、occurred_at 10-22T16:00Z）、story `3d1ae73d`、T0 article（published 10-23T22:36:43Z / discovered 10-25T01:08:06Z）、BTC 10-22T15:30:25Z=81520.01→16:00:30Z=81735.8 全部与 audit 一致；规模 843/887/15,307（采样后仍入库）。积压演变：`y57npa0d5tth02lmmjpbgllwe` 已 verdict=roundup；`vmci434govoca8sm6wpndfw06` 仍无决定。
 2. **一手 PDF 全文提取**：update-108（5,407,596 B、10 页）、warning 183-26（287,401 B、1 页）、015-26（875,588 B、4 页）均下载并 `pdftotext` 提取，audit §4.2/§5.1 所引数字为文件原文。
@@ -49,6 +49,6 @@ T06 要求：真实地缘冲突/航道事件的事实→政策→供应链→企
 
 ## 复核指引（任意独立审查者）
 
-1. `git log origin/develop..HEAD`：仅 1 个提交（rebase 后基线 `95ab1ce`，纯文档不碰 #177 的 spec-gate 文件；采样时基线为 `80088dc`，见 audit §1）、上述 3 个文件。
+1. `git log origin/develop..HEAD`：功能提交 1 个 + 时刻勘误提交 1 个（修正下午段本地时刻误标 UTC，见 audit §1 注；采样时基线为 `80088dc`，见 audit §1）、上述 3 个文件。
 2. audit §1 SQL 断言可用同连接复读（cn-dev 只读）；§4–§6 每条外部 URL 直接打开核对时间戳；三份 PDF 链接可直接下载后 `pdftotext` 对数。
 3. 本 PR 不改任何代码路径，`npm run typecheck` / `npm test` / web 测试与 `origin/develop` 基线一致性由 CI 证明（docs-only diff 不会影响）。
