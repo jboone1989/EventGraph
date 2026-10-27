@@ -29,7 +29,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const [billed, setBilled] = useState("false");
   const [delivery, setDelivery] = useState<AdminDeliveryIssue | null>(null);
   const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
-  // Failure group to put back into processing ("" = every failure of the last 30 days).
+  // Failure group to put back into processing ("" = failures within the last 24 hours).
   const [requeue, setRequeue] = useState<string | null>(null);
   const [requeueLimit, setRequeueLimit] = useState("5");
 
@@ -204,7 +204,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           />
         </Card>
         <Card
-          title="处理失败（30 天，按错误归类）"
+          title="处理失败（最近 24 小时，按错误归类）"
           right={
             <span className="flex items-center gap-3">
               {r.retrying.count > 0 && <span>等待重试 {num(r.retrying.count)} 条 · 下一次 <Time at={r.retrying.next} /></span>}

@@ -22,6 +22,7 @@ export async function waitingSelectedNews(): Promise<WaitingNews[]> {
     FROM publications p JOIN articles a ON a.id = p.article_id LEFT JOIN receipts r ON r.id = a.grouping_receipt_id
     LEFT JOIN article_revisions revision ON revision.article_id = a.id AND revision.revision = a.revision
     WHERE p.selection_candidate AND p.eligible AND p.visibility = 'public' AND a.grouping_status <> 'complete'
+      AND greatest(a.discovered_at, a.updated_at) >= now() - interval '24 hours'
     ORDER BY since, p.article_id`;
   return rows.map(({ running, receipt_status, released, ...row }) => ({
     ...row,
