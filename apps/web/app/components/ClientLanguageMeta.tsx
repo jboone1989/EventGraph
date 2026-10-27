@@ -39,11 +39,16 @@ function section(path:string){
 const originalMeta=new Map<string,{title:string;description:string|null}>();
 export function ClientLanguageMeta(){
   const lang=useUiLanguage();
-  const {pathname}=useLocation();
+  const {pathname,search}=useLocation();
   const entered=useRef<string|null>(null);
   useEffect(()=>{
     // The English edition is rendered with its English title and description already.
     if(isEnglishPath(pathname))return;
+    // Story and case routes own their specific SSR titles; the index label must not replace them.
+    if(pathname==="/explore"){
+      const params=new URLSearchParams(search);
+      if(params.get("story")?.trim()||params.get("case")?.trim())return;
+    }
     const meta=document.querySelector<HTMLMetaElement>('meta[name="description"]');
     // Capture server values only once per page, before replacing them in EN.
     if(!originalMeta.has(pathname))originalMeta.set(pathname,{title:document.title,description:meta?.content??null});
@@ -59,6 +64,6 @@ export function ClientLanguageMeta(){
       if(meta&&original.description!==null)meta.content=original.description;
     }
     entered.current=pathname;
-  },[lang,pathname]);
+  },[lang,pathname,search]);
   return null;
 }

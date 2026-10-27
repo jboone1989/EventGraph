@@ -24,6 +24,11 @@ const api = createServer((req, res) => {
   if (url === '/api/site/hot') return res.end(JSON.stringify({ computedAt: null, windowHours: 48, entries: [] }));
   if (url === '/api/site/topics') return res.end(JSON.stringify({ groups: [], topics: [] }));
   if (url === '/api/research/articles') return res.end(JSON.stringify({ articles: [] }));
+  if (url === '/api/site/case-studies/t09-title-fixture') return res.end(JSON.stringify({
+    schemaVersion: 1, id: 't09-title-fixture', title: 'T09 fixture case', titleEn: 'T09 fixture case',
+    summary: 'Fixture summary', summaryEn: 'Fixture summary', updated: '2026-10-27',
+    generatedAt: '2026-10-27T00:00:00Z', tracks: [], links: [], unlinked: [],
+  }));
   res.statusCode = 404;
   res.end(JSON.stringify({ code: 'not_found' }));
 });
@@ -96,6 +101,9 @@ test('preference-switched browser titles keep each page its own, not the bare si
       await page.goto(`${web.origin}${path}`, { waitUntil: 'networkidle' });
       await titleBecomes(page, `${heading} · ${SITE.name}`, path);
     }
+    // A selected case has its own SSR title; the generic explorer index must not overwrite it.
+    await page.goto(`${web.origin}/explore?case=t09-title-fixture`, { waitUntil: 'networkidle' });
+    await titleBecomes(page, `T09 fixture case · 跨事件阅读实验 · ${SITE.name}`, '/explore?case=t09-title-fixture');
     // The research index uses the same English browser title as /en/research.
     await page.goto(`${web.origin}/research`, { waitUntil: 'networkidle' });
     await noChineseVisible(page, '/research');
