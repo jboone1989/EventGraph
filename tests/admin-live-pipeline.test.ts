@@ -21,10 +21,10 @@ test("live dashboard excludes old and backfilled articles", async () => {
   ] as const) {
     const id = `${source}-${suffix}`;
     await sql`INSERT INTO articles
-      (id,source_id,identity_key,url,title,discovered_at,timeline_at,
+      (id,source_id,identity_key,url,title,discovered_at,timeline_at,updated_at,
        backfill,processing_state,grouping_status,grouped_at)
       VALUES (${id},${source},${id},${"https://example.org/" + id},${suffix},
-        now() - ${age}::interval,now() - ${age}::interval,
+        now() - ${age}::interval,now() - ${age}::interval,now() - ${age}::interval,
         ${backfill},${state},${group},${group === "complete" ? new Date() : null})`;
   }
   const after = await livePipelineOverview();
