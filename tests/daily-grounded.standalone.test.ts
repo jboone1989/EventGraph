@@ -28,6 +28,17 @@ test("a unit the corpus never wrote is not whitelisted", () => {
   assert.equal(grounded("Stub 披露 5000万条记录。", "Stub 存储达到 500MB。"), false);
 });
 
+test("a number inside a larger or glued form is not a magnitude", () => {
+  assert.equal(grounded("Stub 融资 400亿美元。", "Stub raised $1,040B."), false); // only 040B would match, and it no longer does
+  assert.equal(grounded("Stub 出货 100万台。", "Stub 发布 X1M 手机。"), false); // a product name, not 1M
+  assert.equal(grounded("Stub 种树 500棵。", "The tree is 5m tall."), false); // lowercase m, meters
+  assert.equal(grounded("Stub 融资 10000万美元。", "Stub raised 100 M dollars."), false); // the M must be glued to its number
+});
+
+test("a real three-digit magnitude still converts", () => {
+  assert.equal(grounded("Stub 拥有 25600万用户。", "Stub has 256M users."), true);
+});
+
 test("decimals convert exactly", () => {
   assert.equal(grounded("Stub 融资 15亿美元。", "Stub raised $1.5B."), true);
   assert.equal(grounded("Stub 融资 5亿美元。", "Stub raised $0.5B."), true);
