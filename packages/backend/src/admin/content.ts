@@ -296,7 +296,7 @@ export async function rerun(id: string, step: "extract" | "analyze" | "group", r
   z.enum(["extract", "analyze", "group"]).parse(step);
   z.string().regex(/^[\w-]{8,80}$/, "a stable request id is required").parse(requestId);
   return sql.begin(async (tx) => {
-    const [a] = await tx<{ id: string; discovered_at: Date }[]>`SELECT id, discovered_at FROM articles WHERE id = ${id} FOR UPDATE`;
+    const [a] = await tx<{ id: string; discovered_at: Date; updated_at: Date }[]>`SELECT id, discovered_at, updated_at FROM articles WHERE id = ${id} FOR UPDATE`;
     if (!a) return null;
     // Queue singleton keys expire when a job completes. The committed command remains in the audit.
     const [prior] = await tx<{ after: { jobId: string | null } }[]>`
