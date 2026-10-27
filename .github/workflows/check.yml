@@ -82,6 +82,12 @@ jobs:
             export SPEC_HEAD_REPO="$(jq -r '.head.repo.full_name' <<< "$pr")"
             export SPEC_PR_BODY="$(jq -r '.body // ""' <<< "$pr")"
           fi
+          # GitHub's pull_request payload can carry an old base SHA after the
+          # branch has advanced. Always evaluate the exact current target branch.
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            SPEC_BASE_SHA="$(gh api "repos/$GITHUB_REPOSITORY/branches/$SPEC_BASE_REF" --jq '.commit.sha')"
+            export SPEC_BASE_SHA
+          fi
           # Use the previously merged gate, never the candidate PR's modified copy.
           if git cat-file -e "${SPEC_BASE_SHA}:scripts/ci/check-spec.mjs" 2>/dev/null; then
             git show "${SPEC_BASE_SHA}:scripts/ci/check-spec.mjs" > "$RUNNER_TEMP/check-spec.mjs"
