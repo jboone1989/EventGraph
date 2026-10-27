@@ -26,7 +26,7 @@ test("24h expiry clears stale queue/failed news but retains today's work and sto
   const oldJob = await queueProcessing(old);
   const freshJob = await queueProcessing(fresh);
   assert.ok(oldJob && freshJob);
-  await sql`UPDATE articles SET discovered_at = now() - interval '2 days'
+  await sql`UPDATE articles SET discovered_at = now() - interval '2 days', updated_at = now() - interval '2 days'
     WHERE id IN (${old}, ${oldFailed})`;
   await sql`UPDATE articles SET processing_state = 'failed', processing_attempts = 5,
     processing_retry_at = now() + interval '1 hour' WHERE id = ${oldFailed}`;
@@ -54,4 +54,30 @@ test("24h expiry clears stale queue/failed news but retains today's work and sto
   const sweep = await sweepUnprocessed();
   assert.equal(typeof sweep.enqueued, "number");
   assert.equal((await sql`SELECT count(*)::int n FROM pgboss.job WHERE data->>'articleId' = ${old}`)[0]!.n, 0);
+});
+
+test("a fresh revision of an old article retains a full processing window", async () => {
+  const id = (await upsertMaterial({
+    sourceId: source, url: `https://example.org/${unique}/revised`, title: "Initial title",
+    bodyText: "Original complete body", bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
+  })).articleId;
+  await sql`UPDATE articles SET discovered_at = now() - interval '2 days',
+    updated_at = now() - interval '2 days' WHERE id = ${id}`;
+  const revised = await upsertMaterial({
+    sourceId: source, url: `https://example.org/${unique}/revised`, title: "New report correction",
+    bodyText: "Updated body with material new facts", bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
+  });
+  assert.equal(revised.articleId, id);
+  assert.equal(revised.revised, true);
+  const [before] = await sql<{ discovered_at: Date; updated_at: Date; processing_state: string }[]>`
+    SELECT discovered_at, updated_at, processing_state FROM articles WHERE id = ${id}`;
+  assert.ok(before!.discovered_at.getTime() < Date.now() - 24 * 60 * 60 * 1000);
+  assert.ok(before!.updated_at.getTime() > Date.now() - 60 * 60 * 1000);
+  assert.equal(before!.processing_state, "new");
+  const queued = await queueProcessing(id);
+  assert.ok(queued, "a recent source revision must remain processable");
+  await expireStaleWork();
+  const [after] = await sql<{ processing_state: string }[]>`
+    SELECT processing_state FROM articles WHERE id = ${id}`;
+  assert.equal(after!.processing_state, "new");
 });
