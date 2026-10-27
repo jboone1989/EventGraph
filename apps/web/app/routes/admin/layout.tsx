@@ -25,22 +25,26 @@ export const meta: Route.MetaFunction = () => [{ title: `${SITE.name} 后台` },
 
 export const headers: Route.HeadersFunction = () => ({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Accel-Buffering": "no" });
 
-/** The admin navigation: the modules' own groups first, their content entries after 信源. */
+/** The operational overview is the starting point; all existing module routes remain. */
 const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
-  ...webModules().flatMap((m) => m.admin?.groups ?? []),
-  { group: "运营", items: [
+  { group: "运行", items: [
+      { to: "/admin", label: "运营总览" },
       { to: "/admin/runs", label: "运行与积压", count: "runs", tone: "bad" },
-      { to: "/admin/analytics", label: "流量与效果" },
     ] },
-  { group: "内容", items: [
+  ...webModules().flatMap((m) => m.admin?.groups ?? []),
+  { group: "采集与内容", items: [
       { to: "/admin/sources", label: "新闻信源", count: "sources", tone: "bad" },
+      { to: "/admin/candidates", label: "信源候选" },
       { to: "/admin/content", label: "内容诊断" },
       ...webModules().flatMap((m) => m.admin?.content ?? []),
     ] },
-  { group: "模型", items: [
-      { to: "/admin/models", label: "Provider 与工作流模型" },
+  { group: "模型服务", items: [
+      { to: "/admin/models", label: "Provider 与模型" },
     ] },
-  { group: "其他", items: [
+  { group: "效果", items: [
+      { to: "/admin/analytics", label: "流量与效果" },
+    ] },
+  { group: "系统设置", items: [
       { to: "/admin/feedback", label: "反馈", count: "feedback", tone: "accent" },
       { to: "/admin/settings", label: "设置" },
       { to: "/admin/audit", label: "审计记录" },
@@ -62,7 +66,7 @@ function NavCount({ counts, countsKey, name, className }: Counts & { name: strin
 
 function NavItem({ to, label, count, counts, countsKey, tone }: AdminNavEntry & Counts) {
   return (
-    <NavLink to={to} className="group relative block">
+    <NavLink to={to} end={to === "/admin"} className="group relative block">
       {({ isActive }) => (
         <span className={`relative flex items-center justify-between rounded-control px-3 py-[7px] text-[13.5px] transition-colors ${isActive ? "font-medium text-ink" : "text-ink-3 hover:text-ink"}`}>
           {isActive && <motion.span layoutId="admin-nav" className="absolute inset-0 rounded-control bg-surface shadow-sm ring-1 ring-line" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
@@ -80,16 +84,16 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
   const location = useLocation();
   const groups = nav();
   const flat = groups.flatMap((g) => g.items);
-  const primary = new Set(["/admin/runs", "/admin/models", "/admin/sources", "/admin/content", "/admin/analytics"]);
+  const primary = new Set(["/admin", "/admin/runs", "/admin/sources"]);
   const mobileMain = flat.filter(i => primary.has(i.to));
   const mobileMore = flat.filter(i => !primary.has(i.to));
   return (
     <div className="flex min-h-dvh bg-bg">
       <NavigationProgress active={navigation.state === "loading"} />
-      <aside className="sticky top-0 hidden h-dvh w-[216px] shrink-0 flex-col border-r border-line bg-bg-sunk/50 px-3 py-4 lg:flex">
+      <aside className="sticky top-0 hidden h-dvh w-[232px] shrink-0 flex-col border-r border-line bg-bg-sunk/60 px-3 py-4 lg:flex">
         <a href="/" className="mb-5 flex items-center gap-2 px-2">
           <RingMark className="size-6 text-accent" />
-          <span className="text-[15px] font-semibold tracking-tight text-ink">{`${SITE.name} 后台`}</span>
+          <span className="min-w-0"><span className="block text-[15px] font-semibold tracking-tight text-ink">{`${SITE.name} 后台`}</span><span className="block text-[11px] text-ink-4">无人值守 · 自动运行</span></span>
         </a>
         <nav className="scrollbar-thin flex-1 space-y-4 overflow-y-auto">
           {groups.map((g) => (
@@ -120,23 +124,25 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
             <span className="text-[14px] font-semibold text-ink">{`${SITE.name} 后台`}</span>
             {me.dev && <span className="rounded bg-amber/15 px-1.5 text-[11px] font-medium text-amber">开发</span>}
           </div>
-          <nav aria-label="后台主要操作" className="flex flex-wrap items-center gap-1 px-3 py-2">
-            {mobileMain.map((i) => {
-              const active = location.pathname === i.to || location.pathname.startsWith(`${i.to}/`);
-              return (
-                <NavLink key={i.to} to={i.to} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[13px] ${active ? "bg-ink text-bg" : "text-ink-3"}`}>
-                  {i.label}
-                  <NavCount counts={counts} countsKey={countsKey} name={i.count} className="num ml-1 text-[11px] opacity-70" />
-                </NavLink>
-              );
-            })}
-            <details className="group relative shrink-0">
-              <summary className="cursor-pointer list-none whitespace-nowrap rounded-full px-3 py-1 text-[13px] text-ink-3 hover:bg-surface">更多 <span aria-hidden="true">▾</span></summary>
-              <div className="absolute right-0 top-full z-50 mt-2 max-h-[65vh] w-48 overflow-y-auto rounded-panel border border-line bg-bg p-2 shadow-lg">
-                {mobileMore.map(i => <NavLink key={i.to} to={i.to} className="block rounded-control px-3 py-2 text-[13px] text-ink hover:bg-bg-sunk">{i.label}</NavLink>)}
+          <div className="flex items-start gap-1 px-3 py-2">
+            <nav aria-label="后台主要操作" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {mobileMain.map((i) => {
+                const active = i.to === "/admin" ? location.pathname === "/admin" : location.pathname === i.to || location.pathname.startsWith(`${i.to}/`);
+                return (
+                  <NavLink key={i.to} to={i.to} end={i.to === "/admin"} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] transition-colors ${active ? "bg-ink text-bg" : "bg-surface text-ink-3 ring-1 ring-line"}`}>
+                    {i.label}
+                    <NavCount counts={counts} countsKey={countsKey} name={i.count} className="num ml-1 text-[11px] opacity-70" />
+                  </NavLink>
+                );
+              })}
+            </nav>
+            <details className="group relative z-50 shrink-0">
+              <summary className="cursor-pointer list-none whitespace-nowrap rounded-full bg-surface px-3 py-2 text-[12.5px] text-ink-2 ring-1 ring-line focus-visible:outline-2 focus-visible:outline-accent">更多 <span aria-hidden="true">▾</span></summary>
+              <div className="absolute right-0 top-full z-50 mt-2 max-h-[65vh] w-52 overflow-y-auto rounded-panel border border-line bg-surface p-2 shadow-lg">
+                {mobileMore.map(i => <NavLink key={i.to} to={i.to} className="block rounded-control px-3 py-2.5 text-[13px] text-ink hover:bg-bg-sunk">{i.label}</NavLink>)}
               </div>
             </details>
-          </nav>
+          </div>
         </div>
         <main className="min-w-0 flex-1">
           <Outlet />

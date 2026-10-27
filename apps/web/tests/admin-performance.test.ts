@@ -101,6 +101,8 @@ test("both admin navigations render before badges and update them after arriving
       await expect(sources).toHaveText("新闻信源7");
       badge = 19;
       holdBadges();
+      // On phones non-primary tools live in the visible More menu; desktop keeps the sidebar.
+      if (viewport.width < 961) await page.locator("summary").filter({ hasText: "更多" }).click();
       await page.getByRole("link", { name: "内容诊断", exact: true }).filter({ visible: true }).click();
       await expect(page.getByRole("heading", { name: "内容诊断", exact: true })).toBeVisible({ timeout: 1000 });
       resumeBadges();
