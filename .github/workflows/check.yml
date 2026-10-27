@@ -8,10 +8,12 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [develop, main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: check-${{ github.event.pull_request.number || github.ref }}
@@ -46,6 +48,56 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
+      - name: Test Spec gate (positive and negative cases)
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        run: node --test scripts/ci/check-spec.test.mjs
+      - name: Enforce pre-existing approved Spec
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPEC_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SPEC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SPEC_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          SPEC_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          SPEC_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          SPEC_REPOSITORY: ${{ github.repository }}
+          SPEC_PR_BODY: ${{ github.event.pull_request.body }}
+          SPEC_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            # A direct check on develop/main has no PR; other refs must resolve an exact open PR.
+            if [[ "$GITHUB_REF_NAME" == develop || "$GITHUB_REF_NAME" == main ]]; then
+              echo 'Direct branch check: no PR to gate'
+              exit 0
+            fi
+            prs="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME&per_page=100")"
+            count="$(jq --arg sha "$GITHUB_SHA" '[.[] | select(.head.sha == $sha and (.base.ref == "develop" or .base.ref == "main"))] | length' <<< "$prs")"
+            [[ "$count" == 1 ]] || { echo '::error::Workflow dispatch must match exactly one open PR at this SHA'; exit 1; }
+            pr="$(jq --arg sha "$GITHUB_SHA" '[.[] | select(.head.sha == $sha and (.base.ref == "develop" or .base.ref == "main"))][0]' <<< "$prs")"
+            export SPEC_BASE_SHA="$(jq -r '.base.sha' <<< "$pr")"
+            export SPEC_HEAD_SHA="$(jq -r '.head.sha' <<< "$pr")"
+            export SPEC_BASE_REF="$(jq -r '.base.ref' <<< "$pr")"
+            export SPEC_HEAD_REF="$(jq -r '.head.ref' <<< "$pr")"
+            export SPEC_HEAD_REPO="$(jq -r '.head.repo.full_name' <<< "$pr")"
+            export SPEC_PR_BODY="$(jq -r '.body // ""' <<< "$pr")"
+            export SPEC_PR_AUTHOR="$(jq -r '.user.login' <<< "$pr")"
+          fi
+          # GitHub's pull_request payload can carry an old base SHA after the
+          # branch has advanced. Always evaluate the exact current target branch.
+          if [[ "$GITHUB_EVENT_NAME" == pull_request || "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            SPEC_BASE_SHA="$(gh api "repos/$GITHUB_REPOSITORY/branches/$SPEC_BASE_REF" --jq '.commit.sha')"
+            export SPEC_BASE_SHA
+          fi
+          # Use the previously merged gate, never the candidate PR's modified copy.
+          if git cat-file -e "${SPEC_BASE_SHA}:scripts/ci/check-spec.mjs" 2>/dev/null; then
+            git show "${SPEC_BASE_SHA}:scripts/ci/check-spec.mjs" > "$RUNNER_TEMP/check-spec.mjs"
+            node "$RUNNER_TEMP/check-spec.mjs"
+          else
+            # First installation is externally reviewed as a special bootstrap.
+            node scripts/ci/check-spec.mjs
+          fi
       - name: Install
         run: npm ci --no-audit --no-fund
       - name: Online migration safety
