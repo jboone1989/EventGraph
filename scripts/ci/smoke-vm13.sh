@@ -152,7 +152,7 @@ try {
       if (width === 390) {
         const more = page.locator("summary").filter({ hasText: "更多" });
         await more.click();
-        const modelLink = page.getByRole("link", { name: "Provider 与模型" }).last();
+        const modelLink = page.locator("details").filter({ has: more }).getByRole("link", { name: "Provider 与模型", exact: true });
         assert(await modelLink.isVisible(), "admin More menu is hidden");
         const bounds = await modelLink.boundingBox();
         assert(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width + 2, "admin More menu clipped");
@@ -160,6 +160,8 @@ try {
         const overview = nav.getByRole("link", { name: "运营总览" });
         assert(await overview.getAttribute("aria-current") === "page", "admin overview not selected");
         await nav.getByRole("link", { name: /运行与积压/ }).click();
+        await page.waitForURL(url => url.pathname === "/admin/runs", { timeout: 30000 });
+        await page.locator('nav[aria-label="后台主要操作"] a[href="/admin"]:not([aria-current="page"])').waitFor({ state: "visible", timeout: 10000 });
         assert(await overview.getAttribute("aria-current") !== "page", "overview remains selected on child route");
       }
       assert(errors.length === 0, "admin JS errors: " + errors.join("; "));
