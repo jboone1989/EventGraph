@@ -249,15 +249,16 @@ const scaled = (digits: string, places: number): string => {
  * Whether written text names only what the listed items name: every capitalised or numbered Latin token
  * (Acme, Nova-2.5, X1), every figure of three or more digits or with a decimal point or percent (845,
  * 129.3, 40%) and every company of the vocabulary appears in the items' own words; a company may be named
- * in either language (谷歌 for Google). A magnitude the items write Latin (104B, 1M) counts as named in
- * the Chinese style the brief asks for (1040亿, 100万) — only that exact conversion of the corpus's own
- * number, never a different one (2026-10-26 dev: the day's only completed overview was discarded over 104B).
- * The unit is an uppercase B or M glued to its number and clear of letters, digits, commas, dots and
- * hyphens on its left (so X1M, 1,040B and 5m are not magnitudes; neither is 500MB, where a letter follows).
+ * in either language (谷歌 for Google). A magnitude the items write Latin (104B, 1M, 80.7bn) counts as named in
+ * the Chinese style the brief asks for (1040亿, 100万, 807亿) — only that exact conversion of the corpus's own
+ * number, never a different one (2026-10-26 dev: the day's only completed overview was discarded over 104B;
+ * 2026-10-27 over $80.7bn). The unit is an uppercase B or M, or the press's two-letter bn/mn, glued to its
+ * number and clear of letters, digits, commas, dots and hyphens on its left (so X1M, 1,040B, 100 M and
+ * 500MB are not magnitudes; neither is a bare lowercase b or m — 5m is metres).
  */
 export function grounded(text: string, corpus: string): boolean {
-  const known = corpus.toLowerCase() + corpus.replace(/(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)([BM])(?![A-Za-z])/g,
-    (_m, digits: string, unit: string) => ` ${scaled(digits, unit === "B" ? 1 : 2)}`);
+  const known = corpus.toLowerCase() + corpus.replace(/(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)([BM]|bn|mn)(?![A-Za-z])/g,
+    (_m, digits: string, unit: string) => ` ${scaled(digits, unit === "B" || unit === "bn" ? 1 : 2)}`);
   const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
   const named = (word: string) => PLAIN.has(word) || known.includes(word) || companies.some((names) => names.includes(word));
   const words = (text.match(/[A-Za-z][A-Za-z0-9.+-]*/g) ?? []).map((w) => w.replace(/[.+-]+$/, "")).filter((w) => /[A-Z0-9]/.test(w));
