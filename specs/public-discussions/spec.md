@@ -1,6 +1,6 @@
 # EventGraph · GitHub Discussions + giscus 公共讨论 Spec v0.1
 
-> **DRAFT / 尚未批准实施**。补回 2026-10-25—26 讨论：围绕一个公共事件保留读者观点，不自建评论系统。完整产品逻辑见 [产品纪要](../../docs/product-review-2026-10-25-26.md)；新闻解释见 [新闻解释草案](../news-explainer/spec.md)。
+> **最薄前端试验已开发，外部配置与实际验收未完成**。补回 2026-10-25—26 讨论：围绕一个公共事件保留读者观点，不自建评论系统。完整产品逻辑见 [产品纪要](../../docs/product-review-2026-10-25-26.md)；新闻解释见 [新闻解释草案](../news-explainer/spec.md)。
 > 2026-10-26 GitHub repo API 已核实 `has_discussions: true` 且仓库公开；**不代表** giscus 已安装或网站已启用评论。
 
 ## 边界和事实归属
@@ -41,4 +41,4 @@
 - [GitHub Discussions 管理](https://docs.github.com/en/discussions/managing-discussions-for-your-community)
 - [GitHub Discussions moderation](https://docs.github.com/en/discussions/managing-discussions-for-your-community/moderating-discussions)
 
-首轮优先**真实配置和最薄前端接入**，不是实现整个社交平台。需由用户批准最终页位置、无 Story 边界、审核策略和本 Spec 后再进入开发。
+首次实现：在公开 Story 和具备 Story 上下文的新闻详情中共用 `eventgraph:story:<canonicalPublicId>`，读者点击才加载官方 giscus。无有效 Story ID、或未配置 `VITE_GISCUS_CATEGORY_ID` 时不显示讨论入口。GitHub 仓库已确认公开且启用了 Discussions；节点 ID 为 `R_kgDOVHEeYA`。**尚须核对 Discussion 分类 ID、giscus App 安装、真实评论写入、权限与移动端浏览器**，D-03/D-06 不得写成已验收。

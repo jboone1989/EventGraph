@@ -1,6 +1,7 @@
 # EventGraph · 跨 Story 演化阅读实验 Spec v0.1
 
-> **状态：DRAFT，等待用户审定验收条件；尚未实施、部署或验收。**
+> **状态：已实现（待用户验收与 FR-08 读者对照实验）。**
+> 2026-10-26 用户指示按本草案继续实施：首轮案例与 Web UI 已落地（见文末实现记录）；FR-08 的读者对照度量与样本仍待用户定义并执行，未验收前不进索引、不进主导航。
 > 2026-10-26 已确认的方向：保留首页与新闻获客，使用现有探索工作台试验跨 Story 的持续过程和变化。技术研究见 [research.md](research.md)，不得绕过 Search Before Build。
 > 这是一场验证读者理解能力的**小实验**，不是全站 EventTree/Graph 重构，不是发布自动因果推断的授权。
 > **这只是完整产品讨论中的跨 Story 实验子规格**；不是替代新闻阅读 5W1H + So What + What Next、GitHub Discussions + giscus、SEO/流量/留存的总 Spec。请先阅读 [本轮产品讨论完整索引](../../docs/product-review-2026-10-25-26.md)，它与 [005 增长规划](../005-news-growth-funnel/spec.md) 一同约束实施。
@@ -53,3 +54,19 @@
 产品实验必须特别检查：多轨版是否提高读者正确理解，且**没有增加错误的因果联想**。若只是让图更复杂或让用户更相信无证据连接，即使视觉吸引人也不扩展。先给用户/独立 Opus 看可核查的事实样本和验收记录，再由用户决定长期过程数据模型、自动发现、独立网址和正式发布。
 
 本草案应作为独立 Spec 通过用户批准后方可进行实现 PR；仅记录方向的聊天许可不能代替对具体字段、验收和真实样本的确认。
+
+## 7. 实现记录（2026-10-26，分支 pi/event-evolution-20261026）
+
+首轮案例为 2026-10 硬件钱包供应链攻击（Ledger 植入装置 / 归属确认 / “早已知情”争执 / Keystone 独立泄露），四条轨道均为本站公开 Story，两条跨事件联系附原始出处，Keystone 为逐条核对后不画线的负例。
+
+| 要求 | 落点 |
+| --- | --- |
+| FR-01 轨道复用公开 StoryRoute，撤稿即消失 | `packages/backend/src/publication/case-studies.ts`（每轨道重读 `publicStoryRoute`）；页面轨道头链到 `/explore?story=`，证据链原文 |
+| FR-02 时间口径 | 轨道站点直接携带 StoryRoute 的 `timeEffective`/`timeRecorded`，页面文案区分“事实发生于 / 收录”，站点按 timeRecorded（本站收录时刻）排列；原文发布时间独立显示、不作为排序依据，未知时间明标 |
+| FR-03/FR-04 联系人工标注、无证据不画线 | `site/case-studies.ts`（类型/方向/出处/署名/策展时间）；后端丢弃端点失去公开证据的联系；Keystone 负例保留在“同期但未画线” |
+| FR-05 复用出版读层，无新表/无页面 LLM | 后端仅经 `publication/` 组装；API `/api/site/case-studies/:id`；无新依赖 |
+| FR-06 双语、桌面/390px | `apps/web/app/features/story/CaseTracks.tsx`，中英文案、时区与站内既有口径一致 |
+| FR-07 实验 noindex | `/explore?case=` 页面 `noindex, follow`；不进 sitemap、不进导航 |
+| FR-08 读者对照度量 | **未实施**：答题准确率/误判率/完成时间的样本与量表待用户定义后执行 |
+
+验证：`npm run typecheck`；`npm test` 新增 `tests/case-studies.test.ts`（轨道组装、证据撤回联动、未知 Story、API 404）；`e2e/case-study.spec.ts`（桌面/手机布局、双语、noindex、404，针对运行中的站点）。
