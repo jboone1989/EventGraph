@@ -9,6 +9,7 @@ import * as cheerio from 'cheerio';
 import { chromium } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { startWebServer, type WebServer } from './web-server.ts';
+import { SITE } from '@aihot/site';
 
 let web: WebServer;
 const api = createServer((req, res) => {
@@ -22,6 +23,7 @@ const api = createServer((req, res) => {
   if (url === '/api/site/reports/daily') return res.end(JSON.stringify({ items: [] }));
   if (url === '/api/site/hot') return res.end(JSON.stringify({ computedAt: null, windowHours: 48, entries: [] }));
   if (url === '/api/site/topics') return res.end(JSON.stringify({ groups: [], topics: [] }));
+  if (url === '/api/research/articles') return res.end(JSON.stringify({ articles: [] }));
   res.statusCode = 404;
   res.end(JSON.stringify({ code: 'not_found' }));
 });
@@ -78,6 +80,36 @@ async function noChineseVisible(page: Page, path: string) {
     if (Date.now() > deadline) {
       assert.fail(`${path} shows Chinese: …${text.slice(Math.max(0, hit.index - 40), hit.index + 40).trim()}…`);
     }
+    await page.waitForTimeout(250);
+  }
+}
+
+// English preference sets recognized browser titles, including the research index.
+// Unknown dynamic module pages keep their server-owned metadata instead of `${SITE} · ${SITE}` (T09).
+test('preference-switched browser titles keep each page its own, not the bare site name', async () => {
+  const browser = await chromium.launch({ channel: 'chromium' });
+  const context = await browser.newContext({ reducedMotion: 'reduce' });
+  await context.addInitScript(() => localStorage.setItem('livingruntime-language', 'en'));
+  const page = await context.newPage();
+  try {
+    for (const [path, heading] of [['/explore', 'Event explorer'], ['/calendar', 'Policy & data calendar']] as const) {
+      await page.goto(`${web.origin}${path}`, { waitUntil: 'networkidle' });
+      await titleBecomes(page, `${heading} · ${SITE.name}`, path);
+    }
+    // The research index uses the same English browser title as /en/research.
+    await page.goto(`${web.origin}/research`, { waitUntil: 'networkidle' });
+    await noChineseVisible(page, '/research');
+    await titleBecomes(page, `Original research · ${SITE.name}`, '/research');
+  } finally {
+    await browser.close();
+  }
+});
+
+async function titleBecomes(page: Page, expected: string, path: string) {
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    if ((await page.title()) === expected) return;
+    if (Date.now() > deadline) assert.fail(`${path} title is ${JSON.stringify(await page.title())}, expected ${JSON.stringify(expected)}`);
     await page.waitForTimeout(250);
   }
 }
