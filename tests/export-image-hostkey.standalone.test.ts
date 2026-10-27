@@ -1,9 +1,12 @@
 // scripts/ci/export-image-vm13.sh ships the published digest over the
 // VM13→cn-dev SSH path, and deploy-vm13-preview.sh bootstraps the database
-// tunnel to the same host. Both legs accept cn-dev only if the offered host
-// key matches the pinned fingerprint (EVENTGRAPH_DEV_SSH_FINGERPRINT), the
-// same secret the runner verifies on its own hops. These tests drive the real
-// export script against stub docker/ssh/ssh-keyscan/sudo binaries, but the
+// tunnel to the same host (specs/008-dev-cd-vm13-api: the tunnel uses the
+// pre-existing, pre-authorized host key). Both legs accept cn-dev only if one
+// of the offered host keys (sshd offers ed25519 and ECDSA) matches the pinned
+// fingerprint (EVENTGRAPH_DEV_SSH_FINGERPRINT) — the same secret the runner
+// verifies on its own hops, where appleboy's client negotiates ECDSA (the
+// pinned VM13 key in check.yml is ECDSA). These tests drive the real export
+// script against stub docker/ssh/ssh-keyscan/sudo binaries, but the
 // fingerprint check runs a REAL ssh-keygen, so a wrong host key exercises real
 // fingerprint math rather than a stubbed assertion.
 import assert from "node:assert/strict";
@@ -54,18 +57,20 @@ esac
 `;
 
 const keyscanStub = `#!/bin/sh
-# Emulates ssh-keyscan by offering the per-test generated ed25519 host key.
+# Emulates ssh-keyscan: offers the per-test generated ed25519 and ECDSA host
+# keys, the two algorithms the real sshd offers and the script scans for.
 [ -n "$STUB_KEYSCAN_FAIL" ] && exit 2
 echo "$CN_DEV_HOST $(cat "$STUB_OFFERED_PUB")"
+echo "$CN_DEV_HOST $(cat "$STUB_OFFERED_ECDSA_PUB")"
 `;
 
 const dirs: string[] = [];
 
-// Generates a real ed25519 host key in the sandbox and returns its public line
-// and fingerprint, so wrong-key tests fail through real fingerprint math.
-function keygen(dir: string, name: string) {
+// Generates a real host key in the sandbox and returns its public line and
+// fingerprint, so wrong-key tests fail through real fingerprint math.
+function keygen(dir: string, name: string, type: "ed25519" | "ecdsa" = "ed25519") {
   const file = path.join(dir, name);
-  spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-f", file], { encoding: "utf8" });
+  spawnSync("ssh-keygen", ["-q", "-t", type, "-N", "", "-f", file], { encoding: "utf8" });
   const pub = readFileSync(`${file}.pub`, "utf8").trim();
   const fingerprint = spawnSync("ssh-keygen", ["-lf", `${file}.pub`], { encoding: "utf8" })
     .stdout.trim().split(/\s+/)[1];
@@ -78,12 +83,15 @@ interface Sandbox {
   env: Record<string, string | undefined>;
 }
 
-// One sandbox = one VM13 home offering a generated host key; the pin defaults
-// to that key's fingerprint, so callers opt into the failure modes.
-function sandbox(opts: { pinOtherKey?: boolean; noPin?: boolean; failKeyscan?: boolean } = {}): Sandbox {
+// One sandbox = one VM13 home offering a generated ed25519 and ECDSA host key;
+// the pin defaults to the ed25519 key's fingerprint, so callers opt into the
+// other modes (pinEcdsa reproduces the 2026-10-27 CD failure: the secret pins
+// the ECDSA key while the script only scanned ed25519).
+function sandbox(opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean } = {}): Sandbox {
   const dir = mkdtempSync(path.join(tmpdir(), "export-image-"));
   dirs.push(dir);
   const offered = keygen(dir, "offered");
+  const offeredEcdsa = keygen(dir, "offered-ecdsa", "ecdsa");
   const home = path.join(dir, "home");
   mkdirSync(path.join(home, ".ssh"), { recursive: true });
   const bin = path.join(dir, "bin");
@@ -105,12 +113,17 @@ function sandbox(opts: { pinOtherKey?: boolean; noPin?: boolean; failKeyscan?: b
     STUB_IMAGE_ID: imageId,
     STUB_REVISION: releaseSha,
     STUB_OFFERED_PUB: path.join(dir, "offered.pub"),
+    STUB_OFFERED_ECDSA_PUB: path.join(dir, "offered-ecdsa.pub"),
     EVENTGRAPH_IMAGE: imageRef,
     EVENTGRAPH_RELEASE_SHA: releaseSha,
     EVENTGRAPH_DEV_SSH_FINGERPRINT: undefined,
   };
   if (!opts.noPin) {
-    env.EVENTGRAPH_DEV_SSH_FINGERPRINT = opts.pinOtherKey ? keygen(dir, "other").fingerprint : offered.fingerprint;
+    env.EVENTGRAPH_DEV_SSH_FINGERPRINT = opts.pinEcdsa
+      ? offeredEcdsa.fingerprint
+      : opts.pinOtherKey
+        ? keygen(dir, "other").fingerprint
+        : offered.fingerprint;
   }
   if (opts.failKeyscan) env.STUB_KEYSCAN_FAIL = "1";
   return { dir, home, env };
@@ -166,10 +179,25 @@ test("the pinned host key is written to a dedicated known_hosts and every ssh ho
   assert.equal(sshCalls.length, 3, `load, remote id check, pairing write — got: ${sshCalls.join(" || ")}`);
   for (const call of sshCalls) {
     assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile}`), `ssh must pin the verified host key: ${call}`);
+    assert.ok(call.includes("HostKeyAlgorithms=ssh-ed25519"), `ssh must negotiate the verified algorithm: ${call}`);
     assert.ok(!call.includes(".ssh/known_hosts "), "the shared known_hosts must not be used");
   }
   assert.ok(sshCalls.some((c) => c.includes("docker load")));
   assert.ok(sshCalls.some((c) => c.includes("eventgraph-last-delivered-image") && c.includes(tag) && c.includes(imageRef)));
+});
+
+test("a pin for the ECDSA key (the 2026-10-27 CD failure) authorizes delivery and pins that algorithm", () => {
+  const { dir, home, env } = sandbox({ pinEcdsa: true });
+  const ecdsaPub = readFileSync(path.join(dir, "offered-ecdsa.pub"), "utf8").trim();
+  const res = run(env);
+  assert.equal(res.status, 0, res.stderr);
+  const pinnedFile = path.join(home, ".ssh/known_hosts.cndev");
+  assert.equal(readFileSync(pinnedFile, "utf8"), `${cnDevHost} ${ecdsaPub}\n`, "the verified ECDSA key, and only it, is trusted");
+  const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
+  assert.ok(sshCalls.length >= 1);
+  for (const call of sshCalls) {
+    assert.ok(call.includes("HostKeyAlgorithms=ecdsa-sha2-nistp256"), `ssh must negotiate the pinned algorithm: ${call}`);
+  }
 });
 
 test("deploy-vm13-preview.sh wires the same pinning for the database tunnel", () => {
@@ -183,7 +211,7 @@ test("deploy-vm13-preview.sh wires the same pinning for the database tunnel", ()
   }
   const blockOf = (script: string) => {
     const start = script.indexOf(': "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?');
-    const endMarker = 'mv "$cndev_scan" "$CNDEV_KNOWN_HOSTS"';
+    const endMarker = 'cndev_algo="$(awk \'{print $2; exit}\' "$CNDEV_KNOWN_HOSTS")"';
     const end = script.indexOf(endMarker, start);
     assert.ok(start >= 0 && end >= 0, "the pinning block must exist");
     return script.slice(start, end + endMarker.length);
@@ -191,4 +219,5 @@ test("deploy-vm13-preview.sh wires the same pinning for the database tunnel", ()
   assert.equal(blockOf(vm13), blockOf(exportScript), "both legs must verify cn-dev identically");
   assert.ok(!vm13.includes("ssh_keyscan"), "the trust-on-first-keyscan bootstrap must be gone");
   assert.ok(vm13.includes("-o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts.cndev"), "the tunnel unit must pin the verified file");
+  assert.ok(vm13.includes("-o HostKeyAlgorithms=$cndev_algo"), "the tunnel unit must negotiate the verified algorithm");
 });
