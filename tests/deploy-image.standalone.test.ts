@@ -37,7 +37,7 @@ if (args[0] === "image" && args[1] === "inspect") {
 }
 if (args[0] === "compose") {
   const cmd = ["config", "up", "run", "ps", "exec", "logs"].find((a) => args.includes(a));
-  log("compose " + args.slice(2).join(" "));
+  log("compose " + args.slice(2).join(" ") + (process.env.EVENTGRAPH_RELEASE_LABEL ? " REL=" + process.env.EVENTGRAPH_RELEASE_LABEL : ""));
   if (cmd === "config") {
     for (const f of args.filter((a) => a.endsWith(".yml"))) {
       try { log("OVERLAY[" + f + "] " + readFileSync(f, "utf8").split(String.fromCharCode(10)).join("|")); } catch {}
@@ -145,6 +145,11 @@ test("a healthy release recreates only the worker, verifies the heartbeat and ne
   assert.ok(!calls.includes(`rmi ${"a".repeat(12)}`) && !calls.includes(`rmi ${"b".repeat(12)}`), "the deployed and rollback images must survive pruning");
   const overlay = calls.match(/OVERLAY\[\S+\.ci-image\.\S+\] ([^\n]*)/)?.[1] ?? "";
   assert.ok(overlay.includes("worker:") && !overlay.includes("api:") && !overlay.includes("web:"));
+  assert.ok(overlay.includes("AIHOT_RELEASE: ${EVENTGRAPH_RELEASE_LABEL:?}"),
+    "the overlay must pin the worker heartbeat release instead of leaving it 'dev'");
+  const ups = calls.split("\n").filter((l) => l.includes("up -d --no-deps --no-build --pull never worker"));
+  assert.ok(ups[0].includes(`REL=${JSON.parse(readFileSync(path.join(dir, "state.json"), "utf8")).releaseSha}`),
+    `deploy must pass the release SHA to the worker, got: ${ups[0]}`);
   assert.equal(readFileSync(path.join(deployed, ".eventgraph-last-good-image"), "utf8"), `${tag}\n`);
 });
 
@@ -167,4 +172,12 @@ test("a worker whose heartbeat never turns fresh rolls back to the previous imag
   assert.equal(state.deployed, prevTag, "rollback must restore the previous image");
   assert.ok(!existsSync(path.join(deployed, ".eventgraph-last-good-image.tmp")));
   assert.equal(readFileSync(path.join(deployed, ".eventgraph-last-good-image"), "utf8"), `${prevTag}\n`);
+  const ups = callsOf(dir).split("\n").filter((l) => l.includes("up -d --no-deps --no-build --pull never worker"));
+  assert.equal(ups.length, 2, "deploy recreate + rollback recreate");
+  assert.ok(ups[0].includes(`REL=${JSON.parse(readFileSync(path.join(dir, "state.json"), "utf8")).releaseSha}`),
+    `deploy must label the new release, got: ${ups[0]}`);
+  // The rollback recreate must carry the previous image's own revision label,
+  // not the failed release's SHA.
+  assert.ok(ups[1].includes(`REL=${"0".repeat(40)}`),
+    `rollback must label the restored image's revision, got: ${ups[1]}`);
 });

@@ -56,7 +56,15 @@ services:
     image: ${EVENTGRAPH_APP_IMAGE:?}
   worker:
     image: ${EVENTGRAPH_APP_IMAGE:?}
+    # The base compose leaves AIHOT_RELEASE empty, so without this override the
+    # worker heartbeat reports "dev" while the container actually runs a pinned
+    # revision (single-item T11 observability defect, Issue #176). The label var
+    # is re-exported on rollback so a restored worker reports its own image.
+    environment:
+      AIHOT_RELEASE: ${EVENTGRAPH_RELEASE_LABEL:?}
 OVERLAY
+EVENTGRAPH_RELEASE_LABEL="$EVENTGRAPH_RELEASE_SHA"
+export EVENTGRAPH_RELEASE_LABEL
 cleanup() {
   rm -f "$overlay" "${db_overlay:-}"
 }
@@ -108,6 +116,8 @@ rollback() {
   if [ -n "$previous" ] && [ "$previous" != "$EVENTGRAPH_IMAGE_TAG" ]; then
     EVENTGRAPH_APP_IMAGE="$previous"
     export EVENTGRAPH_APP_IMAGE
+    EVENTGRAPH_RELEASE_LABEL="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$previous")"
+    export EVENTGRAPH_RELEASE_LABEL
     compose up -d --no-deps --no-build --pull never worker || true
   fi
   exit 1
@@ -126,14 +136,14 @@ if [ "$(docker inspect -f '{{.Image}}' "$container_id")" != "$image_id" ]; then
   rollback
 fi
 # The worker has no HTTP port; its settings heartbeat (written on boot and every
-# minute) proves the new process started, migrated schema included, and reaches
-# the database. stop_grace_period is 210s, so a graceful stop can add minutes.
+# minute) proves the new process started, migrated schema included, reaches the
+# database, and identifies itself as the pinned release instead of "dev". stop_grace_period is 210s, so a graceful stop can add minutes.
 started="$(date -u +%Y-%m-%dT%H:%M:%S)"
 healthy=0
 i=0
 while [ "$i" -lt 45 ]; do
   beat="$(compose exec -T db psql -U aihot -d aihot -Atc \
-    "SELECT (value->>'at') >= '$started' FROM settings WHERE key = 'heartbeat.worker'" 2>/dev/null || true)"
+    "SELECT (value->>'at') >= '$started' AND value->>'release' = '$EVENTGRAPH_RELEASE_SHA' FROM settings WHERE key = 'heartbeat.worker'" 2>/dev/null || true)"
   if [ "$beat" = "t" ]; then
     healthy=1
     break
