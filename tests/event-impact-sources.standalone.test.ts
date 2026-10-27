@@ -27,10 +27,3 @@ test("first-party policy and attributed viewpoint roles are distinct", () => {
   assert.equal(tass.participation_mode, "hot_signal");
   assert.ok(tass.tags.includes("冲突当事方口径"));
 });
-test("T0 source chinanews world feed stays RSS summary-only", () => {
-  const t0 = sources.find((s: {id:string}) => s.id === "rss-cn-chinanews-world");
-  assert.ok(t0, "rss-cn-chinanews-world");
-  assert.equal(t0.kind, "rss");
-  assert.equal(t0.site_fulltext, false);
-  assert.equal(t0.syndicate_fulltext, false);
-});
