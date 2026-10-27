@@ -280,7 +280,7 @@ export async function resumeAfterRelease(receipt: { purpose: string; subject: st
   if (!article) return false;
   const [a] = await db`UPDATE articles SET processing_state = 'new', processing_attempts = 0, processing_retry_at = NULL, processing_error = NULL
                         WHERE id = ${article} AND processing_state = 'failed'
-                          AND discovered_at >= now() - interval '24 hours' RETURNING id`;
+                          AND greatest(discovered_at, updated_at) >= now() - interval '24 hours' RETURNING id`;
   return !!a && !!(await queueProcessing(article, { step: "analyze", db }));
 }
 
