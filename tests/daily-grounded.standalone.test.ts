@@ -35,6 +35,24 @@ test("a number inside a larger or glued form is not a magnitude", () => {
   assert.equal(grounded("Stub 融资 10000万美元。", "Stub raised 100 M dollars."), false); // the M must be glued to its number
 });
 
+// 2026-10-27 dev: the BBC item wrote $80.7bn (lowercase) and the writer's correct 807亿 was discarded
+// (receipt 19727, generator.written=false). The press's two-letter bn/mn glued to a number are
+// unambiguous magnitudes; a bare lowercase b or m still is not (5m is metres).
+test("the Chinese spelling of the corpus's lowercase bn/mn magnitude is grounded", () => {
+  const corpus = "该公司上半年亏损超过 $80.7bn，收入为 $16.3bn。";
+  assert.equal(grounded("该公司上半年亏损超过807亿美元，收入163亿美元。", corpus), true);
+  assert.equal(grounded("该服务新增4500万用户。", "The service added 45mn users."), true);
+});
+
+test("a lowercase bn conversion with the wrong digits stays ungrounded", () => {
+  assert.equal(grounded("该公司上半年亏损超过808亿美元。", "该公司上半年亏损超过 $80.7bn。"), false);
+});
+
+test("spaced or single-letter lowercase units are not magnitudes", () => {
+  assert.equal(grounded("Stub 融资10000万欧元。", "Stub raised 100 mn euros."), false); // not glued
+  assert.equal(grounded("Stub 预算5000万英镑。", "The budget is £5b."), false); // bare lowercase b
+});
+
 test("a real three-digit magnitude still converts", () => {
   assert.equal(grounded("Stub 拥有 25600万用户。", "Stub has 256M users."), true);
 });
