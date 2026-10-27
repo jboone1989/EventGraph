@@ -20,6 +20,9 @@ COPY site/package.json site/
 COPY modules/research/package.json modules/research/
 RUN npm ci --no-audit --no-fund ${NPM_REGISTRY:+--registry=$NPM_REGISTRY}
 COPY . .
+# giscus is optional; Vite inlines this public Discussion category ID into the Web bundle.
+ARG VITE_GISCUS_CATEGORY_ID=
+ENV VITE_GISCUS_CATEGORY_ID=${VITE_GISCUS_CATEGORY_ID}
 # Keep the often-unchanged production dependencies in an independent image layer.
 # The application tree is deliberately left without node_modules for the next COPY.
 RUN npm run build -w @aihot/web && npm prune --omit=dev --no-audit --no-fund \
