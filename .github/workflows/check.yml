@@ -100,10 +100,17 @@ jobs:
         run: npm run adsense:preflight
       - name: Build web
         run: npm run build -w @aihot/web
-      - name: Browser test engines
-        run: npx playwright install --with-deps chromium webkit
-      - name: Web tests
-        run: node --test apps/web/tests/*.test.ts
+      # The official Playwright image already has matching Chromium/WebKit binaries and
+      # native OS libraries. Reinstalling WebKit's hundreds of apt packages on each
+      # GitHub runner can stall longer than this job's 25-minute hard limit.
+      - name: Web tests (Chromium + WebKit, official Playwright image)
+        run: |
+          docker run --rm --init --ipc=host --network host \
+            -v "$PWD:/work" -w /work \
+            -e DATABASE_URL -e SITE_URL -e API_BASE_URL \
+            -e SESSION_SECRET -e IMG_PROXY_SIGN_SECRET \
+            mcr.microsoft.com/playwright:v1.61.1-noble \
+            node --test apps/web/tests/*.test.ts
 
       # Each test file runs on its own copy of aihot_ci (tests/databases.ts), which the run migrates and
       # leaves empty; the smoke check then reads that empty database.
@@ -447,70 +454,16 @@ jobs:
             bash scripts/deploy-prod.sh
 
 
-  # cn-dev keeps the isolated development database (loopback-only for the VM13 SSH
-  # tunnel), the worker and the collection workloads; develop releases update its
-  # api/worker/web. The public 80/8080 Web ingress and the knowledge stack are not touched.
-  deploy_development:
+  # cn-dev handles the worker and data services; it is not a release gateway for VM13.
+  # No image pull or Web/API deployment is performed on cn-dev by this workflow.
+  # VM13 runs the development Web and API from the same tested digest; the API
+  # reaches the cn-dev development database only through the on-host SSH tunnel.
+  deploy_vm13_preview:
     needs: publish
     if: >-
       ${{ github.event_name == 'push' &&
           github.ref_name == 'develop' &&
           needs.publish.outputs.image_ref != '' &&
-          vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
-    concurrency:
-      group: eventgraph-dev-rollout
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: development
-    permissions:
-      contents: read
-      packages: read
-    outputs:
-      deployed: ${{ steps.current.outputs.deploy }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.publish.outputs.source_sha }}
-          persist-credentials: false
-      - name: Skip superseded release
-        id: current
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
-        shell: bash
-        run: |
-          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Update cn-dev development app (api/worker/web)
-        if: steps.current.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
-        env:
-          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
-          EVENTGRAPH_RELEASE_SHA: ${{ needs.publish.outputs.source_sha }}
-          EVENTGRAPH_DIR: ${{ vars.EVENTGRAPH_DEV_ROOT || '/home/ubuntu/livingruntime-aihot' }}
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          host: ${{ vars.EVENTGRAPH_DEV_HOST }}
-          username: ${{ vars.EVENTGRAPH_DEV_USER }}
-          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
-          fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
-          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA,EVENTGRAPH_DIR,GHCR_USER,GHCR_TOKEN
-          command_timeout: 13m
-          version: '1.8.2'
-          script_path: scripts/ci/deploy-image.sh
-
-  # VM13 runs the development Web and API from the same tested digest; the API
-  # reaches the cn-dev development database only through the on-host SSH tunnel.
-  deploy_vm13_preview:
-    needs: [publish, deploy_development]
-    if: >-
-      ${{ github.event_name == 'push' &&
-          github.ref_name == 'develop' &&
-          needs.publish.outputs.image_ref != '' &&
-          needs.deploy_development.outputs.deployed == 'true' &&
           vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
     concurrency:
       group: eventgraph-vm13-preview

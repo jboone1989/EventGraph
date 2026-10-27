@@ -104,6 +104,11 @@ wait_for_db() {
 }
 wait_for_db || { echo "Database tunnel did not become ready" >&2; restore; }
 
+# The development database remains on cn-dev, but the pinned image is already on
+# VM13. Run idempotent migrations and missing-source seed through the private DB
+# tunnel here; removing cn-dev's image deployment must not also remove setup.
+compose run --rm --no-deps -T --entrypoint sh api -c 'node scripts/migrate.ts && node scripts/seed.ts' || restore
+
 compose up -d --no-build --pull never --force-recreate --remove-orphans api web || restore
 for service in api web; do
   container_id="$(compose ps -q "$service" || true)"
