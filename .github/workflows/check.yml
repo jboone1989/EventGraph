@@ -282,6 +282,8 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            VITE_GISCUS_CATEGORY_ID=${{ vars.EVENTGRAPH_GISCUS_CATEGORY_ID }}
           cache-from: type=gha,scope=eventgraph-app
           cache-to: type=gha,mode=max,scope=eventgraph-app
 

@@ -5,7 +5,10 @@ name: aihot
 # Product branding is EventGraph; old PostgreSQL identities and AIHOT_* env vars stay compatible.
 
 x-app: &app
-  build: .
+  build:
+    context: .
+    args:
+      VITE_GISCUS_CATEGORY_ID: ${VITE_GISCUS_CATEGORY_ID:-}
   image: eventgraph-app
   restart: unless-stopped
 

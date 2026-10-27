@@ -19,6 +19,8 @@ export const EDITION_WHEN = {
 export const SITE = {
   /** 站名：导航、页面标题、分享图、RSS、MCP、后台都用它。 */
   name: "EventGraph",
+  /** Public GitHub Discussions identity for the optional giscus reader module. Category ID is a build variable. */
+  discussions: { repo: "jboone1989/EventGraph", repoId: "R_kgDOVHEeYA" },
   /**
    * 行业词：拼进默认说法里，比如“AI 日报”“AI 动态”。
    * 改成“法律”“HR”“黄金”之类，页面上就会变成“法律日报”“法律动态”。

@@ -11,6 +11,7 @@ import { beijingDate, beijingTime } from "@aihot/contracts/time";
 import { localizedMonthDay, localizedMonthDayTime, relativeTime } from "../lib/format";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
+import { StoryDiscussion } from "../features/story/StoryDiscussion";
 import { englishText, localizedSourceName, enTopicName } from "../lib/english";
 import { isEnglishPath } from "../lib/edition";
 import { sessionCache } from "../lib/session-cache";
@@ -561,6 +562,7 @@ export default function StoryPage() {
           </RailCard>
         </aside>
       </div>
+      <StoryDiscussion key={story.publicId} storyPublicId={story.publicId} />
     </div>
   );
 }
