@@ -50,6 +50,8 @@ job never waits for cn-dev. Both deployments use the pre-existing
 `EVENTGRAPH_DEV_*` variables and credentials. The runner pins cn-dev's host key
 fingerprint (`secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT`) on its own SSH hops, and
 the same pin authorizes the VM13→cn-dev legs: `export-image-vm13.sh` and the
-database-tunnel bootstrap in `deploy-vm13-preview.sh` only accept a keyscan
-whose fingerprint matches, writing it to a dedicated `known_hosts.cndev` that
-is rewritten on every run.
+database-tunnel bootstrap in `deploy-vm13-preview.sh` scan both host-key
+algorithms sshd offers (ed25519 and ECDSA — the pin may be for either, like the
+pinned VM13 key in the workflow) and accept only the scanned key whose
+fingerprint matches, writing it to a dedicated `known_hosts.cndev` that is
+rewritten on every run and pinning that algorithm for the connection.
