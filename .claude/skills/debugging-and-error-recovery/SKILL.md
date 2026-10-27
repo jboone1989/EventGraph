@@ -5,4 +5,4 @@ description: Guides systematic root-cause debugging. Use when tests fail, builds
 
 # Shared engineering workflow (Claude discovery entry)
 
-**Before doing any task that invokes this skill, read `.agents/skills/debugging-and-error-recovery/SKILL.md` in this repository in full and follow its process and verification.** This is a lightweight skill-discovery adapter, not the workflow body. Apply `AGENTS.md`, the approved Spec, and `.agents/CONSTRAINTS.md` as project-specific constraints.
+**Before doing any task that invokes this skill, read `.agents/skills/debugging-and-error-recovery/SKILL.md` in this repository in full and follow its process and verification.** This is a lightweight skill-discovery adapter, not the workflow body. Apply `AGENTS.md` and the approved Spec as project-specific constraints.
