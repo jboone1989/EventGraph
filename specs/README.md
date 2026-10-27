@@ -13,7 +13,9 @@ specs/<feature>/
 
 Get the user's approval before implementing substantial behavior changes. Reference the approved `spec.md` **Git SHA and path** (or approved Issue) in the implementation PR. A spec edited only in an implementation branch is a draft, not proof of approval.
 
-For a small fix, an Issue with concrete acceptance criteria is sufficient. Either ChatGPT or Claude can review against the approved version.
+For a small bug fix, one short `spec.md` recording the observed failure, minimal intended correction and acceptance check is sufficient; `plan.md` and `tasks.md` are optional. An Issue alone does not pass the new CI gate. Merge the spec separately **before** implementing the fix.
+
+All implementation PRs, including executable CI and deployment changes, must include `Spec: specs/<feature>/spec.md@<full-approved-commit-SHA>` in their description. The required `Check` job verifies that the spec existed on the target branch before the implementation and remains unchanged at the referenced revision. Claude independently challenges scope creep, duplicate implementations, unnecessary compatibility, masked failures and untruthful tests. This gate checks presence/version, not genuine user intent: review approval evidence separately.
 
 ## Product specifications
 
