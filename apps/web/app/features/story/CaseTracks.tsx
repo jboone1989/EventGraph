@@ -128,8 +128,8 @@ export function CaseTracks({ data }: { data: CaseStudyResponse }) {
     </section>}
 
     <p className="text-[12px] leading-[1.7] text-ink-4">
-      {t("时间口径：站点区分「事实发生于」（报道给出的发生/生效时间，未给出则明确标注）与「收录」（本站首次记录该证据）；证据按报道发布时间排列。本页是阅读实验，不进入索引。",
-        "Time semantics: each station separates \"occurred\" (the occurrence time reporting stated, or an explicit note that none was given) from \"recorded\" (when this site first logged the evidence). This is a reading experiment and is not indexed.")}
+      {t("时间口径：站点区分「事实发生于」（报道给出的发生/生效时间，未给出则明确标注）与「收录」（本站首次记录该证据）。站点按本站收录时间排列，来源原文的发布时间单独标出，不代表排序顺序。本页是阅读实验，不进入索引。",
+        "Time semantics: each station separates \"occurred\" (the occurrence time reported by sources) from \"recorded\" (when this site first logged the evidence). Stations are ordered by recorded time; each source publication date is shown separately and is not the ordering key. This is a reading experiment and is not indexed.")}
     </p>
   </div>;
 }
