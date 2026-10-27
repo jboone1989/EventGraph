@@ -116,9 +116,15 @@ rollback() {
   if [ -n "$previous" ] && [ "$previous" != "$EVENTGRAPH_IMAGE_TAG" ]; then
     EVENTGRAPH_APP_IMAGE="$previous"
     export EVENTGRAPH_APP_IMAGE
+    # A pre-CI rollback image carries no revision label, and its worker honestly
+    # reported "dev" (empty AIHOT_RELEASE); restore exactly that instead of
+    # failing the recreate on the overlay's non-empty ${EVENTGRAPH_RELEASE_LABEL:?}.
     EVENTGRAPH_RELEASE_LABEL="$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$previous")"
+    [ -n "$EVENTGRAPH_RELEASE_LABEL" ] || EVENTGRAPH_RELEASE_LABEL=dev
     export EVENTGRAPH_RELEASE_LABEL
-    compose up -d --no-deps --no-build --pull never worker || true
+    if ! compose up -d --no-deps --no-build --pull never worker; then
+      echo "Rollback failed to restore $previous: worker NOT recovered, manual intervention required" >&2
+    fi
   fi
   exit 1
 }
