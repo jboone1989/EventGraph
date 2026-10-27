@@ -4,7 +4,7 @@ import { Link, useFetcher } from "react-router";
 import type { Route } from "./+types/index";
 import type { AdminRuns, AdminSources } from "@aihot/contracts/admin";
 import { adminGet } from "../../lib/admin.server";
-import { ago, bj, num } from "../../features/admin/format";
+import { bj, num } from "../../features/admin/format";
 import { AdminPage, Badge, Card, Dot, Stat, Time } from "../../features/admin/ui";
 
 type Result<T> = { data: T | null; error: string | null };
@@ -126,7 +126,7 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
         <Card title="系统与积压" right={<Link className="text-accent hover:underline" to="/admin/runs">运行详情</Link>}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Stat label="Worker" value={runs ? <span className="inline-flex items-center gap-2 text-[16px]"><Dot tone={worker?.alive ? "ok" : "bad"} />{worker?.alive ? "运行中" : "未确认"}</span> : <Unavailable />}
-              hint={worker ? `最近心跳 ${ago(worker.at)}` : "没有心跳数据"} />
+              hint={worker ? <>最近心跳 <Time at={worker.at} /></> : "没有心跳数据"} />
             <Stat label="队列积压" value={queued === null ? <Unavailable /> : num(queued)} hint="排队及等待重试" tone={queued !== null && queued > 500 ? "warn" : undefined} />
             <Stat label="失败定时任务" value={failedSchedules ? num(failedSchedules.length) : <Unavailable />}
               tone={failedSchedules?.length ? "bad" : undefined} hint="最近一次运行失败" />
