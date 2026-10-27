@@ -589,3 +589,71 @@ jobs:
           command_timeout: 8m
           version: '1.8.2'
           script_path: scripts/ci/smoke-vm13.sh
+
+  # cn-dev keeps the development worker and data services. This deployment is
+  # independent of the VM13 Web/API deployment above: neither gates the other,
+  # and cn-dev never pulls from GHCR (VM13, with reliable registry access,
+  # streams the already published digest to cn-dev over the pre-authorized
+  # SSH path). No Web/API containers are created on cn-dev by this workflow.
+  deploy_dev_worker:
+    needs: publish
+    if: >-
+      ${{ github.event_name == 'push' &&
+          github.ref_name == 'develop' &&
+          needs.publish.outputs.image_ref != '' &&
+          vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
+    concurrency:
+      group: eventgraph-dev-worker
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: development
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.source_sha }}
+          persist-credentials: false
+      - name: Skip superseded release
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
+        shell: bash
+        run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Ship the published digest from VM13 to cn-dev
+        if: steps.current.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_RELEASE_SHA: ${{ needs.publish.outputs.source_sha }}
+        with:
+          host: 43.133.185.154
+          username: ubuntu
+          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+          fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA
+          command_timeout: 10m
+          version: '1.8.2'
+          script_path: scripts/ci/export-image-vm13.sh
+      - name: Deploy the development worker on cn-dev
+        if: steps.current.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_RELEASE_SHA: ${{ needs.publish.outputs.source_sha }}
+          EVENTGRAPH_DIR: /home/ubuntu/livingruntime-aihot
+        with:
+          host: ${{ vars.EVENTGRAPH_DEV_HOST }}
+          username: ${{ vars.EVENTGRAPH_DEV_USER }}
+          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA,EVENTGRAPH_DIR
+          command_timeout: 13m
+          version: '1.8.2'
+          script_path: scripts/ci/deploy-image.sh
