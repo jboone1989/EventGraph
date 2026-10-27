@@ -57,7 +57,7 @@ bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Conf
 : "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned cn-dev host key fingerprint (SHA256:...) required}"
 mkdir -p "${HOME}/.ssh"
 CNDEV_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.cndev"
-cndev_scan="${CNDEV_KNOWN_HOSTS}.scan"
+cndev_scan="$(mktemp "${CNDEV_KNOWN_HOSTS}.XXXXXX")"
 ssh-keyscan -T 10 -t ed25519 "$cn_dev_host" 2>/dev/null | awk -v h="$cn_dev_host" '$1 == h' | head -n 1 > "$cndev_scan"
 [ -s "$cndev_scan" ] || { echo "ssh-keyscan failed for $cn_dev_host" >&2; rm -f "$cndev_scan"; exit 1; }
 ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { ok = 1 } END { exit !ok }' \
@@ -71,7 +71,7 @@ Wants=network-online.target
 
 [Service]
 User=ubuntu
-ExecStart=/usr/bin/ssh -N -T -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%h/.ssh/known_hosts.cndev -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519 -L 127.0.0.1:$tunnel_port:127.0.0.1:5432 -L $bridge_gw:$tunnel_port:127.0.0.1:5432 ubuntu@$cn_dev_host
+ExecStart=/usr/bin/ssh -N -T -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts.cndev -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519 -L 127.0.0.1:$tunnel_port:127.0.0.1:5432 -L $bridge_gw:$tunnel_port:127.0.0.1:5432 ubuntu@$cn_dev_host
 Restart=always
 RestartSec=5
 

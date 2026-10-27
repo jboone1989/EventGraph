@@ -179,6 +179,7 @@ test("deploy-vm13-preview.sh wires the same pinning for the database tunnel", ()
   // both scripts must inline the same verification instead of sourcing a sibling.
   for (const script of [vm13, exportScript]) {
     assert.ok(!script.includes('dirname "$0"'), "script_path scripts must stay self-contained");
+    assert.ok(script.includes('cndev_scan="$(mktemp "${CNDEV_KNOWN_HOSTS}.XXXXXX")"'), "each parallel deploy must use a unique keyscan scratch file");
   }
   const blockOf = (script: string) => {
     const start = script.indexOf(': "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?');
@@ -189,5 +190,5 @@ test("deploy-vm13-preview.sh wires the same pinning for the database tunnel", ()
   };
   assert.equal(blockOf(vm13), blockOf(exportScript), "both legs must verify cn-dev identically");
   assert.ok(!vm13.includes("ssh_keyscan"), "the trust-on-first-keyscan bootstrap must be gone");
-  assert.ok(vm13.includes("-o UserKnownHostsFile=%h/.ssh/known_hosts.cndev"), "the tunnel unit must pin the verified file");
+  assert.ok(vm13.includes("-o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts.cndev"), "the tunnel unit must pin the verified file");
 });

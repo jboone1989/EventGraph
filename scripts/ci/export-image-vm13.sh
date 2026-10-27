@@ -27,7 +27,7 @@ cn_dev_host=43.142.127.40
 : "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned cn-dev host key fingerprint (SHA256:...) required}"
 mkdir -p "${HOME}/.ssh"
 CNDEV_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.cndev"
-cndev_scan="${CNDEV_KNOWN_HOSTS}.scan"
+cndev_scan="$(mktemp "${CNDEV_KNOWN_HOSTS}.XXXXXX")"
 ssh-keyscan -T 10 -t ed25519 "$cn_dev_host" 2>/dev/null | awk -v h="$cn_dev_host" '$1 == h' | head -n 1 > "$cndev_scan"
 [ -s "$cndev_scan" ] || { echo "ssh-keyscan failed for $cn_dev_host" >&2; rm -f "$cndev_scan"; exit 1; }
 ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { ok = 1 } END { exit !ok }' \
