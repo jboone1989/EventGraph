@@ -74,8 +74,10 @@ test("a fresh revision of an old article retains a full processing window", asyn
   assert.ok(before!.discovered_at.getTime() < Date.now() - 24 * 60 * 60 * 1000);
   assert.ok(before!.updated_at.getTime() > Date.now() - 60 * 60 * 1000);
   assert.equal(before!.processing_state, "new");
-  const queued = await queueProcessing(id);
-  assert.ok(queued, "a recent source revision must remain processable");
+  // A receipt released after this new revision must resume the article despite its old discovery.
+  await sql`UPDATE articles SET processing_state = 'failed' WHERE id = ${id}`;
+  const resumed = await resumeAfterRelease({ purpose: "score_article", subject: `article:${id}@2` }, sql);
+  assert.equal(resumed, true, "a fresh revision must be recoverable after a provider receipt is released");
   await expireStaleWork();
   const [after] = await sql<{ processing_state: string }[]>`
     SELECT processing_state FROM articles WHERE id = ${id}`;
