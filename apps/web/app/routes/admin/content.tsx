@@ -20,7 +20,7 @@ export default function Content({ loaderData }: Route.ComponentProps) {
   const [sp] = useSearchParams();
   const navigate = useNavigate();
   return (
-    <AdminPage title="内容诊断" subtitle="按 ID、原文链接或标题找到任何一条内容，看它从信源到公开出口的完整链路；下架、仅摘要、人工修正和重处理都在详情页。">
+    <AdminPage title="内容诊断" subtitle="按 ID、原文链接或标题追踪自动处理链路，定位信源、模型、事件归组与发布问题。此页只读，不需要人工逐条策展。">
       <Form method="get" className="mb-5 flex max-w-2xl gap-2">
         <Input name="q" defaultValue={sp.get("q") ?? ""} placeholder="内容 ID、URL 或标题关键词" aria-label="搜索内容" autoFocus />
         <Button type="submit" tone="primary">查找</Button>
