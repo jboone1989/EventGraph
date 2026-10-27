@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useUiLanguage, useText } from "../../components/LanguageSwitch";
 import { discussionTermFor } from "../../lib/discussions";
+import { resolvedTheme } from "../../lib/local-state";
 import { SITE } from "@aihot/site";
 
 const CATEGORY = import.meta.env.VITE_GISCUS_CATEGORY_ID?.trim() ?? "";
@@ -25,11 +26,19 @@ function Embed({ term, lang }: { term: string; lang: "en" | "zh-CN" }) {
     script.dataset.reactionsEnabled = "1";
     script.dataset.emitMetadata = "0";
     script.dataset.inputPosition = "bottom";
-    script.dataset.theme = "preferred_color_scheme";
+    script.dataset.theme = resolvedTheme();
     script.dataset.lang = lang;
     script.dataset.loading = "lazy";
     host.append(script);
-    return () => { host.replaceChildren(); };
+    // Respect the site's own preference, including a manual override of the OS theme.
+    const syncTheme = () => {
+      const theme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+      const frame = host.querySelector<HTMLIFrameElement>("iframe.giscus-frame");
+      frame?.contentWindow?.postMessage({ giscus: { setConfig: { theme } } }, "https://giscus.app");
+    };
+    const themeChanges = new MutationObserver(syncTheme);
+    themeChanges.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => { themeChanges.disconnect(); host.replaceChildren(); };
   }, [term, lang]);
   return <div ref={ref} className="giscus min-w-0" />;
 }
