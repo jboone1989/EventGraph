@@ -100,10 +100,17 @@ jobs:
         run: npm run adsense:preflight
       - name: Build web
         run: npm run build -w @aihot/web
-      - name: Browser test engines
-        run: npx playwright install --with-deps chromium webkit
-      - name: Web tests
-        run: node --test apps/web/tests/*.test.ts
+      # The official Playwright image already has matching Chromium/WebKit binaries and
+      # native OS libraries. Reinstalling WebKit's hundreds of apt packages on each
+      # GitHub runner can stall longer than this job's 25-minute hard limit.
+      - name: Web tests (Chromium + WebKit, official Playwright image)
+        run: |
+          docker run --rm --init --ipc=host --network host \
+            -v "$PWD:/work" -w /work \
+            -e DATABASE_URL -e SITE_URL -e API_BASE_URL \
+            -e SESSION_SECRET -e IMG_PROXY_SIGN_SECRET \
+            mcr.microsoft.com/playwright:v1.61.1-noble \
+            node --test apps/web/tests/*.test.ts
 
       # Each test file runs on its own copy of aihot_ci (tests/databases.ts), which the run migrates and
       # leaves empty; the smoke check then reads that empty database.
