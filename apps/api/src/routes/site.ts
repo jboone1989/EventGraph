@@ -20,6 +20,8 @@ import { registerFeedback } from "./feedback.ts";
 import { loadHot, loadStoryDetail, resolveStory } from "@aihot/backend/publication/stories";
 import { publicExploreGallery } from "@aihot/backend/publication/gallery";
 import { publicStoryRoute } from "@aihot/backend/publication/story-route";
+import { publicCaseStudy } from "@aihot/backend/publication/case-studies";
+import { CASE_STUDIES } from "@aihot/site/case-studies";
 import { listReports, loadReport, reportNavigation, loadReportNavigation, loadReportMonth, type ReportKind } from "@aihot/backend/publication/reports";
 import { looseQuery, sendJsonWithEtag, sendProblem } from "../http/respond.ts";
 
@@ -170,6 +172,15 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/explore/gallery", siteHandler(async (req, reply) => {
     const data = await publicExploreGallery();
     return sendJsonWithEtag(req, reply, data, { etagPrefix: "explore-gallery", cacheControl: "public, max-age=60, s-maxage=60" });
+  }));
+
+  app.get("/api/site/case-studies/:id", siteHandler(async (req, reply) => {
+    // The case list is curated config; the answer itself is rebuilt from today's public evidence.
+    const id = (req.params as { id: string }).id;
+    const def = Object.hasOwn(CASE_STUDIES, id) ? CASE_STUDIES[id] : undefined;
+    if (!def) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "case study not found", cacheControl: "public, max-age=60" });
+    const data = await publicCaseStudy(def);
+    return sendJsonWithEtag(req, reply, data, { etagPrefix: "case-study", cacheControl: "public, max-age=60, s-maxage=60" });
   }));
 
   app.get("/api/site/stories/:publicId/route", siteHandler(async (req, reply) => {

@@ -383,6 +383,69 @@ export type StoryRoute = {
   coverage: { stations: number; reports: number; sources: number };
 };
 
+// Cross-event process experiments (specs/event-evolution-experiment): a manually curated case
+// laid out as parallel read-only tracks. Each track re-reads one public story's route through the
+// publication layer at request time, so withdrawn evidence drops out; cross-track links are
+// human annotations with verifiable sources — co-occurrence never becomes a link.
+
+export type CaseStudyLinkType =
+  | "response"
+  | "citation"
+  | "dependency"
+  | "claim"
+  | "follow-up";
+
+export interface CaseStudyLinkEvidence {
+  url: string;
+  source: string;
+  /** When the evidence itself was published. */
+  publishedAt: string;
+  /** Who makes the claim, for "claim" links; absent otherwise. */
+  attribution?: string;
+  attributionEn?: string;
+}
+
+export interface CaseStudyLink {
+  key: string;
+  /** Track key of the responding/citing/claiming side. */
+  from: string;
+  /** Track key of the side being pointed at. */
+  to: string;
+  type: CaseStudyLinkType;
+  note: string;
+  noteEn: string;
+  evidence: CaseStudyLinkEvidence;
+  /** When this annotation was curated (ISO date). */
+  curatedAt: string;
+}
+
+export interface CaseStudyTrack {
+  key: string;
+  label: string;
+  labelEn: string;
+  story: StoryRef;
+  status: "ok" | "insufficient";
+  stations: StoryRouteStation[];
+  coverage: { stations: number; reports: number; sources: number };
+}
+
+export interface CaseStudyResponse {
+  schemaVersion: 1;
+  id: string;
+  title: string;
+  titleEn: string;
+  summary: string;
+  summaryEn: string;
+  /** Last human update of the case definition (YYYY-MM-DD). */
+  updated: string;
+  generatedAt: string;
+  tracks: CaseStudyTrack[];
+  /** Only links whose both endpoints currently have public evidence. */
+  links: CaseStudyLink[];
+  /** Notes explaining deliberately unlinked tracks (the negative examples). */
+  unlinked: Array<{ track: string; note: string; noteEn: string }>;
+}
+
 // Reports (daily / weekly / monthly)
 
 export type ReportKind = "daily" | "weekly" | "monthly";
