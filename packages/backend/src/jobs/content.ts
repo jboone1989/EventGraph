@@ -41,13 +41,13 @@ interface Route {
  * history adds no heat).
  */
 async function route(articleId: string, db: Db): Promise<Route | null> {
-  const [row] = await db<{ body_status: string; participation_mode: string; tier: string; kind: string; config: Record<string, unknown>; url: string; bare: boolean; backfill: boolean; published_at: Date | null; discovered_at: Date }[]>`
+  const [row] = await db<{ body_status: string; participation_mode: string; tier: string; kind: string; config: Record<string, unknown>; url: string; bare: boolean; backfill: boolean; published_at: Date | null; discovered_at: Date; updated_at: Date }[]>`
     SELECT a.body_status, s.participation_mode, s.tier, s.kind, s.config, a.url, (coalesce(a.body_text, '') = '' AND a.x_post IS NULL) AS bare,
-           a.backfill, a.published_at, a.discovered_at
+           a.backfill, a.published_at, a.discovered_at, a.updated_at
     FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
   if (!row) return null;
   // Do not automatically revive news that has aged out of the operational queue.
-  if (row.discovered_at.getTime() < Date.now() - 24 * 60 * 60 * 1000) return null;
+  if (Math.max(row.discovered_at.getTime(), row.updated_at.getTime()) < Date.now() - 24 * 60 * 60 * 1000) return null;
   const historical = isHistorical(row);
   const signal = row.participation_mode !== "editorial";
   const pending = row.body_status === "pending";
@@ -240,7 +240,7 @@ export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
   const rows = await sql<{ id: string }[]>`
     SELECT id FROM articles
     WHERE processing_state = 'new' AND created_at < now() - interval '3 minutes'
-      AND discovered_at >= now() - interval '24 hours'
+      AND greatest(discovered_at, updated_at) >= now() - interval '24 hours'
       AND (processing_retry_at IS NULL OR processing_retry_at <= now())
       AND (processing_queued_at IS NULL OR processing_queued_at < now() - ${QUEUED_STALE}::interval)
     ORDER BY discovered_at DESC LIMIT 500`;
@@ -255,8 +255,8 @@ export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
     SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
     WHERE a.processing_state = 'analyzed' AND a.grouping_status = 'pending'
       AND a.grouped_at IS NULL AND s.participation_mode = 'editorial'
-      AND a.discovered_at > now() - interval '24 hours'
-      AND a.discovered_at < now() - interval '3 minutes'
+      AND greatest(a.discovered_at, a.updated_at) > now() - interval '24 hours'
+      AND greatest(a.discovered_at, a.updated_at) < now() - interval '3 minutes'
     ORDER BY (s.tier = 'T1') DESC, coalesce(a.published_at, a.discovered_at) DESC
     LIMIT 12`;
   for (const r of ungrouped) {
@@ -298,7 +298,7 @@ export async function requeueFailed(group: string | null, limit: number | null =
   const rows = await sql<{ id: string }[]>`
     WITH picked AS (
       SELECT id FROM articles
-      WHERE processing_state = 'failed' AND discovered_at > now() - interval '24 hours'
+      WHERE processing_state = 'failed' AND greatest(discovered_at, updated_at) > now() - interval '24 hours'
         AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
       ORDER BY discovered_at DESC, id
       LIMIT ${limit ?? 1000000}
