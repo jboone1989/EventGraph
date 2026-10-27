@@ -562,7 +562,7 @@ export default function StoryPage() {
           </RailCard>
         </aside>
       </div>
-      <StoryDiscussion storyPublicId={story.publicId} />
+      <StoryDiscussion key={story.publicId} storyPublicId={story.publicId} />
     </div>
   );
 }
