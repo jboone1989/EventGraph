@@ -48,9 +48,21 @@ image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")
 # cn-dev (existing key), forwarding a port bound to loopback and the docker bridge
 # gateway. No database port is opened to the internet on either host.
 bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-ssh_keyscan="$(ssh-keyscan -T 10 -t ed25519 "$cn_dev_host" 2>/dev/null | awk '$1=="'"$cn_dev_host"'"' | head -1)"
-[ -n "$ssh_keyscan" ] || { echo "ssh-keyscan failed for $cn_dev_host" >&2; exit 1; }
-grep -qxF "$ssh_keyscan" /home/ubuntu/.ssh/known_hosts || printf '%s\n' "$ssh_keyscan" >> /home/ubuntu/.ssh/known_hosts
+# Pin cn-dev's host key for the tunnel: the runner verifies this fingerprint
+# (secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the same pin
+# must authorize the VM13→cn-dev tunnel before the unit below connects. The
+# verified key goes to a dedicated file rewritten on every run, so entries
+# appended by the earlier trust-on-first-keyscan bootstrap cannot authorize a
+# different key.
+: "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned cn-dev host key fingerprint (SHA256:...) required}"
+mkdir -p "${HOME}/.ssh"
+CNDEV_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.cndev"
+cndev_scan="${CNDEV_KNOWN_HOSTS}.scan"
+ssh-keyscan -T 10 -t ed25519 "$cn_dev_host" 2>/dev/null | awk -v h="$cn_dev_host" '$1 == h' | head -n 1 > "$cndev_scan"
+[ -s "$cndev_scan" ] || { echo "ssh-keyscan failed for $cn_dev_host" >&2; rm -f "$cndev_scan"; exit 1; }
+ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { ok = 1 } END { exit !ok }' \
+  || { echo "cn-dev host key does not match the pinned fingerprint; refusing" >&2; rm -f "$cndev_scan"; exit 1; }
+mv "$cndev_scan" "$CNDEV_KNOWN_HOSTS"
 sudo -n tee "/etc/systemd/system/$tunnel_unit.service" >/dev/null <<UNIT
 [Unit]
 Description=EventGraph development database SSH tunnel to cn-dev
@@ -59,7 +71,7 @@ Wants=network-online.target
 
 [Service]
 User=ubuntu
-ExecStart=/usr/bin/ssh -N -T -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519 -L 127.0.0.1:$tunnel_port:127.0.0.1:5432 -L $bridge_gw:$tunnel_port:127.0.0.1:5432 ubuntu@$cn_dev_host
+ExecStart=/usr/bin/ssh -N -T -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%h/.ssh/known_hosts.cndev -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519 -L 127.0.0.1:$tunnel_port:127.0.0.1:5432 -L $bridge_gw:$tunnel_port:127.0.0.1:5432 ubuntu@$cn_dev_host
 Restart=always
 RestartSec=5
 

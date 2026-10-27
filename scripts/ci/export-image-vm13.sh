@@ -19,7 +19,21 @@ esac
 [ "${#EVENTGRAPH_RELEASE_SHA}" -eq 40 ] || { echo "Invalid source SHA length" >&2; exit 1; }
 
 cn_dev_host=43.142.127.40
-ssh_opts="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519"
+# Pin cn-dev's host key: the runner verifies this fingerprint (secrets.
+# EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the same pin must
+# authorize the VM13→cn-dev leg before any image bytes move. The verified key
+# goes to a dedicated file rewritten on every run, so entries appended by the
+# earlier trust-on-first-keyscan bootstrap cannot authorize a different key.
+: "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned cn-dev host key fingerprint (SHA256:...) required}"
+mkdir -p "${HOME}/.ssh"
+CNDEV_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.cndev"
+cndev_scan="${CNDEV_KNOWN_HOSTS}.scan"
+ssh-keyscan -T 10 -t ed25519 "$cn_dev_host" 2>/dev/null | awk -v h="$cn_dev_host" '$1 == h' | head -n 1 > "$cndev_scan"
+[ -s "$cndev_scan" ] || { echo "ssh-keyscan failed for $cn_dev_host" >&2; rm -f "$cndev_scan"; exit 1; }
+ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { ok = 1 } END { exit !ok }' \
+  || { echo "cn-dev host key does not match the pinned fingerprint; refusing" >&2; rm -f "$cndev_scan"; exit 1; }
+mv "$cndev_scan" "$CNDEV_KNOWN_HOSTS"
+ssh_opts="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$CNDEV_KNOWN_HOSTS -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519"
 
 # VM13 pulls this digest for its own Web/API deploy on every release; pull only
 # when this job runs first or the image was pruned. VM13 reaches GHCR reliably.
@@ -30,12 +44,6 @@ revision="$(sudo -n docker image inspect --format '{{index .Config.Labels "org.o
 [ "$revision" = "$EVENTGRAPH_RELEASE_SHA" ] \
   || { echo "Image revision $revision does not match release $EVENTGRAPH_RELEASE_SHA" >&2; exit 1; }
 image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")"
-
-# Same host-key pinning bootstrap as the database tunnel unit in
-# deploy-vm13-preview.sh; idempotent once known_hosts has the entry.
-ssh_keyscan="$(ssh-keyscan -T 10 -t ed25519 "$cn_dev_host" 2>/dev/null | awk '$1=="'"$cn_dev_host"'"' | head -1)"
-[ -n "$ssh_keyscan" ] || { echo "ssh-keyscan failed for $cn_dev_host" >&2; exit 1; }
-grep -qxF "$ssh_keyscan" /home/ubuntu/.ssh/known_hosts || printf '%s\n' "$ssh_keyscan" >> /home/ubuntu/.ssh/known_hosts
 
 # Stream the image to cn-dev without writing a tarball on either host; cn-dev
 # never contacts the registry. ubuntu on cn-dev may run docker (docker group).

@@ -126,6 +126,7 @@ jobs:
           bash -n scripts/deploy-prod.sh
           sh -n scripts/ci/deploy-image.sh
           sh -n scripts/ci/deploy-vm13-preview.sh
+          sh -n scripts/ci/export-image-vm13.sh
           sh -n scripts/ci/smoke-vm13.sh
           python3 -m py_compile scripts/production-env-check.py
           python3 - <<'PY'
@@ -550,12 +551,13 @@ jobs:
         env:
           EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
           EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.publish.outputs.source_sha }}
+          EVENTGRAPH_DEV_SSH_FINGERPRINT: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
         with:
           host: 43.133.185.154
           username: ubuntu
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
-          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_PREVIEW_RELEASE
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_PREVIEW_RELEASE,EVENTGRAPH_DEV_SSH_FINGERPRINT
           command_timeout: 12m
           version: '1.8.2'
           script_path: scripts/ci/deploy-vm13-preview.sh
@@ -632,12 +634,13 @@ jobs:
         env:
           EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
           EVENTGRAPH_RELEASE_SHA: ${{ needs.publish.outputs.source_sha }}
+          EVENTGRAPH_DEV_SSH_FINGERPRINT: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
         with:
           host: 43.133.185.154
           username: ubuntu
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
-          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA,EVENTGRAPH_DEV_SSH_FINGERPRINT
           command_timeout: 10m
           version: '1.8.2'
           script_path: scripts/ci/export-image-vm13.sh

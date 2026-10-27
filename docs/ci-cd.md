@@ -47,4 +47,9 @@ independent jobs — neither gates the other:
 
 A failed worker delivery or deploy never blocks the VM13 preview, and the VM13
 job never waits for cn-dev. Both deployments use the pre-existing
-`EVENTGRAPH_DEV_*` variables and credentials.
+`EVENTGRAPH_DEV_*` variables and credentials. The runner pins cn-dev's host key
+fingerprint (`secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT`) on its own SSH hops, and
+the same pin authorizes the VM13→cn-dev legs: `export-image-vm13.sh` and the
+database-tunnel bootstrap in `deploy-vm13-preview.sh` only accept a keyscan
+whose fingerprint matches, writing it to a dedicated `known_hosts.cndev` that
+is rewritten on every run.
