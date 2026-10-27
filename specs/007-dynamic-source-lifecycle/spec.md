@@ -109,7 +109,7 @@ rejected（人工或安全原因，任何状态可进）
 
 - **本 PR（MVP）**：候选表 + 预检 + 打分/决定 + dry-run/自动晋升（默认禁用）+ 单测。
 - **自动发现（本分支，依赖 PR#132）**：`admin/discovery.ts` 每日跑 DeepSeek Search 发现（`sourceLifecycle.discovery` 默认关），预检前置去重按候选身份同本 PR。
-- **后续**：候选后台页、退场源的一键复活。
+- **后续**：候选后台页、退场源的一键复活（已交付：`/admin/candidates` 后台页与一键复活，见上方 safeguards）。
 
 ## MVP code-level safeguards / current implementation boundary (2026-10-25)
 
@@ -119,7 +119,7 @@ rejected（人工或安全原因，任何状态可进）
 - Use `previewCandidate(id, actor)` to call the actual existing `previewSource` before an automatic trial. `markPreviewed` remains the manual audit/attestation path for operators; a boolean supplied by an external search result is **not** proof of successful preview.
 - Start of trial clamps `publishedAfter` to no earlier than activation time (UTC), preserving future-only acquisition even if candidate discovery used an older window. Thus its first fetch may have zero articles until the next real publication.
 - Current score's exclusivity and cost are **proxies** based on source discoveries and items-per-request; real independent fact contribution and DeepSeek spend must be linked before fully automated unattended retirement of important sources. Never cap high-value sources to a fixed top-N.
-- **Code implemented in PR #141, not yet activated:** the daily scheduler and `previewCandidate` → `startTrial` orchestration, with optional source trial activation and default-off switches. The candidate management UI and a real paid DeepSeek smoke test are still outstanding; no production activation is claimed. The underlying candidate registry and score decisions are implemented but remain opt-in.
+- **Code implemented in PR #141, not yet activated:** the daily scheduler and `previewCandidate` → `startTrial` orchestration, with optional source trial activation and default-off switches. The candidate management UI is delivered (`/admin/candidates`: the queue with live trial state, preflight failures on file, preview/trial/evaluate/hold and one-click revival, reusing the lifecycle's own operations through `/api/admin/source-candidates/*` — no second decision path). A real paid DeepSeek smoke test is still outstanding; no production activation is claimed. The underlying candidate registry and score decisions are implemented but remain opt-in.
 
 ## 外部接口实际限制（2026-10-25 官方文档核对）
 

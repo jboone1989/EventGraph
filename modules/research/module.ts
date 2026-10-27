@@ -11,6 +11,5 @@ export const module = defineModule({
     { path: "en/research", file: "web/routes/research.tsx", id: "en-research-index" },
     { path: "en/research/:slug", file: "web/routes/research-article.tsx", id: "en-research-article" },
   ],
-  adminPages: [{ path: "admin/research", file: "web/routes/admin-research.tsx", id: "admin-research" }],
   apiPaths: [/^\/api\/research(?:\/|$)/, /^\/api\/admin\/research(?:\/|$)/],
 });

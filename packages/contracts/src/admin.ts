@@ -133,6 +133,41 @@ export interface AdminSourcePreview {
   items: Array<{ title: string; url: string; publishedAt: Timestamp | null; excerpt: string }>;
 }
 
+// Dynamic source lifecycle candidates (specs/007): what discovery proposed and where it stands.
+
+/** One source_candidates row joined with the live state of the trial source it became. */
+export interface AdminCandidateRow {
+  id: string;
+  name: string;
+  kind: string;
+  status: string;
+  origin_channel: string;
+  origin_note: string | null;
+  tags: string[];
+  rationale: string;
+  official_low_frequency: boolean;
+  manual_hold: boolean;
+  expires_at: Timestamp | null;
+  attached_source_id: string | null;
+  source_enabled: boolean | null;
+  source_health: string | null;
+  source_mode: string | null;
+  trial_started_at: Timestamp | null;
+  preflight: { ok?: boolean; reasons?: string[]; previewPassed?: boolean; previewCount?: number; previewDated?: number };
+  last_decision: string | null;
+  last_decision_at: Timestamp | null;
+  last_score: { action?: string; score?: number; reasons?: string[] } | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface AdminSourceCandidates {
+  page: number;
+  rows: AdminCandidateRow[];
+  /** Candidates per lifecycle status; absent statuses have none. */
+  totals: Record<string, number>;
+}
+
 // Content and events
 
 export interface AdminContentRow {

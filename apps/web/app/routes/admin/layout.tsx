@@ -34,13 +34,12 @@ const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
     ] },
   { group: "内容", items: [
       { to: "/admin/sources", label: "新闻信源", count: "sources", tone: "bad" },
+      { to: "/admin/candidates", label: "信源候选" },
       { to: "/admin/content", label: "内容诊断" },
-      { to: "/admin/notes", label: "编辑手记" },
       ...webModules().flatMap((m) => m.admin?.content ?? []),
     ] },
   { group: "模型", items: [
       { to: "/admin/models", label: "Provider 与工作流模型" },
-      { to: "/admin/selectbench", label: "模型评测" },
     ] },
   { group: "其他", items: [
       { to: "/admin/feedback", label: "反馈", count: "feedback", tone: "accent" },
