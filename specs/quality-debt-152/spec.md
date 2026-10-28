@@ -17,8 +17,8 @@ Status: **DRAFT**（2026-10-27 提交，未获批准；本文档只定需求与�
 ## 需求
 
 - **FR-1（图谱 E2E 真覆盖）**：CI e2e 作业（`E2E_SEEDED=1`）里，知识图谱页面必须有确定性数据并被硬断言：
-  - 以**仅测试用**的 Graphiti HTTP 桩（独立本地端口进程，服务于 `/stats`、`/overview`、`/network`、`/entities/<uuid>`；以 `packages/backend/src/knowledge/graphiti.ts` 实际调用核对端点和响应契约）提供固定实体/关系，在现有 CI “Start the built site” 步骤中先启动桩并导出 `GRAPHITI_API_URL`，等待端口就绪后才启动 API/Web，最后运行 Playwright；不能在 Playwright 进程内启动后试图修改已运行 API 的环境。桩须随该测试作业清理，不引入真实 LLM/embedding，不新增生产服务。
-  - `e2e/knowledge.spec.ts` 的"地图绘制"与"实体页关系"两条用例在 `E2E_SEEDED=1` 时**必须执行且不得 skip**；`stats` 请求非 2xx 或不可解析即视为失败。
+  - 以**仅测试用**的 Graphiti HTTP 桩（独立本地端口进程，服务于 `knowledge/graphiti.ts` 的全部读取端点：`GET /stats`、`GET /overview`、`GET /network`、`GET /entities/<uuid>`、`POST /relations/by-articles`、`GET /changes`、`GET /relations/<key>`、`GET /atlas/centers` 与 `POST /search`，包含各自查询参数/请求体及响应契约。地图/实体正例返回固定数据，其余读取返回该端点契约要求的合法空结构，时点图响应声明 `temporalSupport: "bitemporal-v1"`；不能用通用 `{}` 或 404 冒充合法空图。以 `packages/backend/src/knowledge/graphiti.ts` 当前全部读取调用核对覆盖，未知端点硬失败；worker/采集关闭，不调用写入 `/episodes`）提供固定实体/关系，在现有 CI “Start the built site” 步骤中先启动桩并导出 `GRAPHITI_API_URL`，等待端口就绪后才启动 API/Web，最后运行 Playwright；不能在 Playwright 进程内启动后试图修改已运行 API 的环境。桩须随该测试作业清理，不引入真实 LLM/embedding，不新增生产服务。
+  - `e2e/knowledge.spec.ts` 的"地图绘制"与"实体页关系"两条用例在 `E2E_SEEDED=1` 时**必须执行且不得 skip**；`stats` 请求非 2xx 或不可解析即视为失败。启用该桩后必须运行完整既有 E2E，Story、日报、关系和实体检索等非图谱页也须通过，不能仅跑 `knowledge.spec.ts`；全局启用 `GRAPHITI_API_URL` 不得使其它读路径降级为 unavailable。
   - 对外部部署（无图谱，status `disabled`/`unavailable`）保留现有带原因的 skip 与"任何图谱状态都能打开"用例——CI 之外的行为不变。
 - **FR-2（采样非 2xx 即失败）**：`E2E_SEEDED=1` 时，`e2e/site.ts` 的 `samples()` 五个 API 调用中任何一个返回非 2xx 或不可解析 JSON，E2E 必须失败（报出具体端点）；200 但为空仍是合法采样。外部部署运行（无 `E2E_SEEDED`）保持现状。
 - **FR-3（运维失败可见）**：下列四处失败改为经现有 console 日志输出一行（沿用 `knowledge/graphiti.ts` 的 `console.error` 风格；可按分钟节流），**不**新增重试、告警通道或持久化状态，**不**改变 watchdog/告警触发语义：
