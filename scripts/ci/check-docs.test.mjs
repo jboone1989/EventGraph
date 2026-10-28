@@ -71,12 +71,25 @@ test("resolving links pass, broken links and anchors fail with file:line", () =>
     ].join("\n"));
     const r = check(cwd, fixed, broken);
     assert.equal(r.status, 1);
-    for (const expected of [
+    assert.deepEqual(r.stderr.trim().split(/\r?\n/), [
       "docs/broken.md:2 broken link missing.md",
       "docs/broken.md:2 broken anchor target.md#missing-section",
       "docs/broken.md:3 broken anchor #nowhere",
       "docs/broken.md:3 undefined reference [nope]",
-    ]) assert.ok(r.stderr.includes(expected), `${expected}\nin:\n${r.stderr}`);
+    ].map((line) => `::error::${line}`));
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
+test("nested docs resolve parent links and report repository-relative forward-slash paths", () => {
+  const { cwd, base } = fixture();
+  try {
+    const good = commit(cwd, "docs/guides/nested guide.md", "# Nested\n[target](../target.md#section-one)\n");
+    const valid = check(cwd, base, good);
+    assert.equal(valid.status, 0, valid.stderr);
+    const bad = commit(cwd, "docs/guides/nested guide.md", "# Nested\n[target](../target.md#missing)\n");
+    const invalid = check(cwd, good, bad);
+    assert.equal(invalid.status, 1);
+    assert.equal(invalid.stderr.trim(), "::error::docs/guides/nested guide.md:2 broken anchor ../target.md#missing");
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
