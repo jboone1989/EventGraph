@@ -163,7 +163,7 @@ export async function composeDaily(date: string, reason?: string): Promise<{ key
           });
           receiptIds.push(resEn.receiptId);
           const fit = fittedEn(resEn.data.overview, DAILY_OVERVIEW_EN_CHARS);
-          overviewEn = fit && grounded(fit, `${corpus}\n${overview}`) && !/\p{Script=Han}/u.test(fit) ? fit : null;
+          overviewEn = fit && groundedEnglish(fit, `${corpus}\n${overview}`) && !/\p{Script=Han}/u.test(fit) ? fit : null;
         } catch (error) {
           if (shutdownSignal.signal.aborted) throw error;
           console.error(JSON.stringify({ level: "warn", msg: "daily english writer failed; the english issue goes out without an overview", report: `daily:${date}`, error: logError(error) }));
@@ -242,7 +242,8 @@ const scaled = (digits: string, places: number): string => {
   const [whole, frac = ""] = digits.split(".");
   const all = whole + frac;
   const at = all.length - frac.length + places;
-  return (at >= all.length ? all + "0".repeat(at - all.length) : `${all.slice(0, at)}.${all.slice(at)}`).replace(/^0+(?=\d)/, "");
+  const value = at <= 0 ? `0.${"0".repeat(-at)}${all}` : at >= all.length ? all + "0".repeat(at - all.length) : `${all.slice(0, at)}.${all.slice(at)}`;
+  return value.replace(/^0+(?=\d)/, "");
 };
 
 /**
@@ -266,6 +267,83 @@ export function grounded(text: string, corpus: string): boolean {
   const lower = text.toLowerCase();
   const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
   return words.every((w) => named(w.toLowerCase())) && figures.every((f) => known.includes(f)) && mentioned.every((names) => companies.includes(names));
+}
+
+/**
+ * The English stand-in's guard: its facts are already grounded as Chinese, so it checks what a
+ * translation can still get wrong — every figure is one of the items' own numbers, written literally
+ * or as the exact English magnitude of the corpus's own 亿 (150亿 → 15), 万 (12.7万 → 127000; a comma
+ * is a thousands separator here) or Latin B/M/bn/mn unit, and a company it names in Chinese is one
+ * the items name. Latin proper nouns are not matched against a Chinese corpus (Delaware, Goldman
+ * Sachs cannot literally appear in it); the days' two completed English overviews were both
+ * discarded over exactly that (2026-10-26/28 dev, receipts 19370/20358, overviewEn 0 of 14 dailies).
+ */
+export function groundedEnglish(text: string, corpus: string): boolean {
+  const chineseMagnitude = /(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)[ \t]*(万亿|亿|万)(?![\d万亿千万百十])/g;
+  const latinMagnitude = /(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)([BMT]|bn|mn|tn)(?![A-Za-z])/g;
+  const normalize = (value: string) => value.replace(/,/g, "").replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  const known = corpus.toLowerCase()
+    + corpus.replace(latinMagnitude, (_m, digits: string, unit: string) => ` ${scaled(digits, unit === "B" || unit === "bn" ? 1 : unit === "M" || unit === "mn" ? 2 : 0)}`)
+    + corpus.replace(chineseMagnitude, (_m, digits: string, unit: string) =>
+      unit === "亿" ? ` ${scaled(digits, -1)} ${scaled(digits, 2)}` : unit === "万" ? ` ${scaled(digits, 4)} ${scaled(digits, -2)}` : ` ${digits}`);
+  const allowedMagnitudes = new Set<string>();
+  const allow = (value: string, unit: string) => allowedMagnitudes.add(`${normalize(value)}:${unit}`);
+  for (const [, digits, unit] of corpus.matchAll(chineseMagnitude)) {
+    if (unit === "万亿") allow(digits, "trillion");
+    else if (unit === "亿") { allow(scaled(digits, -1), "billion"); allow(scaled(digits, 2), "million"); }
+    else { allow(scaled(digits, -2), "million"); }
+  }
+  for (const [, digits, unit] of corpus.matchAll(latinMagnitude)) {
+    allow(digits, unit === "B" || unit === "bn" ? "billion" : unit === "M" || unit === "mn" ? "million" : "trillion");
+  }
+  for (const [, digits, unit] of corpus.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)) allow(digits, unit.toLowerCase());
+  const numbers = new Set((known.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g) ?? []).map(normalize));
+  // Percentages must be supported as percentages, not merely as digits reused
+  // in a date, model number, or another quantity.
+  const percentPattern = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
+  const percents = new Set<string>();
+  for (const match of corpus.matchAll(new RegExp(`(${percentPattern})\\s*[%％]|百分之\\s*(${percentPattern})`, "g"))) {
+    percents.add(normalize(match[1] ?? match[2]));
+  }
+  const figures = (text.match(/(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?[%％]?/g) ?? [])
+    .filter((f) => f.replace(/,/g, "").length >= 3 || /[.%％]/.test(f))
+    .map((f) => f.replace(/,/g, ""));
+  const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
+  const lower = text.toLowerCase();
+  // Latin aliases are matched as whole names; translated named entities are allowed only when
+  // the article corpus mentions that same entity by *any* Chinese or English alias.
+  // Ordinary words and product shorthand are not reliable company identity evidence.
+  const ambiguous = new Set(["meta", "copilot", "cursor", "grok", "llama"]);
+  // Hyphenated terms such as meta-learning are part of a word, not company mentions.
+  const mentionsAlias = (alias: string) => {
+    let at = lower.indexOf(alias);
+    while (at >= 0) {
+      const before = lower[at - 1];
+      const after = lower[at + alias.length];
+      if ((!before || !/[a-z0-9]/.test(before)) && (!after || !/[a-z0-9]/.test(after))) return true;
+      at = lower.indexOf(alias, at + 1);
+    }
+    return false;
+  };
+  const namedLatin = COMPANY_NAMES.filter((names) => names.some((n) =>
+    n.length >= 4 && !ambiguous.has(n) && /^[a-z][a-z0-9 .+/-]*$/.test(n) && mentionsAlias(n)));
+  const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
+  // Financial reports use both full and abbreviated units; each must be checked at its
+  // own scale, including hyphenated forms (1.5-billion, 1.5bn, 1.5B).
+  const englishMagnitudes = [
+    ...text.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*-?\s*(billion|million|trillion|bn|mn|tn)\b/gi),
+    ...text.matchAll(/(?<![\dA-Za-z.,-])(\d+(?:,\d{3})*(?:\.\d+)?)([BMT])(?![A-Za-z])/g),
+  ];
+  const unitName = (unit: string): string => {
+    const key = unit.toLowerCase();
+    return key === "bn" || key === "b" ? "billion" : key === "mn" || key === "m" ? "million" : key === "tn" || key === "t" ? "trillion" : key;
+  };
+  return figures.every((f) => /[%％]$/.test(f)
+    ? percents.has(normalize(f.slice(0, -1)))
+    : numbers.has(normalize(f)))
+    && englishMagnitudes.every(([, digits, unit]) => allowedMagnitudes.has(`${normalize(digits)}:${unitName(unit)}`))
+    && namedLatin.every((names) => companies.includes(names))
+    && mentioned.every((names) => companies.includes(names));
 }
 
 /** The leading whole sentences of a text that fit in `max` characters; null when not even the first does. */
