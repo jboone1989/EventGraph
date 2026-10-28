@@ -102,7 +102,7 @@ export async function embedRegisteredModel(id:string,input:string|string[],purpo
  const count=Array.isArray(input)?input.length:1;
  // Providers certified by the existing probe may omit indices. Such batches preserve
  // response order; mixed or explicit indices must be complete and unique.
- const data=Array.isArray(rows)&&rows.every(row=>row.index===undefined)
+ const data=Array.isArray(rows)&&rows.every(row=>row!==null && typeof row==="object" && row.index===undefined)
   ? rows.map((row,index)=>({...row,index})) : rows;
  const valid=Array.isArray(data)&&data.length===count&&data.every((row)=>
   Number.isInteger(row?.index)&&row.index! >= 0&&row.index! < count&&
