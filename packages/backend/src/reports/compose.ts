@@ -303,10 +303,21 @@ export function groundedEnglish(text: string, corpus: string): boolean {
     .map((f) => f.replace(/[,%]/g, ""));
   const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
   const lower = text.toLowerCase();
+  // Latin aliases are matched as whole names; translated named entities are allowed only when
+  // the article corpus mentions that same entity by *any* Chinese or English alias.
+  const namedLatin = COMPANY_NAMES.filter((names) => names.some((n) => {
+    if (n.length < 4 || !/^[a-z][a-z0-9 .+\/-]*$/.test(n)) return false;
+    const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, "\\  const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
+  const lower = text.toLowerCase();
+  const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
+  const englishMagnitudes = [...text.matchAll(/\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)];");
+    return new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`).test(lower);
+  }));
   const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
   const englishMagnitudes = [...text.matchAll(/\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)];
   return figures.every((f) => numbers.has(normalize(f)))
     && englishMagnitudes.every(([, digits, unit]) => allowedMagnitudes.has(`${normalize(digits)}:${unit.toLowerCase()}`))
+    && namedLatin.every((names) => companies.includes(names))
     && mentioned.every((names) => companies.includes(names));
 }
 
