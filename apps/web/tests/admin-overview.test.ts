@@ -92,3 +92,22 @@ test("a failing sources API alone shows 未获取 while healthy runs remain visi
     await web.stop();
   }
 });
+
+test("both overview APIs failing must never produce a false healthy or zero-data state", async () => {
+  const web = await startWebServer(api({ runs: true, sources: true }));
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch({ channel: "chromium" });
+    const { page, stat } = await overview(browser, web);
+    for (const label of ["新发现", "Worker", "信源总数", "失败信源"]) {
+      await expect(stat(label)).toHaveText("未获取");
+    }
+    await expect(page.getByText("运行数据未获取 · 不能判定系统健康")).toBeVisible();
+    await expect(page.getByText("运行状态未获取，无法判断 Worker 和处理队列是否正常")).toBeVisible();
+    await expect(page.getByText("信源统计未获取，无法确认采集健康度")).toBeVisible();
+    await expect(page.getByText("当前已检查的指标未发现异常")).toHaveCount(0);
+  } finally {
+    await browser?.close();
+    await web.stop();
+  }
+});
