@@ -150,7 +150,9 @@ while [ "$attempt" -le 3 ]; do
     echo "Push budget exhausted before attempt $attempt" >&2
     break
   fi
-  if sudo -n timeout -k 5 "$remaining" docker push --quiet "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
+  # Reserve time for retries when an attempt stalls.
+  per_attempt=$(( remaining / (4 - attempt) ))
+  if sudo -n timeout -k 5 "$per_attempt" docker push --quiet "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
     pushed=1
     break
   fi
