@@ -242,7 +242,8 @@ const scaled = (digits: string, places: number): string => {
   const [whole, frac = ""] = digits.split(".");
   const all = whole + frac;
   const at = all.length - frac.length + places;
-  return (at >= all.length ? all + "0".repeat(at - all.length) : `${all.slice(0, at)}.${all.slice(at)}`).replace(/^0+(?=\d)/, "");
+  const value = at <= 0 ? `0.${"0".repeat(-at)}${all}` : at >= all.length ? all + "0".repeat(at - all.length) : `${all.slice(0, at)}.${all.slice(at)}`;
+  return value.replace(/^0+(?=\d)/, "");
 };
 
 /**
@@ -278,20 +279,35 @@ export function grounded(text: string, corpus: string): boolean {
  * discarded over exactly that (2026-10-26/28 dev, receipts 19370/20358, overviewEn 0 of 14 dailies).
  */
 export function groundedEnglish(text: string, corpus: string): boolean {
+  const chineseMagnitude = /(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)(万亿|亿|万)(?![\d万亿千万百十])/g;
+  const latinMagnitude = /(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)([BMT]|bn|mn|tn)(?![A-Za-z])/g;
+  const normalize = (value: string) => value.replace(/,/g, "").replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
   const known = corpus.toLowerCase()
-    + corpus.replace(/(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)([BM]|bn|mn)(?![A-Za-z])/g,
-      (_m, digits: string, unit: string) => ` ${scaled(digits, unit === "B" || unit === "bn" ? 1 : 2)}`)
-    + corpus.replace(/(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)(万亿|亿|万)(?![\d万亿千万百十])/g,
-      (_m, digits: string, unit: string) => ` ${unit === "亿" ? scaled(digits, -1) : unit === "万" ? scaled(digits, 4) : digits}`);
-  const numbers = new Set((known.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g) ?? []).map((n) => n.replace(/,/g, "")));
-  for (const n of [...numbers]) numbers.add(n.replace(/\.0+$/, "")); // 2000亿 scales to 200.0; the English writes 200.
+    + corpus.replace(latinMagnitude, (_m, digits: string, unit: string) => ` ${scaled(digits, unit === "B" || unit === "bn" ? 1 : unit === "M" || unit === "mn" ? 2 : 0)}`)
+    + corpus.replace(chineseMagnitude, (_m, digits: string, unit: string) =>
+      unit === "亿" ? ` ${scaled(digits, -1)} ${scaled(digits, 2)}` : unit === "万" ? ` ${scaled(digits, 4)} ${scaled(digits, -2)}` : ` ${digits}`);
+  const allowedMagnitudes = new Set<string>();
+  const allow = (value: string, unit: string) => allowedMagnitudes.add(`${normalize(value)}:${unit}`);
+  for (const [, digits, unit] of corpus.matchAll(chineseMagnitude)) {
+    if (unit === "万亿") allow(digits, "trillion");
+    else if (unit === "亿") { allow(scaled(digits, -1), "billion"); allow(scaled(digits, 2), "million"); }
+    else { allow(scaled(digits, -2), "million"); }
+  }
+  for (const [, digits, unit] of corpus.matchAll(latinMagnitude)) {
+    allow(digits, unit === "B" || unit === "bn" ? "billion" : unit === "M" || unit === "mn" ? "million" : "trillion");
+  }
+  for (const [, digits, unit] of corpus.matchAll(/\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)) allow(digits, unit.toLowerCase());
+  const numbers = new Set((known.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g) ?? []).map(normalize));
   const figures = (text.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?%?/g) ?? [])
     .filter((f) => f.replace(/,/g, "").length >= 3 || /[.%]/.test(f))
     .map((f) => f.replace(/[,%]/g, ""));
   const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
   const lower = text.toLowerCase();
   const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
-  return figures.every((f) => numbers.has(f)) && mentioned.every((names) => companies.includes(names));
+  const englishMagnitudes = [...text.matchAll(/\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)];
+  return figures.every((f) => numbers.has(normalize(f)))
+    && englishMagnitudes.every(([, digits, unit]) => allowedMagnitudes.has(`${normalize(digits)}:${unit.toLowerCase()}`))
+    && mentioned.every((names) => companies.includes(names));
 }
 
 /** The leading whole sentences of a text that fit in `max` characters; null when not even the first does. */
