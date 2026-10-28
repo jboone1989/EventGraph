@@ -21,19 +21,24 @@ esac
 cn_dev_host=43.142.127.40
 # Pin cn-dev's host key: the runner verifies this fingerprint (secrets.
 # EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the same pin must
-# authorize the VM13→cn-dev leg before any image bytes move. The verified key
-# goes to a dedicated file rewritten on every run, so entries appended by the
-# earlier trust-on-first-keyscan bootstrap cannot authorize a different key.
+# authorize the VM13→cn-dev leg before any image bytes move. The pin is for
+# whichever host-key algorithm the runner's client verifies (the pinned VM13
+# key in check.yml is ECDSA, not ed25519), so both algorithms sshd offers are
+# scanned and only the scanned key whose fingerprint matches the pin is
+# trusted — in a dedicated file rewritten on every run — and the connection is
+# pinned to that algorithm so StrictHostKeyChecking matches the single entry.
 : "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned cn-dev host key fingerprint (SHA256:...) required}"
 mkdir -p "${HOME}/.ssh"
 CNDEV_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.cndev"
 cndev_scan="$(mktemp "${CNDEV_KNOWN_HOSTS}.XXXXXX")"
-ssh-keyscan -T 10 -t ed25519 "$cn_dev_host" 2>/dev/null | awk -v h="$cn_dev_host" '$1 == h' | head -n 1 > "$cndev_scan"
+ssh-keyscan -T 10 -t ed25519,ecdsa "$cn_dev_host" 2>/dev/null | awk -v h="$cn_dev_host" '$1 == h' > "$cndev_scan"
 [ -s "$cndev_scan" ] || { echo "ssh-keyscan failed for $cn_dev_host" >&2; rm -f "$cndev_scan"; exit 1; }
-ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { ok = 1 } END { exit !ok }' \
-  || { echo "cn-dev host key does not match the pinned fingerprint; refusing" >&2; rm -f "$cndev_scan"; exit 1; }
-mv "$cndev_scan" "$CNDEV_KNOWN_HOSTS"
-ssh_opts="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$CNDEV_KNOWN_HOSTS -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519"
+cndev_hit="$(ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { print NR; exit }')"
+[ -n "$cndev_hit" ] || { echo "cn-dev host key does not match the pinned fingerprint; refusing" >&2; rm -f "$cndev_scan"; exit 1; }
+awk -v n="$cndev_hit" 'NR == n' "$cndev_scan" > "${cndev_scan}.ok" && mv "${cndev_scan}.ok" "$CNDEV_KNOWN_HOSTS"
+rm -f "$cndev_scan"
+cndev_algo="$(awk '{print $2; exit}' "$CNDEV_KNOWN_HOSTS")"
+ssh_opts="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$CNDEV_KNOWN_HOSTS -o HostKeyAlgorithms=$cndev_algo -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519"
 
 # VM13 pulls this digest for its own Web/API deploy on every release; pull only
 # when this job runs first or the image was pruned. VM13 reaches GHCR reliably.
@@ -52,7 +57,13 @@ image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")
 # script rejects any tag that does not point at the ID named by its own hex.
 tag="eventgraph-dev:${image_id#sha256:}"
 sudo -n docker tag "$image_id" "$tag"
-sudo -n docker save "$tag" | ssh $ssh_opts ubuntu@"$cn_dev_host" 'docker load'
+# docker save emits an *uncompressed* layer tar. Across VM13→cn-dev's public
+# SSH link, this repeatedly exceeded the old 10m and then 20m command deadlines
+# even though VM13's GHCR pull completed within seconds. Compress the stream
+# with ubiquitous gzip in fast mode; cn-dev decompresses before docker load.
+# The verified image ID below still catches incomplete or corrupt transfers.
+echo "Shipping gzip-compressed image to cn-dev"
+sudo -n docker save "$tag" | gzip -1 | ssh $ssh_opts ubuntu@"$cn_dev_host" 'gzip -dc | docker load'
 
 # Prove the exact image (by ID) arrived before cn-dev tries to deploy it.
 remote_id="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --format '{{.Id}}' '$tag'")"

@@ -35,9 +35,15 @@ if (args[0] === "image" && args[1] === "inspect") {
   else if (fmt.includes(".Id")) console.log(id);
   process.exit(0);
 }
+if (args[0] === "image" && args[1] === "tag") {
+  state.images[args[3]] = state.images[args[2]] ?? args[2];
+  writeFileSync(process.env.STUB_STATE, JSON.stringify(state));
+  log("image tag " + args.slice(2).join(" "));
+  process.exit(0);
+}
 if (args[0] === "compose") {
   const cmd = ["config", "up", "run", "ps", "exec", "logs"].find((a) => args.includes(a));
-  log("compose " + args.slice(2).join(" "));
+  log("compose " + args.slice(2).join(" ") + (process.env.EVENTGRAPH_RELEASE_LABEL ? " REL=" + process.env.EVENTGRAPH_RELEASE_LABEL : ""));
   if (cmd === "config") {
     for (const f of args.filter((a) => a.endsWith(".yml"))) {
       try { log("OVERLAY[" + f + "] " + readFileSync(f, "utf8").split(String.fromCharCode(10)).join("|")); } catch {}
@@ -46,6 +52,7 @@ if (args[0] === "compose") {
   }
   if (cmd === "run") process.exit(0); // setup: migrations + seed succeed
   if (cmd === "up") {
+    if (state.upFail && args.includes("worker")) { log("compose " + args.slice(2).join(" ") + " FAIL"); process.exit(1); }
     if (args.includes("worker")) state.deployed = process.env.EVENTGRAPH_APP_IMAGE;
     writeFileSync(process.env.STUB_STATE, JSON.stringify(state));
     process.exit(0);
@@ -73,7 +80,7 @@ process.exit(1);
 `;
 
 const dirs: string[] = [];
-function sandbox(heartbeat: string) {
+function sandbox(heartbeat: string, opts: { bootstrap?: boolean } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "deploy-image-"));
   dirs.push(dir);
   // The release SHA must resolve inside a git repo: a local bare origin holding
@@ -96,6 +103,25 @@ function sandbox(heartbeat: string) {
   spawnSync("git", ["-C", deployed, "remote", "add", "origin", origin]);
   writeFileSync(path.join(deployed, ".env"), "X=1\n");
   writeFileSync(path.join(deployed, "docker-compose.yml"), "services: {}\n");
+  if (opts.bootstrap) {
+    // First managed release: no last-good marker, the running worker is an old
+    // locally built image with NO revision label, captured via docker tag.
+    const state = {
+      images: { [tag]: `sha256:${"a".repeat(64)}`, "eventgraph-dev:old": `sha256:${"c".repeat(64)}` },
+      revisions: { [`sha256:${"a".repeat(64)}`]: releaseSha, [`sha256:${"c".repeat(64)}`]: "" },
+      heartbeat,
+      deployed: "eventgraph-dev:old",
+      releaseSha,
+    };
+    writeFileSync(path.join(dir, "state.json"), JSON.stringify(state));
+    writeFileSync(path.join(dir, "calls.log"), "");
+    const bin = path.join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(path.join(bin, "docker"), stub);
+    writeFileSync(path.join(bin, "sleep"), "#!/bin/sh\nexit 0\n");
+    for (const f of ["docker", "sleep"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
+    return { dir, deployed };
+  }
   writeFileSync(path.join(deployed, ".eventgraph-last-good-image"), `${prevTag}\n`);
   const state = {
     images: { [tag]: `sha256:${"a".repeat(64)}`, [prevTag]: `sha256:${"b".repeat(64)}`, "id-stale": "id-stale" },
@@ -145,6 +171,11 @@ test("a healthy release recreates only the worker, verifies the heartbeat and ne
   assert.ok(!calls.includes(`rmi ${"a".repeat(12)}`) && !calls.includes(`rmi ${"b".repeat(12)}`), "the deployed and rollback images must survive pruning");
   const overlay = calls.match(/OVERLAY\[\S+\.ci-image\.\S+\] ([^\n]*)/)?.[1] ?? "";
   assert.ok(overlay.includes("worker:") && !overlay.includes("api:") && !overlay.includes("web:"));
+  assert.ok(overlay.includes("AIHOT_RELEASE: ${EVENTGRAPH_RELEASE_LABEL:?}"),
+    "the overlay must pin the worker heartbeat release instead of leaving it 'dev'");
+  const ups = calls.split("\n").filter((l) => l.includes("up -d --no-deps --no-build --pull never worker"));
+  assert.ok(ups[0].includes(`REL=${JSON.parse(readFileSync(path.join(dir, "state.json"), "utf8")).releaseSha}`),
+    `deploy must pass the release SHA to the worker, got: ${ups[0]}`);
   assert.equal(readFileSync(path.join(deployed, ".eventgraph-last-good-image"), "utf8"), `${tag}\n`);
 });
 
@@ -167,4 +198,38 @@ test("a worker whose heartbeat never turns fresh rolls back to the previous imag
   assert.equal(state.deployed, prevTag, "rollback must restore the previous image");
   assert.ok(!existsSync(path.join(deployed, ".eventgraph-last-good-image.tmp")));
   assert.equal(readFileSync(path.join(deployed, ".eventgraph-last-good-image"), "utf8"), `${prevTag}\n`);
+  const ups = callsOf(dir).split("\n").filter((l) => l.includes("up -d --no-deps --no-build --pull never worker"));
+  assert.equal(ups.length, 2, "deploy recreate + rollback recreate");
+  assert.ok(ups[0].includes(`REL=${JSON.parse(readFileSync(path.join(dir, "state.json"), "utf8")).releaseSha}`),
+    `deploy must label the new release, got: ${ups[0]}`);
+  // The rollback recreate must carry the previous image's own revision label,
+  // not the failed release's SHA.
+  assert.ok(ups[1].includes(`REL=${"0".repeat(40)}`),
+    `rollback must label the restored image's revision, got: ${ups[1]}`);
+});
+
+test("first managed release: rollback to an unlabeled pre-CI image still recreates the worker", () => {
+  const { dir, deployed } = sandbox("", { bootstrap: true });
+  const res = run(dir, deployed);
+  assert.notEqual(res.status, 0);
+  const state = JSON.parse(readFileSync(path.join(dir, "state.json"), "utf8"));
+  assert.equal(state.deployed, "eventgraph-rollback:pre-ci", "the unlabeled pre-CI image must be restored");
+  assert.ok(!existsSync(path.join(deployed, ".eventgraph-last-good-image")), "bootstrap keeps no marker on failure");
+  const ups = callsOf(dir).split("\n").filter((l) => l.includes("up -d --no-deps --no-build --pull never worker"));
+  assert.equal(ups.length, 2, "deploy recreate + rollback recreate");
+  assert.ok(ups[0].includes(`REL=${state.releaseSha}`), `deploy must label the new release, got: ${ups[0]}`);
+  // The pre-CI image has no revision label; its worker always reported "dev",
+  // and the overlay's ${EVENTGRAPH_RELEASE_LABEL:?} must not abort the restore.
+  assert.ok(ups[1].includes("REL=dev"), `rollback must fall back to the pre-CI release "dev", got: ${ups[1]}`);
+});
+
+test("a rollback that cannot restore the worker says so instead of failing silently", () => {
+  const { dir, deployed } = sandbox("");
+  const state = JSON.parse(readFileSync(path.join(dir, "state.json"), "utf8"));
+  state.upFail = true;
+  writeFileSync(path.join(dir, "state.json"), JSON.stringify(state));
+  const res = run(dir, deployed);
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr, /Rollback failed to restore eventgraph-dev:b{12}/);
+  assert.match(res.stderr, /manual intervention required/);
 });

@@ -1,6 +1,10 @@
 # Checks on GitHub-hosted runners: install, typecheck, web build, the web and backend tests on a fresh
 # PostgreSQL, the built site's smoke check on the empty database, and the Docker image brought up with docker compose.
 # Official build Actions plus one reviewed SSH deployment Action; releases run only after passing checks.
+# Documentation-only changes (the Spec gate's docs classification, detected by scripts/ci/scope-changes.mjs)
+# skip the heavy steps and the e2e/docker jobs through job/step-level ifs: GitHub records skipped jobs as
+# success for branch protection, the Spec gate and the docs validation still run, and the Claude dispatch
+# still fires. Workflow-level path filters are NOT used: they leave required checks pending.
 name: Check
 
 on:
@@ -16,11 +20,47 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: check-${{ github.event.pull_request.number || github.ref }}
+  group: check-${{ github.event_name == 'push' && github.sha || github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Classifies the change range once with the base branch's detector (the same
+  # trust model as the Spec gate) so heavy jobs can skip documentation-only
+  # changes. Job-level ifs keep every required check reported as skipped=success.
+  changes:
+    if: github.event_name != 'push' || github.ref_name == 'develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect documentation-only changes
+        id: scope
+        env:
+          SCOPE_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+          SCOPE_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$SCOPE_BASE_SHA" =~ ^0+$ ]] || [[ -z "$SCOPE_BASE_SHA" ]]; then
+            echo '::notice::No trustworthy change base; running the full pipeline'
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          detector="scripts/ci/scope-changes.mjs"
+          if git cat-file -e "${SCOPE_BASE_SHA}:${detector}" 2>/dev/null; then
+            # Never the candidate PR's modified copy: same rule as the Spec gate.
+            git show "${SCOPE_BASE_SHA}:${detector}" > "$RUNNER_TEMP/scope-changes.mjs"
+            detector="$RUNNER_TEMP/scope-changes.mjs"
+          fi
+          docs_only="$({ node "$detector" || true; } | sed -n 's/^docs_only=//p' | head -n1)"
+          [[ "$docs_only" == true ]] || docs_only=false
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+
   check:
+    needs: changes
     if: github.event_name != 'push' || github.ref_name == 'develop'
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -48,9 +88,9 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Test Spec gate (positive and negative cases)
+      - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: node --test scripts/ci/check-spec.test.mjs
+        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs
       - name: Enforce pre-existing approved Spec
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
@@ -98,9 +138,25 @@ jobs:
             # First installation is externally reviewed as a special bootstrap.
             node scripts/ci/check-spec.mjs
           fi
+      - name: Docs-only validation
+        # Documentation-only changes skip the heavy steps below but still get a
+        # real check: the Spec gate above plus this offline Markdown validation.
+        if: needs.changes.outputs.docs_only == 'true'
+        env:
+          SCOPE_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+          SCOPE_HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$SCOPE_BASE_SHA" =~ ^0+$ ]] || [[ -z "$SCOPE_BASE_SHA" ]]; then
+            echo '::error::Cannot validate documentation without a trusted base commit' >&2
+            exit 1
+          fi
+          export SCOPE_BASE_SHA
+          node scripts/ci/check-docs.mjs
       - name: Install
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm ci --no-audit --no-fund
       - name: Online migration safety
+        if: needs.changes.outputs.docs_only != 'true'
         # New migrations against the PR base: deployed ones unchanged, no whole-table rewrite or blocking index in a release.
         env:
           MIGRATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
@@ -110,6 +166,7 @@ jobs:
           fi
           node scripts/check-migrations.ts --base "$MIGRATION_BASE"
       - name: PostgreSQL backup tools
+        if: needs.changes.outputs.docs_only != 'true'
         # 恢复测试需要与 PostgreSQL 17 服务匹配的客户端，不能依赖 runner 的默认版本。
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
@@ -122,6 +179,7 @@ jobs:
           /usr/lib/postgresql/17/bin/pg_dump --version
           /usr/lib/postgresql/17/bin/pg_restore --version
       - name: Release script validation
+        if: needs.changes.outputs.docs_only != 'true'
         run: |
           bash -n scripts/deploy-prod.sh
           sh -n scripts/ci/deploy-image.sh
@@ -144,19 +202,24 @@ jobs:
           assert envcheck.errors(prod,"production")
           PY
       - name: NVIDIA pool regression tests
+        if: needs.changes.outputs.docs_only != 'true'
         run: node --import ./tests/standalone.ts --test tests/nvidia*.standalone.test.ts
       - name: Typecheck
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm run typecheck
       # Fail closed on policy-page placeholders or a missing contact email (specs/003-content-assets FR-009):
       # an AdSense review would reject it, so a PR must not get that far either.
       - name: AdSense preflight
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm run adsense:preflight
       - name: Build web
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm run build -w @aihot/web
       # The official Playwright image already has matching Chromium/WebKit binaries and
       # native OS libraries. Reinstalling WebKit's hundreds of apt packages on each
       # GitHub runner can stall longer than this job's 25-minute hard limit.
       - name: Web tests (Chromium + WebKit, official Playwright image)
+        if: needs.changes.outputs.docs_only != 'true'
         run: |
           docker run --rm --init --ipc=host --network host \
             -v "$PWD:/work" -w /work \
@@ -168,8 +231,10 @@ jobs:
       # Each test file runs on its own copy of aihot_ci (tests/databases.ts), which the run migrates and
       # leaves empty; the smoke check then reads that empty database.
       - name: Backend tests
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm test
       - name: Smoke check of the built site
+        if: needs.changes.outputs.docs_only != 'true'
         # The site itself runs with collection and model calls off (the tests above use local stubs).
         env:
           COLLECT_ENABLED: "false"
@@ -185,7 +250,10 @@ jobs:
         run: tail -n 60 "$RUNNER_TEMP/api.log" "$RUNNER_TEMP/web.log" 2>/dev/null || true
 
   e2e:
-    if: github.event_name != 'push' || github.ref_name == 'develop'
+    needs: changes
+    if: >-
+      ${{ (github.event_name != 'push' || github.ref_name == 'develop') &&
+          needs.changes.outputs.docs_only != 'true' }}
     # Its own job, so a red backend test does not hide what the browser checks find.
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -246,9 +314,13 @@ jobs:
         run: tail -n 60 "$RUNNER_TEMP/api.log" "$RUNNER_TEMP/web.log" 2>/dev/null || true
 
   docker:
+    needs: changes
     # Docker integration runs for PRs; the branch push builds the publishable image separately.
     # Bot-created upstream PRs explicitly dispatch Check; include Docker on those runs.
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'chore/aihot-upstream-'))
+    if: >-
+      ${{ (github.event_name == 'pull_request' ||
+           (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'chore/aihot-upstream-'))) &&
+          needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -282,9 +354,12 @@ jobs:
         run: docker compose down -v
 
   # CI success on develop/main publishes one immutable image; only develop auto-deploys.
+  # Documentation-only develop pushes change no artifact and publish nothing.
   publish:
-    needs: [check, e2e]
-    if: github.event_name == 'push' && github.ref_name == 'develop'
+    needs: [changes, check, e2e]
+    if: >-
+      ${{ github.event_name == 'push' && github.ref_name == 'develop' &&
+          needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -310,10 +385,22 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_BRANCH" == develop || "$SOURCE_BRANCH" == main ]]
           current="$(gh api "repos/$GITHUB_REPOSITORY/branches/$SOURCE_BRANCH" --jq '.commit.sha')"
-          if [[ "$current" == "$SOURCE_SHA" ]]; then
+          if [[ "$current" != "$SOURCE_SHA" ]]; then
+            if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+              git fetch --unshallow origin "$current"
+            else
+              git fetch origin "$current"
+            fi
+          fi
+          # Supersession by content (specs/010): a documentation-only tip does not
+          # suppress this pending code release; any later executable change does.
+          # The release's own checkout decides and fails closed on any error.
+          release="$(SOURCE_SHA="$SOURCE_SHA" HEAD_SHA="$current" \
+            node scripts/ci/release-candidate.mjs | sed -n 's/^current=//p' | head -n1)"
+          if [[ "$release" == true ]]; then
             echo 'publish=true' >> "$GITHUB_OUTPUT"
           else
-            echo '::notice::A newer commit exists; skip obsolete build'
+            echo '::notice::A newer executable commit exists; skip obsolete build'
             echo 'publish=false' >> "$GITHUB_OUTPUT"
           fi
 
@@ -542,8 +629,23 @@ jobs:
           SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
         shell: bash
         run: |
-          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha' || true)"
+          if [[ -n "$current" && "$current" != "$SOURCE_SHA" ]]; then
+            if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+              git fetch --unshallow origin "$current" || true
+            else
+              git fetch origin "$current" || true
+            fi
+          fi
+          # Same content-based supersession as publish (specs/010): deploy the
+          # published release unless a later executable change exists; fail
+          # closed — an unreadable branch tip skips the deployment.
+          release="$({ SOURCE_SHA="$SOURCE_SHA" HEAD_SHA="$current" node scripts/ci/release-candidate.mjs || true; } \
+            | sed -n 's/^current=//p' | head -n1)"
+          if [[ "$release" == true ]]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::A newer executable or unreadable branch tip; skip release'
           fi
       - name: Deploy VM13 Web and API on the cn-dev development database
         if: steps.current.outputs.deploy == 'true'
@@ -608,7 +710,7 @@ jobs:
       group: eventgraph-dev-worker
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     environment: development
     permissions:
       contents: read
@@ -625,8 +727,23 @@ jobs:
           SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
         shell: bash
         run: |
-          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$SOURCE_SHA" ]]; then
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha' || true)"
+          if [[ -n "$current" && "$current" != "$SOURCE_SHA" ]]; then
+            if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+              git fetch --unshallow origin "$current" || true
+            else
+              git fetch origin "$current" || true
+            fi
+          fi
+          # Same content-based supersession as publish (specs/010): deploy the
+          # published release unless a later executable change exists; fail
+          # closed — an unreadable branch tip skips the deployment.
+          release="$({ SOURCE_SHA="$SOURCE_SHA" HEAD_SHA="$current" node scripts/ci/release-candidate.mjs || true; } \
+            | sed -n 's/^current=//p' | head -n1)"
+          if [[ "$release" == true ]]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::A newer executable or unreadable branch tip; skip release'
           fi
       - name: Ship the published digest from VM13 to cn-dev
         if: steps.current.outputs.deploy == 'true'
@@ -641,7 +758,7 @@ jobs:
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
           envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA,EVENTGRAPH_DEV_SSH_FINGERPRINT
-          command_timeout: 10m
+          command_timeout: 20m
           version: '1.8.2'
           script_path: scripts/ci/export-image-vm13.sh
       - name: Deploy the development worker on cn-dev
