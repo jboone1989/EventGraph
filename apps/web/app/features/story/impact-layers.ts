@@ -64,7 +64,7 @@ export function stationEvidenceAt(
   const cutoff = Date.parse(asOf);
   const safeUrl = (url: string) => { try { return /^https?:$/.test(new URL(url).protocol); } catch { return false; } };
   const dated = (value: string | null | undefined) =>
-    !!value && /(?:Z|[+-]\\d{2}:\\d{2})$/i.test(value) && Number.isFinite(Date.parse(value));
+    !!value && /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) && Number.isFinite(Date.parse(value));
   return route.stations.flatMap(station => {
     // Project only the evidence visible at this cutoff. Filtering the station but
     // leaving its full reports array would leak future links through the drawer.
