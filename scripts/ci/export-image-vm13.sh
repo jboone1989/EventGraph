@@ -100,14 +100,43 @@ ssh $ssh_opts ubuntu@"$cn_dev_host" 'seed="$(sed -n 1p /home/ubuntu/.eventgraph-
 # Push from VM13 through an SSH tunnel bound to loopback on both ends: the
 # same pre-authorized connection as the database tunnel, no new port on
 # either host. Killed on exit so the tunnel never outlives the script.
-ssh $ssh_opts -n -N -o ExitOnForwardFailure=yes -L "$registry_addr:$registry_addr" ubuntu@"$cn_dev_host" &
-tunnel_pid=$!
-trap 'kill "$tunnel_pid" 2>/dev/null || true' EXIT
+tunnel_pid=
+trap '[ -z "$tunnel_pid" ] || kill "$tunnel_pid" 2>/dev/null || true' EXIT
+start_tunnel() {
+  if [ -n "$tunnel_pid" ]; then
+    kill "$tunnel_pid" 2>/dev/null || true
+    wait "$tunnel_pid" 2>/dev/null || true
+  fi
+  ssh $ssh_opts -n -N -o ExitOnForwardFailure=yes -L "$registry_addr:$registry_addr" ubuntu@"$cn_dev_host" &
+  tunnel_pid=$!
+}
+# The cross-border SSH handshake can take longer than a local Docker push
+# retry. Verify that the forwarded registry actually answers before sending
+# blobs, and replace a dead/unresponsive tunnel before the next attempt.
+ensure_tunnel() {
+  if [ -z "$tunnel_pid" ] || ! kill -0 "$tunnel_pid" 2>/dev/null ||
+    ! curl -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
+    start_tunnel
+  fi
+  ready=0
+  check=1
+  while [ "$check" -le 45 ]; do
+    if ! kill -0 "$tunnel_pid" 2>/dev/null; then break; fi
+    if curl -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
+      ready=1
+      break
+    fi
+    check=$((check + 1))
+    sleep 1
+  done
+  [ "$ready" -eq 1 ] || { echo "cn-dev registry SSH tunnel not ready" >&2; return 1; }
+}
 
 sudo -n docker tag "$image_id" "$registry_repo:$EVENTGRAPH_RELEASE_SHA"
 pushed=0
 attempt=1
 while [ "$attempt" -le 3 ]; do
+  ensure_tunnel
   if sudo -n docker push "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
     pushed=1
     break
