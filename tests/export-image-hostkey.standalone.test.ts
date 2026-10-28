@@ -80,7 +80,7 @@ const sshStub = `#!/bin/sh
 printf '%s\n' "$*" >> "$STUB_SSH_CALLS"
 case "$*" in
   *"eventgraph-dev:seed"*) exit 0 ;;
-  *"-N"*"-L"*) printf '%s\\n' "$" > "$STUB_TUNNEL_PID_FILE"; exec sleep 30 >/dev/null 2>&1 ;;
+  *"-N"*"-L"*) printf '%s\\n' "$$" > "$STUB_TUNNEL_PID_FILE"; exec sleep 30 >/dev/null 2>&1 ;;
   *"registry:2 >"*) [ -n "$STUB_REGISTRY_PRESENT" ] && exit 0; exit 1 ;;
   *"gzip -dc | docker load"*) exit 0 ;;
   *"docker run -d --name eventgraph-dev-registry"*) exit 0 ;;
@@ -99,7 +99,7 @@ case "$*" in *"http://127.0.0.1:5000/v2/"*) ;; *) exit 1 ;; esac
 n="$(cat "$STUB_CURL_COUNTER")"
 n=$((n + 1))
 printf '%s\\n' "$n" > "$STUB_CURL_COUNTER"
-[ "$n" -gt "${STUB_TUNNEL_READY_FAILS:-0}" ] || exit 7
+[ "$n" -gt "$STUB_TUNNEL_READY_FAILS" ] || exit 7
 exit 0
 `;
 
@@ -169,6 +169,7 @@ function sandbox(
     STUB_PUSH_COUNTER: path.join(dir, "push-counter"),
     STUB_CURL_COUNTER: path.join(dir, "curl-counter"),
     STUB_TUNNEL_PID_FILE: path.join(dir, "tunnel.pid"),
+    STUB_TUNNEL_READY_FAILS: "0",
     EVENTGRAPH_IMAGE: imageRef,
     EVENTGRAPH_RELEASE_SHA: releaseSha,
     EVENTGRAPH_DEV_SSH_FINGERPRINT: undefined,
