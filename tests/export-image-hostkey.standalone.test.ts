@@ -9,8 +9,8 @@
 // registry on cn-dev's loopback (docker save ships every layer every time and
 // repeatedly missed the 20-minute deadline across the cross-border link), so
 // these tests also pin down the bootstrap, the blob-resumable push retry, the
-// verified pull/record contract deploy-image.sh depends on, and the registry
-// prune. They drive the real export script against stub
+// verified pull/record contract deploy-image.sh depends on, and teardown of
+// the ephemeral registry volume after a verified delivery. They drive the real export script against stub
 // docker/ssh/ssh-keyscan/sudo binaries, but the fingerprint check runs a REAL
 // ssh-keygen, so a wrong host key exercises real fingerprint math rather than
 // a stubbed assertion.
@@ -85,7 +85,7 @@ case "$*" in
   *"docker pull"*) exit 0 ;;
   *"docker image inspect"*) echo "\${STUB_REMOTE_IMAGE_ID:-$STUB_IMAGE_ID}" ;;
   *"eventgraph-last-delivered-image"*) exit 0 ;;
-  *"sh -s --"*) exit 0 ;;
+  *"docker rm -f eventgraph-dev-registry"*"docker volume rm eventgraph-dev-registry"*) exit 0 ;;
   *) echo "ssh stub: unexpected remote command: $*" >&2; exit 1 ;;
 esac
 `;
@@ -227,8 +227,8 @@ test("cold registry: bootstraps the registry image once, pushes, and records the
   assert.ok(!existsSync(`${pinnedFile_}.scan`));
   const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
   // 10 hops: registry probe, bootstrap load, container ensure, /v2/ wait, seed,
-  // tunnel, remote pull, remote id, pairing write, prune.
-  assert.equal(sshCalls.length, 10, `probe, load, ensure, wait, seed, tunnel, pull, id, record, prune — got: ${sshCalls.join(" || ")}`);
+  // tunnel, remote pull, remote id, pairing write, registry+volume teardown.
+  assert.equal(sshCalls.length, 10, `probe, load, ensure, wait, seed, tunnel, pull, id, record, cleanup — got: ${sshCalls.join(" || ")}`);
   for (const call of sshCalls) {
     assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile_}`), `ssh must pin the verified host key: ${call}`);
     assert.ok(call.includes("HostKeyAlgorithms=ssh-ed25519"), `ssh must negotiate the verified algorithm: ${call}`);
@@ -239,10 +239,11 @@ test("cold registry: bootstraps the registry image once, pushes, and records the
   assert.ok(sshCalls.some((c) => c.includes("-N") && c.includes(`-L 127.0.0.1:5000:127.0.0.1:5000`)), "the push must go through a loopback SSH tunnel");
   assert.ok(sshCalls.some((c) => c.includes(`docker pull '${registryTag}'`)), "cn-dev must pull from its own loopback registry");
   assert.ok(sshCalls.some((c) => c.includes("eventgraph-last-delivered-image") && c.includes(tag) && c.includes(imageRef)), "the pairing file must bind the delivered tag to the release digest");
-  assert.ok(sshCalls.some((c) => c.includes(`sh -s -- ${releaseSha}`)), "prune runs remotely with the current release kept");
+  assert.ok(sshCalls.some((c) => c.includes("docker rm -f eventgraph-dev-registry") && c.includes("docker volume rm eventgraph-dev-registry")),
+    "a verified delivery must remove the transport registry and its volume");
 });
 
-test("warm registry: no bootstrap stream, only the incremental push", () => {
+test("retry/warm registry: no bootstrap stream, only the incremental push", () => {
   const { dir, env } = sandbox({ registryPresent: true });
   const res = run(env);
   assert.equal(res.status, 0, res.stderr);
@@ -252,7 +253,8 @@ test("warm registry: no bootstrap stream, only the incremental push", () => {
   assert.ok(dockerCalls.includes(`push ${registryTag}`));
   const sshCalls = content(path.join(dir, "ssh-calls.log"));
   assert.ok(!sshCalls.includes("gzip -dc | docker load"), "no stream load may happen");
-  assert.ok(sshCalls.includes("sh -s"), "prune still runs");
+  assert.ok(sshCalls.includes("docker rm -f eventgraph-dev-registry") && sshCalls.includes("docker volume rm eventgraph-dev-registry"),
+    "successful retry still removes transport scratch state");
 });
 
 test("a push that fails twice succeeds on the third attempt (blobs already uploaded are skipped)", () => {

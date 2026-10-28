@@ -81,8 +81,10 @@ if ! ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect $registry_image >
   sudo -n docker save "$registry_image" | gzip -1 | ssh $ssh_opts ubuntu@"$cn_dev_host" 'gzip -dc | docker load'
 fi
 # Idempotent: start the existing container if it stopped, create it otherwise,
-# then wait until the API answers. The volume keeps delivered blobs so the
-# next release's push is incremental.
+# then wait until the API answers. A failed/incomplete delivery intentionally
+# leaves this volume in place so a workflow retry can resume already-uploaded
+# blobs. After a verified delivery we remove the registry and volume; the next
+# release recreates it and seeds shared layers from cn-dev's last local image.
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker ps --format '{{.Names}}' | grep -qx $registry_container || docker start $registry_container 2>/dev/null || docker run -d --name $registry_container --restart unless-stopped -p 127.0.0.1:5000:5000 -v eventgraph-dev-registry:/var/lib/registry $registry_image"
 ssh $ssh_opts ubuntu@"$cn_dev_host" 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do curl -fsS -o /dev/null http://127.0.0.1:5000/v2/ && exit 0; sleep 1; done; echo "cn-dev registry did not become ready" >&2; exit 1'
 
@@ -128,25 +130,12 @@ remote_id="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --format 
   || { echo "cn-dev did not end up with the published image $image_id (got ${remote_id:-none})" >&2; exit 1; }
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker tag '$image_id' 'eventgraph-dev:${image_id#sha256:}' && printf '%s\\n%s\\n' 'eventgraph-dev:${image_id#sha256:}' '$EVENTGRAPH_IMAGE' > /home/ubuntu/.eventgraph-last-delivered-image.tmp && mv /home/ubuntu/.eventgraph-last-delivered-image.tmp /home/ubuntu/.eventgraph-last-delivered-image"
 
-# Keep the registry at roughly one release of blobs: delete the manifests of
-# every other release tag and garbage-collect the blobs they alone referenced.
-# Rollback images stay available regardless — they live in cn-dev's own image
-# store, not in this registry. Housekeeping runs after the verified pull and is
-# non-fatal by design: a prune failure must not fail a verified delivery (the
-# workflow serializes deploy_dev_worker runs, so no push races the collector).
-if ! ssh $ssh_opts ubuntu@"$cn_dev_host" sh -s -- "$EVENTGRAPH_RELEASE_SHA" <<'PRUNE'
-set -eu
-keep="$1"
-manifests="application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json"
-for tag in $(curl -fsS http://127.0.0.1:5000/v2/eventgraph-dev/tags/list | sed -n 's/.*"tags": *\[\(.*\)\].*/\1/p' | tr -d '"' | tr ',' '\n'); do
-  [ -n "$tag" ] || continue
-  [ "$tag" = "$keep" ] && continue
-  digest="$(curl -fsSI -H "Accept: $manifests" "http://127.0.0.1:5000/v2/eventgraph-dev/manifests/$tag" | tr -d '\r' | sed -n 's/^Docker-Content-Digest: *//p' | head -n 1 || true)"
-  [ -n "$digest" ] && curl -s -o /dev/null -X DELETE "http://127.0.0.1:5000/v2/eventgraph-dev/manifests/$digest" || true
-done
-docker exec eventgraph-dev-registry bin/registry garbage-collect /etc/docker/registry/config.yml --delete-untagged >/dev/null
-PRUNE
-then
-  echo "registry prune failed (delivery already verified)" >&2
-fi
+# The registry is transport scratch space, not an artifact store. Once the exact
+# image is pulled, ID-verified and recorded in cn-dev's local image store, tear
+# down the registry and its volume completely. This avoids manifest-delete and
+# stop-the-world garbage-collection semantics entirely. Failed/incomplete
+# transfers never reach this point, so their volume stays available for retry
+# and preserves already-uploaded blobs. Rollback images are unaffected because
+# they live in cn-dev's local image store.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "docker rm -f $registry_container >/dev/null && docker volume rm eventgraph-dev-registry >/dev/null"
 echo "Image $EVENTGRAPH_IMAGE delivered to cn-dev through the loopback registry"

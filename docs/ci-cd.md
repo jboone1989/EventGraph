@@ -70,11 +70,14 @@ independent jobs — neither gates the other:
   dies mid-way resumes on retry because uploaded blobs are skipped. Docker
   treats `127.0.0.0/8` as insecure by default, so the plain-HTTP registry needs
   no daemon configuration on either host; `registry:2` itself is bootstrapped
-  once over a compressed one-shot stream, the registry is seeded from the
-  images cn-dev already holds locally (pushed over cn-dev's own loopback, so
-  even the first relay push skips the shared layers), and delivered manifests
-  are pruned with a registry garbage-collect to keep the volume at roughly one
-  release.
+  once over a compressed one-shot stream. Each successful delivery uses
+  transport scratch storage: the registry is seeded from the last local
+  cn-dev app image over loopback, so the cross-border push sends only missing
+  layers, then after the pulled image ID and digest pairing are verified the
+  registry container and volume are removed. If a transfer dies before
+  verification, the registry volume is deliberately retained so a workflow
+  retry resumes already-uploaded blobs. Rollback images live in cn-dev's local
+  image store and are never tied to registry retention.
   Delivery keeps the content-addressed local tag contract
   (`eventgraph-dev:<image ID hex>`) that `deploy-image.sh` asserts: the export
   pulls on cn-dev from the loopback registry, verifies the image ID there and
