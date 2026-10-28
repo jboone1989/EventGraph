@@ -109,3 +109,21 @@ test("repeated headings produce suffixed anchors", () => {
     assert.ok(r.stderr.includes("broken anchor twice.md#same-2"), r.stderr);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+
+test("punctuation-separated headings preserve each GitHub hyphen in Markdown anchors", () => {
+  const { cwd, base } = fixture();
+  try {
+    const good = commit(cwd, "docs/guide.md", [
+      "# Guide", "## CI / CD", "## Spec & Plan",
+      "See [CI](#ci--cd) and [Spec](#spec--plan).",
+    ].join("\n"));
+    const r1 = check(cwd, base, good);
+    assert.equal(r1.status, 0, r1.stderr);
+    const bad = commit(cwd, "docs/broken.md", [
+      "# Broken", "## CI / CD", "[Incorrect GitHub anchor](#ci-cd)",
+    ].join("\n"));
+    const r2 = check(cwd, base, bad);
+    assert.equal(r2.status, 1);
+    assert.ok(r2.stderr.includes("broken anchor #ci-cd"), r2.stderr);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
