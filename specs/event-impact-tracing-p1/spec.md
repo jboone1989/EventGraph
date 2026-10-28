@@ -1,9 +1,10 @@
-# EventGraph · 地区冲突影响追踪 · P1 最小产品薄切片 Spec（草案）
+# EventGraph · 地区冲突影响追踪 · P1 最小产品薄切片 Spec v1
 
-> **状态：DRAFT（2026-10-28，Pi 独立起草）。未经 Owner 批准，不授权任何实现。**
-> 上游：Issue #176 T07；规划基线 [spec.md](./spec.md) v0.1（blob 于 `80088dc`，2026-10-25 保存，自身注明"不等于授权开发"）；T06 证据结论 [audit-2026-10-27.md](./audit-2026-10-27.md) / [validation.md](./validation.md)（PR #181，develop `176d88c`）。
-> 研究依据（只读核对 + 外部调研，2026-10-28）：[p1-research-2026-10-28.md](./p1-research-2026-10-28.md)。
-> 本文件若获批准，以包含批准版的完整 Git commit SHA + 文件路径作为实现 PR 的引用锚；blob SHA 仅用于内容核对。未批准前它只是草案。
+> **状态：APPROVED（2026-10-28）。Owner 在当前聊天明确批准：“批准上述最小范围，继续开发”。[真实审批记录](https://github.com/jboone1989/EventGraph/pull/198#issuecomment-6461819627)。**
+> 批准候选：`52a1546184823c48227a9732d7b8ecca62ddb780` 的 `specs/event-impact-tracing/p1-spec-draft.md`。已核对后续 `de82e6eb25e8ec8638991c43df3ca49c85d35d5f` 仅合并 develop，候选 Spec 与研究文件内容无漂移。本次只规范化路径、登记审批与已决事项，不扩大需求。
+> 上游：Issue #176 T07；规划基线 [spec.md](../event-impact-tracing/spec.md) v0.1（首存于 `80088dc`，本次不修改旧规划）；T06 证据结论 [audit-2026-10-27.md](../event-impact-tracing/audit-2026-10-27.md) / [validation.md](../event-impact-tracing/validation.md)（PR #181，develop `176d88c`）。
+> 研究依据（只读核对 + 外部调研，2026-10-28）：[p1-research-2026-10-28.md](../event-impact-tracing/p1-research-2026-10-28.md)。
+> 实现必须等待本独立 Spec PR 正常合入 develop，并引用包含批准版的完整 merge commit SHA + `specs/event-impact-tracing-p1/spec.md`；blob SHA 仅用于内容核对。
 
 ## 1. 目标与非目标
 
@@ -98,13 +99,13 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 3. **只读 DB 复核脚本**（文档化 SQL，不进 CI）：T0 站/证据行、USTR 站证据行、gCaptain 两稿归组状态——供任意审查者复跑。
 4. **明确不测**：样式微调、词典枚举完备性（开放集，按需增词）。
 
-## 8. 实现边界预估（供批准后拆任务，非本草案内容）
+## 8. 已批准实现边界
 
 预计改动集中在：`packages/contracts`（StoryRoute station 的可空 `subject/action/object` 字段 + `evidenceKind`）、`packages/backend/src/publication/story-route.ts`（现有同一 SQL 的 SELECT/行映射只读补字段，保留公开过滤与合并解析）、`apps/web`（层归类纯函数 + 现有站列表的类型标签/抽屉增强 + 文案）、`docs/event-explorer.md`、上述测试。不新增查询、不加迁移、不动 worker。必须补后端字段透传/撤稿过滤回归；这是批准后才可实施的边界。单 PR、遵循 feature→develop。
 
-## 9. 未决事项（需 Owner 决定）
+## 9. 已决事项（2026-10-28 Owner 审批）
 
-1. 本草案是否批准为 T07 实现 Spec（批准后以完整 commit SHA + 文件路径锚定）。
-2. 站级抽屉放在"影响线索"标签页内还是独立"事实站"标签页（§5 按"影响线索页内 + 来源页可达"写，可调）。
-3. `unclassified` 站是否在影响工作台显示（本草案：显示为普通事实站，因为隐藏会让"本事件自身事实"在 T0 样本上不可见）。
-4. e2e 对真实故事的依赖：若部署环境 T0 故事不可用，是否接受 seeded fixture 作为降级验收（本草案倾向：真实页优先，fixture 仅补充）。
+1. Owner 已批准候选的最小 P1 范围；以本规范路径及独立合并 commit SHA 锚定实现，不授权 P2 数据接入或因果边。
+2. 站级抽屉放在现有“影响线索”标签页内，并从现有来源视图可达；不新增标签页。
+3. 保留 `unclassified` 普通事实站，不能为层归类而隐藏本事件自身事实。
+4. known/valid、中英文、390px 和真实页面验证仍是验收要求；fixture 只补充回归，不替代真实页验收。真实 T0 不可用时记录阻塞，不以虚构样本宣称完成。
