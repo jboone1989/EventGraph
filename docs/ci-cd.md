@@ -67,7 +67,14 @@ independent jobs — neither gates the other:
   of the full ~146 MB `docker save` stream that repeatedly missed the 20-minute
   deadline across the variable cross-border link (measured ~123 KB/s sustained
   on 2026-10-28, when both attempts of the morning timed out), and a push that
-  dies mid-way resumes on retry because uploaded blobs are skipped. Docker
+  dies mid-way resumes on retry because uploaded blobs are skipped. The push
+  itself runs quiet and every attempt is bounded by one shared 16-minute
+  watchdog budget that fits the step's 20-minute command timeout: on
+  2026-10-28 the first live run committed every blob and then wedged without
+  ever sending the manifest (tunnel and session both healthy), so a hung
+  client must be killed by the watchdog — committed blobs survive — and
+  return to the resumable loop instead of stalling until the whole script is
+  killed. Docker
   treats `127.0.0.0/8` as insecure by default, so the plain-HTTP registry needs
   no daemon configuration on either host; `registry:2` itself is bootstrapped
   once over a compressed one-shot stream. Each successful delivery uses
