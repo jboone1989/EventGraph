@@ -38,6 +38,11 @@ async function embedBatch(texts: string[], subject: string): Promise<{ vectors: 
   if (registered) {
     // The connection owns the credential, address, policy check and budget (its vendor is the service).
     const got = await embedRegisteredModel(EMBEDDING_MODEL.slice(6), texts, "embedding", subject);
+    if (got.vectors.length !== texts.length) {
+      const reason = `unusable embeddings: expected ${texts.length} vectors, got ${got.vectors.length}`;
+      await rejectReceivedResponse(got.receiptId, reason);
+      throw new ModelOutputError(`Embedding response is unusable for ${subject}: ${reason}`, got.receiptId);
+    }
     for (const vector of got.vectors) {
       if (vector && VECTOR.safeParse(vector).success) continue;
       const reason = `unusable embeddings: vector of ${vector?.length ?? 0} dimensions, EMBEDDING_DIMS is ${EMBEDDING_DIMS}`;
