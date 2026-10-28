@@ -35,7 +35,10 @@ const dockerStub = `#!/usr/bin/env node
 // VM13-side docker stub: the digest is already local (no pull), carries the
 // release revision label, and can be tagged, pushed and saved. The registry
 // bootstrap image is only local when STUB_REGISTRY_LOCAL says so; push fails
-// the first STUB_PUSH_FAILURES attempts to exercise blob-resumable retries.
+// the first STUB_PUSH_FAILURES attempts to exercise blob-resumable retries,
+// and STUB_HANG_FIRST_PUSH wedges the first attempt (blobs committed, the
+// manifest never sent) to exercise the watchdog that must kill it.
+const { spawnSync } = require("child_process");
 const { appendFileSync, readFileSync, existsSync, writeFileSync } = require("fs");
 const log = (line) => appendFileSync(process.env.STUB_CALLS, line + "\\n");
 const args = process.argv.slice(2);
@@ -65,6 +68,7 @@ if (args[0] === "push") {
   if (failures === 0 && process.env.STUB_DROP_TUNNEL_ON_FIRST_PUSH) {
     try { process.kill(Number(readFileSync(process.env.STUB_TUNNEL_PID_FILE, "utf8")), "SIGTERM"); } catch {}
   }
+  if (failures === 0 && process.env.STUB_HANG_FIRST_PUSH) spawnSync("sleep", ["30"]);
   process.exit(failures < Number(process.env.STUB_PUSH_FAILURES || 0) ? 1 : 0);
 }
 if (args[0] === "save") { log("save " + args.join(" ")); console.log("tar-bytes"); process.exit(0); }
@@ -103,6 +107,32 @@ printf '%s\\n' "$n" > "$STUB_CURL_COUNTER"
 exit 0
 `;
 
+const timeoutStub = `#!/bin/sh
+# timeout(1) stub: passthrough unless STUB_EXPIRE_FAST is set, in which case
+# the wrapped command is killed almost immediately (the watchdog firing)
+# instead of waiting out the real multi-minute budget.
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -k) shift 2 ;;
+    -*) shift ;;
+    *) break ;;
+  esac
+done
+dur="$1"; shift
+printf '%s %s\\n' "$dur" "$*" >> "$STUB_TIMEOUT_CALLS"
+if [ -n "$STUB_EXPIRE_FAST" ]; then
+  "$@" & child=$!
+  sleep 0.3
+  if kill "$child" 2>/dev/null; then
+    wait "$child" 2>/dev/null
+    exit 124
+  fi
+  wait "$child"
+  exit $?
+fi
+exec "$@"
+`;
+
 const keyscanStub = `#!/bin/sh
 # Emulates ssh-keyscan: offers the per-test generated ed25519 and ECDSA host
 # keys, the two algorithms the real sshd offers and the script scans for.
@@ -135,7 +165,7 @@ interface Sandbox {
 // other modes (pinEcdsa reproduces the 2026-10-27 CD failure: the secret pins
 // the ECDSA key while the script only scanned ed25519).
 function sandbox(
-  opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean; registryPresent?: boolean; pushFailures?: number; remoteImageId?: string; tunnelReadyFails?: number; dropTunnelOnFirstPush?: boolean } = {},
+  opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean; registryPresent?: boolean; pushFailures?: number; remoteImageId?: string; tunnelReadyFails?: number; dropTunnelOnFirstPush?: boolean; hangFirstPush?: boolean } = {},
 ): Sandbox {
   const dir = mkdtempSync(path.join(tmpdir(), "export-image-"));
   dirs.push(dir);
@@ -149,10 +179,12 @@ function sandbox(
   writeFileSync(path.join(bin, "ssh"), sshStub);
   writeFileSync(path.join(bin, "ssh-keyscan"), keyscanStub);
   writeFileSync(path.join(bin, "curl"), curlStub);
+  writeFileSync(path.join(bin, "timeout"), timeoutStub);
   writeFileSync(path.join(bin, "sudo"), `#!/bin/sh\n[ "$1" = "-n" ] && shift\nexec "$@"\n`);
-  for (const f of ["docker", "ssh", "ssh-keyscan", "sudo", "curl"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
+  for (const f of ["docker", "ssh", "ssh-keyscan", "sudo", "curl", "timeout"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
   writeFileSync(path.join(dir, "ssh-calls.log"), "");
   writeFileSync(path.join(dir, "docker-calls.log"), "");
+  writeFileSync(path.join(dir, "timeout-calls.log"), "");
   writeFileSync(path.join(dir, "push-counter"), "0");
   writeFileSync(path.join(dir, "curl-counter"), "0");
   const env: Record<string, string | undefined> = {
@@ -168,6 +200,7 @@ function sandbox(
     STUB_OFFERED_ECDSA_PUB: path.join(dir, "offered-ecdsa.pub"),
     STUB_PUSH_COUNTER: path.join(dir, "push-counter"),
     STUB_CURL_COUNTER: path.join(dir, "curl-counter"),
+    STUB_TIMEOUT_CALLS: path.join(dir, "timeout-calls.log"),
     STUB_TUNNEL_PID_FILE: path.join(dir, "tunnel.pid"),
     STUB_TUNNEL_READY_FAILS: "0",
     EVENTGRAPH_IMAGE: imageRef,
@@ -178,6 +211,10 @@ function sandbox(
   if (opts.pushFailures) env.STUB_PUSH_FAILURES = String(opts.pushFailures);
   if (opts.tunnelReadyFails) env.STUB_TUNNEL_READY_FAILS = String(opts.tunnelReadyFails);
   if (opts.dropTunnelOnFirstPush) env.STUB_DROP_TUNNEL_ON_FIRST_PUSH = "1";
+  if (opts.hangFirstPush) {
+    env.STUB_HANG_FIRST_PUSH = "1";
+    env.STUB_EXPIRE_FAST = "1";
+  }
   if (opts.remoteImageId) env.STUB_REMOTE_IMAGE_ID = opts.remoteImageId;
   if (!opts.noPin) {
     env.EVENTGRAPH_DEV_SSH_FINGERPRINT = opts.pinEcdsa
@@ -240,7 +277,7 @@ test("cold registry: bootstraps the registry image once, pushes, and records the
   assert.ok(dockerCalls.includes("save registry:2"), "a missing registry image must be shipped by stream");
   // The app itself is delivered only through the registry: tag + push, no save.
   assert.ok(dockerCalls.includes(`tag ${imageId} ${registryTag}`), dockerCalls);
-  assert.ok(dockerCalls.includes(`push ${registryTag}`), dockerCalls);
+  assert.ok(dockerCalls.includes(`push --quiet ${registryTag}`), dockerCalls);
   assert.ok(!dockerCalls.includes(`save ${tag}`), "the app image must no longer be shipped by docker save");
   const pinnedFile_ = pinnedFile(home);
   assert.equal(readFileSync(pinnedFile_, "utf8"), `${cnDevHost} ${offeredPub}\n`, "only the verified key is trusted");
@@ -273,7 +310,7 @@ test("retry/warm registry: no bootstrap stream, only the incremental push", () =
   const dockerCalls = content(path.join(dir, "docker-calls.log"));
   assert.ok(!dockerCalls.includes("save registry:2"), "an already-present registry image must not be re-shipped");
   assert.ok(!dockerCalls.includes("pull registry:2"), "an already-present registry image must not be re-fetched");
-  assert.ok(dockerCalls.includes(`push ${registryTag}`));
+  assert.ok(dockerCalls.includes(`push --quiet ${registryTag}`));
   const sshCalls = content(path.join(dir, "ssh-calls.log"));
   assert.ok(!sshCalls.includes("gzip -dc | docker load"), "no stream load may happen");
   assert.ok(sshCalls.includes("docker rm -f eventgraph-dev-registry") && sshCalls.includes("docker volume rm eventgraph-dev-registry"),
@@ -285,7 +322,7 @@ test("a slow SSH tunnel must become ready before any image push", () => {
   const res = run(env);
   assert.equal(res.status, 0, res.stderr);
   assert.ok(Number(content(path.join(dir, "curl-counter"))) >= 3, "the tunnel readiness endpoint must be polled");
-  assert.ok(content(path.join(dir, "docker-calls.log")).includes(`push ${registryTag}`));
+  assert.ok(content(path.join(dir, "docker-calls.log")).includes(`push --quiet ${registryTag}`));
 });
 
 test("a push that fails twice succeeds on the third attempt (blobs already uploaded are skipped)", () => {
@@ -295,6 +332,36 @@ test("a push that fails twice succeeds on the third attempt (blobs already uploa
   const pushes = content(path.join(dir, "docker-calls.log")).split("\n").filter((l) => l.startsWith("push "));
   assert.equal(pushes.length, 3, `exactly three push attempts — got: ${pushes.join(" || ")}`);
   assert.match(content(path.join(dir, "ssh-calls.log")), /docker pull/, "the verified pull still happens");
+});
+
+test("a wedged push is killed by the watchdog budget and the retry completes the delivery", () => {
+  // 2026-10-28 12:33Z run: every blob was committed, the manifest was never
+  // sent, tunnel and session stayed healthy, and appleboy's command_timeout
+  // killed the whole script. The per-attempt watchdog must return control to
+  // the resumable loop instead.
+  const { dir, env } = sandbox({ registryPresent: true, hangFirstPush: true });
+  const res = run(env);
+  assert.equal(res.status, 0, res.stderr);
+  const pushes = content(path.join(dir, "docker-calls.log")).split("\n").filter((l) => l.startsWith("push "));
+  assert.equal(pushes.length, 2, `the wedged first attempt must be retried — got: ${pushes.join(" || ")}`);
+  const timeouts = content(path.join(dir, "timeout-calls.log")).trim().split("\n").filter(Boolean);
+  assert.ok(timeouts.length >= 2, `every attempt must be watchdog-bounded — got: ${timeouts.join(" || ")}`);
+  for (const t of timeouts) {
+    const dur = Number(t.split(" ")[0]);
+    assert.ok(dur > 0 && dur <= 16 * 60, `the budget must fit appleboy's 20m command_timeout: ${t}`);
+    assert.ok(t.includes("push") && t.includes("--quiet"), `the watchdog must wrap the quiet push: ${t}`);
+  }
+  assert.match(content(path.join(dir, "ssh-calls.log")), /docker pull/, "the verified pull still happens");
+});
+
+test("a tunnel that dies during a push is replaced before the retry", () => {
+  const { dir, env } = sandbox({ registryPresent: true, pushFailures: 1, dropTunnelOnFirstPush: true });
+  const res = run(env);
+  assert.equal(res.status, 0, res.stderr);
+  const pushes = content(path.join(dir, "docker-calls.log")).split("\n").filter((l) => l.startsWith("push "));
+  assert.equal(pushes.length, 2, "the failed first push must be retried");
+  const tunnels = content(path.join(dir, "ssh-calls.log")).split("\n").filter((l) => l.includes("-N") && l.includes("-L"));
+  assert.equal(tunnels.length, 2, `a dead tunnel must be re-established before the retry — got: ${tunnels.join(" || ")}`);
 });
 
 test("a push that never succeeds fails the delivery without touching cn-dev's images", () => {
