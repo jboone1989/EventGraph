@@ -107,6 +107,14 @@ printf '%s\\n' "$n" > "$STUB_CURL_COUNTER"
 exit 0
 `;
 
+const dateStub = `#!/bin/sh
+if [ "$1" = "+%s" ] && [ -f "$STUB_FAKE_NOW" ]; then
+  cat "$STUB_FAKE_NOW"
+else
+  /bin/date "$@"
+fi
+`;
+
 const timeoutStub = `#!/bin/sh
 # timeout(1) stub: passthrough unless STUB_EXPIRE_FAST is set, in which case
 # the wrapped command is killed almost immediately (the watchdog firing)
@@ -125,6 +133,10 @@ if [ -n "$STUB_EXPIRE_FAST" ]; then
   sleep 0.3
   if kill "$child" 2>/dev/null; then
     wait "$child" 2>/dev/null
+    if [ -n "$STUB_ADVANCE_CLOCK_ON_EXPIRE" ]; then
+      now="$(cat "$STUB_FAKE_NOW")"
+      printf '%s\\n' "$((now + dur))" > "$STUB_FAKE_NOW"
+    fi
     exit 124
   fi
   wait "$child"
@@ -180,13 +192,15 @@ function sandbox(
   writeFileSync(path.join(bin, "ssh-keyscan"), keyscanStub);
   writeFileSync(path.join(bin, "curl"), curlStub);
   writeFileSync(path.join(bin, "timeout"), timeoutStub);
+  writeFileSync(path.join(bin, "date"), dateStub);
   writeFileSync(path.join(bin, "sudo"), `#!/bin/sh\n[ "$1" = "-n" ] && shift\nexec "$@"\n`);
-  for (const f of ["docker", "ssh", "ssh-keyscan", "sudo", "curl", "timeout"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
+  for (const f of ["docker", "ssh", "ssh-keyscan", "sudo", "curl", "timeout", "date"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
   writeFileSync(path.join(dir, "ssh-calls.log"), "");
   writeFileSync(path.join(dir, "docker-calls.log"), "");
   writeFileSync(path.join(dir, "timeout-calls.log"), "");
   writeFileSync(path.join(dir, "push-counter"), "0");
   writeFileSync(path.join(dir, "curl-counter"), "0");
+  writeFileSync(path.join(dir, "fake-now"), String(Math.floor(Date.now() / 1000)));
   const env: Record<string, string | undefined> = {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
@@ -201,6 +215,7 @@ function sandbox(
     STUB_PUSH_COUNTER: path.join(dir, "push-counter"),
     STUB_CURL_COUNTER: path.join(dir, "curl-counter"),
     STUB_TIMEOUT_CALLS: path.join(dir, "timeout-calls.log"),
+    STUB_FAKE_NOW: path.join(dir, "fake-now"),
     STUB_TUNNEL_PID_FILE: path.join(dir, "tunnel.pid"),
     STUB_TUNNEL_READY_FAILS: "0",
     EVENTGRAPH_IMAGE: imageRef,
@@ -214,6 +229,7 @@ function sandbox(
   if (opts.hangFirstPush) {
     env.STUB_HANG_FIRST_PUSH = "1";
     env.STUB_EXPIRE_FAST = "1";
+    env.STUB_ADVANCE_CLOCK_ON_EXPIRE = "1";
   }
   if (opts.remoteImageId) env.STUB_REMOTE_IMAGE_ID = opts.remoteImageId;
   if (!opts.noPin) {
@@ -346,6 +362,11 @@ test("a wedged push is killed by the watchdog budget and the retry completes the
   assert.equal(pushes.length, 2, `the wedged first attempt must be retried — got: ${pushes.join(" || ")}`);
   const timeouts = content(path.join(dir, "timeout-calls.log")).trim().split("\n").filter(Boolean);
   assert.ok(timeouts.length >= 2, `every attempt must be watchdog-bounded — got: ${timeouts.join(" || ")}`);
+  // Advance the fake clock by the actual watchdog duration on expiry.
+  // The first attempt must leave time for a retry after its simulated stall.
+  assert.equal(Number(timeouts[0]!.split(" ")[0]), 14 * 60, "first attempt must reserve 2m for retry");
+  assert.ok(Number(timeouts[1]!.split(" ")[0]) > 0 && Number(timeouts[1]!.split(" ")[0]) <= 2 * 60,
+    "second attempt must use the remaining shared budget after the real timeout");
   for (const t of timeouts) {
     const dur = Number(t.split(" ")[0]);
     assert.ok(dur > 0 && dur <= 16 * 60, `the budget must fit appleboy's 20m command_timeout: ${t}`);
