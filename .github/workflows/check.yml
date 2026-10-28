@@ -45,7 +45,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$SCOPE_BASE_SHA" =~ ^0+$ ]] || [[ -z "$SCOPE_BASE_SHA" ]]; then
-            SCOPE_BASE_SHA="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+            echo '::notice::No trustworthy change base; running the full pipeline'
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           detector="scripts/ci/scope-changes.mjs"
           if git cat-file -e "${SCOPE_BASE_SHA}:${detector}" 2>/dev/null; then
@@ -145,7 +147,8 @@ jobs:
           SCOPE_HEAD_SHA: ${{ github.sha }}
         run: |
           if [[ "$SCOPE_BASE_SHA" =~ ^0+$ ]] || [[ -z "$SCOPE_BASE_SHA" ]]; then
-            SCOPE_BASE_SHA="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+            echo '::error::Cannot validate documentation without a trusted base commit' >&2
+            exit 1
           fi
           export SCOPE_BASE_SHA
           node scripts/ci/check-docs.mjs
