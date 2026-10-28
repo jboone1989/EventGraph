@@ -37,7 +37,7 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 
 对 `publicStoryRoute` 返回的每个 station，用**纯函数**确定性归类到一个层。当前 station 仅暴露 `title`，并未暴露数据库中的 `subject/action/object`。P1 因此须在现有同一条公开查询中只读选取这三个 `facts` 字段，并在 `StoryRouteStation` 契约中增加同名 `string | null` 字段；不新增查询、抽取、持久化或跨故事拉取。归类输入为这三个字段与现有 `title`，词典复用 PR #134。结构化字段缺失时，不得用标题共现代替动作守护：冲突/企业动作分类均不命中，其余词典只作阅读线索分组；全部不中则归入 `unclassified`。
 
-| 层 | 归类依据（确定性） | 显示语义（对齐 CAMEO verbal/material 之分，见 research §4.5） |
+| 层 | 归类依据（确定性） | 显示语义（对齐 CAMEO verbal/material 之分，见 research §4.2） |
 | --- | --- | --- |
 | `conflict_event` | 结构化 `action` 命中冲突事件词（触雷/爆炸/袭击/交火/击沉/伤亡/开火/炮击）；优先于其他层 | 按主体/动作原样显示，含"单方主张"旗标（若 singleSource） |
 | `policy_statement` | station 命中政策词典（制裁/关税/出口管制/…） | 标签为**"机构表态/政策相关陈述"**——是言语行为（verbal act），不是政策生效状态 |
@@ -73,7 +73,7 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 4. 关系标签页（Graphiti）保持现状，不获得任何影响类型化。
 5. 中英文一致；390px 无标签重叠、无横向溢出。
 
-在存在政策类事实站的真实事件（如 USTR 关税表态 story `7bdc9a83`，见 research §3.4）上：政策层出现 `policy_statement` 站，标签为"机构表态"，无任何阶段标签，抽屉内为 USTR 官方来源 + France24 各自修订版本。
+在存在政策类事实站的真实事件（如 USTR 关税表态 story `7bdc9a83`，见 research §3.3）上：政策层出现 `policy_statement` 站，标签为"机构表态"，无任何阶段标签，抽屉内为 USTR 官方来源 + France24 各自修订版本。
 
 ## 6. 验收标准（全部可证伪；每条注明证明方式）
 
