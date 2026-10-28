@@ -190,3 +190,29 @@ test("out-of-order indexed vectors map to the correct source articles", async ()
   `, { data: [{ index: 1, embedding: [0, 1, 0] }, { index: 0, embedding: [1, 0, 0] }] });
   assert.deepEqual(out, {a:[1,0,0],b:[0,1,0]});
 });
+
+test("index-less provider batches preserve input order for already-certified connections", async () => {
+  const a = { id: T + "-unindexed-a", text: T + " no index a" };
+  const b = { id: T + "-unindexed-b", text: T + " no index b" };
+  const out = await freshProcess({ EMBEDDING_TEST_ITEMS: JSON.stringify([a, b]) }, `
+    const items = JSON.parse(process.env.EMBEDDING_TEST_ITEMS);
+    const vectors = await ensureEmbeddings(items);
+    console.log(JSON.stringify({ a: vectors.get(items[0].id), b: vectors.get(items[1].id) }));
+  `, { data: [{ embedding: [1, 0, 0] }, { embedding: [0, 1, 0] }] });
+  assert.deepEqual(out, { a: [1, 0, 0], b: [0, 1, 0] });
+});
+
+test("mixed indexed and unindexed provider rows fail closed instead of corrupting grouping", async () => {
+  const a = { id: T + "-mixed-a", text: T + " mixed a" };
+  const b = { id: T + "-mixed-b", text: T + " mixed b" };
+  const out = await freshProcess({ EMBEDDING_TEST_ITEMS: JSON.stringify([a, b]) }, `
+    const items = JSON.parse(process.env.EMBEDDING_TEST_ITEMS);
+    try {
+      await ensureEmbeddings(items);
+      console.log(JSON.stringify({ accepted: true }));
+    } catch {
+      console.log(JSON.stringify({ accepted: false }));
+    }
+  `, { data: [{ index: 0, embedding: [1, 0, 0] }, { embedding: [0, 1, 0] }] });
+  assert.deepEqual(out, { accepted: false });
+});
