@@ -75,3 +75,17 @@ test("latest view preserves the current case including negative examples", () =>
   const data = fixture();
   assert.equal(caseStudyAt(data, null, "known"), data);
 });
+
+test("station order follows the remaining evidence's recorded time after embargo filtering", () => {
+  const data = fixture();
+  const first = station("originally-first", "2026-10-20T00:00:00Z");
+  first.reports[0]!.publishedAt = "2026-10-30T00:00:00Z";
+  first.reports.push({ ...first.reports[0]!, articleId: "visible-later", publishedAt: early, discoveredAt: "2026-10-23T00:00:00Z" });
+  const second = station("originally-second", "2026-10-22T00:00:00Z");
+  data.tracks[0]!.stations = [first, second];
+  for (const clock of ["known", "valid"] as const) {
+    const stations = caseStudyAt(data, "2026-10-24T00:00:00Z", clock).tracks[0]!.stations;
+    assert.deepEqual(stations.map(s => s.factId), ["originally-second", "originally-first"]);
+    assert.equal(stations[1]!.timeRecorded, "2026-10-23T00:00:00Z");
+  }
+});

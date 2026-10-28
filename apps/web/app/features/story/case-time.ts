@@ -20,6 +20,9 @@ function trackAt(track: CaseStudyTrack, cutoff: number, clock: "known" | "valid"
       timeRecorded: reports.reduce((a, r) => timestamp(r.discoveredAt) < timestamp(a) ? r.discoveredAt : a, reports[0]!.discoveredAt),
       uncertainty: { ...station.uncertainty, singleSource: sourceCount < 2, revised: reports.some(r => (r.revision ?? 1) > 1) },
     }];
+  }).sort((a, b) => {
+    const first = timestamp(a.timeRecorded), second = timestamp(b.timeRecorded);
+    return (Number.isFinite(first) ? first : Infinity) - (Number.isFinite(second) ? second : Infinity) || 0;
   });
   return { ...track, stations, status: stations.length ? "ok" : "insufficient",
     coverage: { stations: stations.length, reports: stations.reduce((n, s) => n + s.reports.length, 0),
