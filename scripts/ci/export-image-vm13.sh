@@ -50,26 +50,125 @@ revision="$(sudo -n docker image inspect --format '{{index .Config.Labels "org.o
   || { echo "Image revision $revision does not match release $EVENTGRAPH_RELEASE_SHA" >&2; exit 1; }
 image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")"
 
-# Stream the image to cn-dev without writing a tarball on either host; cn-dev
-# never contacts the registry. ubuntu on cn-dev may run docker (docker group).
-# docker save|load cannot preserve registry digest references, so delivery uses
-# a content-addressed local tag (eventgraph-dev:<image ID hex>): the deploy
-# script rejects any tag that does not point at the ID named by its own hex.
-tag="eventgraph-dev:${image_id#sha256:}"
-sudo -n docker tag "$image_id" "$tag"
-# docker save emits an *uncompressed* layer tar. Across VM13→cn-dev's public
-# SSH link, this repeatedly exceeded the old 10m and then 20m command deadlines
-# even though VM13's GHCR pull completed within seconds. Compress the stream
-# with ubiquitous gzip in fast mode; cn-dev decompresses before docker load.
-# The verified image ID below still catches incomplete or corrupt transfers.
-echo "Shipping gzip-compressed image to cn-dev"
-sudo -n docker save "$tag" | gzip -1 | ssh $ssh_opts ubuntu@"$cn_dev_host" 'gzip -dc | docker load'
+# Delivery moves bytes by pushing into a registry that runs on cn-dev's
+# loopback, so the link carries only layers cn-dev does not already have.
+# docker save ships every layer of the image every time (146 MB compressed for
+# this app), and across the variable cross-border VM13→cn-dev link that
+# repeatedly blew past the 20-minute deadline even with the #197 gzip stream
+# (measured ~123 KB/s sustained on 2026-10-28; both attempts of that morning
+# timed out, one finishing server-side 21 minutes in). The Registry HTTP API
+# is content-addressed: each blob is HEAD-checked and only missing ones are
+# uploaded, so a code-only release ships just its app layer, and a push that
+# dies mid-way is resumed by the next attempt — already-uploaded blobs are
+# skipped. Docker treats 127.0.0.0/8 as insecure by default, so a plain-HTTP
+# registry needs no daemon configuration on either host; it is bound to
+# cn-dev's loopback and reachable only through this pre-authorized SSH path.
+# cn-dev never contacts GHCR. The verified image ID below still catches any
+# incomplete or corrupt transfer.
+registry_addr=127.0.0.1:5000
+registry_image=registry:2
+registry_repo="$registry_addr/eventgraph-dev"
+registry_container=eventgraph-dev-registry
 
-# Prove the exact image (by ID) arrived before cn-dev tries to deploy it.
-remote_id="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --format '{{.Id}}' '$tag'")"
+# Bootstrap once: cn-dev has no Docker Hub access to fetch the registry image,
+# so VM13 (reliable registry access) ships it over the one-shot compressed
+# stream — a few MB, needed only until the image is on cn-dev.
+if ! ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect $registry_image >/dev/null 2>&1"; then
+  sudo -n docker image inspect "$registry_image" >/dev/null 2>&1 \
+    || sudo -n docker pull "$registry_image" \
+    || { sudo -n docker pull mirror.gcr.io/library/"$registry_image" \
+      && sudo -n docker tag mirror.gcr.io/library/"$registry_image" "$registry_image"; }
+  sudo -n docker save "$registry_image" | gzip -1 | ssh $ssh_opts ubuntu@"$cn_dev_host" 'gzip -dc | docker load'
+fi
+# Idempotent: start the existing container if it stopped, create it otherwise,
+# then wait until the API answers. A failed/incomplete delivery intentionally
+# leaves this volume in place so a workflow retry can resume already-uploaded
+# blobs. After a verified delivery we remove the registry and volume; the next
+# release recreates it and seeds shared layers from cn-dev's last local image.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "docker ps --format '{{.Names}}' | grep -qx $registry_container || docker start $registry_container 2>/dev/null || docker run -d --name $registry_container --restart unless-stopped -p 127.0.0.1:5000:5000 -v eventgraph-dev-registry:/var/lib/registry $registry_image"
+ssh $ssh_opts ubuntu@"$cn_dev_host" 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do curl -fsS -o /dev/null http://127.0.0.1:5000/v2/ && exit 0; sleep 1; done; echo "cn-dev registry did not become ready" >&2; exit 1'
+
+# Seed the registry from an image cn-dev already has locally (the last
+# delivered tag, else any local eventgraph-dev image). Consecutive releases
+# share almost all layers, so pushing the seed over cn-dev's own loopback —
+# disk speed, zero cross-border bytes — lets even the first push through this
+# relay skip those blobs instead of shipping the whole image like the old
+# stream did. Best-effort: with no local image (first-ever deploy) the first
+# push is full-size but resumable across retries.
+ssh $ssh_opts ubuntu@"$cn_dev_host" 'seed="$(sed -n 1p /home/ubuntu/.eventgraph-last-delivered-image 2>/dev/null || true)"; docker image inspect "$seed" >/dev/null 2>&1 || seed="$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^eventgraph-dev:" | head -n 1)"; [ -n "$seed" ] && docker tag "$seed" 127.0.0.1:5000/eventgraph-dev:seed >/dev/null 2>&1 && docker push 127.0.0.1:5000/eventgraph-dev:seed >/dev/null 2>&1 || true'
+
+# Push from VM13 through an SSH tunnel bound to loopback on both ends: the
+# same pre-authorized connection as the database tunnel, no new port on
+# either host. Killed on exit so the tunnel never outlives the script.
+tunnel_pid=
+trap '[ -z "$tunnel_pid" ] || kill "$tunnel_pid" 2>/dev/null || true' EXIT
+start_tunnel() {
+  if [ -n "$tunnel_pid" ]; then
+    kill "$tunnel_pid" 2>/dev/null || true
+    wait "$tunnel_pid" 2>/dev/null || true
+  fi
+  ssh $ssh_opts -n -N -o ExitOnForwardFailure=yes -L "$registry_addr:$registry_addr" ubuntu@"$cn_dev_host" &
+  tunnel_pid=$!
+}
+# The cross-border SSH handshake can take longer than a local Docker push
+# retry. Verify that the forwarded registry actually answers before sending
+# blobs, and replace a dead/unresponsive tunnel before the next attempt.
+ensure_tunnel() {
+  if [ -z "$tunnel_pid" ] || ! kill -0 "$tunnel_pid" 2>/dev/null ||
+    ! curl -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
+    start_tunnel
+  fi
+  ready=0
+  check=1
+  while [ "$check" -le 45 ]; do
+    if ! kill -0 "$tunnel_pid" 2>/dev/null; then break; fi
+    if curl -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
+      ready=1
+      break
+    fi
+    check=$((check + 1))
+    sleep 1
+  done
+  [ "$ready" -eq 1 ] || { echo "cn-dev registry SSH tunnel not ready" >&2; return 1; }
+}
+
+sudo -n docker tag "$image_id" "$registry_repo:$EVENTGRAPH_RELEASE_SHA"
+pushed=0
+attempt=1
+while [ "$attempt" -le 3 ]; do
+  ensure_tunnel
+  if sudo -n docker push "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
+    pushed=1
+    break
+  fi
+  echo "Push attempt $attempt failed; retrying (blobs already uploaded are skipped)" >&2
+  attempt=$((attempt + 1))
+  [ "$attempt" -le 3 ] && sleep 5
+done
+[ "$pushed" = 1 ] || { echo "Pushing $EVENTGRAPH_IMAGE to the cn-dev registry failed" >&2; exit 1; }
+
+# Pull on cn-dev from its own loopback registry (also incremental against the
+# local image store), then prove the exact image (by ID) arrived before the
+# deploy step runs, exactly as the previous save/load transport did. The local
+# tag keeps the content-addressed contract scripts/ci/deploy-image.sh checks:
+# the tag name is the image ID, so a delivered tag cannot pose as another
+# image, and the pairing file binds it to this release digest.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "docker pull '$registry_repo:$EVENTGRAPH_RELEASE_SHA'"
+remote_id="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --format '{{.Id}}' '$registry_repo:$EVENTGRAPH_RELEASE_SHA'")"
 [ "$remote_id" = "$image_id" ] \
   || { echo "cn-dev did not end up with the published image $image_id (got ${remote_id:-none})" >&2; exit 1; }
-# Record the verified pairing so deploy-image.sh can bind this tag to this
-# release digest (CI steps cannot know the image ID in advance).
-ssh $ssh_opts ubuntu@"$cn_dev_host" "printf '%s\\n%s\\n' '$tag' '$EVENTGRAPH_IMAGE' > /home/ubuntu/.eventgraph-last-delivered-image.tmp && mv /home/ubuntu/.eventgraph-last-delivered-image.tmp /home/ubuntu/.eventgraph-last-delivered-image"
-echo "Image $EVENTGRAPH_IMAGE delivered to cn-dev as $tag"
+ssh $ssh_opts ubuntu@"$cn_dev_host" "docker tag '$image_id' 'eventgraph-dev:${image_id#sha256:}' && printf '%s\\n%s\\n' 'eventgraph-dev:${image_id#sha256:}' '$EVENTGRAPH_IMAGE' > /home/ubuntu/.eventgraph-last-delivered-image.tmp && mv /home/ubuntu/.eventgraph-last-delivered-image.tmp /home/ubuntu/.eventgraph-last-delivered-image"
+# Drop transport-only Docker tags after the durable local tag/pairing exists.
+# Leaving either the release tag or the seed tag on an old image prevents
+# deploy-image.sh from reclaiming that image by ID during stale-image cleanup.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "docker rmi '$registry_repo:$EVENTGRAPH_RELEASE_SHA' >/dev/null && if docker image inspect '$registry_repo:seed' >/dev/null 2>&1; then docker rmi '$registry_repo:seed' >/dev/null; fi"
+
+# The registry is transport scratch space, not an artifact store. Once the exact
+# image is pulled, ID-verified and recorded in cn-dev's local image store, tear
+# down the registry and its volume completely. This avoids manifest-delete and
+# stop-the-world garbage-collection semantics entirely. Failed/incomplete
+# transfers never reach this point, so their volume stays available for retry
+# and preserves already-uploaded blobs. Rollback images are unaffected because
+# they live in cn-dev's local image store.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "docker rm -f $registry_container >/dev/null && docker volume rm eventgraph-dev-registry >/dev/null"
+echo "Image $EVENTGRAPH_IMAGE delivered to cn-dev through the loopback registry"
