@@ -39,7 +39,7 @@ function Track({ track, prefix, historical }: { track: CaseStudyTrack; prefix: s
         <p className="mt-1 text-[12px] text-ink-4">
           {historical && t("当前可展示的下界：", "Currently displayable lower bounds: ")}
           {t(`${track.coverage.stations} 个站点 · ${track.coverage.reports} 条证据 · ${track.coverage.sources} 个来源`,
-             `${track.coverage.stations} stations · ${track.coverage.reports} evidence · ${track.coverage.sources} sources`)}
+             `${track.coverage.stations} ${track.coverage.stations === 1 ? "station" : "stations"} · ${track.coverage.reports} ${track.coverage.reports === 1 ? "evidence item" : "evidence items"} · ${track.coverage.sources} ${track.coverage.sources === 1 ? "source" : "sources"}`)}
         </p>
         <ol className="mt-3 space-y-3 border-l-2 border-line pl-3">
           {track.stations.map((s) => <li key={s.factId}>
@@ -140,7 +140,7 @@ export function CaseTracks({ data, historical = false, clock = "known" }: {
         {data.unlinked.map((u) => {
           const track = data.tracks.find((tr) => tr.key === u.track);
           return <li key={u.track} className="rounded-panel border border-line-soft p-3 text-[13px] leading-[1.7] text-ink-3">
-            <span className="font-medium text-ink">{lang === "en" ? track?.labelEn : track?.label}：</span>
+            <span className="font-medium text-ink">{lang === "en" ? `${track?.labelEn}: ` : `${track?.label}：`}</span>
             {lang === "en" ? u.noteEn : u.note}
           </li>;
         })}
