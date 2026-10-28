@@ -85,3 +85,11 @@ test("a reused numeral with the wrong English magnitude unit is not grounded", (
   assert.equal(groundedEnglish("The amount was $300 million.", corpus), true);
   assert.equal(groundedEnglish("The amount was $3 billion.", corpus), false);
 });
+
+test("English company identity must have a source alias in either language", () => {
+  assert.equal(groundedEnglish("Microsoft announced a launch.", "微软宣布推出新产品。"), true);
+  assert.equal(groundedEnglish("Microsoft announced a launch.", "谷歌宣布推出新产品。"), false);
+  assert.equal(groundedEnglish("Google DeepMind released a model.", "谷歌 DeepMind 发布模型。"), true);
+  assert.equal(groundedEnglish("Anthropic announced a launch.", "Google 发布模型。"), false);
+  assert.equal(groundedEnglish("The issue was metadata and metadata only.", "本期讲述元数据。"), true);
+});
