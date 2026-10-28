@@ -5,10 +5,15 @@
 // of the offered host keys (sshd offers ed25519 and ECDSA) matches the pinned
 // fingerprint (EVENTGRAPH_DEV_SSH_FINGERPRINT) — the same secret the runner
 // verifies on its own hops, where appleboy's client negotiates ECDSA (the
-// pinned VM13 key in check.yml is ECDSA). These tests drive the real export
-// script against stub docker/ssh/ssh-keyscan/sudo binaries, but the
-// fingerprint check runs a REAL ssh-keygen, so a wrong host key exercises real
-// fingerprint math rather than a stubbed assertion.
+// pinned VM13 key in check.yml is ECDSA). Delivery itself pushes into a
+// registry on cn-dev's loopback (docker save ships every layer every time and
+// repeatedly missed the 20-minute deadline across the cross-border link), so
+// these tests also pin down the bootstrap, the blob-resumable push retry, the
+// verified pull/record contract deploy-image.sh depends on, and the registry
+// prune. They drive the real export script against stub
+// docker/ssh/ssh-keyscan/sudo binaries, but the fingerprint check runs a REAL
+// ssh-keygen, so a wrong host key exercises real fingerprint math rather than
+// a stubbed assertion.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
@@ -22,36 +27,65 @@ const imageRef = `ghcr.io/jboone1989/eventgraph-app@sha256:${digest}`;
 const releaseSha = "5".repeat(40);
 const imageId = `sha256:${digest}`;
 const tag = `eventgraph-dev:${digest}`;
+const registryRepo = "127.0.0.1:5000/eventgraph-dev";
+const registryTag = `${registryRepo}:${releaseSha}`;
 const cnDevHost = "43.142.127.40";
 
 const dockerStub = `#!/usr/bin/env node
 // VM13-side docker stub: the digest is already local (no pull), carries the
-// release revision label, and can be tagged and saved. Anything else fails.
-const { appendFileSync } = require("fs");
+// release revision label, and can be tagged, pushed and saved. The registry
+// bootstrap image is only local when STUB_REGISTRY_LOCAL says so; push fails
+// the first STUB_PUSH_FAILURES attempts to exercise blob-resumable retries.
+const { appendFileSync, readFileSync, existsSync, writeFileSync } = require("fs");
 const log = (line) => appendFileSync(process.env.STUB_CALLS, line + "\\n");
 const args = process.argv.slice(2);
 if (args[0] === "image" && args[1] === "inspect") {
+  if (args[2] === "registry:2" && !process.env.STUB_REGISTRY_LOCAL) process.exit(1);
   log("image inspect " + args.slice(2).join(" "));
   const fmt = args[2] === "--format" ? args[3] : "";
   if (fmt.includes("revision")) console.log(process.env.STUB_REVISION);
   else if (fmt.includes(".Id")) console.log(process.env.STUB_IMAGE_ID);
   process.exit(0);
 }
+if (args[0] === "pull") {
+  if (args[1] !== "registry:2" && !args[1].startsWith("mirror.gcr.io/")) {
+    log("UNEXPECTED pull " + args.join(" "));
+    process.exit(1);
+  }
+  log("pull " + args.join(" "));
+  process.exit(0);
+}
 if (args[0] === "tag") { log("tag " + args.join(" ")); process.exit(0); }
+if (args[0] === "push") {
+  const counter = process.env.STUB_PUSH_COUNTER;
+  let failures = 0;
+  if (existsSync(counter)) failures = Number(readFileSync(counter, "utf8")) || 0;
+  writeFileSync(counter, String(failures + 1));
+  log("push " + args.join(" ") + " attempt " + (failures + 1));
+  process.exit(failures < Number(process.env.STUB_PUSH_FAILURES || 0) ? 1 : 0);
+}
 if (args[0] === "save") { log("save " + args.join(" ")); console.log("tar-bytes"); process.exit(0); }
 log("UNEXPECTED " + args.join(" "));
 process.exit(1);
 `;
 
 const sshStub = `#!/bin/sh
-# cn-dev-side ssh stub: logs the options it was given and answers the three
-# remote commands the export script issues. printf (not echo: dash's echo
-# would expand the literal backslash-n inside the pairing command).
+# cn-dev-side ssh stub: logs the options it was given and answers the remote
+# commands the export script issues. printf (not echo: dash's echo would
+# expand the literal backslash-n inside the pairing command). The bootstrap
+# registry-image probe answers "absent" unless STUB_REGISTRY_PRESENT is set.
 printf '%s\n' "$*" >> "$STUB_SSH_CALLS"
 case "$*" in
-  *"docker load"*) exit 0 ;;
-  *"docker image inspect"*) echo "$STUB_IMAGE_ID" ;;
+  *"eventgraph-dev:seed"*) exit 0 ;;
+  *"-N"*"-L"*) exit 0 ;;
+  *"registry:2 >"*) [ -n "$STUB_REGISTRY_PRESENT" ] && exit 0; exit 1 ;;
+  *"gzip -dc | docker load"*) exit 0 ;;
+  *"docker run -d --name eventgraph-dev-registry"*) exit 0 ;;
+  *"curl -fsS -o /dev/null http://127.0.0.1:5000/v2/"*) exit 0 ;;
+  *"docker pull"*) exit 0 ;;
+  *"docker image inspect"*) echo "\${STUB_REMOTE_IMAGE_ID:-$STUB_IMAGE_ID}" ;;
   *"eventgraph-last-delivered-image"*) exit 0 ;;
+  *"sh -s --"*) exit 0 ;;
   *) echo "ssh stub: unexpected remote command: $*" >&2; exit 1 ;;
 esac
 `;
@@ -87,7 +121,9 @@ interface Sandbox {
 // the pin defaults to the ed25519 key's fingerprint, so callers opt into the
 // other modes (pinEcdsa reproduces the 2026-10-27 CD failure: the secret pins
 // the ECDSA key while the script only scanned ed25519).
-function sandbox(opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean } = {}): Sandbox {
+function sandbox(
+  opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean; registryPresent?: boolean; pushFailures?: number; remoteImageId?: string } = {},
+): Sandbox {
   const dir = mkdtempSync(path.join(tmpdir(), "export-image-"));
   dirs.push(dir);
   const offered = keygen(dir, "offered");
@@ -103,6 +139,7 @@ function sandbox(opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: bool
   for (const f of ["docker", "ssh", "ssh-keyscan", "sudo"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
   writeFileSync(path.join(dir, "ssh-calls.log"), "");
   writeFileSync(path.join(dir, "docker-calls.log"), "");
+  writeFileSync(path.join(dir, "push-counter"), "0");
   const env: Record<string, string | undefined> = {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
@@ -114,10 +151,14 @@ function sandbox(opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: bool
     STUB_REVISION: releaseSha,
     STUB_OFFERED_PUB: path.join(dir, "offered.pub"),
     STUB_OFFERED_ECDSA_PUB: path.join(dir, "offered-ecdsa.pub"),
+    STUB_PUSH_COUNTER: path.join(dir, "push-counter"),
     EVENTGRAPH_IMAGE: imageRef,
     EVENTGRAPH_RELEASE_SHA: releaseSha,
     EVENTGRAPH_DEV_SSH_FINGERPRINT: undefined,
   };
+  if (opts.registryPresent) env.STUB_REGISTRY_PRESENT = "1";
+  if (opts.pushFailures) env.STUB_PUSH_FAILURES = String(opts.pushFailures);
+  if (opts.remoteImageId) env.STUB_REMOTE_IMAGE_ID = opts.remoteImageId;
   if (!opts.noPin) {
     env.EVENTGRAPH_DEV_SSH_FINGERPRINT = opts.pinEcdsa
       ? offeredEcdsa.fingerprint
@@ -134,6 +175,8 @@ const run = (env: Record<string, string | undefined>) =>
 
 const content = (p: string) => (existsSync(p) ? readFileSync(p, "utf8") : "");
 
+const pinnedFile = (home: string) => path.join(home, ".ssh/known_hosts.cndev");
+
 after(async () => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 
 test("a cn-dev host key that does not match the pinned fingerprint is refused before any bytes move", () => {
@@ -144,7 +187,7 @@ test("a cn-dev host key that does not match the pinned fingerprint is refused be
   assert.equal(content(path.join(dir, "docker-calls.log")), "", "no docker command may run");
   assert.equal(content(path.join(dir, "ssh-calls.log")), "", "no ssh connection may be attempted");
   assert.ok(!existsSync(path.join(home, ".ssh/known_hosts.cndev")), "no key may be trusted");
-  assert.ok(!existsSync(path.join(home, ".ssh/known_hosts.cndev.scan")));
+  assert.ok(!existsSync(`${pinnedFile(home)}.scan`));
 });
 
 test("a missing pinned fingerprint refuses delivery", () => {
@@ -161,38 +204,106 @@ test("an unreachable or empty keyscan refuses delivery", () => {
   assert.notEqual(res.status, 0);
   assert.match(res.stderr, /ssh-keyscan failed/);
   assert.equal(content(path.join(dir, "ssh-calls.log")), "");
-  assert.ok(!existsSync(path.join(home, ".ssh/known_hosts.cndev")));
+  assert.ok(!existsSync(pinnedFile(home)));
 });
 
-test("the pinned host key is written to a dedicated known_hosts and every ssh hop uses it", () => {
+test("cold registry: bootstraps the registry image once, pushes, and records the verified pairing", () => {
   const { dir, home, env } = sandbox();
   const offeredPub = readFileSync(path.join(dir, "offered.pub"), "utf8").trim();
   const res = run(env);
   assert.equal(res.status, 0, res.stderr);
   const dockerCalls = content(path.join(dir, "docker-calls.log"));
-  assert.ok(!dockerCalls.includes("UNEXPECTED") && !dockerCalls.includes("pull"), "VM13 must not re-pull a local digest");
-  assert.ok(dockerCalls.includes(`tag ${imageId} ${tag}`));
-  const pinnedFile = path.join(home, ".ssh/known_hosts.cndev");
-  assert.equal(readFileSync(pinnedFile, "utf8"), `${cnDevHost} ${offeredPub}\n`, "only the verified key is trusted");
-  assert.ok(!existsSync(`${pinnedFile}.scan`));
+  assert.ok(!dockerCalls.includes("UNEXPECTED"), dockerCalls);
+  assert.ok(!dockerCalls.includes(`pull ${imageRef}`), "VM13 must not re-pull a local digest");
+  // The registry image is fetched (Hub first) and shipped via the one-shot stream.
+  assert.ok(dockerCalls.includes("pull registry:2"), "the registry image must be fetched on VM13");
+  assert.ok(dockerCalls.includes("save registry:2"), "a missing registry image must be shipped by stream");
+  // The app itself is delivered only through the registry: tag + push, no save.
+  assert.ok(dockerCalls.includes(`tag ${imageId} ${registryTag}`), dockerCalls);
+  assert.ok(dockerCalls.includes(`push ${registryTag}`), dockerCalls);
+  assert.ok(!dockerCalls.includes(`save ${tag}`), "the app image must no longer be shipped by docker save");
+  const pinnedFile_ = pinnedFile(home);
+  assert.equal(readFileSync(pinnedFile_, "utf8"), `${cnDevHost} ${offeredPub}\n`, "only the verified key is trusted");
+  assert.ok(!existsSync(`${pinnedFile_}.scan`));
   const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
-  assert.equal(sshCalls.length, 3, `load, remote id check, pairing write — got: ${sshCalls.join(" || ")}`);
+  // 10 hops: registry probe, bootstrap load, container ensure, /v2/ wait, seed,
+  // tunnel, remote pull, remote id, pairing write, prune.
+  assert.equal(sshCalls.length, 10, `probe, load, ensure, wait, seed, tunnel, pull, id, record, prune — got: ${sshCalls.join(" || ")}`);
   for (const call of sshCalls) {
-    assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile}`), `ssh must pin the verified host key: ${call}`);
+    assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile_}`), `ssh must pin the verified host key: ${call}`);
     assert.ok(call.includes("HostKeyAlgorithms=ssh-ed25519"), `ssh must negotiate the verified algorithm: ${call}`);
     assert.ok(!call.includes(".ssh/known_hosts "), "the shared known_hosts must not be used");
   }
-  assert.ok(sshCalls.some((c) => c.includes("docker load")));
-  assert.ok(sshCalls.some((c) => c.includes("eventgraph-last-delivered-image") && c.includes(tag) && c.includes(imageRef)));
+  assert.ok(sshCalls.some((c) => c.includes("docker run -d --name eventgraph-dev-registry") && c.includes("-p 127.0.0.1:5000:5000") && c.includes("-v eventgraph-dev-registry:/var/lib/registry")), "the registry must be loopback-only with a persistent volume");
+  assert.ok(sshCalls.some((c) => c.includes("eventgraph-dev:seed") && c.includes("eventgraph-last-delivered-image")), "the registry is seeded from cn-dev's own local images over loopback");
+  assert.ok(sshCalls.some((c) => c.includes("-N") && c.includes(`-L 127.0.0.1:5000:127.0.0.1:5000`)), "the push must go through a loopback SSH tunnel");
+  assert.ok(sshCalls.some((c) => c.includes(`docker pull '${registryTag}'`)), "cn-dev must pull from its own loopback registry");
+  assert.ok(sshCalls.some((c) => c.includes("eventgraph-last-delivered-image") && c.includes(tag) && c.includes(imageRef)), "the pairing file must bind the delivered tag to the release digest");
+  assert.ok(sshCalls.some((c) => c.includes(`sh -s -- ${releaseSha}`)), "prune runs remotely with the current release kept");
+});
+
+test("warm registry: no bootstrap stream, only the incremental push", () => {
+  const { dir, env } = sandbox({ registryPresent: true });
+  const res = run(env);
+  assert.equal(res.status, 0, res.stderr);
+  const dockerCalls = content(path.join(dir, "docker-calls.log"));
+  assert.ok(!dockerCalls.includes("save registry:2"), "an already-present registry image must not be re-shipped");
+  assert.ok(!dockerCalls.includes("pull registry:2"), "an already-present registry image must not be re-fetched");
+  assert.ok(dockerCalls.includes(`push ${registryTag}`));
+  const sshCalls = content(path.join(dir, "ssh-calls.log"));
+  assert.ok(!sshCalls.includes("gzip -dc | docker load"), "no stream load may happen");
+  assert.ok(sshCalls.includes("sh -s"), "prune still runs");
+});
+
+test("a push that fails twice succeeds on the third attempt (blobs already uploaded are skipped)", () => {
+  const { dir, env } = sandbox({ registryPresent: true, pushFailures: 2 });
+  const res = run(env);
+  assert.equal(res.status, 0, res.stderr);
+  const pushes = content(path.join(dir, "docker-calls.log")).split("\n").filter((l) => l.startsWith("push "));
+  assert.equal(pushes.length, 3, `exactly three push attempts — got: ${pushes.join(" || ")}`);
+  assert.match(content(path.join(dir, "ssh-calls.log")), /docker pull/, "the verified pull still happens");
+});
+
+test("a push that never succeeds fails the delivery without touching cn-dev's images", () => {
+  const { dir, env } = sandbox({ registryPresent: true, pushFailures: 3 });
+  const res = run(env);
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr, /Pushing .* failed/);
+  const sshCalls = content(path.join(dir, "ssh-calls.log"));
+  assert.ok(!sshCalls.includes("docker pull"), "no remote pull may happen after a failed push");
+  assert.ok(!sshCalls.includes("eventgraph-last-delivered-image.tmp"), "the pairing file must not be written");
+});
+
+test("a remote image that is not the published one fails the delivery", () => {
+  const { dir, env } = sandbox({ registryPresent: true, remoteImageId: `sha256:${"b".repeat(64)}` });
+  const res = run(env);
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr, /did not end up with the published image/);
+  assert.ok(!content(path.join(dir, "ssh-calls.log")).includes("eventgraph-last-delivered-image.tmp"));
+});
+
+test("the pinned host key is written to a dedicated known_hosts and every ssh hop uses it", () => {
+  const { dir, home, env } = sandbox({ registryPresent: true });
+  const offeredPub = readFileSync(path.join(dir, "offered.pub"), "utf8").trim();
+  const res = run(env);
+  assert.equal(res.status, 0, res.stderr);
+  const dockerCalls = content(path.join(dir, "docker-calls.log"));
+  assert.ok(!dockerCalls.includes("UNEXPECTED") && !dockerCalls.includes(`pull ${imageRef}`), "VM13 must not re-pull a local digest");
+  assert.ok(dockerCalls.includes(`tag ${imageId} ${registryTag}`));
+  const pinned = readFileSync(pinnedFile(home), "utf8");
+  assert.equal(pinned, `${cnDevHost} ${offeredPub}\n`, "only the verified key is trusted");
+  const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
+  for (const call of sshCalls) {
+    assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile(home)}`), `ssh must pin the verified host key: ${call}`);
+  }
 });
 
 test("a pin for the ECDSA key (the 2026-10-27 CD failure) authorizes delivery and pins that algorithm", () => {
-  const { dir, home, env } = sandbox({ pinEcdsa: true });
+  const { dir, home, env } = sandbox({ pinEcdsa: true, registryPresent: true });
   const ecdsaPub = readFileSync(path.join(dir, "offered-ecdsa.pub"), "utf8").trim();
   const res = run(env);
   assert.equal(res.status, 0, res.stderr);
-  const pinnedFile = path.join(home, ".ssh/known_hosts.cndev");
-  assert.equal(readFileSync(pinnedFile, "utf8"), `${cnDevHost} ${ecdsaPub}\n`, "the verified ECDSA key, and only it, is trusted");
+  assert.equal(readFileSync(pinnedFile(home), "utf8"), `${cnDevHost} ${ecdsaPub}\n`, "the verified ECDSA key, and only it, is trusted");
   const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
   assert.ok(sshCalls.length >= 1);
   for (const call of sshCalls) {

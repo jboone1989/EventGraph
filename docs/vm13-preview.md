@@ -33,9 +33,9 @@ on either host, and no new cloud security-group rule is used.
 2. `deploy_dev_worker` (independent of the VM13 job below; neither gates the
    other) ships the digest to cn-dev **without cn-dev contacting GHCR**:
    `scripts/ci/export-image-vm13.sh` runs on VM13, pulls the digest there and
-   streams it over the pre-authorized VM13→cn-dev SSH path as a
-   content-addressed local tag (`docker save | docker load` cannot carry
-   registry digest references); then `scripts/ci/deploy-image.sh` runs on
+   pushes it through a `registry:2` bound to cn-dev's loopback (only layers
+   cn-dev does not already have cross the link; see `docs/ci-cd.md`) into a
+   content-addressed local tag; then `scripts/ci/deploy-image.sh` runs on
    cn-dev, asserts the local tag's image ID and
    `org.opencontainers.image.revision` label, stages
    `docker-compose.dev-db.yml` from the exact release SHA, applies the loopback
