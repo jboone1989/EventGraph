@@ -8,6 +8,7 @@ import { probeNvidiaPool } from "@aihot/backend/providers/nvidia-pool";
 import { ingestGraphitiOnce } from "@aihot/backend/knowledge/graphiti";
 import { translatePending } from "@aihot/backend/editorial/translate";
 import { writeEnglishPending } from "@aihot/backend/editorial/english";
+import { writeExplanationsPending } from "@aihot/backend/editorial/explain";
 import { adaptIntervals, scheduleDueSources } from "@aihot/backend/sources/collect";
 import { scheduleMpReconcile } from "@aihot/backend/sources/mp";
 import { dajialaConfigured } from "@aihot/backend/providers/dajiala";
@@ -43,6 +44,8 @@ const ENGINE_SCHEDULES: Scheduled[] = [
   { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },
   // English copy of selected reports and story digests for the /en edition (model calls; off with MODEL_CALLS_ENABLED=false).
   { name: "content.english", cron: "*/5 * * * *", run: () => writeEnglishPending() },
+  // 5W1H + So What + What Next for recent selected reports (model calls; off with MODEL_CALLS_ENABLED=false).
+  { name: "content.explain", cron: "*/15 * * * *", run: () => writeExplanationsPending() },
   { name: "hot.rank", cron: "*/5 * * * *", run: () => computeHotRanking() },
   { name: "hot.snapshot", cron: "2 * * * *", run: () => snapshotHeat() },
   { name: "stories.links", cron: "12 * * * *", run: linkRelatedStories },

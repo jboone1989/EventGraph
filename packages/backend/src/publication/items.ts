@@ -57,6 +57,25 @@ export interface ItemRow {
 /** What an English copy is written from (editorial/english.ts); a copy of other inputs is not shown. */
 export const ENGLISH_ITEM_INPUTS = sql`md5(concat_ws(chr(31), p.title, p.original_title, p.summary, p.reason))`;
 
+/** The titles of the event's other publicly listed reports (the newest five), which the item explainer's
+ *  input carries to identify what this report adds; empty when the report has no event. */
+export const SIBLING_REPORT_TITLES = sql`(
+  SELECT array_agg(x.t) FROM (
+    SELECT concat_ws(' | ', s2.name, p2.title) AS t
+    FROM publications p2 JOIN sources s2 ON s2.id = p2.source_id
+    WHERE p2.story_id = p.story_id AND p2.article_id <> p.article_id AND p2.visibility = 'public'
+      AND p2.eligible AND (NOT p2.selected OR p2.visible_after <= now())
+    ORDER BY coalesce(p2.published_at, p2.discovered_at) DESC LIMIT 5
+  ) x)`;
+
+/** What an item explanation is written from (editorial/explain.ts): every field buildExplainInput reads —
+ *  the site's copy, the licence-gated body, the source, the published time and the event context — so a
+ *  correction, a licence change or a new sibling report makes the stored explanation stale (E-03/D-03). */
+export const EXPLAIN_ITEM_INPUTS = sql`md5(concat_ws(chr(31), s.name, p.title, p.original_title, p.summary, p.reason, p.body_mode,
+  CASE WHEN p.body_mode = 'full' THEN coalesce(a.body_text, a.excerpt, '') ELSE '' END,
+  coalesce(p.published_at, p.discovered_at)::text, coalesce(st.title, ''),
+  coalesce((SELECT string_agg(t, chr(31) ORDER BY t) FROM unnest(${SIBLING_REPORT_TITLES}::text[]) AS t), '')))`;
+
 /** Columns every item listing selects. Internal judgement details never leave this layer. */
 export const ITEM_COLUMNS = sql`
   p.article_id AS id, p.title, p.original_title, p.summary, p.reason, p.category, p.tags, p.score,

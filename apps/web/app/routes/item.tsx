@@ -375,6 +375,57 @@ function EventContext({ story, context, currentId, en }: { story: NonNullable<Si
   );
 }
 
+/** The report's explainer (specs/news-explainer Phase 1): the 5W1H the source itself supports, why it
+ *  matters and what to watch next. Every part is optional and evidence-gated — a source that does not
+ *  say stays out; there is never a template to fill. D-01: the explanation is written in the report's
+ *  own language and served only to that language's page, so the English edition never shows a Chinese
+ *  explanation and the Chinese page never shows an English one. */
+function ItemExplainer({ explanation }: { explanation: NonNullable<SiteItemDetail["explanation"]> }) {
+  const t = useText();
+  const rows: Array<[string, string]> = [
+    [t("谁", "Who"), explanation.who],
+    [t("什么", "What"), explanation.what],
+    [t("时间", "When"), explanation.when],
+    [t("地点", "Where"), explanation.where],
+    [t("原因", "Why"), explanation.why],
+    [t("经过", "How"), explanation.how],
+  ].filter((row): row is [string, string] => !!row[1]);
+  return (
+    <section className="mt-6 rounded-panel border border-line-soft bg-bg-sunk/40 p-4 xl:mt-8">
+      <span className="text-[12px] font-semibold text-accent">{t("新闻解读", "Explained")}</span>
+      {rows.length > 0 && (
+        <dl className="mt-2.5 space-y-1.5">
+          {rows.map(([label, text]) => (
+            <div key={label} className="flex gap-2.5 text-[13.5px] leading-[1.7]">
+              <dt className="w-10 shrink-0 pt-px text-[12px] font-medium text-ink-4">{label}</dt>
+              <dd className="min-w-0 text-ink-2">{text}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {explanation.soWhat && (
+        <div className="mt-3 border-t border-line-soft pt-2.5">
+          <div className="mb-1 text-[12px] font-semibold text-ink-3">{t("为什么重要", "Why it matters")}</div>
+          <p className="text-[13.5px] leading-[1.75] text-ink-2">{explanation.soWhat}</p>
+        </div>
+      )}
+      {explanation.watchpoints.length > 0 && (
+        <div className="mt-3 border-t border-line-soft pt-2.5">
+          <div className="mb-1 text-[12px] font-semibold text-ink-3">{t("接下来看", "What to watch")}</div>
+          <ul className="space-y-1">
+            {explanation.watchpoints.map((w, i) => (
+              <li key={i} className="flex gap-2 text-[13.5px] leading-[1.7] text-ink-2">
+                {w.date && <time dateTime={w.date} className="mono shrink-0 text-ink-4">{w.date}</time>}
+                <span className="min-w-0">{w.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ItemView({ item }: { item: SiteItemDetail }) {
   const navigate = useNavigate();
   const preference = useUiLanguage();
@@ -651,6 +702,8 @@ function ItemView({ item }: { item: SiteItemDetail }) {
               <p className="text-[15px] leading-[1.75] text-ink-2">{reasonText}</p>
             </section>
           )}
+
+          {item.explanation && <ItemExplainer explanation={item.explanation} />}
 
           {item.story && item.storyContext && item.storyContext.reportCount > 1 && (
             <EventContext story={item.story} context={item.storyContext} currentId={item.id} en={en} />
