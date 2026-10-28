@@ -136,6 +136,32 @@ test("N3: T0's real timestamps reproduce the known/valid cutoff behavior for sta
   assert.equal(impactLeadsAt(r, [chinanews], "2026-10-25T02:00:00Z", "known").logistics.length, 1);
 });
 
+test("AC-2/N3: evidence drawers receive only reports visible at the selected known/valid cutoff", () => {
+  const early = {
+    ...t0Station.reports[0]!, articleId: "early",
+    url: "https://example.org/early", publishedAt: "2026-10-23T10:00:00Z",
+    discoveredAt: "2026-10-24T10:00:00Z",
+  };
+  const later = {
+    ...early, articleId: "later", url: "https://example.org/later",
+    publishedAt: "2026-10-26T10:00:00Z", discoveredAt: "2026-10-27T10:00:00Z",
+  };
+  const undated = { ...early, articleId: "undated", publishedAt: null };
+  const unsafe = { ...early, articleId: "unsafe", url: "javascript:alert(1)" };
+  const r = route([{ ...t0Station, reports: [early, later, undated, unsafe] }]);
+  const visibleIds = (at: string, clock: "known" | "valid") =>
+    stationEvidenceAt(r, at, clock).flatMap(item => item.station.reports.map(report => report.articleId));
+
+  assert.deepEqual(visibleIds("2026-10-25T00:00:00Z", "known"), ["early"],
+    "future-discovered links must not leak through a visible station's drawer");
+  assert.deepEqual(visibleIds("2026-10-26T12:00:00Z", "valid"), ["early", "later"],
+    "valid time can show a published report before its later discovery");
+  assert.deepEqual(visibleIds("2026-10-26T12:00:00Z", "known"), ["early"],
+    "known time must still hide the later-discovered report");
+  assert.deepEqual(visibleIds("2026-10-28T00:00:00Z", "known"), ["early", "later"],
+    "undated and unsafe reports must never appear even at the latest cutoff");
+});
+
 test("AC-2: reports without a safe URL or required timestamps hide the station, honestly", () => {
   assert.equal(stationEvidenceAt(route([{ ...t0Station, reports: [{ ...t0Station.reports[0]!, url: "javascript:alert(1)" }] }]), "2026-10-27T00:00:00Z", "valid").length, 0);
   assert.equal(stationEvidenceAt(route([{ ...t0Station, reports: [{ ...t0Station.reports[0]!, publishedAt: null }] }]), "2026-10-27T00:00:00Z", "known").length, 0);
