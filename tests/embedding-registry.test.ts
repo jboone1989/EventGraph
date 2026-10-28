@@ -93,12 +93,12 @@ test("the connection's stored credential, address and vendor budget carry the re
 
 // Variants that need another module load (EMBEDDING_DIMS, a bad model, no provider switch) run in
 // child processes against the same database, connection and stubbed endpoint.
-async function freshProcess(env: Record<string, string>, code: string) {
+async function freshProcess(env: Record<string, string>, code: string, response: unknown = { data: [{ index: 0, embedding: [1, 2, 3] }] }) {
   const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", `
     const { MockAgent, setGlobalDispatcher } = await import("undici");
     const network = new MockAgent(); network.disableNetConnect(); setGlobalDispatcher(network);
     network.get("https://zhipu.invalid").intercept({ path: "/v4/embeddings", method: "POST" })
-      .reply(200, { data: [{ index: 0, embedding: [1, 2, 3] }] });
+      .reply(200, ${JSON.stringify(response)});
     const { config } = await import("@aihot/backend/config"); config.egressProxyUrl = null; config.allowPrivateNetworkFetch = true;
     const { embeddingsAvailable, ensureEmbeddings } = await import("@aihot/backend/providers/embeddings");
     const { sql, closeDb } = await import("@aihot/backend/db");
@@ -163,4 +163,30 @@ test("a plain model name never routes through the registry, and the safety valve
     console.log(JSON.stringify({ available: embeddingsAvailable() }));
   `);
   assert.equal(off.available, false, "MODEL_CALLS_ENABLED=false switches registered embeddings off too");
+});
+
+test("short registered embedding batch fails its receipt and never writes partial vectors", async () => {
+  const a = { id: `${T}-short-a`, text: `${T} short a` };
+  const b = { id: `${T}-short-b`, text: `${T} short b` };
+  const out = await freshProcess({}, `
+    const items = ${JSON.stringify([a,b])};
+    try { await ensureEmbeddings(items); console.log(JSON.stringify({ok:true})); }
+    catch (error) { console.log(JSON.stringify({ok:false})); }
+  `, { data: [{ index: 0, embedding: [1, 2, 3] }] });
+  assert.equal(out.ok, false);
+  const [receipt] = await sql`SELECT status FROM receipts WHERE subject = ${`article:${a.id}`}`;
+  const rows = await sql`SELECT 1 FROM embeddings WHERE ref_id IN ${sql([a.id, b.id])}`;
+  assert.equal(receipt?.status, "failed");
+  assert.equal(rows.length, 0);
+});
+
+test("out-of-order indexed vectors map to the correct source articles", async () => {
+  const a = { id: `${T}-reverse-a`, text: `${T} reverse a` };
+  const b = { id: `${T}-reverse-b`, text: `${T} reverse b` };
+  const out = await freshProcess({}, `
+    const items = ${JSON.stringify([a,b])};
+    const result = await ensureEmbeddings(items);
+    console.log(JSON.stringify({a:result.get(items[0].id),b:result.get(items[1].id)}));
+  `, { data: [{ index: 1, embedding: [0, 1, 0] }, { index: 0, embedding: [1, 0, 0] }] });
+  assert.deepEqual(out, {a:[1,0,0],b:[0,1,0]});
 });
