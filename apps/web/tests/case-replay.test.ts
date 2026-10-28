@@ -48,6 +48,8 @@ for (const language of ["zh", "en"] as const) for (const width of [390, 1440]) {
       await expect(page.getByText("当前摘要含后来的解释", { exact: true })).toHaveCount(0);
       await page.getByRole("button", { name: language === "en" ? "Valid time" : "事实生效时间", exact: true }).click();
       await expect(page.getByText("Station alpha", { exact: true })).toBeVisible();
+      await expect(page.getByText(language === "en" ? /Currently displayable lower bounds/ : /当前可展示的下界/).first()).toBeVisible();
+      await expect(page.getByText(language === "en" ? "· Single source" : "· 单一来源", { exact: true })).toHaveCount(0);
       await expect(page.getByRole("link", { name: language === "en" ? "Check source ↗" : "核查原文 ↗", exact: true }).first()).toHaveAttribute("href", "https://example.org/alpha");
       await page.getByRole("button", { name: language === "en" ? "Recorded-time reconstruction" : "按收录时间重建", exact: true }).click();
       await expect(page.getByText("Station alpha", { exact: true })).toHaveCount(0);
@@ -58,6 +60,10 @@ for (const language of ["zh", "en"] as const) for (const width of [390, 1440]) {
       await expect(page.getByText("Station alpha", { exact: true })).toBeVisible();
       await expect(page.getByText(language === "en" ? "Later annotated connection" : "后来标注的联系", { exact: true })).toBeVisible();
       await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+      await page.goto(web.origin + prefix + "/explore?case=temporal-fixture&asOf=2026-10-20");
+      await expect(page.getByText("Station alpha", { exact: true })).toBeVisible();
+      await expect(page.getByText(language === "en" ? "Current summary with hindsight" : "当前摘要含后来的解释", { exact: true })).toBeVisible();
+      await expect(page.getByRole("status")).toHaveCount(0);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     } finally { await context.close(); }
   });

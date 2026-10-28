@@ -55,7 +55,7 @@ test("future publication, missing publication and unproven dates cannot leak int
   assert.equal(caseStudyAt(data, early, "valid").tracks[0]!.stations.length, 0);
   reports[0]!.discoveredAt = "invalid";
   assert.equal(caseStudyAt(data, early, "known").tracks[0]!.stations.length, 0);
-  assert.deepEqual(caseStudyAt(data, "invalid", "known").tracks[0]!.stations, []);
+  assert.equal(caseStudyAt(data, "invalid", "known"), data, "an invalid deep link must recover the latest view");
 });
 
 test("replay recomputes evidence counts and drops links when an endpoint has no evidence", () => {
@@ -76,7 +76,7 @@ test("latest view preserves the current case including negative examples", () =>
   assert.equal(caseStudyAt(data, null, "known"), data);
 });
 
-test("station order follows the remaining evidence's recorded time after embargo filtering", () => {
+test("station order retains the server's earliest discovery when selected evidence is filtered", () => {
   const data = fixture();
   const first = station("originally-first", "2026-10-20T00:00:00Z");
   first.reports[0]!.publishedAt = "2026-10-30T00:00:00Z";
@@ -85,7 +85,27 @@ test("station order follows the remaining evidence's recorded time after embargo
   data.tracks[0]!.stations = [first, second];
   for (const clock of ["known", "valid"] as const) {
     const stations = caseStudyAt(data, "2026-10-24T00:00:00Z", clock).tracks[0]!.stations;
-    assert.deepEqual(stations.map(s => s.factId), ["originally-second", "originally-first"]);
-    assert.equal(stations[1]!.timeRecorded, "2026-10-23T00:00:00Z");
+    assert.deepEqual(stations.map(s => s.factId), ["originally-first", "originally-second"]);
+    assert.equal(stations[0]!.timeRecorded, "2026-10-20T00:00:00Z");
+  }
+});
+
+test("a truncated report list cannot rewrite authoritative station source aggregates", () => {
+  const data = fixture();
+  const s = data.tracks[0]!.stations[0]!;
+  s.sourceCount = 8;
+  s.uncertainty.singleSource = false;
+  s.timeRecorded = "2026-10-19T00:00:00Z";
+  const at = caseStudyAt(data, "2026-10-27T00:00:00Z", "known");
+  assert.equal(at.tracks[0]!.stations[0]!.sourceCount, 8);
+  assert.equal(at.tracks[0]!.stations[0]!.uncertainty.singleSource, false);
+  assert.equal(at.tracks[0]!.stations[0]!.timeRecorded, "2026-10-19T00:00:00Z");
+  assert.deepEqual(at.tracks[0]!.coverage, { stations: 1, reports: 1, sources: 1 }, "displayed coverage is a lower bound, not full station metadata");
+});
+
+test("date-only and zoneless cutoffs recover latest instead of an empty historical case", () => {
+  const data = fixture();
+  for (const asOf of ["2026-10-20", "2026-10-20T12:00:00", "invalid"]) {
+    assert.equal(caseStudyAt(data, asOf, "known"), data);
   }
 });

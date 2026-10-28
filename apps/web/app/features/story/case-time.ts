@@ -4,6 +4,10 @@ import type { CaseStudyResponse, CaseStudyTrack, StoryRouteReport } from "@aihot
 const timestamp = (value: string | null) => value && /(?:Z|[+-]\d{2}:\d{2})$/i.test(value)
   ? Date.parse(value) : NaN;
 
+export function caseReplayAsOf(value: string | null): string | null {
+  return Number.isFinite(timestamp(value)) ? value : null;
+}
+
 function reportAt(report: StoryRouteReport, cutoff: number, clock: "known" | "valid") {
   const published = timestamp(report.publishedAt);
   // A known report may lack a publication date; an explicit future publication is embargoed.
@@ -15,11 +19,9 @@ function trackAt(track: CaseStudyTrack, cutoff: number, clock: "known" | "valid"
   const stations = track.stations.flatMap(station => {
     const reports = station.reports.filter(r => reportAt(r, cutoff, clock));
     if (!reports.length) return [];
-    const sourceCount = new Set(reports.map(r => r.source)).size;
-    return [{ ...station, reports, sourceCount,
-      timeRecorded: reports.reduce((a, r) => timestamp(r.discoveredAt) < timestamp(a) ? r.discoveredAt : a, reports[0]!.discoveredAt),
-      uncertainty: { ...station.uncertainty, singleSource: sourceCount < 2, revised: reports.some(r => (r.revision ?? 1) > 1) },
-    }];
+    // Reports are a selected-first subset (at most six). Its minimum/count is not the
+    // full station's minimum/count. Keep authoritative metadata; replay UI hides source badges.
+    return [{ ...station, reports }];
   }).sort((a, b) => {
     const first = timestamp(a.timeRecorded), second = timestamp(b.timeRecorded);
     return (Number.isFinite(first) ? first : Infinity) - (Number.isFinite(second) ? second : Infinity) || 0;
@@ -40,7 +42,7 @@ function curatedBy(value: string, cutoff: number) {
 }
 
 export function caseStudyAt(data: CaseStudyResponse, asOf: string | null, clock: "known" | "valid"): CaseStudyResponse {
-  if (!asOf) return data;
+  if (!caseReplayAsOf(asOf)) return data;
   const cutoff = timestamp(asOf);
   const tracks = data.tracks.map(track => trackAt(track, cutoff, clock));
   const visible = new Set(tracks.filter(t => t.status === "ok").map(t => t.key));
