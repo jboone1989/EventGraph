@@ -57,7 +57,13 @@ image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")
 # script rejects any tag that does not point at the ID named by its own hex.
 tag="eventgraph-dev:${image_id#sha256:}"
 sudo -n docker tag "$image_id" "$tag"
-sudo -n docker save "$tag" | ssh $ssh_opts ubuntu@"$cn_dev_host" 'docker load'
+# docker save emits an *uncompressed* layer tar. Across VM13→cn-dev's public
+# SSH link, this repeatedly exceeded the old 10m and then 20m command deadlines
+# even though VM13's GHCR pull completed within seconds. Compress the stream
+# with ubiquitous gzip in fast mode; cn-dev decompresses before docker load.
+# The verified image ID below still catches incomplete or corrupt transfers.
+echo "Shipping gzip-compressed image to cn-dev"
+sudo -n docker save "$tag" | gzip -1 | ssh $ssh_opts ubuntu@"$cn_dev_host" 'gzip -dc | docker load'
 
 # Prove the exact image (by ID) arrived before cn-dev tries to deploy it.
 remote_id="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --format '{{.Id}}' '$tag'")"
