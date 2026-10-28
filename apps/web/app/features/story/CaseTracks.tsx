@@ -61,7 +61,9 @@ function Track({ track, prefix }: { track: CaseStudyTrack; prefix: string }) {
   </section>;
 }
 
-export function CaseTracks({ data }: { data: CaseStudyResponse }) {
+export function CaseTracks({ data, historical = false, clock = "known" }: {
+  data: CaseStudyResponse; historical?: boolean; clock?: "known" | "valid";
+}) {
   const t = useText(), lang = useUiLanguage();
   const prefix = lang === "en" ? "/en" : "";
   return <div className="space-y-5">
@@ -69,14 +71,24 @@ export function CaseTracks({ data }: { data: CaseStudyResponse }) {
       <h1 data-page-title className="text-[22px] font-semibold leading-[1.3] text-ink">
         {lang === "en" ? data.titleEn : data.title}
       </h1>
-      <p className="mt-2 max-w-[680px] text-[14px] leading-[1.8] text-ink-3">
+      {!historical && <p className="mt-2 max-w-[680px] text-[14px] leading-[1.8] text-ink-3">
         {lang === "en" ? data.summaryEn : data.summary}
-      </p>
+      </p>}
       <p className="mt-2 text-[12px] text-ink-4">
         {t(`阅读实验 · 案例更新 ${data.updated} · 轨道按当前公开证据实时组装`,
            `Reading experiment · case updated ${data.updated} · tracks rebuilt from today's public evidence`)}
       </p>
     </header>
+
+    {historical && <p role="status" className="rounded-panel border border-line-soft p-3 text-[13px] leading-[1.7] text-ink-3">
+      {clock === "known"
+        ? t("有界历史重建：报道按本站收录时间截断，晚于时点的人工联系不显示；只有日期的标注须等该 UTC 日期结束后才可见。",
+            "Bounded historical reconstruction: reports follow discovery time; later annotations stay hidden. Date-only annotations appear after that UTC date has ended.")
+        : t("事后回顾：报道按原文发布时间截断，联系仍标出后来的策展日期；这不等同当时已知。",
+            "Retrospective view: reports follow source publication time; links retain their later annotation dates. This is not what was known then.")}
+      {" "}{t("案例标题与轨道标签是当前编排，事实标题和证据可能已修订；无法还原旧版本，当前摘要与无日期核对说明已隐藏。",
+        "Case and track labels are today's editorial structure; fact titles and evidence may be revised. Old versions cannot be restored; the current summary and undated review notes are hidden.")}
+    </p>}
 
     <p className="rounded-panel border border-line-soft bg-bg-sunk/40 px-4 py-3 text-[13px] leading-[1.7] text-ink-3">
       {t("每条轨道是一个独立事件的可核查路线：站点与证据来自本站公开记录，撤稿即消失。轨道之间不画箭头——下面的联系逐条人工标注类型与原始出处；同期发生或同属一个话题本身不是联系。",

@@ -15,6 +15,7 @@ import { IconArrowRight, IconSearch } from "../components/icons";
 import { useText, useUiLanguage } from "../components/LanguageSwitch";
 import { EventExplorer } from "../features/story/EventExplorer";
 import { CaseTracks } from "../features/story/CaseTracks";
+import { caseStudyAt } from "../features/story/case-time";
 import { explorerTimeState, type ExplorerTimeState } from "../features/story/explore-state";
 import { KnowledgeAtlas } from "../components/KnowledgeAtlas";
 import type { AtlasNode } from "../lib/knowledge-atlas";
@@ -175,7 +176,8 @@ export default function ExplorePage() {
   }, []);
   if (caseStudy) return <div className="pb-8">
     <PhoneBar title={t("跨事件阅读实验", "Cross-event reading experiment")} />
-    <CaseTracks data={caseStudy} />
+    <EntityTimeBar clock={entityTime.clock} asOf={entityTime.asOf} onTime={syncEntityTime} />
+    <CaseTracks data={caseStudyAt(caseStudy, entityTime.asOf, entityTime.clock)} historical={!!entityTime.asOf} clock={entityTime.clock} />
   </div>;
   if (entityParam && !story) {
     const time = entityTime.asOf && Number.isFinite(Date.parse(entityTime.asOf))
