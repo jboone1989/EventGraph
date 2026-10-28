@@ -131,3 +131,21 @@ test("ungrouped four-digit English magnitudes do not evade unit validation", () 
   assert.equal(groundedEnglish("$12000 million in funding.", "共融资 120 亿美元。"), true);
   assert.equal(groundedEnglish("$12000 billion in funding.", "共融资 120 亿美元。"), false);
 });
+
+test("abbreviated financial magnitudes enforce their own unit scales", () => {
+  const source = "本期融资1.5亿美元，另外有2.4亿人民币。";
+  assert.equal(groundedEnglish("The financing totaled $0.15bn.", source), true);
+  assert.equal(groundedEnglish("The financing totaled $1.5bn.", source), false);
+  assert.equal(groundedEnglish("The financing totaled $1.5B.", source), false);
+  assert.equal(groundedEnglish("A 2.4tn deal was announced.", source), false);
+  assert.equal(groundedEnglish("The financing totaled $150mn.", source), true);
+  assert.equal(groundedEnglish("The financing totaled $150M.", source), true);
+});
+
+test("hyphenated magnitude words and short units cannot evade grounding", () => {
+  const source = "政府宣布投资24亿美元；新基金规模300万美元。";
+  assert.equal(groundedEnglish("The government invested $2.4-billion.", source), true);
+  assert.equal(groundedEnglish("The government invested $2.4-trillion.", source), false);
+  assert.equal(groundedEnglish("The fund totals $3M.", source), true);
+  assert.equal(groundedEnglish("The fund totals $3B.", source), false);
+});
