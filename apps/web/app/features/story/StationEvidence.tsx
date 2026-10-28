@@ -63,6 +63,12 @@ export function StationEvidenceDrawer({ station, clock }: { station: StoryRouteS
           <dd className="truncate" title={value ?? undefined}>{value ?? t("未记录", "not recorded")}</dd>
         </div>)}
       </dl>}
+      <dl className="mb-2 text-[11.5px] text-ink-4">
+        <div className="flex gap-1.5">
+          <dt>{t("发生（事实侧）", "Occurred (fact side)")}：</dt>
+          <dd>{station.timeEffective ? localizedMonthDayTime(station.timeEffective, lang) : t("未记录", "not recorded")}</dd>
+        </div>
+      </dl>
       <div className="divide-y divide-line-soft">
         {station.reports.map(r => /^https?:\/\//i.test(r.url)
           ? <EvidenceRow key={r.articleId} report={r} clock={clock} />
@@ -83,7 +89,7 @@ export function StationEvidenceDrawer({ station, clock }: { station: StoryRouteS
 }
 
 export function LayerBadge({ layer }: { layer: ImpactStationLayer }) {
-  const t = useText(), lang = useUiLanguage();
+  const lang = useUiLanguage();
   return <span className="rounded border border-line-soft bg-bg-sunk/50 px-1.5 py-0.5 text-[11px] text-ink-3">
     {LAYER_LABELS[layer][lang === "zh" ? 0 : 1]}
   </span>;
