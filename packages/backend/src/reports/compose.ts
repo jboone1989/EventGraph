@@ -279,7 +279,7 @@ export function grounded(text: string, corpus: string): boolean {
  * discarded over exactly that (2026-10-26/28 dev, receipts 19370/20358, overviewEn 0 of 14 dailies).
  */
 export function groundedEnglish(text: string, corpus: string): boolean {
-  const chineseMagnitude = /(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)(万亿|亿|万)(?![\d万亿千万百十])/g;
+  const chineseMagnitude = /(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)[ \t]*(万亿|亿|万)(?![\d万亿千万百十])/g;
   const latinMagnitude = /(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)([BMT]|bn|mn|tn)(?![A-Za-z])/g;
   const normalize = (value: string) => value.replace(/,/g, "").replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
   const known = corpus.toLowerCase()
