@@ -85,6 +85,7 @@ case "$*" in
   *"docker pull"*) exit 0 ;;
   *"docker image inspect"*) echo "\${STUB_REMOTE_IMAGE_ID:-$STUB_IMAGE_ID}" ;;
   *"eventgraph-last-delivered-image"*) exit 0 ;;
+  *"docker rmi 127.0.0.1:5000/eventgraph-dev:"*) exit 0 ;;
   *"docker rm -f eventgraph-dev-registry"*"docker volume rm eventgraph-dev-registry"*) exit 0 ;;
   *) echo "ssh stub: unexpected remote command: $*" >&2; exit 1 ;;
 esac
@@ -226,9 +227,10 @@ test("cold registry: bootstraps the registry image once, pushes, and records the
   assert.equal(readFileSync(pinnedFile_, "utf8"), `${cnDevHost} ${offeredPub}\n`, "only the verified key is trusted");
   assert.ok(!existsSync(`${pinnedFile_}.scan`));
   const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
-  // 10 hops: registry probe, bootstrap load, container ensure, /v2/ wait, seed,
-  // tunnel, remote pull, remote id, pairing write, registry+volume teardown.
-  assert.equal(sshCalls.length, 10, `probe, load, ensure, wait, seed, tunnel, pull, id, record, cleanup — got: ${sshCalls.join(" || ")}`);
+  // 11 hops: registry probe, bootstrap load, container ensure, /v2/ wait, seed,
+  // tunnel, remote pull, remote id, pairing write, transport-tag cleanup,
+  // registry+volume teardown.
+  assert.equal(sshCalls.length, 11, `probe, load, ensure, wait, seed, tunnel, pull, id, record, tag-cleanup, cleanup — got: ${sshCalls.join(" || ")}`);
   for (const call of sshCalls) {
     assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile_}`), `ssh must pin the verified host key: ${call}`);
     assert.ok(call.includes("HostKeyAlgorithms=ssh-ed25519"), `ssh must negotiate the verified algorithm: ${call}`);
@@ -239,6 +241,8 @@ test("cold registry: bootstraps the registry image once, pushes, and records the
   assert.ok(sshCalls.some((c) => c.includes("-N") && c.includes(`-L 127.0.0.1:5000:127.0.0.1:5000`)), "the push must go through a loopback SSH tunnel");
   assert.ok(sshCalls.some((c) => c.includes(`docker pull '${registryTag}'`)), "cn-dev must pull from its own loopback registry");
   assert.ok(sshCalls.some((c) => c.includes("eventgraph-last-delivered-image") && c.includes(tag) && c.includes(imageRef)), "the pairing file must bind the delivered tag to the release digest");
+  assert.ok(sshCalls.some((c) => c.includes(`docker rmi '${registryTag}'`) && c.includes(`docker rmi '${registryRepo}:seed'`)),
+    "transport-only release and seed tags must be removed so stale image IDs stay reclaimable");
   assert.ok(sshCalls.some((c) => c.includes("docker rm -f eventgraph-dev-registry") && c.includes("docker volume rm eventgraph-dev-registry")),
     "a verified delivery must remove the transport registry and its volume");
 });

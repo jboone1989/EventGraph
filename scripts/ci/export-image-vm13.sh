@@ -129,6 +129,10 @@ remote_id="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --format 
 [ "$remote_id" = "$image_id" ] \
   || { echo "cn-dev did not end up with the published image $image_id (got ${remote_id:-none})" >&2; exit 1; }
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker tag '$image_id' 'eventgraph-dev:${image_id#sha256:}' && printf '%s\\n%s\\n' 'eventgraph-dev:${image_id#sha256:}' '$EVENTGRAPH_IMAGE' > /home/ubuntu/.eventgraph-last-delivered-image.tmp && mv /home/ubuntu/.eventgraph-last-delivered-image.tmp /home/ubuntu/.eventgraph-last-delivered-image"
+# Drop transport-only Docker tags after the durable local tag/pairing exists.
+# Leaving either the release tag or the seed tag on an old image prevents
+# deploy-image.sh from reclaiming that image by ID during stale-image cleanup.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "docker rmi '$registry_repo:$EVENTGRAPH_RELEASE_SHA' >/dev/null && if docker image inspect '$registry_repo:seed' >/dev/null 2>&1; then docker rmi '$registry_repo:seed' >/dev/null; fi"
 
 # The registry is transport scratch space, not an artifact store. Once the exact
 # image is pulled, ID-verified and recorded in cn-dev's local image store, tear
