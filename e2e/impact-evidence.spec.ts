@@ -70,6 +70,26 @@ for (const edition of [{ lang: "en", path: "/en/explore?story=", impactTab: "Imp
   }
 }
 
+// AC-2/N3: the seed links two reports published an hour apart to one station.
+// The drawer must project only the source records visible at the selected cutoff.
+test("station drawer source links follow the valid-time slider without future leakage", async ({ page }) => {
+  test.skip(!seeded.story, "No public event available");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, "/en/explore?story=" + seeded.story);
+  await page.getByRole("button", { name: "Valid time", exact: true }).click();
+  const slider = page.getByRole("region", { name: /Event report playback|事件时间回放/ }).getByRole("slider");
+  const stations = page.locator('[data-testid="impact-stations"]');
+  await slider.focus();
+  await slider.press("Home");
+  const drawer = stations.locator("details").first();
+  await expect(drawer).toBeVisible();
+  await drawer.locator("summary").click();
+  await expect(drawer.locator('a[data-analytics-event="source_open"]')).toHaveCount(1);
+  await slider.press("End");
+  await expect(drawer.locator('a[data-analytics-event="source_open"]')).toHaveCount(2);
+  await expectNoOverflow(page);
+});
+
 // AC-8: the impact workbench is route-only; a dead knowledge graph degrades without taking it down.
 test("impact evidence renders without the knowledge graph", async ({ page }) => {
   test.skip(!seeded.story, "No public event available");
