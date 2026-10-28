@@ -18,9 +18,18 @@ function api(fail: { runs?: boolean; sources?: boolean }) {
     if (path === "/api/site/meta") return res.end(JSON.stringify({ changelogVersion: null }));
     if (path === "/api/admin/me") return res.end(JSON.stringify({ name: "Overview test", csrf: "fixture", dev: true }));
     if (path === "/api/admin/nav-counts") return res.end("{}");
-    if (path === "/api/admin/runs" && fail.runs) {
-      res.statusCode = 503;
-      return res.end(JSON.stringify({ detail: "runs unavailable" }));
+    if (path === "/api/admin/runs") {
+      if (fail.runs) {
+        res.statusCode = 503;
+        return res.end(JSON.stringify({ detail: "runs unavailable" }));
+      }
+      return res.end(JSON.stringify({
+        checkedAt: "2026-10-28T12:00:00Z",
+        processes: [{ role: "worker", alive: true, host: "cn-dev", at: "2026-10-28T12:00:00Z" }],
+        queues: [], jobs: [], lagging: [], failedJobs: [],
+        live24h: { discovered: 3, analyzed: 3, grouped: 2, waiting: 0, stalled: 0, failed: 0 },
+        articleProcessing: { unavailableModel: 0 },
+      }));
     }
     if (path === "/api/admin/sources") {
       if (fail.sources) {
@@ -65,13 +74,16 @@ test("a failing runs API shows 未获取, not zeros or a healthy banner, while h
   }
 });
 
-test("a failing sources API is reported, and with runs also failing nothing pretends to be healthy", async () => {
-  const web = await startWebServer(api({ runs: true, sources: true }));
+test("a failing sources API alone shows 未获取 while healthy runs remain visible", async () => {
+  const web = await startWebServer(api({ sources: true }));
   let browser: Browser | undefined;
   try {
     browser = await chromium.launch({ channel: "chromium" });
     const { page, stat } = await overview(browser, web);
     await expect(stat("信源总数")).toHaveText("未获取");
+    await expect(stat("失败信源")).toHaveText("未获取");
+    await expect(stat("新发现")).toHaveText("3", "the healthy runs endpoint must not be masked");
+    await expect(stat("Worker")).toContainText("运行中");
     await expect(page.getByText("信源统计未获取，无法确认采集健康度")).toBeVisible();
     await expect(page.getByText("部分数据未获取")).toBeVisible();
     await expect(page.getByText("当前已检查的指标未发现异常")).toHaveCount(0);
