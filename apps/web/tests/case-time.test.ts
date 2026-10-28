@@ -103,6 +103,20 @@ test("a truncated report list cannot rewrite authoritative station source aggreg
   assert.deepEqual(at.tracks[0]!.coverage, { stations: 1, reports: 1, sources: 1 }, "displayed coverage is a lower bound, not full station metadata");
 });
 
+test("known replay retains an already-recorded station when the bounded report subset cannot show its early member", () => {
+  const data = fixture();
+  const s = data.tracks[0]!.stations[0]!;
+  s.timeRecorded = "2026-10-19T00:00:00Z";
+  s.reports = [{ ...s.reports[0]!, publishedAt: later, discoveredAt: later }];
+  const known = caseStudyAt(data, early, "known").tracks[0]!;
+  assert.equal(known.status, "ok");
+  assert.equal(known.stations.length, 1);
+  assert.deepEqual(known.stations[0]!.reports, []);
+  assert.deepEqual(known.coverage, { stations: 1, reports: 0, sources: 0 });
+  assert.equal(caseStudyAt(data, early, "valid").tracks[0]!.stations.length, 0,
+    "valid time has no authoritative station-level publication clock");
+});
+
 test("date-only and zoneless cutoffs recover latest instead of an empty historical case", () => {
   const data = fixture();
   for (const asOf of ["2026-10-20", "2026-10-20T12:00:00", "invalid"]) {

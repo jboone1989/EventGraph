@@ -50,6 +50,10 @@ function Track({ track, prefix, historical }: { track: CaseStudyTrack; prefix: s
                 : t("发生时间未有报道给出", "Occurrence time not reported")}
               {" · "}{t(`收录 ${formatTime(s.timeRecorded)}`, `recorded ${formatTime(s.timeRecorded)}`)}
             </p>
+            {historical && s.reports.length === 0 && <p className="mt-1 text-[12px] leading-[1.6] text-ink-4">
+              {t("本站在该时点前已记录此站点，但当前返回的有限来源没有可展示证据；不能据此推断当时没有报道。",
+                 "This site had recorded the station by this cutoff, but the bounded source list has no displayable evidence; this does not imply no report existed then.")}
+            </p>}
             {!historical && s.uncertainty.singleSource && <p className="text-[12px] text-ink-4">· {t("单一来源", "Single source")}</p>}
             {s.uncertainty.revised && <p className="text-[12px] text-ink-4">· {t("证据此后修订", "Evidence revised later")}</p>}
             <ul className="mt-1 space-y-1">

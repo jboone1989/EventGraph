@@ -18,9 +18,12 @@ function reportAt(report: StoryRouteReport, cutoff: number, clock: "known" | "va
 function trackAt(track: CaseStudyTrack, cutoff: number, clock: "known" | "valid"): CaseStudyTrack {
   const stations = track.stations.flatMap(station => {
     const reports = station.reports.filter(r => reportAt(r, cutoff, clock));
-    if (!reports.length) return [];
+    const recorded = timestamp(station.timeRecorded);
+    const knownByCutoff = clock === "known" && Number.isFinite(recorded) && recorded <= cutoff;
+    if (!reports.length && !knownByCutoff) return [];
     // Reports are a selected-first subset (at most six). Its minimum/count is not the
-    // full station's minimum/count. Keep authoritative metadata; replay UI hides source badges.
+    // full station's minimum/count. In known-time replay, authoritative timeRecorded can
+    // prove the station existed even when the bounded selected reports cannot display it.
     return [{ ...station, reports }];
   }).sort((a, b) => {
     const first = timestamp(a.timeRecorded), second = timestamp(b.timeRecorded);
