@@ -321,9 +321,18 @@ export function groundedEnglish(text: string, corpus: string): boolean {
   const namedLatin = COMPANY_NAMES.filter((names) => names.some((n) =>
     n.length >= 4 && !ambiguous.has(n) && /^[a-z][a-z0-9 .+/-]*$/.test(n) && mentionsAlias(n)));
   const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
-  const englishMagnitudes = [...text.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)];
+  // Financial reports use both full and abbreviated units; each must be checked at its
+  // own scale, including hyphenated forms (1.5-billion, 1.5bn, 1.5B).
+  const englishMagnitudes = [
+    ...text.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*-?\s*(billion|million|trillion|bn|mn|tn)\b/gi),
+    ...text.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*-?\s*([BMT])\b/g),
+  ];
+  const unitName = (unit: string): string => {
+    const key = unit.toLowerCase();
+    return key === "bn" || key === "b" ? "billion" : key === "mn" || key === "m" ? "million" : key === "tn" || key === "t" ? "trillion" : key;
+  };
   return figures.every((f) => numbers.has(normalize(f)))
-    && englishMagnitudes.every(([, digits, unit]) => allowedMagnitudes.has(`${normalize(digits)}:${unit.toLowerCase()}`))
+    && englishMagnitudes.every(([, digits, unit]) => allowedMagnitudes.has(`${normalize(digits)}:${unitName(unit)}`))
     && namedLatin.every((names) => companies.includes(names))
     && mentioned.every((names) => companies.includes(names));
 }
