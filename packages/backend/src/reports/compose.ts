@@ -163,7 +163,7 @@ export async function composeDaily(date: string, reason?: string): Promise<{ key
           });
           receiptIds.push(resEn.receiptId);
           const fit = fittedEn(resEn.data.overview, DAILY_OVERVIEW_EN_CHARS);
-          overviewEn = fit && grounded(fit, `${corpus}\n${overview}`) && !/\p{Script=Han}/u.test(fit) ? fit : null;
+          overviewEn = fit && groundedEnglish(fit, `${corpus}\n${overview}`) && !/\p{Script=Han}/u.test(fit) ? fit : null;
         } catch (error) {
           if (shutdownSignal.signal.aborted) throw error;
           console.error(JSON.stringify({ level: "warn", msg: "daily english writer failed; the english issue goes out without an overview", report: `daily:${date}`, error: logError(error) }));
@@ -266,6 +266,32 @@ export function grounded(text: string, corpus: string): boolean {
   const lower = text.toLowerCase();
   const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
   return words.every((w) => named(w.toLowerCase())) && figures.every((f) => known.includes(f)) && mentioned.every((names) => companies.includes(names));
+}
+
+/**
+ * The English stand-in's guard: its facts are already grounded as Chinese, so it checks what a
+ * translation can still get wrong — every figure is one of the items' own numbers, written literally
+ * or as the exact English magnitude of the corpus's own 亿 (150亿 → 15), 万 (12.7万 → 127000; a comma
+ * is a thousands separator here) or Latin B/M/bn/mn unit, and a company it names in Chinese is one
+ * the items name. Latin proper nouns are not matched against a Chinese corpus (Delaware, Goldman
+ * Sachs cannot literally appear in it); the days' two completed English overviews were both
+ * discarded over exactly that (2026-10-26/28 dev, receipts 19370/20358, overviewEn 0 of 14 dailies).
+ */
+export function groundedEnglish(text: string, corpus: string): boolean {
+  const known = corpus.toLowerCase()
+    + corpus.replace(/(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)([BM]|bn|mn)(?![A-Za-z])/g,
+      (_m, digits: string, unit: string) => ` ${scaled(digits, unit === "B" || unit === "bn" ? 1 : 2)}`)
+    + corpus.replace(/(?<![\dA-Za-z.,-])(\d+(?:\.\d+)?)(万亿|亿|万)(?![\d万亿千万百十])/g,
+      (_m, digits: string, unit: string) => ` ${unit === "亿" ? scaled(digits, -1) : unit === "万" ? scaled(digits, 4) : digits}`);
+  const numbers = new Set((known.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g) ?? []).map((n) => n.replace(/,/g, "")));
+  for (const n of [...numbers]) numbers.add(n.replace(/\.0+$/, "")); // 2000亿 scales to 200.0; the English writes 200.
+  const figures = (text.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?%?/g) ?? [])
+    .filter((f) => f.replace(/,/g, "").length >= 3 || /[.%]/.test(f))
+    .map((f) => f.replace(/[,%]/g, ""));
+  const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
+  const lower = text.toLowerCase();
+  const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
+  return figures.every((f) => numbers.has(f)) && mentioned.every((names) => companies.includes(names));
 }
 
 /** The leading whole sentences of a text that fit in `max` characters; null when not even the first does. */
