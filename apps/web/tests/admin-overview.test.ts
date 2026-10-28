@@ -23,9 +23,12 @@ function api(fail: { runs?: boolean; sources?: boolean }) {
         res.statusCode = 503;
         return res.end(JSON.stringify({ detail: "runs unavailable" }));
       }
+      // Keep the healthy Worker fixture fresh: a fixed 2026 timestamp would
+      // eventually make the unrelated sources-failure test report a stale Worker.
+      const observedAt = new Date().toISOString();
       return res.end(JSON.stringify({
-        checkedAt: "2026-10-28T12:00:00Z",
-        processes: [{ role: "worker", alive: true, host: "cn-dev", at: "2026-10-28T12:00:00Z" }],
+        checkedAt: observedAt,
+        processes: [{ role: "worker", alive: true, host: "cn-dev", at: observedAt }],
         queues: [], jobs: [], lagging: [], failedJobs: [],
         live24h: { discovered: 3, analyzed: 3, grouped: 2, waiting: 0, stalled: 0, failed: 0 },
         articleProcessing: { unavailableModel: 0 },
