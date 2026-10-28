@@ -63,11 +63,17 @@ export function stationEvidenceAt(
   if (!asOf || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(asOf) || !Number.isFinite(Date.parse(asOf))) return [];
   const cutoff = Date.parse(asOf);
   const safeUrl = (url: string) => { try { return /^https?:$/.test(new URL(url).protocol); } catch { return false; } };
-  return route.stations
-    .map(station => ({
-      station,
+  const dated = (value: string | null | undefined) =>
+    !!value && /(?:Z|[+-]\\d{2}:\\d{2})$/i.test(value) && Number.isFinite(Date.parse(value));
+  return route.stations.flatMap(station => {
+    // Project only the evidence visible at this cutoff. Filtering the station but
+    // leaving its full reports array would leak future links through the drawer.
+    const reports = station.reports.filter(r =>
+      safeUrl(r.url) && dated(r.publishedAt) && dated(r.discoveredAt) && inScope(r, cutoff, clock));
+    return reports.length ? [{
+      station: { ...station, reports },
       layer: stationLayer(station),
       evidenceKind: "fact_station" as const,
-    }))
-    .filter(({ station }) => station.reports.some(r => safeUrl(r.url) && inScope(r, cutoff, clock)));
+    }] : [];
+  });
 }
