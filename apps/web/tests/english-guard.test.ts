@@ -39,6 +39,16 @@ const api = createServer((req, res) => {
     summary: 'Fixture summary', summaryEn: 'Fixture summary', updated: '2026-10-27',
     generatedAt: '2026-10-27T00:00:00Z', tracks: [], links: [], unlinked: [],
   }));
+  if (url === '/api/site/case-studies/t12-english-copy') return res.end(JSON.stringify({
+    schemaVersion: 1, id: 't12-english-copy', title: '英文文案夹具', titleEn: 'English copy fixture',
+    summary: '夹具', summaryEn: 'Fixture', updated: '2026-10-28', generatedAt: '2026-10-28T00:00:00Z',
+    tracks: [{
+      key: 'one', label: '轨道一', labelEn: 'Track one', status: 'ok',
+      story: { publicId: '00000000-0000-0000-0000-000000000001', title: '夹具报道' },
+      stations: [], coverage: { stations: 2, reports: 1, sources: 1 },
+    }],
+    links: [], unlinked: [{ track: 'one', note: '同期不画线', noteEn: 'Deliberately unlinked' }],
+  }));
   res.statusCode = 404;
   res.end(JSON.stringify({ code: 'not_found' }));
 });
@@ -64,6 +74,20 @@ for (const path of ['/en/daily', '/en/weekly', '/en/monthly', '/en/hot', '/en/to
     assert.ok(!hit, hit ? `${path} shows Chinese: …${text.slice(Math.max(0, (hit.index ?? 0) - 40), (hit.index ?? 0) + 40).trim()}…` : path);
   });
 }
+
+// The evolution experiment's English case page counts evidence in real English and keeps the
+// unlinked-note punctuation ASCII — the Chinese full-width colon must not leak into English (T12,
+// specs/event-evolution-experiment FR-06).
+test('/en/explore?case= renders English counts and punctuation', async () => {
+  const response = await fetch(`${web.origin}/en/explore?case=t12-english-copy`);
+  assert.equal(response.status, 200, web.logs());
+  const $ = cheerio.load(await response.text());
+  $('script, style, title').remove();
+  $(SWITCH).remove();
+  const text = $('body').text();
+  assert.ok(text.includes('2 stations · 1 evidence item · 1 source'), `coverage counts: ${text.slice(text.indexOf('stations') - 40, text.indexOf('stations') + 40)}`);
+  assert.ok(text.includes('Track one: Deliberately unlinked'), 'unlinked note with an ASCII colon');
+});
 
 // The tool pages keep one address per language and switch by preference; their server render is
 // Chinese, so the English claim needs a browser that has set the preference.
