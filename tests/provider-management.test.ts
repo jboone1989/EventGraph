@@ -121,7 +121,7 @@ test('normalized embedding adapter uses configured prefix and receipt budget',as
  const c=await createConnection(connection(),'test','test');
  const input=model(c.id,{adapter:'embedding',capabilities:['embedding'],probeSpec:{capability:'embedding',body:{input:'sample'},response:'embedding'}});
  const m=await createRegisteredModel(input,'test','test');await certify(m.id,'embedding');await updateRegisteredModel(m.id,{...input,routeEnabled:true},m.version,'route','test');
- network.get('https://provider.invalid').intercept({path:'/prefix/v4/embeddings',method:'POST',body:b=>!String(b).includes('stream')}).reply(200,{data:[{embedding:[1,2,3]}]});
+ network.get('https://provider.invalid').intercept({path:'/prefix/v4/embeddings',method:'POST',body:b=>!String(b).includes('stream')}).reply(200,{data:[{index:0,embedding:[1,2,3]}]});
  assert.deepEqual((await embedRegisteredModel(m.id,'hi','embedding-test',m.id)).vectors,[[1,2,3]]);
 });
 test('HTTP CRUD enforces auth and CSRF, exposes field errors and returns deletion dependencies',async()=>{
