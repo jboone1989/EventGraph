@@ -608,7 +608,7 @@ jobs:
       group: eventgraph-dev-worker
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     environment: development
     permissions:
       contents: read
@@ -641,7 +641,7 @@ jobs:
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
           envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA,EVENTGRAPH_DEV_SSH_FINGERPRINT
-          command_timeout: 10m
+          command_timeout: 20m
           version: '1.8.2'
           script_path: scripts/ci/export-image-vm13.sh
       - name: Deploy the development worker on cn-dev
