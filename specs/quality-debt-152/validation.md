@@ -28,7 +28,7 @@
 |---|---|---|
 | `operations/heartbeat.ts:24-25` | beat 写库失败零日志。worker 停跳会由 watchdog 报（watch.ts）；但 api 自身心跳停跳只在 admin 页显示陈旧时长，日志无痕 | 中 |
 | `operations/watch.ts:61` | watchdog 检查本身失败零日志——watchdog 死了没人知道 | 中 |
-| `operations/feedback.ts:97` | **修正 #152 表述**：正常失败路径并不丢失——`notify/feishu.ts:195` 落 `forward_error`，`operations/feedback.ts:114-130` 每 5 分钟重试至 7 天；`.catch(()=>{})` 只吞逃逸异常（如落库本身失败）且无日志 | 低（仅日志） |
+| `operations/feedback.ts:97` | 正常转发失败先由 `notify/feishu.ts:194-197` 记录 `forward_error` 并重新抛出，`:97` 的 `.catch(()=>{})` 因此吞掉**每次首次转发的普通失败**（飞书/截图上传/网络等）日志，不只是稀有逃逸异常；`operations/feedback.ts:114-130` 每 5 分钟重试至 7 天，数据/错误状态未丢。重试 sweep `:125` 仅累计 `failed` 也无日志，现明确一起纳入 FR-3，保留原重试和计数语义 | 中（状态可查但运行日志缺失） |
 | `media/upstream.ts:39` | trip 状态持久化失败零日志；限流判定以内存为准，仅影响 admin findings 展示 | 低 |
 | 处置 | FR-3：四处改一行 console 错误日志（先例：`knowledge/graphiti.ts` 的 `console.error("graphiti_stats_failed", ...)`），不加子系统、不改告警语义 | |
 
