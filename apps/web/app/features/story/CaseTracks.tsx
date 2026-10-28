@@ -16,7 +16,7 @@ const LINK_TYPES: Record<CaseStudyLink["type"], { zh: string; en: string }> = {
   "follow-up": { zh: "后续发展", en: "Follow-up" },
 };
 
-function Track({ track, prefix }: { track: CaseStudyTrack; prefix: string }) {
+function Track({ track, prefix, historical }: { track: CaseStudyTrack; prefix: string; historical: boolean }) {
   const t = useText(), lang = useUiLanguage();
   const label = lang === "en" ? track.labelEn : track.label;
   const formatTime = (value: string | null) =>
@@ -29,11 +29,15 @@ function Track({ track, prefix }: { track: CaseStudyTrack; prefix: string }) {
     </div>
     {track.status !== "ok"
       ? <p className="mt-3 text-[13px] leading-[1.7] text-ink-4">
-          {t("这条轨道当前没有可公开引用的证据，站点与证据已一并隐藏。",
-             "This track has no publicly citable evidence right now; its stations and evidence are hidden with it.")}
+          {historical
+            ? t("当前可展示的有限证据中，没有满足该时点的报道；这不证明当时没有发生或报道。",
+                "No reports in the bounded, currently displayable evidence meet this cutoff; this does not prove nothing happened or was reported then.")
+            : t("这条轨道当前没有可公开引用的证据，站点与证据已一并隐藏。",
+                "This track has no publicly citable evidence right now; its stations and evidence are hidden with it.")}
         </p>
       : <>
         <p className="mt-1 text-[12px] text-ink-4">
+          {historical && t("当前可展示的下界：", "Currently displayable lower bounds: ")}
           {t(`${track.coverage.stations} 个站点 · ${track.coverage.reports} 条证据 · ${track.coverage.sources} 个来源`,
              `${track.coverage.stations} stations · ${track.coverage.reports} evidence · ${track.coverage.sources} sources`)}
         </p>
@@ -46,7 +50,11 @@ function Track({ track, prefix }: { track: CaseStudyTrack; prefix: string }) {
                 : t("发生时间未有报道给出", "Occurrence time not reported")}
               {" · "}{t(`收录 ${formatTime(s.timeRecorded)}`, `recorded ${formatTime(s.timeRecorded)}`)}
             </p>
-            {s.uncertainty.singleSource && <p className="text-[12px] text-ink-4">· {t("单一来源", "Single source")}</p>}
+            {historical && s.reports.length === 0 && <p className="mt-1 text-[12px] leading-[1.6] text-ink-4">
+              {t("本站在该时点前已记录此站点，但当前返回的有限来源没有可展示证据；不能据此推断当时没有报道。",
+                 "This site had recorded the station by this cutoff, but the bounded source list has no displayable evidence; this does not imply no report existed then.")}
+            </p>}
+            {!historical && s.uncertainty.singleSource && <p className="text-[12px] text-ink-4">· {t("单一来源", "Single source")}</p>}
             {s.uncertainty.revised && <p className="text-[12px] text-ink-4">· {t("证据此后修订", "Evidence revised later")}</p>}
             <ul className="mt-1 space-y-1">
               {s.reports.map((r) => <li key={r.articleId} className="text-[12px] leading-[1.6] text-ink-3">
@@ -61,7 +69,9 @@ function Track({ track, prefix }: { track: CaseStudyTrack; prefix: string }) {
   </section>;
 }
 
-export function CaseTracks({ data }: { data: CaseStudyResponse }) {
+export function CaseTracks({ data, historical = false, clock = "known" }: {
+  data: CaseStudyResponse; historical?: boolean; clock?: "known" | "valid";
+}) {
   const t = useText(), lang = useUiLanguage();
   const prefix = lang === "en" ? "/en" : "";
   return <div className="space-y-5">
@@ -69,14 +79,24 @@ export function CaseTracks({ data }: { data: CaseStudyResponse }) {
       <h1 data-page-title className="text-[22px] font-semibold leading-[1.3] text-ink">
         {lang === "en" ? data.titleEn : data.title}
       </h1>
-      <p className="mt-2 max-w-[680px] text-[14px] leading-[1.8] text-ink-3">
+      {!historical && <p className="mt-2 max-w-[680px] text-[14px] leading-[1.8] text-ink-3">
         {lang === "en" ? data.summaryEn : data.summary}
-      </p>
+      </p>}
       <p className="mt-2 text-[12px] text-ink-4">
         {t(`阅读实验 · 案例更新 ${data.updated} · 轨道按当前公开证据实时组装`,
            `Reading experiment · case updated ${data.updated} · tracks rebuilt from today's public evidence`)}
       </p>
     </header>
+
+    {historical && <p role="status" className="rounded-panel border border-line-soft p-3 text-[13px] leading-[1.7] text-ink-3">
+      {clock === "known"
+        ? t("有界历史重建：报道按本站收录时间截断，晚于时点的人工联系不显示；只有日期的标注须等该 UTC 日期结束后才可见。",
+            "Bounded historical reconstruction: reports follow discovery time; later annotations stay hidden. Date-only annotations appear after that UTC date has ended.")
+        : t("事后回顾：报道按原文发布时间截断，联系仍标出后来的策展日期；这不等同当时已知。",
+            "Retrospective view: reports follow source publication time; links retain their later annotation dates. This is not what was known then.")}
+      {" "}{t("每站仅返回有限来源；计数只表示当前可展示证据的下界，不推断历史单来源。收录时间保留本站真实首次记录。案例标题与轨道标签是当前编排，事实和证据可能已修订；无法还原旧版本，当前摘要与无日期核对说明已隐藏。",
+        "Each station has a bounded source list. Counts are lower bounds for currently displayable evidence, with no historical single-source inference. Recorded time retains the site's actual first discovery. Case and track labels are today's editorial structure; facts and evidence may be revised. Old versions cannot be restored; the current summary and undated review notes are hidden.")}
+    </p>}
 
     <p className="rounded-panel border border-line-soft bg-bg-sunk/40 px-4 py-3 text-[13px] leading-[1.7] text-ink-3">
       {t("每条轨道是一个独立事件的可核查路线：站点与证据来自本站公开记录，撤稿即消失。轨道之间不画箭头——下面的联系逐条人工标注类型与原始出处；同期发生或同属一个话题本身不是联系。",
@@ -84,7 +104,7 @@ export function CaseTracks({ data }: { data: CaseStudyResponse }) {
     </p>
 
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      {data.tracks.map((track) => <Track key={track.key} track={track} prefix={prefix} />)}
+      {data.tracks.map((track) => <Track key={track.key} track={track} prefix={prefix} historical={historical} />)}
     </div>
 
     {data.links.length > 0 && <section aria-label={t("跨事件联系（人工标注）", "Cross-event links (annotated)")}>
