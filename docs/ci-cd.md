@@ -59,12 +59,30 @@ independent jobs — neither gates the other:
   for the Web and API containers, which reach the cn-dev development database
   through the private SSH tunnel (details in `docs/vm13-preview.md`).
 - `deploy_dev_worker` first SSHes to VM13, where `scripts/ci/export-image-vm13.sh`
-  pulls the digest (VM13 reaches GHCR reliably) and streams it to cn-dev over the
-  pre-authorized VM13→cn-dev SSH path. `docker save | docker load` cannot carry
-  registry digest references, so delivery uses a content-addressed local tag
-  (`eventgraph-dev:<image ID hex>`); the export verifies the loaded image ID on
-  cn-dev and records the tag/digest pairing there. cn-dev never contacts the
-  registry. The job then SSHes to cn-dev and runs
+  pulls the digest (VM13 reaches GHCR reliably) and delivers it to cn-dev over
+  the pre-authorized VM13→cn-dev SSH path through a registry bound to cn-dev's
+  loopback (`127.0.0.1:5000`, reachable only through that path). The push is
+  content-addressed — each blob is HEAD-checked and only layers cn-dev does not
+  already have are uploaded — so a code-only release ships its app layer instead
+  of the full ~146 MB `docker save` stream that repeatedly missed the 20-minute
+  deadline across the variable cross-border link (measured ~123 KB/s sustained
+  on 2026-10-28, when both attempts of the morning timed out), and a push that
+  dies mid-way resumes on retry because uploaded blobs are skipped. Docker
+  treats `127.0.0.0/8` as insecure by default, so the plain-HTTP registry needs
+  no daemon configuration on either host; `registry:2` itself is bootstrapped
+  once over a compressed one-shot stream. Each successful delivery uses
+  transport scratch storage: the registry is seeded from the last local
+  cn-dev app image over loopback, so the cross-border push sends only missing
+  layers, then after the pulled image ID and digest pairing are verified the
+  registry container and volume are removed. If a transfer dies before
+  verification, the registry volume is deliberately retained so a workflow
+  retry resumes already-uploaded blobs. Rollback images live in cn-dev's local
+  image store and are never tied to registry retention.
+  Delivery keeps the content-addressed local tag contract
+  (`eventgraph-dev:<image ID hex>`) that `deploy-image.sh` asserts: the export
+  pulls on cn-dev from the loopback registry, verifies the image ID there and
+  records the tag/digest pairing. cn-dev never contacts GHCR. The job then
+  SSHes to cn-dev and runs
   `scripts/ci/deploy-image.sh`: the worker-only deploy asserts the local tag
   points at the image named by its own hex and carries the release's
   `org.opencontainers.image.revision` label, runs the idempotent setup
