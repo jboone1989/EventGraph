@@ -4,7 +4,7 @@ import {config} from '../../config.ts';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
 import {guardedFetch} from '../../lib/http-fetch.ts';
-import {paidRequest,ProviderRejectedError} from '../receipts.ts';
+import {paidRequest,ProviderRejectedError,rejectReceivedResponse} from '../receipts.ts';
 import {parseSseCompletion} from './adapter.ts';
 import {loadConnection,loadModel,modelInput,connectionView,configurationFingerprint,configurationSnapshot,routingState,type CheckRow,type ModelRow,type ConnectionRow} from './connections.ts';
 import {storedCredential} from './connection-secrets.ts';
@@ -98,7 +98,19 @@ export async function embedRegisteredModel(id:string,input:string|string[],purpo
   const {data,requestId}=await requestRegisteredModel(id,'embedding',{input},fingerprint);
   return {response:data,requestId,usage:(data.usage as Record<string,unknown>)??null};
  });
- const vectors=(receipt.response as {data?:Array<{embedding?:number[]}>}).data?.map(x=>x.embedding);
- if(!vectors?.length||vectors.some(x=>!x?.length||x.some(v=>!Number.isFinite(v))))throw new ProviderConfigError('Invalid embedding response','model',502);
- return {vectors,receiptId:receipt.receiptId};
+ const rows=(receipt.response as {data?:Array<{index?:number;embedding?:number[]}>}).data;
+ const count=Array.isArray(input)?input.length:1;
+ // Providers certified by the existing probe may omit indices. Such batches preserve
+ // response order; mixed or explicit indices must be complete and unique.
+ const data=Array.isArray(rows)&&rows.every(row=>row!==null && typeof row==="object" && row.index===undefined)
+  ? rows.map((row,index)=>({...row,index})) : rows;
+ const valid=Array.isArray(data)&&data.length===count&&data.every((row)=>
+  Number.isInteger(row?.index)&&row.index! >= 0&&row.index! < count&&
+  Array.isArray(row.embedding)&&row.embedding.length>0&&row.embedding.every(Number.isFinite));
+ const sorted=valid?[...data!].sort((a,b)=>a.index!-b.index!):[];
+ if(!valid||sorted.some((row,i)=>row.index!==i)){
+  await rejectReceivedResponse(receipt.receiptId,'unusable embeddings: count, indices or vector values');
+  throw new ProviderConfigError('Invalid embedding response: count, indices or vector values','model',502);
+ }
+ return {vectors:sorted.map(row=>row.embedding!),receiptId:receipt.receiptId};
 }
