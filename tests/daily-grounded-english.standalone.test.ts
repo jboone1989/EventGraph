@@ -108,3 +108,12 @@ test("a hyphen does not create a false company-token boundary", () => {
   assert.equal(groundedEnglish("OpenAI-enabled systems were tested.", "研究者测试了系统。"), true);
   assert.equal(groundedEnglish("OpenAI released a model.", "OpenAI 发布了模型。"), true);
 });
+
+test("spaced Chinese units support exact English magnitudes without accepting fabricated values", () => {
+  const corpus = "欧盟计划动员 49 亿欧元，其他项目预算为8500 亿美元。";
+  assert.equal(groundedEnglish("The EU will mobilize €4.9 billion.", corpus), true);
+  assert.equal(groundedEnglish("The other project costs $850 billion.", corpus), true);
+  assert.equal(groundedEnglish("The EU will mobilize €4900 million.", corpus), true);
+  assert.equal(groundedEnglish("The EU will mobilize €5.9 billion.", corpus), false);
+  assert.equal(groundedEnglish("The other project costs $850 million.", corpus), false);
+});
