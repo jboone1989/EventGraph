@@ -149,3 +149,21 @@ test("hyphenated magnitude words and short units cannot evade grounding", () => 
   assert.equal(groundedEnglish("The fund totals $3M.", source), true);
   assert.equal(groundedEnglish("The fund totals $3B.", source), false);
 });
+
+test("percentages require an actual percentage in the source", () => {
+  assert.equal(groundedEnglish("Shares fell 22%.", "2026年10月22日发布公告。"), false);
+  assert.equal(groundedEnglish("Shares fell 22%.", "该股下跌22%。"), true);
+  assert.equal(groundedEnglish("Shares fell 22%.", "该股下跌22％。"), true);
+  assert.equal(groundedEnglish("Shares fell 22%.", "该股下跌百分之22。"), true);
+  assert.equal(groundedEnglish("Shares fell 22%.", "该股下跌22元。"), false);
+  assert.equal(groundedEnglish("Shares fell 1,200%.", "该股上涨1,200%。"), true);
+  assert.equal(groundedEnglish("Shares fell 1,200%.", "该股上涨1,200元。"), false);
+});
+
+test("standalone T cells and model suffixes are not magnitude claims", () => {
+  const source = "研究了19种T细胞和235个参数，另有22个基准；模型Qwen3-235B-A22B。";
+  assert.equal(groundedEnglish("COVID-19 T cells were studied.", source), true);
+  assert.equal(groundedEnglish("The Qwen3-235B-A22B model was compared.", source), true);
+  assert.equal(groundedEnglish("The fund reached $235B.", source), false);
+  assert.equal(groundedEnglish("The fund reached $235 billion.", source), false);
+});
