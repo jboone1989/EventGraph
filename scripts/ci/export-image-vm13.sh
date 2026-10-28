@@ -115,14 +115,14 @@ start_tunnel() {
 # blobs, and replace a dead/unresponsive tunnel before the next attempt.
 ensure_tunnel() {
   if [ -z "$tunnel_pid" ] || ! kill -0 "$tunnel_pid" 2>/dev/null ||
-    ! curl -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
+    ! curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
     start_tunnel
   fi
   ready=0
   check=1
   while [ "$check" -le 45 ]; do
     if ! kill -0 "$tunnel_pid" 2>/dev/null; then break; fi
-    if curl -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
+    if curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
       ready=1
       break
     fi
