@@ -62,6 +62,9 @@ if (args[0] === "push") {
   if (existsSync(counter)) failures = Number(readFileSync(counter, "utf8")) || 0;
   writeFileSync(counter, String(failures + 1));
   log("push " + args.join(" ") + " attempt " + (failures + 1));
+  if (failures === 0 && process.env.STUB_DROP_TUNNEL_ON_FIRST_PUSH) {
+    try { process.kill(Number(readFileSync(process.env.STUB_TUNNEL_PID_FILE, "utf8")), "SIGTERM"); } catch {}
+  }
   process.exit(failures < Number(process.env.STUB_PUSH_FAILURES || 0) ? 1 : 0);
 }
 if (args[0] === "save") { log("save " + args.join(" ")); console.log("tar-bytes"); process.exit(0); }
@@ -77,7 +80,7 @@ const sshStub = `#!/bin/sh
 printf '%s\n' "$*" >> "$STUB_SSH_CALLS"
 case "$*" in
   *"eventgraph-dev:seed"*) exit 0 ;;
-  *"-N"*"-L"*) exit 0 ;;
+  *"-N"*"-L"*) printf '%s\\n' "$" > "$STUB_TUNNEL_PID_FILE"; exec sleep 30 >/dev/null 2>&1 ;;
   *"registry:2 >"*) [ -n "$STUB_REGISTRY_PRESENT" ] && exit 0; exit 1 ;;
   *"gzip -dc | docker load"*) exit 0 ;;
   *"docker run -d --name eventgraph-dev-registry"*) exit 0 ;;
@@ -89,6 +92,15 @@ case "$*" in
   *"docker rm -f eventgraph-dev-registry"*"docker volume rm eventgraph-dev-registry"*) exit 0 ;;
   *) echo "ssh stub: unexpected remote command: $*" >&2; exit 1 ;;
 esac
+`;
+
+const curlStub = `#!/bin/sh
+case "$*" in *"http://127.0.0.1:5000/v2/"*) ;; *) exit 1 ;; esac
+n="$(cat "$STUB_CURL_COUNTER")"
+n=$((n + 1))
+printf '%s\\n' "$n" > "$STUB_CURL_COUNTER"
+[ "$n" -gt "${STUB_TUNNEL_READY_FAILS:-0}" ] || exit 7
+exit 0
 `;
 
 const keyscanStub = `#!/bin/sh
@@ -123,7 +135,7 @@ interface Sandbox {
 // other modes (pinEcdsa reproduces the 2026-10-27 CD failure: the secret pins
 // the ECDSA key while the script only scanned ed25519).
 function sandbox(
-  opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean; registryPresent?: boolean; pushFailures?: number; remoteImageId?: string } = {},
+  opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean; registryPresent?: boolean; pushFailures?: number; remoteImageId?: string; tunnelReadyFails?: number; dropTunnelOnFirstPush?: boolean } = {},
 ): Sandbox {
   const dir = mkdtempSync(path.join(tmpdir(), "export-image-"));
   dirs.push(dir);
@@ -136,11 +148,13 @@ function sandbox(
   writeFileSync(path.join(bin, "docker"), dockerStub);
   writeFileSync(path.join(bin, "ssh"), sshStub);
   writeFileSync(path.join(bin, "ssh-keyscan"), keyscanStub);
+  writeFileSync(path.join(bin, "curl"), curlStub);
   writeFileSync(path.join(bin, "sudo"), `#!/bin/sh\n[ "$1" = "-n" ] && shift\nexec "$@"\n`);
-  for (const f of ["docker", "ssh", "ssh-keyscan", "sudo"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
+  for (const f of ["docker", "ssh", "ssh-keyscan", "sudo", "curl"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
   writeFileSync(path.join(dir, "ssh-calls.log"), "");
   writeFileSync(path.join(dir, "docker-calls.log"), "");
   writeFileSync(path.join(dir, "push-counter"), "0");
+  writeFileSync(path.join(dir, "curl-counter"), "0");
   const env: Record<string, string | undefined> = {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
@@ -153,12 +167,16 @@ function sandbox(
     STUB_OFFERED_PUB: path.join(dir, "offered.pub"),
     STUB_OFFERED_ECDSA_PUB: path.join(dir, "offered-ecdsa.pub"),
     STUB_PUSH_COUNTER: path.join(dir, "push-counter"),
+    STUB_CURL_COUNTER: path.join(dir, "curl-counter"),
+    STUB_TUNNEL_PID_FILE: path.join(dir, "tunnel.pid"),
     EVENTGRAPH_IMAGE: imageRef,
     EVENTGRAPH_RELEASE_SHA: releaseSha,
     EVENTGRAPH_DEV_SSH_FINGERPRINT: undefined,
   };
   if (opts.registryPresent) env.STUB_REGISTRY_PRESENT = "1";
   if (opts.pushFailures) env.STUB_PUSH_FAILURES = String(opts.pushFailures);
+  if (opts.tunnelReadyFails) env.STUB_TUNNEL_READY_FAILS = String(opts.tunnelReadyFails);
+  if (opts.dropTunnelOnFirstPush) env.STUB_DROP_TUNNEL_ON_FIRST_PUSH = "1";
   if (opts.remoteImageId) env.STUB_REMOTE_IMAGE_ID = opts.remoteImageId;
   if (!opts.noPin) {
     env.EVENTGRAPH_DEV_SSH_FINGERPRINT = opts.pinEcdsa
@@ -259,6 +277,14 @@ test("retry/warm registry: no bootstrap stream, only the incremental push", () =
   assert.ok(!sshCalls.includes("gzip -dc | docker load"), "no stream load may happen");
   assert.ok(sshCalls.includes("docker rm -f eventgraph-dev-registry") && sshCalls.includes("docker volume rm eventgraph-dev-registry"),
     "successful retry still removes transport scratch state");
+});
+
+test("a slow SSH tunnel must become ready before any image push", () => {
+  const { dir, env } = sandbox({ registryPresent: true, tunnelReadyFails: 2 });
+  const res = run(env);
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(Number(content(path.join(dir, "curl-counter"))) >= 3, "the tunnel readiness endpoint must be polled");
+  assert.ok(content(path.join(dir, "docker-calls.log")).includes(`push ${registryTag}`));
 });
 
 test("a push that fails twice succeeds on the third attempt (blobs already uploaded are skipped)", () => {
