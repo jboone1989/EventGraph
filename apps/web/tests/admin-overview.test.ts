@@ -82,7 +82,7 @@ test("a failing sources API alone shows 未获取 while healthy runs remain visi
     const { page, stat } = await overview(browser, web);
     await expect(stat("信源总数")).toHaveText("未获取");
     await expect(stat("失败信源")).toHaveText("未获取");
-    await expect(stat("新发现")).toHaveText("3", "the healthy runs endpoint must not be masked");
+    await expect(stat("新发现")).toHaveText("3");
     await expect(stat("Worker")).toContainText("运行中");
     await expect(page.getByText("信源统计未获取，无法确认采集健康度")).toBeVisible();
     await expect(page.getByText("部分数据未获取")).toBeVisible();
