@@ -93,3 +93,18 @@ test("English company identity must have a source alias in either language", () 
   assert.equal(groundedEnglish("Anthropic announced a launch.", "Google 发布模型。"), false);
   assert.equal(groundedEnglish("The issue was metadata and metadata only.", "本期讲述元数据。"), true);
 });
+
+test("ordinary product words and hyphenated terminology must not block a real English overview", () => {
+  const corpus = "研究团队展示了机器学习方法和用户操作体验，没有提到任何科技公司。";
+  assert.equal(groundedEnglish("The results improve meta-learning in practice.", corpus), true);
+  assert.equal(groundedEnglish("An AI copilot can help the user move the cursor.", corpus), true);
+  assert.equal(groundedEnglish("The new llama model is compared against a grok heuristic.", corpus), true);
+  assert.equal(groundedEnglish("Microsoft announced the model.", corpus), false);
+  assert.equal(groundedEnglish("Google DeepMind announced the model.", corpus), false);
+});
+
+test("a hyphen does not create a false company-token boundary", () => {
+  assert.equal(groundedEnglish("A meta-learning study was published.", "研究公布了学习方法。"), true);
+  assert.equal(groundedEnglish("OpenAI-enabled systems were tested.", "研究者测试了系统。"), true);
+  assert.equal(groundedEnglish("OpenAI released a model.", "OpenAI 发布了模型。"), true);
+});
