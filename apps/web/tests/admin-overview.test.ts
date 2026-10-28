@@ -114,3 +114,23 @@ test("both overview APIs failing must never produce a false healthy or zero-data
     await web.stop();
   }
 });
+
+test("healthy overview baseline retains real Worker and source counts", async () => {
+  // Failure-only fixtures can hide a page that always renders 未获取.
+  // This control proves the same browser route reads both successful endpoints.
+  const web = await startWebServer(api({}));
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch({ channel: "chromium" });
+    const { page, stat } = await overview(browser, web);
+    await expect(stat("新发现")).toHaveText("3");
+    await expect(stat("Worker")).toContainText("运行中");
+    await expect(stat("信源总数")).toHaveText("12");
+    await expect(stat("失败信源")).toHaveText("2");
+    await expect(page.getByText("运行数据未获取 · 不能判定系统健康")).toHaveCount(0);
+    await expect(page.getByText("部分数据未获取")).toHaveCount(0);
+  } finally {
+    await browser?.close();
+    await web.stop();
+  }
+});
