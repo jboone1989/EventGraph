@@ -24,7 +24,7 @@ Status: **DRAFT**（2026-10-27 提交，未获批准；本文档只定需求与�
 - **FR-3（运维失败可见）**：下列四处失败改为经现有 console 日志输出一行（沿用 `knowledge/graphiti.ts` 的 `console.error` 风格；可按分钟节流），**不**新增重试、告警通道或持久化状态，**不**改变 watchdog/告警触发语义：
   - `operations/heartbeat.ts:24-25`（beat 写库失败）
   - `operations/watch.ts:61`（watchdog 检查失败）
-  - `operations/feedback.ts:97`（转发逃逸异常；DB 落库与 7 天重试已在 `notify/feishu.ts:195`、`operations/feedback.ts:114-130` 存在，保留）
+  - `operations/feedback.ts:97`（每次首次转发失败都会被这里的 catch 吞掉日志，包括普通飞书/截图上传/网络失败，而不只是落库逃逸异常；`notify/feishu.ts:194-197` 会先记录 `forward_error` 再重新抛出，DB 落库与 7 天重试保留）。同文件重试 sweep `:125` 的 catch 目前只累计 `failed`；本草案明确将该处同样纳入 FR-3 的一行既有 console 日志要求，保留计数、节奏和重试期限
   - `media/upstream.ts:39`（trip 状态持久化失败；内存状态仍为准）
 
 ## 验收
