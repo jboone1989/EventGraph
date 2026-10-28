@@ -160,6 +160,15 @@ test("AC-2/N3: evidence drawers receive only reports visible at the selected kno
     "known time must still hide the later-discovered report");
   assert.deepEqual(visibleIds("2026-10-28T00:00:00Z", "known"), ["early", "later"],
     "undated and unsafe reports must never appear even at the latest cutoff");
+  const offset = {
+    ...early, articleId: "offset",
+    publishedAt: "2026-10-23T18:00:00+08:00",
+    discoveredAt: "2026-10-24T18:00:00+08:00",
+  };
+  assert.deepEqual(
+    stationEvidenceAt(route([{ ...t0Station, reports: [offset] }]), "2026-10-25T00:00:00Z", "known")
+      .flatMap(item => item.station.reports.map(report => report.articleId)),
+    ["offset"], "explicit timezone offsets are valid, not just Z timestamps");
 });
 
 test("AC-2: reports without a safe URL or required timestamps hide the station, honestly", () => {
