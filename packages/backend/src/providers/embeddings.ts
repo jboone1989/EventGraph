@@ -1,24 +1,29 @@
 // Text embeddings through receipts, used only for recall. Any OpenAI-compatible /embeddings endpoint
 // (EMBEDDING_BASE_URL, EMBEDDING_API_KEY, EMBEDDING_MODEL); with a DashScope key and nothing else set,
-// Aliyun text-embedding-v4 at 1024 dimensions. Without either, recall compares the texts themselves.
+// Aliyun text-embedding-v4 at 1024 dimensions; EMBEDDING_MODEL=model:<id> embeds through a registered
+// model of the admin's model page, on its connection's stored credential and vendor budget. Without
+// any of these, recall compares the texts themselves.
 import { config, credential } from "../config.ts";
 import { sql } from "../db.ts";
 import { sha256 } from "../lib/ids.ts";
 import { z } from "zod";
 import { ModelOutputError } from "./llm.ts";
 import { completeReceipt, paidRequest, ProviderRejectedError, rejectReceivedResponse } from "./receipts.ts";
+import { embedRegisteredModel } from "./registry/runtime.ts";
 
-const own = !!credential("models", "EMBEDDING_API_KEY");
+/** model:<id> addresses a registered model, the same reference form every chat step takes. */
+const registered = process.env.EMBEDDING_MODEL?.startsWith("model:") ?? false;
+const own = !registered && !!credential("models", "EMBEDDING_API_KEY");
 export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || (own ? "text-embedding-3-small" : "text-embedding-v4");
 /** Requested dimensions, when the provider takes the parameter (0 leaves it to the model). */
-export const EMBEDDING_DIMS = Number(process.env.EMBEDDING_DIMS ?? (own ? 0 : 1024));
+export const EMBEDDING_DIMS = Number(process.env.EMBEDDING_DIMS ?? (registered || own ? 0 : 1024));
 const SERVICE = own ? "embedding" : "dashscope";
 /** A vector of the configured size; a stored one of another size (EMBEDDING_DIMS changed) is computed again. */
 const VECTOR = EMBEDDING_DIMS > 0 ? z.array(z.number()).length(EMBEDDING_DIMS) : z.array(z.number()).min(1);
 
 /** Embeddings are paid model calls: MODEL_CALLS_ENABLED=false switches them off like every other call. */
 export function embeddingsAvailable(): boolean {
-  return config.modelCallsEnabled && !!(credential("models", "EMBEDDING_API_KEY") ?? credential("models", "DASHSCOPE_API_KEY"));
+  return config.modelCallsEnabled && (registered || !!(credential("models", "EMBEDDING_API_KEY") ?? credential("models", "DASHSCOPE_API_KEY")));
 }
 
 /** NVIDIA's hosted retrieval models refuse a request without input_type; passage for every text
@@ -30,6 +35,17 @@ export function embeddingsInputType(base: string): "passage" | undefined {
 
 async function embedBatch(texts: string[], subject: string): Promise<{ vectors: number[][]; receiptId: number }> {
   if (!config.modelCallsEnabled) throw new Error("Model calls are disabled (MODEL_CALLS_ENABLED=false)");
+  if (registered) {
+    // The connection owns the credential, address, policy check and budget (its vendor is the service).
+    const got = await embedRegisteredModel(EMBEDDING_MODEL.slice(6), texts, "embedding", subject);
+    for (const vector of got.vectors) {
+      if (vector && VECTOR.safeParse(vector).success) continue;
+      const reason = `unusable embeddings: vector of ${vector?.length ?? 0} dimensions, EMBEDDING_DIMS is ${EMBEDDING_DIMS}`;
+      await rejectReceivedResponse(got.receiptId, reason);
+      throw new ModelOutputError(`Embedding response is unusable for ${subject}: ${reason}`, got.receiptId);
+    }
+    return { vectors: got.vectors.filter((v): v is number[] => !!v), receiptId: got.receiptId };
+  }
   const base = own ? credential("models", "EMBEDDING_BASE_URL") ?? "https://api.openai.com/v1" : credential("models", "DASHSCOPE_BASE_URL") ?? "https://dashscope.aliyuncs.com/compatible-mode/v1";
   const key = own ? credential("models", "EMBEDDING_API_KEY") : credential("models", "DASHSCOPE_API_KEY");
   if (!key) throw new Error("EMBEDDING_API_KEY (or DASHSCOPE_API_KEY) missing");
