@@ -216,3 +216,20 @@ test("mixed indexed and unindexed provider rows fail closed instead of corruptin
   `, { data: [{ index: 0, embedding: [1, 0, 0] }, { embedding: [0, 1, 0] }] });
   assert.deepEqual(out, { accepted: false });
 });
+
+test("malformed null provider rows reject their receipt instead of retrying an unhandled TypeError", async () => {
+  const item = { id: T + "-null-row", text: T + " null row" };
+  const subject = "article:" + item.id;
+  const out = await freshProcess({}, `
+    try {
+      await ensureEmbeddings([{id: ${JSON.stringify(item.id)},text: ${JSON.stringify(item.text)}}]);
+      console.log(JSON.stringify({ accepted: true }));
+    } catch (error) {
+      const [receipt] = await sql\`SELECT status FROM receipts WHERE subject = \${${JSON.stringify(subject)}}\`;
+      console.log(JSON.stringify({ accepted: false, status: receipt?.status, error: String(error.message) }));
+    }
+  `, { data: [null] });
+  assert.equal(out.accepted, false);
+  assert.equal(out.status, "failed");
+  assert.match(out.error, /Invalid embedding response/);
+});
