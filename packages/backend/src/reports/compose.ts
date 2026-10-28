@@ -298,9 +298,16 @@ export function groundedEnglish(text: string, corpus: string): boolean {
   }
   for (const [, digits, unit] of corpus.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)) allow(digits, unit.toLowerCase());
   const numbers = new Set((known.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g) ?? []).map(normalize));
-  const figures = (text.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?%?/g) ?? [])
-    .filter((f) => f.replace(/,/g, "").length >= 3 || /[.%]/.test(f))
-    .map((f) => f.replace(/[,%]/g, ""));
+  // Percentages must be supported as percentages, not merely as digits reused
+  // in a date, model number, or another quantity.
+  const percentPattern = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?`;
+  const percents = new Set<string>();
+  for (const match of corpus.matchAll(new RegExp(`(${percentPattern})\\s*[%％]|百分之\\s*(${percentPattern})`, "g"))) {
+    percents.add(normalize(match[1] ?? match[2]));
+  }
+  const figures = (text.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?[%％]?/g) ?? [])
+    .filter((f) => f.replace(/,/g, "").length >= 3 || /[.%％]/.test(f))
+    .map((f) => f.replace(/,/g, ""));
   const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
   const lower = text.toLowerCase();
   // Latin aliases are matched as whole names; translated named entities are allowed only when
@@ -325,13 +332,15 @@ export function groundedEnglish(text: string, corpus: string): boolean {
   // own scale, including hyphenated forms (1.5-billion, 1.5bn, 1.5B).
   const englishMagnitudes = [
     ...text.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*-?\s*(billion|million|trillion|bn|mn|tn)\b/gi),
-    ...text.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*-?\s*([BMT])\b/g),
+    ...text.matchAll(/(?<![\dA-Za-z.,-])(\d+(?:,\d{3})*(?:\.\d+)?)([BMT])(?![A-Za-z])/g),
   ];
   const unitName = (unit: string): string => {
     const key = unit.toLowerCase();
     return key === "bn" || key === "b" ? "billion" : key === "mn" || key === "m" ? "million" : key === "tn" || key === "t" ? "trillion" : key;
   };
-  return figures.every((f) => numbers.has(normalize(f)))
+  return figures.every((f) => /[%％]$/.test(f)
+    ? percents.has(normalize(f.slice(0, -1)))
+    : numbers.has(normalize(f)))
     && englishMagnitudes.every(([, digits, unit]) => allowedMagnitudes.has(`${normalize(digits)}:${unitName(unit)}`))
     && namedLatin.every((names) => companies.includes(names))
     && mentioned.every((names) => companies.includes(names));
