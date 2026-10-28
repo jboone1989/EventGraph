@@ -1,18 +1,33 @@
-# CI change-scope validation ledger
+# CI scope · live validation ledger (2026-10-28)
 
-Spec: [010 · selective CI by change scope](spec.md). Tracking: [EventGraph Issue #176](https://github.com/jboone1989/EventGraph/issues/176), task T15.
-
-This document is a **documentation-only acceptance test**, not a claim that the full acceptance suite is finished. The implementation was squash-merged as [PR #193](https://github.com/jboone1989/EventGraph/pull/193) at commit `1d06804c9f69d95af929b1533270b1c27a8e02a0` on 2026-10-28. This file is the first real post-merge documentation-only PR to exercise AC-4 and, after an approved merge, AC-5.
+This is the acceptance record for [Spec 010](./spec.md) and [Issue #176 T15](https://github.com/jboone1989/EventGraph/issues/176). It is a **documentation-only** change, intentionally exercising the real post-merge scope classifier. Do not infer deployment success from a passing PR.
 
 ## CI / CD
 
-The [CI / CD section](#ci--cd) also exercises GitHub's punctuation-sensitive Markdown heading anchor behavior. A correct documentation-only run must still perform the Spec gate and relative link/anchor verification, then independently produce the required Claude review while heavy code-only jobs are marked skipped rather than left pending.
+The [CI / CD section](#ci--cd) exercises GitHub Markdown heading anchors as part of the docs-only validator. The Spec gate, relative links and anchors must still be checked; heavy builds and deployments are not evidence for a documentation-only change.
 
-## Acceptance evidence to record
+## Baseline and implementation
 
-- [ ] **AC-4**: real documentation-only pull request; true Spec gate and docs validator succeed; heavy web/backend and E2E/Docker work skipped; required job conclusions and Claude review verified on latest HEAD.
-- [ ] **AC-5**: after merge into `develop`, document-only push produces no new image and no VM13/cn-dev Worker deployment, verified from the actual GitHub push run and release digest.
-- [ ] **AC-6**: code PR and subsequent code push still execute full checks and real VM13/Worker deployment.
-- [ ] **AC-7**: code commit followed by a docs-only commit cannot suppress the pending code release; code followed by later code supersedes the older release. Validate event ordering, not only static tests.
+- Before selective CI: documentation-only [PR #181](https://github.com/jboone1989/EventGraph/pull/181) merged at `176d88c`; [develop run 40611600417](https://github.com/jboone1989/EventGraph/actions/runs/40611600417) unnecessarily ran Docker, E2E, image publish, VM13 and cn-dev Worker deployment, with the latter timing out. This is the observed pre-fix negative control.
+- Approved scope specification: [PR #191](https://github.com/jboone1989/EventGraph/pull/191), merged at `56c76ca`.
+- Implementation: [PR #193](https://github.com/jboone1989/EventGraph/pull/193), merged at `1d06804c9f69d95af929b1533270b1c27a8e02a0`. Latest PR-head [Check run 40619106248](https://github.com/jboone1989/EventGraph/actions/runs/40619106248) succeeded; independent Claude review reported 0 blocking findings. Scope logic fails closed for unknown base and `workflow_dispatch`, and preserves code-before-docs publishing.
+- Local scope tests before merge: 21/21 passed; `#181` classified docs-only, `#189/#182` code. This is not yet a live post-merge validation.
 
-No production VM09 actions or historical backfill are part of this verification.
+## Required live acceptance
+
+| Scenario | Required evidence | State |
+| --- | --- | --- |
+| Documentation-only PR (this PR) | On the latest head: real Spec gate, docs links/anchors, independent Claude; heavy build/test/docker jobs skipped by scope without falsifying required status checks | **Pending**: inspect this PR's Check jobs and reviewer |
+| Documentation-only develop merge | Check succeeds, `publish`, VM13 deployment, E2E preview and Worker deployment do **not** execute; no image digest changes | **Pending**: do not mark from PR checks |
+| Code-changing PR | Existing Check/Docker/E2E and independent Claude run on latest head | **Pending**: use the next actual code PR (for example [#192](https://github.com/jboone1989/EventGraph/pull/192) or [#194](https://github.com/jboone1989/EventGraph/pull/194)) |
+| Code-changing develop merge | Published image digest and VM13 Web/API plus cn-dev Worker revisions match the merged code; actual API/DB/browser verification | **Pending**: release only through normal gated PR |
+| A code commit followed by B docs-only (AC-7 A→B) | A must still publish and deploy; B must not publish | **Pending**: inspect A and B push runs, publish and both deploy jobs |
+| A code commit followed by C code (AC-7 A→C) | Newer C supersedes A; only C publishes and deploys | **Pending**: inspect both per-SHA push runs and deployment jobs |
+| A code → B docs-only → C code (AC-7 A→B→C) | C supersedes A; B never publishes; C publishes and deploys | **Pending**: verify all three push runs and both deploy targets |
+| A code running → B code queued → C docs pushed (AC-7 queued-B race) | C must not cancel or replace B's queued code run; B builds, publishes and deploys when eligible | **Pending**: verify B's run ID, concurrency group, image and both deployment jobs |
+| Base-branch scope detector (AC-3) | CI runs the detector from the trusted base branch when present, falling back to PR copy only on first installation | **Local tests passed**; inspect live checkout/detector steps before closure |
+| Failed/unknown diff classification | Full checks and deploy eligibility; never misclassify code as docs-only | **Local tests passed**, live manual-dispatch evidence pending |
+
+## Evidence policy
+
+A skipped job may satisfy GitHub branch protection, but is **not** evidence that the skipped test actually ran. Never mark T15 complete until the above live post-merge controls have been observed. The scope change must not modify VM09 production, bypass required Claude review, or weaken Spec-first validation.
