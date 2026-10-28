@@ -53,3 +53,35 @@ test("a company named in Chinese must still be one the corpus names", () => {
   assert.equal(groundedEnglish("The assets were held in 比特币.", CORPUS_1026), true);
   assert.equal(groundedEnglish("据 智谱 data, shares fell.", CORPUS_1026), false);
 });
+
+test("small 亿 convert to zero-leading billion and exactly equivalent million, not wrong magnitudes", () => {
+  const corpus = "公司亏损3亿美元，另一项损失1.5亿美元。";
+  assert.equal(groundedEnglish("Losses reached $0.3 billion.", corpus), true);
+  assert.equal(groundedEnglish("Losses reached $300 million.", corpus), true);
+  assert.equal(groundedEnglish("The other loss was $0.15 billion.", corpus), true);
+  assert.equal(groundedEnglish("The other loss was $150 million.", corpus), true);
+  assert.equal(groundedEnglish("Losses reached $3 billion.", corpus), false);
+  assert.equal(groundedEnglish("Losses reached $0.4 billion.", corpus), false);
+  assert.equal(groundedEnglish("Losses reached $30 million.", corpus), false);
+});
+
+test("万 magnitude supports correct fractional millions without accepting an incorrect factor of ten", () => {
+  const corpus = "此次调整影响150万人，历史数据另记3万人。";
+  assert.equal(groundedEnglish("The change affects 1.5 million people.", corpus), true);
+  assert.equal(groundedEnglish("The change affects 0.03 million people.", corpus), true);
+  assert.equal(groundedEnglish("The change affects 15 million people.", corpus), false);
+  assert.equal(groundedEnglish("The change affects 0.3 million people.", corpus), false);
+});
+
+test("trillion figures preserve units for Chinese 万亿 and Latin T and reject changed amounts", () => {
+  const corpus = "股市蒸发2.4万亿美元，模型参数规模2.8T。";
+  assert.equal(groundedEnglish("The decline totaled $2.4 trillion.", corpus), true);
+  assert.equal(groundedEnglish("The model has 2.8 trillion parameters.", corpus), true);
+  assert.equal(groundedEnglish("The decline totaled $3 trillion.", corpus), false);
+});
+
+test("a reused numeral with the wrong English magnitude unit is not grounded", () => {
+  const corpus = "3亿美元，另有300名职工，账面估值3亿人民币。";
+  assert.equal(groundedEnglish("The amount was $300 million.", corpus), true);
+  assert.equal(groundedEnglish("The amount was $3 billion.", corpus), false);
+});
