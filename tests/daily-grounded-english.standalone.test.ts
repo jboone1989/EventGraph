@@ -105,7 +105,7 @@ test("ordinary product words and hyphenated terminology must not block a real En
 
 test("a hyphen does not create a false company-token boundary", () => {
   assert.equal(groundedEnglish("A meta-learning study was published.", "研究公布了学习方法。"), true);
-  assert.equal(groundedEnglish("OpenAI-enabled systems were tested.", "研究者测试了系统。"), true);
+  assert.equal(groundedEnglish("OpenAI-enabled systems were tested.", "研究者测试了系统。"), false);
   assert.equal(groundedEnglish("OpenAI released a model.", "OpenAI 发布了模型。"), true);
 });
 
@@ -116,4 +116,18 @@ test("spaced Chinese units support exact English magnitudes without accepting fa
   assert.equal(groundedEnglish("The EU will mobilize €4900 million.", corpus), true);
   assert.equal(groundedEnglish("The EU will mobilize €5.9 billion.", corpus), false);
   assert.equal(groundedEnglish("The other project costs $850 million.", corpus), false);
+});
+
+test("hyphenated corporate claims require an actual source entity", () => {
+  assert.equal(groundedEnglish("Nvidia-backed researchers launched the project.", "研究人员公布了新项目。"), false);
+  assert.equal(groundedEnglish("Microsoft-owned assets were sold.", "资产出售。"), false);
+  assert.equal(groundedEnglish("Nvidia-backed researchers launched the project.", "英伟达投资的研究人员公布了新项目。"), true);
+  assert.equal(groundedEnglish("An ordinary meta-learning study was published.", "新研究已公布。"), true);
+});
+
+test("ungrouped four-digit English magnitudes do not evade unit validation", () => {
+  assert.equal(groundedEnglish("€4900 million was mobilized.", "动员 49 亿欧元。"), true);
+  assert.equal(groundedEnglish("€4900 billion was mobilized.", "动员 49 亿欧元。"), false);
+  assert.equal(groundedEnglish("$12000 million in funding.", "共融资 120 亿美元。"), true);
+  assert.equal(groundedEnglish("$12000 billion in funding.", "共融资 120 亿美元。"), false);
 });
