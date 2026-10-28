@@ -17,6 +17,8 @@ import { isEnglishPath } from "../lib/edition";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
 import { Badge, SelectedBadge } from "../components/ui/Badge";
+import { LayerBadge, StationEvidenceDrawer } from "../features/story/StationEvidence";
+import { stationLayer } from "../features/story/impact-layers";
 import { PillTabs } from "../components/ui/Tabs";
 import { Select } from "../components/ui/Controls";
 import { IconArrowLeft, IconChevronRight, IconClock, IconDoc, IconUsers } from "../components/icons";
@@ -238,6 +240,7 @@ function StoryRoutePanel({ route, storyPublicId }: { route: StoryRoute; storyPub
               <li key={s.factId} className="pb-4 last:pb-0">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-4">
                   <span className="num font-semibold text-ink-3">{i + 1}</span>
+                  <LayerBadge layer={stationLayer(s)} />
                   <span className="num">{when(s.timeEffective ?? s.timeRecorded)}</span>
                   {s.timeEffective && <span className="num">{t("收录于","recorded")} {when(s.timeRecorded)}</span>}
                   {s.uncertainty.singleSource && <span className={badge}>{t("单一来源","single source")}</span>}
@@ -255,6 +258,7 @@ function StoryRoutePanel({ route, storyPublicId }: { route: StoryRoute; storyPub
                   className="mt-1.5 inline-flex items-center gap-0.5 text-[12.5px] font-medium text-accent hover:underline">
                   {t("在探索工作台回到这个时点","Replay this moment in the explorer")} <IconChevronRight size={13} />
                 </Link>
+                <StationEvidenceDrawer station={s} />
               </li>
             ))}
           </ol>

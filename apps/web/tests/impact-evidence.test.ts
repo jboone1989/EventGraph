@@ -13,6 +13,7 @@ const report = (id: string, title: string, publishedAt = t0, discoveredAt = t1) 
 }) satisfies StoryDetail["timeline"][number];
 const station = (id: string, url = "https://news.example.org/article") => ({
   factId: "f-" + id, title: "Reconstructed fact",
+  subject: null, action: null, object: null,
   timeEffective: null, timeRecorded: t1,
   reports: [{ articleId: id, url, source: "Example publisher",
     publishedAt: t0, discoveredAt: t1, revision: 2 }],

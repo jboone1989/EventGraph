@@ -358,6 +358,10 @@ export type StoryRouteReport = {
 export type StoryRouteStation = {
   factId: string;
   title: string;
+  /** The fact's structured actor, action and object, read-only from the same query; null when unset. */
+  subject: string | null;
+  action: string | null;
+  object: string | null;
   /** The fact's stated occurrence time; null means the record only knows when it was reported. */
   timeEffective: string | null;
   /** When the system first recorded public evidence for this station. */
@@ -371,6 +375,12 @@ export type StoryRouteStation = {
     revised: boolean;
   };
 };
+// Impact-tracing P1 (specs/event-impact-tracing-p1 §2): the CLOSED evidence-kind vocabulary.
+// Every rendered impact item's kind comes from this set; "exposure" and "hypothesis" can never
+// appear as items — only as honest empty-state copy. Lock with the web unit tests.
+export const IMPACT_EVIDENCE_KINDS = ["fact_station", "related_reporting", "market_observation"] as const;
+export type ImpactEvidenceKind = (typeof IMPACT_EVIDENCE_KINDS)[number];
+
 export type StoryRoute = {
   schemaVersion: 1;
   story: StoryRef;

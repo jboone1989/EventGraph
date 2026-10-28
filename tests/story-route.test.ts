@@ -48,9 +48,13 @@ before(async () => {
   mergedFrom = mergedStory.public_id;
   await sql`UPDATE stories SET merged_into = ${realStory.id} WHERE id = ${mergedStory.id}`;
 
-  const factOf = async (storyId: number, title: string, occurredAt: Date | null) => {
+  const factOf = async (storyId: number, title: string, occurredAt: Date | null, structured?: {
+    subject?: string; action?: string; object?: string;
+  }) => {
     const [row] = await sql<{ id: number }[]>`
-      INSERT INTO facts (public_id, story_id, title, occurred_at) VALUES (${randomUUID()}, ${storyId}, ${title}, ${occurredAt}) RETURNING id`;
+      INSERT INTO facts (public_id, story_id, title, subject, action, object, occurred_at)
+      VALUES (${randomUUID()}, ${storyId}, ${title}, ${structured?.subject ?? null}, ${structured?.action ?? null},
+              ${structured?.object ?? null}, ${occurredAt}) RETURNING id`;
     return row!.id;
   };
   const report = async (id: string, sourceId: string, factId: number, storyId: number, at: Date, extra: {
@@ -67,8 +71,10 @@ before(async () => {
         true, true, ${extra.withdrawn ? 'withdrawn' : 'public'}, 'news', ${['ue-route']}, 'summary', ${storyId}, ${factId})`;
   };
 
-  // Station 1: two sources, one revised article, no occurred_at.
-  const fact1 = await factOf(alphaStory.id, 'Alpha opens a lab', null);
+  // Station 1: two sources, one revised article, no occurred_at; structured fields pass through read-only.
+  const fact1 = await factOf(alphaStory.id, 'Alpha opens a lab', null, {
+    subject: 'Alpha Labs', action: '宣布实验室揭幕', object: '新的实验室',
+  });
   await report(p + '-a1', src, fact1, alphaStory.id, new Date(+now - 3 * HOUR));
   await report(p + '-a2', src2, fact1, alphaStory.id, new Date(+now - 2 * HOUR), { revision: 2 });
   // A mention from a third source must not count as station evidence.
@@ -102,6 +108,13 @@ test('the route walks a public story station by station with evidence and uncert
   // Stations walk forward from the first recording.
   assert.deepEqual(route!.stations.map((s) => s.title), ['Alpha opens a lab', 'Alpha ships a model', 'Alpha expands']);
   const [first, second, third] = route!.stations;
+  // P1 passthrough (spec §3): the same read-only query carries the structured fields; null stays null.
+  assert.equal(first!.subject, 'Alpha Labs');
+  assert.equal(first!.action, '宣布实验室揭幕');
+  assert.equal(first!.object, '新的实验室');
+  assert.equal(second!.subject, null);
+  assert.equal(second!.action, null);
+  assert.equal(second!.object, null);
   assert.equal(first!.sourceCount, 2, 'mentions are not station evidence');
   assert.equal(first!.timeEffective, null);
   assert.equal(first!.uncertainty.occurredAtMissing, true);
