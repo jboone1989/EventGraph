@@ -100,6 +100,9 @@ esac
 
 const curlStub = `#!/bin/sh
 case "$*" in *"http://127.0.0.1:5000/v2/"*) ;; *) exit 1 ;; esac
+# Both readiness probes must be bounded: a stalled curl must not consume the
+# whole push budget before the docker push watchdog is even started.
+case " $* " in *" --connect-timeout 3 "*" --max-time 5 "*) ;; *) echo "unbounded registry readiness probe" >&2; exit 9 ;; esac
 n="$(cat "$STUB_CURL_COUNTER")"
 n=$((n + 1))
 printf '%s\\n' "$n" > "$STUB_CURL_COUNTER"
