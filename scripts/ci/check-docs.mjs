@@ -40,7 +40,7 @@ function anchors(text) {
     let slug = heading[1].toLowerCase()
       .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
       .replace(/[^\p{L}\p{N}\s_-]/gu, "")
-      .trim().replace(/\s+/g, "-");
+      .trim().replace(/\s/g, "-"); // GitHub creates one hyphen per space after punctuation is removed.
     if (!slug) continue;
     const seen = counts.get(slug) || 0;
     counts.set(slug, seen + 1);
