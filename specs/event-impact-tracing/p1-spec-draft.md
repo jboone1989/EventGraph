@@ -38,13 +38,13 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 
 | 层 | 归类依据（确定性） | 显示语义（对齐 CAMEO verbal/material 之分，见 research §4.5） |
 | --- | --- | --- |
-| `conflict_event` | 默认层：station 是本事件自身事实 | 按主体/动作原样显示，含"单方主张"旗标（若 singleSource） |
+| `conflict_event` | 结构化 action/title 命中冲突事件词（触雷/爆炸/袭击/交火/击沉/伤亡/开火/炮击）；优先于其他层 | 按主体/动作原样显示，含"单方主张"旗标（若 singleSource） |
 | `policy_statement` | station 命中政策词典（制裁/关税/出口管制/…） | 标签为**"机构表态/政策相关陈述"**——是言语行为（verbal act），不是政策生效状态 |
 | `logistics_observation` | station 命中航运/港口/海峡/供应链词典 | 航运与物流事实/观察 |
 | `company_disclosure` | station 命中企业披露词典（停产/停工/财报披露/…） | 仅当事实文本本身为披露陈述 |
-| `unclassified` | 以上皆不中 | 不强行归类；显示为普通事实站 |
+| `unclassified` | 以上皆不中时的唯一默认层 | 不强行归类；显示为普通事实站 |
 
-**政策阶段诚实规则（P1 的反伪造核心）**：`policy_statement` 站**永不**显示"拟议/宣布/生效/撤销"阶段标签，除非其证据文本自带明确日期的阶段词且该日期可从证据链接核到——现有产品内不存在这种数据（T06 §4.1），因此 P1 实现中该分支恒为"阶段不可核验"状态。此规则用负例测试锁定（N4）。
+**多词典命中优先级（必须确定性）**：`conflict_event`（结构化冲突动作）→ `policy_statement` → `company_disclosure` → `logistics_observation` → `unclassified`（默认）。同一 station 只能属于一个层，不能由实现遍历顺序决定。`company_disclosure` 还须结构化动作明确描述披露/停产/停工，不得仅因文本共现公司名称而命中。T0 的 action 含“触雷爆炸”，即使 object 含“油轮”，也必须优先落在 `conflict_event`；“关税影响航运”的非冲突动作按 `policy_statement` 优先于物流。关键词只决定阅读分组，不推断关系。\n\n**政策阶段诚实规则（P1 的反伪造核心）**：`policy_statement` 站**永不**显示"拟议/宣布/生效/撤销"阶段标签，除非其证据文本自带明确日期的阶段词且该日期可从证据链接核到——现有产品内不存在这种数据（T06 §4.1），因此 P1 实现中该分支恒为"阶段不可核验"状态。此规则用负例测试锁定（N4）。
 
 **关键词归类的已知局限（写进 UI 文案与文档）**：词典命中只决定"这条事实在哪个层被阅读"，不构成层间关系；错分可能性存在（如"警告关税休战"是表态不是政策），因此层标签一律用"线索/陈述"措辞，绝不用"影响/导致/生效"。
 
@@ -64,7 +64,7 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 
 在真实霍尔木兹事件（story `3d1ae73d`，T06 T0 样本）页面上：
 
-1. 事实站列表（新增渲染）：1 站（IRGC 宣布两艘超级油轮触雷），层=conflict_event，展开抽屉可见中新网原文链接、revision、10-22/10-23/10-25 三时间与 singleSource 旗标。
+1. 现有事实站列表增加层标签和站级证据抽屉：1 站（IRGC 宣布两艘超级油轮触雷），层=conflict_event，展开抽屉可见中新网原文链接、revision、10-22/10-23/10-25 三时间与 singleSource 旗标。
 2. 影响线索四面板：物流层 1 条 dated lead；政策、企业、市场三面板为诚实空态（现有文案），新增企业层空态文案点明"客观暴露不可派生"。
 3. known/valid 双时钟（现有 EventTimeMachine）：`known@2026-10-24T12:00Z` 全部线索为 0；`known@10-25T02:00Z` 出现物流 lead；`valid@10-24T12:00Z` 该 lead 已可见（audit §3 表的页面级复现）。
 4. 关系标签页（Graphiti）保持现状，不获得任何影响类型化。
@@ -77,7 +77,7 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 | # | 验收 | 证明方式 |
 | --- | --- | --- |
 | AC-1 | 渲染项类型封闭：影响工作台每个渲染项的 `evidenceKind` ∈ {`fact_station`,`related_reporting`,`market_observation`}；"暴露/假设"两类只允许以空态文案出现 | contracts 类型 + 单测断言穷举 |
-| AC-2 | 零无来源渲染：每个 station/lead 展开后必有 https(s) 原文链接、修订号、三时间；缺任一字段则该项整体不渲染（宁缺毋假） | 单测 + 真实页面抽查 |
+| AC-2 | 零无来源渲染：每个 station/lead 展开后必有 https(s) 原文链接、修订号、published（valid）及 discovered（known）时间；occurred 可缺失，但必须展示 `occurredAtMissing` / “仅报道时间”旗标，不得伪造发生时间。缺前述必需来源/版本/双时间字段才不渲染（宁缺毋假） | 单测 + 真实页面抽查（含 occurred=null 负例） |
 | AC-3 | 零跨层边：全部影响视图（双时钟、双语言、双宽度）不出现层间箭头/连线；跨层关系只能以"断链"文案存在 | e2e（zh+en × 390/1440）DOM 断言 |
 | AC-4 | 政策阶段诚实：`policy_statement` 站无"拟议/宣布/生效/撤销"标签（除非证据自带可核日期，当前恒无） | 单测 N4 + 真实 USTR 页面 |
 | AC-5 | 负例 N1 企业共现：真实共现文章文本（公司名+冲突词、无披露）不产生任何 company 层站或边 | 单测（fixture 取自真实文章文本） |
@@ -91,14 +91,14 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 
 ## 7. 测试计划（与 AC 对应）
 
-1. **纯函数单测**（新增，纯前端，无 DB）：层归类函数（含 §3 全部五层 + 错分边界样例）；词汇封闭断言；政策阶段规则 N4；企业共现 N1（fixture 用真实文章文本，含 T06 §6.1 的 Mercuria 背景案例改写）；数字共现 N2；known/valid 截断 N3（扩展现有 `impact-evidence.test.ts` 模式，全部先红后绿）。
+1. **纯函数单测**（新增，纯前端，无 DB）：层归类函数（含 §3 全部五层 + 重叠优先级/T0 冲突动作/关税航运错分边界样例）；词汇封闭断言；政策阶段规则 N4；企业共现 N1（fixture 用真实文章文本，含 T06 §6.1 的 Mercuria 背景案例改写）；数字共现 N2；known/valid 截断 N3（扩展现有 `impact-evidence.test.ts` 模式，全部先红后绿）。
 2. **e2e**（Playwright，真实部署站）：`/explore?story=<T0 真实 publicId>` zh+en × 390+1440：站列表渲染、抽屉开合、滑块 known/valid 三时点断言（AC-3/7/9）、图谱降级注入（AC-8）。沿用 `e2e/impact-evidence.spec.ts` 既有结构。
 3. **只读 DB 复核脚本**（文档化 SQL，不进 CI）：T0 站/证据行、USTR 站证据行、gCaptain 两稿归组状态——供任意审查者复跑。
 4. **明确不测**：样式微调、词典枚举完备性（开放集，按需增词）。
 
 ## 8. 实现边界预估（供批准后拆任务，非本草案内容）
 
-预计改动集中在：`packages/contracts`（StoryRoute station 类型 + `evidenceKind`）、`apps/web`（层归类纯函数 + 站列表/抽屉组件 + 文案）、`docs/event-explorer.md`、上述测试。**不改**后端查询（station 数据已含所需字段）、不加迁移、不动 worker。单 PR、遵循 feature→develop。
+预计改动集中在：`packages/contracts`（StoryRoute station 类型 + `evidenceKind`）、`apps/web`（层归类纯函数 + 现有站列表的类型标签/抽屉增强 + 文案）、`docs/event-explorer.md`、上述测试。**不改**后端查询（station 数据已含所需字段）、不加迁移、不动 worker。单 PR、遵循 feature→develop。
 
 ## 9. 未决事项（需 Owner 决定）
 
