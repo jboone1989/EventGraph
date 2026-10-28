@@ -6,7 +6,7 @@
 // and reference links plus GitHub-style slugs only, no full CommonMark.
 import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { dirname, join, normalize, resolve } from "node:path";
+import { dirname, join, normalize } from "node:path";
 
 const base = process.env.SCOPE_BASE_SHA || "";
 const head = process.env.SCOPE_HEAD_SHA || "";
@@ -103,7 +103,7 @@ function checkFile(file, report) {
 
 const report = [];
 try {
-  for (const file of changedFiles().filter(isDoc)) checkFile(resolve(file), report);
+  for (const file of changedFiles().filter(isDoc)) checkFile(file, report);
 } catch (error) {
   console.error(`::error::docs validation failed: ${error.message}`);
   process.exit(1);
