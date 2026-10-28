@@ -305,7 +305,7 @@ export function groundedEnglish(text: string, corpus: string): boolean {
   for (const match of corpus.matchAll(new RegExp(`(${percentPattern})\\s*[%％]|百分之\\s*(${percentPattern})`, "g"))) {
     percents.add(normalize(match[1] ?? match[2]));
   }
-  const figures = (text.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?[%％]?/g) ?? [])
+  const figures = (text.match(/(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?[%％]?/g) ?? [])
     .filter((f) => f.replace(/,/g, "").length >= 3 || /[.%％]/.test(f))
     .map((f) => f.replace(/,/g, ""));
   const companies = COMPANY_NAMES.filter((names) => names.some((n) => known.includes(n)));
