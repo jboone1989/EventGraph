@@ -17,7 +17,7 @@ Status: **DRAFT**（2026-10-27 提交，未获批准；本文档只定需求与�
 ## 需求
 
 - **FR-1（图谱 E2E 真覆盖）**：CI e2e 作业（`E2E_SEEDED=1`）里，知识图谱页面必须有确定性数据并被硬断言：
-  - 以**仅测试用**的 Graphiti HTTP 桩（进程内或本地端口，服务于 `/stats`、`/overview`、`/entity/<uuid>` 等页面实际用到的端点）提供固定实体/关系，`GRAPHITI_API_URL` 指向它；不引入真实 LLM/embedding，不新增生产服务。
+  - 以**仅测试用**的 Graphiti HTTP 桩（独立本地端口进程，服务于 `/stats`、`/overview`、`/network`、`/entities/<uuid>`；以 `packages/backend/src/knowledge/graphiti.ts` 实际调用核对端点和响应契约）提供固定实体/关系，在现有 CI “Start the built site” 步骤中先启动桩并导出 `GRAPHITI_API_URL`，等待端口就绪后才启动 API/Web，最后运行 Playwright；不能在 Playwright 进程内启动后试图修改已运行 API 的环境。桩须随该测试作业清理，不引入真实 LLM/embedding，不新增生产服务。
   - `e2e/knowledge.spec.ts` 的"地图绘制"与"实体页关系"两条用例在 `E2E_SEEDED=1` 时**必须执行且不得 skip**；`stats` 请求非 2xx 或不可解析即视为失败。
   - 对外部部署（无图谱，status `disabled`/`unavailable`）保留现有带原因的 skip 与"任何图谱状态都能打开"用例——CI 之外的行为不变。
 - **FR-2（采样非 2xx 即失败）**：`E2E_SEEDED=1` 时，`e2e/site.ts` 的 `samples()` 五个 API 调用中任何一个返回非 2xx 或不可解析 JSON，E2E 必须失败（报出具体端点）；200 但为空仍是合法采样。外部部署运行（无 `E2E_SEEDED`）保持现状。
