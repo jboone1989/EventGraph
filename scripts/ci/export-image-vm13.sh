@@ -133,13 +133,12 @@ ensure_tunnel() {
 }
 
 sudo -n docker tag "$image_id" "$registry_repo:$EVENTGRAPH_RELEASE_SHA"
-# Bound all push attempts inside one 16-minute budget that fits appleboy's
-# 20-minute command_timeout with room for the pull/verify hops, so a wedged
-# push (2026-10-28: every blob committed, the manifest never sent, tunnel and
-# session both healthy) returns to this resumable loop instead of stalling
-# until appleboy kills the whole script. timeout runs as root inside sudo to
-# signal the docker CLI directly; --quiet keeps the continuous progress
-# stream off the long-haul output link whose stalls wedge blocking writers.
+# Bound the entire push loop to 16 minutes, but cap each attempt at 14
+# minutes. A hung first push must leave time for a second attempt to send the
+# manifest using blobs already committed to the registry. A single timeout
+# equal to the full shared budget would kill the client with no retry time.
+# timeout runs as root inside sudo to signal docker directly; --quiet avoids
+# progress output on the slow cross-border link.
 push_deadline=$(( $(date +%s) + 16 * 60 ))
 pushed=0
 attempt=1
@@ -150,7 +149,9 @@ while [ "$attempt" -le 3 ]; do
     echo "Push budget exhausted before attempt $attempt" >&2
     break
   fi
-  if sudo -n timeout -k 5 "$remaining" docker push --quiet "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
+  attempt_timeout=$remaining
+  [ "$attempt_timeout" -le 840 ] || attempt_timeout=840
+  if sudo -n timeout -k 5 "$attempt_timeout" docker push --quiet "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
     pushed=1
     break
   fi
