@@ -75,6 +75,7 @@ for (const edition of [{ lang: "en", path: "/en/explore?story=", impactTab: "Imp
 test("station drawer source links follow the valid-time slider without future leakage", async ({ page }) => {
   test.skip(!seeded.story, "No public event available");
   await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
   await open(page, "/en/explore?story=" + seeded.story);
   await page.getByRole("button", { name: "Valid time", exact: true }).click();
   const slider = page.getByRole("region", { name: /Event report playback|事件时间回放/ }).getByRole("slider");
