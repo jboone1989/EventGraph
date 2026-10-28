@@ -296,7 +296,7 @@ export function groundedEnglish(text: string, corpus: string): boolean {
   for (const [, digits, unit] of corpus.matchAll(latinMagnitude)) {
     allow(digits, unit === "B" || unit === "bn" ? "billion" : unit === "M" || unit === "mn" ? "million" : "trillion");
   }
-  for (const [, digits, unit] of corpus.matchAll(/\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)) allow(digits, unit.toLowerCase());
+  for (const [, digits, unit] of corpus.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)) allow(digits, unit.toLowerCase());
   const numbers = new Set((known.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?/g) ?? []).map(normalize));
   const figures = (text.match(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?%?/g) ?? [])
     .filter((f) => f.replace(/,/g, "").length >= 3 || /[.%]/.test(f))
@@ -313,7 +313,7 @@ export function groundedEnglish(text: string, corpus: string): boolean {
     while (at >= 0) {
       const before = lower[at - 1];
       const after = lower[at + alias.length];
-      if ((!before || !/[a-z0-9-]/.test(before)) && (!after || !/[a-z0-9-]/.test(after))) return true;
+      if ((!before || !/[a-z0-9]/.test(before)) && (!after || !/[a-z0-9]/.test(after))) return true;
       at = lower.indexOf(alias, at + 1);
     }
     return false;
@@ -321,7 +321,7 @@ export function groundedEnglish(text: string, corpus: string): boolean {
   const namedLatin = COMPANY_NAMES.filter((names) => names.some((n) =>
     n.length >= 4 && !ambiguous.has(n) && /^[a-z][a-z0-9 .+/-]*$/.test(n) && mentionsAlias(n)));
   const mentioned = COMPANY_NAMES.filter((names) => names.some((n) => /\p{Script=Han}/u.test(n) && lower.includes(n)));
-  const englishMagnitudes = [...text.matchAll(/\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)];
+  const englishMagnitudes = [...text.matchAll(/\b(\d+(?:,\d{3})*(?:\.\d+)?)\s*(billion|million|trillion)\b/gi)];
   return figures.every((f) => numbers.has(normalize(f)))
     && englishMagnitudes.every(([, digits, unit]) => allowedMagnitudes.has(`${normalize(digits)}:${unit.toLowerCase()}`))
     && namedLatin.every((names) => companies.includes(names))
