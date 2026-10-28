@@ -3,7 +3,7 @@
 > **状态：DRAFT（2026-10-28，Pi 独立起草）。未经 Owner 批准，不授权任何实现。**
 > 上游：Issue #176 T07；规划基线 [spec.md](./spec.md) v0.1（blob 于 `80088dc`，2026-10-25 保存，自身注明"不等于授权开发"）；T06 证据结论 [audit-2026-10-27.md](./audit-2026-10-27.md) / [validation.md](./validation.md)（PR #181，develop `176d88c`）。
 > 研究依据（只读核对 + 外部调研，2026-10-28）：[p1-research-2026-10-28.md](./p1-research-2026-10-28.md)。
-> 本文件若获批准，以其 Git blob SHA 作为实现 PR 的引用锚；未批准前它只是草案。
+> 本文件若获批准，以包含批准版的完整 Git commit SHA + 文件路径作为实现 PR 的引用锚；blob SHA 仅用于内容核对。未批准前它只是草案。
 
 ## 1. 目标与非目标
 
@@ -26,7 +26,7 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 
 | spec §三 的类 | P1 类型 `evidenceKind` | 数据来源（全部现有） | 派生规则 |
 | --- | --- | --- | --- |
-| 可验证事实 | `fact_station` | StoryRoute station（`facts` 结构化主体/动作/客体 + 公开证据链） | 后端 `publicStoryRoute` 已产出；P1 增加确定性层归类（§3） |
+| 可验证事实 | `fact_station` | StoryRoute station（现有公开证据链；P1 只读补充 `facts` 结构化主体/动作/客体） | 后端 `publicStoryRoute` 已产出站点；P1 补字段并增加确定性层归类（§3） |
 | 来源明确声称的关系 | `related_reporting` | PR #134 关键词线索（route 内公开报道） | 现有 `impactLeadsAt`，语义不变：阅读线索，永不类型化为边 |
 | 仅观测到的市场变化 | `market_observation` | `market_snapshots`（现仅 5 个加密资产） | 现有 `marketObservationAt`，并排展示不归因，语义不变 |
 | 客观暴露或依赖 | ——不渲染—— | 无可派生数据 | 恒为空态文案："当前数据无法核实企业暴露或供应依赖" |
@@ -34,11 +34,11 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 
 ## 3. 一跳投影：事实站 → 层（纯派生，零写入）
 
-对 `publicStoryRoute` 返回的每个 station，用**纯函数**确定性归类到一个层。输入只有 station 已有字段（fact title/subject 结构化文本）与 PR #134 已上线的同一组关键词词典；无模型、无新查询、无跨故事拉取。
+对 `publicStoryRoute` 返回的每个 station，用**纯函数**确定性归类到一个层。当前 station 仅暴露 `title`，并未暴露数据库中的 `subject/action/object`。P1 因此须在现有同一条公开查询中只读选取这三个 `facts` 字段，并在 `StoryRouteStation` 契约中增加同名 `string | null` 字段；不新增查询、抽取、持久化或跨故事拉取。归类输入为这三个字段与现有 `title`，词典复用 PR #134。结构化字段缺失时，不得用标题共现代替动作守护：冲突/企业动作分类均不命中，其余词典只作阅读线索分组；全部不中则归入 `unclassified`。
 
 | 层 | 归类依据（确定性） | 显示语义（对齐 CAMEO verbal/material 之分，见 research §4.5） |
 | --- | --- | --- |
-| `conflict_event` | 结构化 action/title 命中冲突事件词（触雷/爆炸/袭击/交火/击沉/伤亡/开火/炮击）；优先于其他层 | 按主体/动作原样显示，含"单方主张"旗标（若 singleSource） |
+| `conflict_event` | 结构化 `action` 命中冲突事件词（触雷/爆炸/袭击/交火/击沉/伤亡/开火/炮击）；优先于其他层 | 按主体/动作原样显示，含"单方主张"旗标（若 singleSource） |
 | `policy_statement` | station 命中政策词典（制裁/关税/出口管制/…） | 标签为**"机构表态/政策相关陈述"**——是言语行为（verbal act），不是政策生效状态 |
 | `logistics_observation` | station 命中航运/港口/海峡/供应链词典 | 航运与物流事实/观察 |
 | `company_disclosure` | station 命中企业披露词典（停产/停工/财报披露/…） | 仅当事实文本本身为披露陈述 |
@@ -55,7 +55,7 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 复用既有 `RelationEvidence` 抽屉模式（谓词 + validAt/invalidAt/recordedAt + 来源轨迹），为每个 station 与每条 `related_reporting` 线索提供可展开抽屉，内容**全部来自现有投影字段**，无新数据：
 
 - 原文链接（来源名 + URL，`source_open` 埋点）、本站 `/items/:id` 入口；
-- 修订版本号（revision>1 时显示"现为修订版"）；
+- 修订版本号：现有 `revision: null` 表示首版（revision 1），显示“原版 / Original”；revision>1 显示具体版本及“现为修订版”，不因 null 隐藏首版证据；
 - 三个时间：occurred（stated）/ published（valid 侧）/ discovered（known 侧），随当前时钟高亮解释；
 - 不确定性旗标：`singleSource`、`revised`、`occurredAtMissing`（story-route 已返回）；
 - `evidenceKind` 标签（§2 词汇表）与"有界重建"警示（既有文案）。
@@ -79,7 +79,7 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 | # | 验收 | 证明方式 |
 | --- | --- | --- |
 | AC-1 | 渲染项类型封闭：影响工作台每个渲染项的 `evidenceKind` ∈ {`fact_station`,`related_reporting`,`market_observation`}；"暴露/假设"两类只允许以空态文案出现 | contracts 类型 + 单测断言穷举 |
-| AC-2 | 零无来源渲染：每个 station/lead 展开后必有 https(s) 原文链接、修订号、published（valid）及 discovered（known）时间；occurred 可缺失，但必须展示 `occurredAtMissing` / “仅报道时间”旗标，不得伪造发生时间。缺前述必需来源/版本/双时间字段才不渲染（宁缺毋假） | 单测 + 真实页面抽查（含 occurred=null 负例） |
+| AC-2 | 零无来源渲染：每个 station/lead 展开后必有 http(s) 原文链接、published（valid）及 discovered（known）时间；`revision=null` 明确显示“原版 / Original”，revision>1 显示具体版本，绝不因首版 revision=null 隐藏证据。occurred 可缺失，但必须展示 `occurredAtMissing` / “仅报道时间”旗标，不得伪造发生时间。仅缺原文链接或 published/discovered 必需时间时不渲染该报道；站点仅在无可显示报道时隐藏 | 单测 + 真实页面抽查（含首版 null revision、occurred=null、缺 published 报道负例） |
 | AC-3 | 零跨层边：全部影响视图（双时钟、双语言、双宽度）不出现层间箭头/连线；跨层关系只能以"断链"文案存在 | e2e（zh+en × 390/1440）DOM 断言 |
 | AC-4 | 政策阶段诚实：`policy_statement` 站无"拟议/宣布/生效/撤销"标签（除非证据自带可核日期，当前恒无） | 单测 N4 + 真实 USTR 页面 |
 | AC-5 | 负例 N1 企业共现：真实共现文章文本（公司名+冲突词、无披露）不产生任何 company 层站或边 | 单测（fixture 取自真实文章文本） |
@@ -87,7 +87,7 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 | AC-7 | 负例 N3 时间穿越：known@10-24T12:00Z→0 线索；valid@同刻→1 条物流 lead | 单测 + 真实页面滑块操作 |
 | AC-8 | 图谱隔离：Graphiti 不可用/降级时影响工作台照常渲染（route-only）；图谱正常时其关系不获类型化 | e2e 注入降级 + DOM 断言 |
 | AC-9 | 双语与移动端：zh/en、390px/1440px 全部视图真实浏览器通过；抽屉开合无横向溢出、无标签重叠 | e2e（补 zh 变体，T06 validation 明确留给 P1） |
-| AC-10 | 只读约束实现侧不变：无迁移、无新表、无回填、无模型调用；`npm run typecheck` + 既有测试全绿 | PR diff 审查 + CI |
+| AC-10 | 只读约束实现侧不变：仅在现有 story-route 查询/契约中增加 `subject/action/object` 可空字段，继承原公开过滤且不新增查询；无迁移、无新表、无回填、无模型调用；缺结构化动作时不得用 title 共现触发冲突/企业分类；`npm run typecheck` + 既有测试全绿 | 后端契约/公开过滤回归 + 纯函数负例 + PR diff 审查 + CI |
 
 **停止条件（继承 spec §六并具体化）**：若实现中发现任何验收需"补一条数据"才能通过——即现有数据不支持本 Spec 的渲染——停止实现，回到证据层（修采集/归组/抽取），不造假数据、不放宽断言。
 
@@ -100,11 +100,11 @@ spec.md §三要求影响链至少区分五类。P1 只**渲染**现有投影可
 
 ## 8. 实现边界预估（供批准后拆任务，非本草案内容）
 
-预计改动集中在：`packages/contracts`（StoryRoute station 类型 + `evidenceKind`）、`apps/web`（层归类纯函数 + 现有站列表的类型标签/抽屉增强 + 文案）、`docs/event-explorer.md`、上述测试。**不改**后端查询（station 数据已含所需字段）、不加迁移、不动 worker。单 PR、遵循 feature→develop。
+预计改动集中在：`packages/contracts`（StoryRoute station 的可空 `subject/action/object` 字段 + `evidenceKind`）、`packages/backend/src/publication/story-route.ts`（现有同一 SQL 的 SELECT/行映射只读补字段，保留公开过滤与合并解析）、`apps/web`（层归类纯函数 + 现有站列表的类型标签/抽屉增强 + 文案）、`docs/event-explorer.md`、上述测试。不新增查询、不加迁移、不动 worker。必须补后端字段透传/撤稿过滤回归；这是批准后才可实施的边界。单 PR、遵循 feature→develop。
 
 ## 9. 未决事项（需 Owner 决定）
 
-1. 本草案是否批准为 T07 实现 Spec（批准后以 blob SHA 锚定）。
+1. 本草案是否批准为 T07 实现 Spec（批准后以完整 commit SHA + 文件路径锚定）。
 2. 站级抽屉放在"影响线索"标签页内还是独立"事实站"标签页（§5 按"影响线索页内 + 来源页可达"写，可调）。
 3. `unclassified` 站是否在影响工作台显示（本草案：显示为普通事实站，因为隐藏会让"本事件自身事实"在 T0 样本上不可见）。
 4. e2e 对真实故事的依赖：若部署环境 T0 故事不可用，是否接受 seeded fixture 作为降级验收（本草案倾向：真实页优先，fixture 仅补充）。
