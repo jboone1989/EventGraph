@@ -198,3 +198,13 @@ test("shallow checkout needs complete history to recognize a docs-only successor
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test("workflow_dispatch without a base cannot classify only HEAD^ and skip executable checks", () => {
+  const workflow = readFileSync(resolve(".github/workflows/check.yml"), "utf8");
+  const classifierStep = workflow.slice(workflow.indexOf("      - name: Detect documentation-only changes"), workflow.indexOf("\n  check:"));
+  assert.ok(classifierStep.includes('echo "docs_only=false" >> "$GITHUB_OUTPUT"'));
+  assert.ok(!classifierStep.includes("git rev-parse HEAD^"), "scoping only the last commit hides earlier code changes");
+  const docsStep = workflow.slice(workflow.indexOf("      - name: Docs-only validation"), workflow.indexOf("      - name: Install"));
+  assert.ok(docsStep.includes("Cannot validate documentation without a trusted base commit"));
+  assert.ok(!docsStep.includes("git rev-parse HEAD^"));
+});
