@@ -17,7 +17,11 @@ This is the acceptance record for [Spec 010](./spec.md) and [Issue #176 T15](htt
 | Documentation-only develop merge | Check succeeds, `publish`, VM13 deployment, E2E preview and Worker deployment do **not** execute; no image digest changes | **Pending**: do not mark from PR checks |
 | Code-changing PR | Existing Check/Docker/E2E and independent Claude run on latest head | **Pending**: use the next actual code PR (for example [#192](https://github.com/jboone1989/EventGraph/pull/192) or [#194](https://github.com/jboone1989/EventGraph/pull/194)) |
 | Code-changing develop merge | Published image digest and VM13 Web/API plus cn-dev Worker revisions match the merged code; actual API/DB/browser verification | **Pending**: release only through normal gated PR |
-| A code commit followed by B docs-only | A must still publish/deploy unless superseded by a newer code commit; B must not publish | **Pending**: inspect per-SHA push runs; do not infer from local test |
+| A code commit followed by B docs-only (AC-7 A→B) | A must still publish and deploy; B must not publish | **Pending**: inspect A and B push runs, publish and both deploy jobs |
+| A code commit followed by C code (AC-7 A→C) | Newer C supersedes A; only C publishes and deploys | **Pending**: inspect both per-SHA push runs and deployment jobs |
+| A code → B docs-only → C code (AC-7 A→B→C) | C supersedes A; B never publishes; C publishes and deploys | **Pending**: verify all three push runs and both deploy targets |
+| A code running → B code queued → C docs pushed (AC-7 queued-B race) | C must not cancel or replace B's queued code run; B builds, publishes and deploys when eligible | **Pending**: verify B's run ID, concurrency group, image and both deployment jobs |
+| Base-branch scope detector (AC-3) | CI runs the detector from the trusted base branch when present, falling back to PR copy only on first installation | **Local tests passed**; inspect live checkout/detector steps before closure |
 | Failed/unknown diff classification | Full checks and deploy eligibility; never misclassify code as docs-only | **Local tests passed**, live manual-dispatch evidence pending |
 
 ## Evidence policy
