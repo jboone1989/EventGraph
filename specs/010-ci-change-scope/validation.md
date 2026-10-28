@@ -2,6 +2,10 @@
 
 This is the acceptance record for [Spec 010](./spec.md) and [Issue #176 T15](https://github.com/jboone1989/EventGraph/issues/176). It is a **documentation-only** change, intentionally exercising the real post-merge scope classifier. Do not infer deployment success from a passing PR.
 
+## CI / CD
+
+The [CI / CD section](#ci--cd) exercises GitHub Markdown heading anchors as part of the docs-only validator. The Spec gate, relative links and anchors must still be checked; heavy builds and deployments are not evidence for a documentation-only change.
+
 ## Baseline and implementation
 
 - Before selective CI: documentation-only [PR #181](https://github.com/jboone1989/EventGraph/pull/181) merged at `176d88c`; [develop run 40611600417](https://github.com/jboone1989/EventGraph/actions/runs/40611600417) unnecessarily ran Docker, E2E, image publish, VM13 and cn-dev Worker deployment, with the latter timing out. This is the observed pre-fix negative control.
