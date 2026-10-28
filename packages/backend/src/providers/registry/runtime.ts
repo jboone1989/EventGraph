@@ -100,10 +100,14 @@ export async function embedRegisteredModel(id:string,input:string|string[],purpo
  });
  const rows=(receipt.response as {data?:Array<{index?:number;embedding?:number[]}>}).data;
  const count=Array.isArray(input)?input.length:1;
- const valid=Array.isArray(rows)&&rows.length===count&&rows.every((row)=>
-  Number.isInteger(row?.index)&&row.index!>=0&&row.index!<count&&
+ // Providers certified by the existing probe may omit indices. Such batches preserve
+ // response order; mixed or explicit indices must be complete and unique.
+ const data=Array.isArray(rows)&&rows.every(row=>row.index===undefined)
+  ? rows.map((row,index)=>({...row,index})) : rows;
+ const valid=Array.isArray(data)&&data.length===count&&data.every((row)=>
+  Number.isInteger(row?.index)&&row.index! >= 0&&row.index! < count&&
   Array.isArray(row.embedding)&&row.embedding.length>0&&row.embedding.every(Number.isFinite));
- const sorted=valid?[...rows!].sort((a,b)=>a.index!-b.index!):[];
+ const sorted=valid?[...data!].sort((a,b)=>a.index!-b.index!):[];
  if(!valid||sorted.some((row,i)=>row.index!==i)){
   await rejectReceivedResponse(receipt.receiptId,'unusable embeddings: count, indices or vector values');
   throw new ProviderConfigError('Invalid embedding response: count, indices or vector values','model',502);
