@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import { Link, UNSAFE_DataRouterContext, UNSAFE_FrameworkContext, useHref, useLocation, type LinkProps } from "react-router";
+import { Link, PrefetchPageLinks, UNSAFE_DataRouterContext, UNSAFE_FrameworkContext, useHref, useLocation, type LinkProps } from "react-router";
 import { hasFreshPage } from '../../lib/page-reuse';
 
 /** Hover, keyboard focus and a stationary touch prefetch; scrolling over a card does not. */
@@ -15,8 +15,9 @@ export function IntentLink({ onFocus, onBlur, onMouseEnter, onMouseLeave, onTouc
   const differentPage = target.pathname + target.search !== location.pathname + location.search;
   // Router prefetch also asks shouldRevalidate. A selected/remembered page needs neither its
   // assets nor that revalidation decision, which is reserved for an actual refresh.
-  const shouldPrefetch = ready && differentPage && !hasFreshPage(target);
-  const clients = shouldPrefetch && href.startsWith('/') && !href.startsWith('//')
+  const shouldPrefetch = Boolean(framework) && ready && differentPage
+    && href.startsWith('/') && !href.startsWith('//') && !hasFreshPage(target);
+  const clients = shouldPrefetch
     ? context?.router.match(href)?.filter(m => framework?.manifest.routes[m.route.id]?.hasLoader && framework.manifest.routes[m.route.id]?.hasClientLoader && !hasFreshPage(target, m.route.id)).map(m => m.route.id) ?? []
     : [];
   target.hash = '';
@@ -33,7 +34,9 @@ export function IntentLink({ onFocus, onBlur, onMouseEnter, onMouseLeave, onTouc
   };
   const cancel = () => { clear(); setReady(false); };
   useEffect(() => { cancel(); return clear; }, [props.to]);
-  return <><Link {...props} prefetch={shouldPrefetch ? "render" : "none"}
+  // Router render-prefetch stays latched after switching to none. Own its mount
+  // so a selected/fresh link cannot revalidate cached pages during prefetch.
+  return <><Link {...props} prefetch="none"
     onFocus={(e) => { onFocus?.(e); if (!e.defaultPrevented) start(); }}
     onBlur={(e) => { onBlur?.(e); cancel(); }}
     onMouseEnter={(e) => { onMouseEnter?.(e); if (!e.defaultPrevented) start(); }}
@@ -42,5 +45,5 @@ export function IntentLink({ onFocus, onBlur, onMouseEnter, onMouseLeave, onTouc
     onTouchMove={(e) => { onTouchMove?.(e); cancel(); }}
     onTouchEnd={(e) => { onTouchEnd?.(e); cancel(); }}
     onTouchCancel={(e) => { onTouchCancel?.(e); cancel(); }}
-  />{clients.length > 0 && <link rel="prefetch" as="fetch" href={target.pathname + target.search} />}</>;
+  />{shouldPrefetch && <PrefetchPageLinks page={href} />}{clients.length > 0 && <link rel="prefetch" as="fetch" href={target.pathname + target.search} />}</>;
 }
