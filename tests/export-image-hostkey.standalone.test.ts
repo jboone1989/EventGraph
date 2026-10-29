@@ -312,6 +312,7 @@ test("cold registry: bootstraps the registry image once, pushes, and records the
   for (const call of sshCalls) {
     assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile_}`), `ssh must pin the verified host key: ${call}`);
     assert.ok(call.includes("HostKeyAlgorithms=ssh-ed25519"), `ssh must negotiate the verified algorithm: ${call}`);
+    assert.ok(call.includes("ConnectTimeout=15"), `SSH handshake must not outlive the image push watchdog: ${call}`);
     assert.ok(!call.includes(".ssh/known_hosts "), "the shared known_hosts must not be used");
   }
   assert.ok(sshCalls.some((c) => c.includes("docker run -d --name eventgraph-dev-registry") && c.includes("-p 127.0.0.1:5000:5000") && c.includes("-v eventgraph-dev-registry:/var/lib/registry")), "the registry must be loopback-only with a persistent volume");
