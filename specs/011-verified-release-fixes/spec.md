@@ -1,7 +1,7 @@
 # 011 · Verified release fixes: promote digest integrity and SSR-stable graph geometry
 
 - **Approval source**: owner session instruction of 2026-10-29 (EventGraph #112 round, "merge once checks are green" with Auto-fix authorization): fix the verified claude-review round-1 findings on the develop→develop sync PR and merge once CI is green. This spec is the written form of that change set; it is a draft until its PR is reviewed.
-- **Replaces**: nothing. It closes two correctness gaps in the existing 008 promotion pipeline and in the web app's hydration path; it changes no deployment topology, target host or credential.
+- **Replaces**: nothing. It closes two correctness gaps in the existing production promotion pipeline (`docs/ci-cd.md`: the `check.yml` `promote` job and `scripts/deploy-prod.sh` on VM09 — outside 008's dev-CD scope) and in the web app's hydration path; it changes no deployment topology, target host or credential.
 - **PR scope and sequencing**: this PR's diff is this spec file alone. The implementation already exists on PR #112 (branch `sync/develop-20261024`), independently re-reviewed clean (round 2: 0 blocking at `f77d8f4`), but is **not yet on develop** — the spec gate requires the approved spec to sit on the base branch before its implementation PR merges, so a spec-only diff is the intended first half of that flow, not missing code.
 
 ## User-visible behavior
