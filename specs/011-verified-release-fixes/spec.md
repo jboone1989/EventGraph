@@ -1,15 +1,16 @@
 # 011 · Verified release fixes: promote digest integrity and SSR-stable graph geometry
 
-- **Motivation and approval boundary**: Owner requested fixes for verified issues discussed around PR #112. An earlier review of a separate change set reported 0 blocking, but those patches are **not present in current develop**. This DRAFT records required changes and test criteria, not completed implementation or production verification.
+- **Approval source**: owner session instruction of 2026-10-29 (EventGraph #112 round, "merge once checks are green" with Auto-fix authorization): fix the verified claude-review round-1 findings on the develop→develop sync PR and merge once CI is green. This spec is the written form of that change set; it is a draft until its PR is reviewed.
 - **Replaces**: nothing. It closes two correctness gaps in the existing 008 promotion pipeline and in the web app's hydration path; it changes no deployment topology, target host or credential.
+- **PR scope and sequencing**: this PR's diff is this spec file alone. The implementation already exists on PR #112 (branch `sync/develop-20261024`), independently re-reviewed clean (round 2: 0 blocking at `f77d8f4`), but is **not yet on develop** — the spec gate requires the approved spec to sit on the base branch before its implementation PR merges, so a spec-only diff is the intended first half of that flow, not missing code.
 
-## Proposed user-visible behavior (not yet implemented on develop)
+## User-visible behavior
 
-1. **Pin-only promotion must update the running digest.** In `scripts/deploy-prod.sh`, read `LRSITE_APP_IMAGE_REF` from the host `.env`; if it differs from the validated `IMAGE_REF`, force the application pull/re-tag even when the source diff is empty. On both successful keep and pull paths, record `LRSITE_APP_IMAGE_REF=<IMAGE_REF>` alongside the release metadata. Missing legacy records must converge on first successful run. Reruns remain idempotent.
-2. **Promotion must bind source SHA and immutable digest.** The `promote` job must resolve `ghcr.io/jboone1989/eventgraph-app:sha-<SOURCE_SHA>` and reject any pinned `IMAGE_REF` whose digest differs. Existing status checks, digest existence and source-diff rules remain required.
-3. **SSR hydration and calendar keys must be stable.** Round computed knowledge-graph geometry to two decimal places in the shared layout before rendering SVG attributes; key weekly calendar headings by position rather than repeated single-letter text. Do not alter business measurements.
+1. **The pinned digest is the source of truth on the host** (`scripts/deploy-prod.sh`). A promotion that only repins `.github/production-image.env` (the #94 "promote without rebuild" flow) must deploy the newly pinned digest even when the source diff against the released tag shows no application change: the script must record the digest it deployed as `LRSITE_APP_IMAGE_REF` in the host `.env`, treat a mismatch between that record and the pinned `IMAGE_REF` as an application change (pull + re-tag + release advance), and only keep the existing release when the record already matches the pin. Legacy hosts without the record converge on the pin on their first post-change run; reruns stay idempotent.
+2. **Promotion binds the digest to its source commit** (`.github/workflows/check.yml` `promote`). Beyond digest syntax, existence and the `check`/`e2e`/`publish` successes on `SOURCE_SHA`, the job must resolve the digest of the `sha-<SOURCE_SHA>` tag — the tag the `publish` job alone writes for that commit — and require the pinned `IMAGE_REF` digest to equal it. A pin that pairs a valid `SOURCE_SHA` with any other image in the GHCR repository fails promotion, so production can only ever run an image built from and tested at the verified source.
+3. **Server and browser render identical graph geometry** (`apps/web`). The knowledge-graph node coordinates are rounded to two decimals after the trigonometry in the shared layout, and the report calendar headers are keyed by position, so React hydration compares identical attribute strings and key sets on every first paint. Readers see no hydration-mismatch console errors on the home graph and no duplicate-key warnings from the English `M/T/W/T/F/S/S` calendar heads.
 
-**Implementation status**: These are requirements for a future implementation PR with an approved immutable Spec pin. Existing `develop` has not been shown to satisfy them. No production change is authorized by this draft alone.
+**Implementation status**: behaviors 1–3 are implemented on PR #112 and verified there (round-2 independent review 0 blocking at `f77d8f4`; browser checks on the local build, 2026-10-24). Current `develop` does not yet include them: `LRSITE_APP_IMAGE_REF` appears in no script, `promote` checks digest existence only, and the hydration mismatch and duplicate-key warnings are live. This spec PR changes no code and authorizes no production change by itself.
 
 ## Out of scope
 
@@ -19,17 +20,17 @@
 
 ## Acceptance criteria
 
-| # | Required behavior | Verification to perform on implementation HEAD |
+| # | Criterion | Evidence |
 | --- | --- | --- |
-| AC-1 | Pin-only digest update deploys the new digest; matching pin keeps existing release | Fake isolated host release state with different/matching `LRSITE_APP_IMAGE_REF`; assert pull/keep and exact image identity |
-| AC-2 | Every successful app deploy records the actual pinned digest | Exercise both pull and keep WRITE_RELEASE paths and compare recorded `.env` value |
-| AC-3 | `promote` refuses an otherwise valid but mismatched source-SHA digest | Negative test using a real tag digest different from `IMAGE_REF` |
-| AC-4 | Home knowledge graph hydrates without geometric mismatch | Browser SSR/hydration regression on a clean build; zero hydration mismatch console errors |
-| AC-5 | English daily/monthly calendar has unique React keys | Navigate /daily → /hot → /daily in browser and assert zero duplicate-key warnings |
+| AC-1 | Pin-only change deploys the pinned digest; unchanged pin with matching record keeps the existing release | `deploy-prod.sh` reads `LRSITE_APP_IMAGE_REF` and forces `APP_CHANGED=1` on mismatch (PR #112) |
+| AC-2 | Every successful promote run leaves `LRSITE_APP_IMAGE_REF=<pinned IMAGE_REF>` in the host `.env` | `WRITE_RELEASE` writes the key from the validated `IMAGE_REF` argument on both the pull and keep paths (PR #112) |
+| AC-3 | `promote` fails when the pinned digest differs from the digest of `sha-<SOURCE_SHA>` | workflow resolves the tag digest and compares it to `IMAGE_REF`; format check fails closed (PR #112) |
+| AC-4 | Home page hydrates with zero hydration-mismatch console errors | browser verification on the local develop build 2026-10-24: reload before the fix logged the `y2`/`cy` mismatch every load; after, zero errors and two-decimal coordinates |
+| AC-5 | English daily/monthly calendar renders without duplicate-key React warnings | SPA navigation `/daily→/hot→/daily` on the local build: 4 warnings per pass before the fix, 0 after |
 
-## Validation status
+## Validation
 
-- **Current PR is documentation only.** Existing code has not been changed by this Spec PR.
-- Before merging a corresponding implementation PR, run targeted shell/workflow/browser regressions for AC-1 through AC-5, plus current-HEAD required CI and independent GLM review.
-- Historical PR #112 discussion and local browser observations motivate these requirements; they are **not** proof that `develop` now implements them.
-- No live production deployment, new credentials, or host changes are authorized by this draft.
+- Static: `bash -n scripts/deploy-prod.sh`; digest-line extraction exercised against the `imagetools inspect` output format (`Digest:` with tolerant spacing).
+- Independent review: round 2 on PR #112 reports 0 blocking for the change set at `f77d8f4`; this spec PR receives its own independent review.
+- Live: the full `check`/`docker`/`e2e` pipeline on PR #112 before it merges; the host-side AC-1/AC-2 path takes effect on the next production promotion run.
+- Sequencing: develop gains these behaviors only when PR #112 merges; until then this spec intentionally describes them ahead of the code, per the spec gate.
