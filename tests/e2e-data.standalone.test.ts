@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
-import { publicGraphHasData, readSiteJSON, requireGraph, requireSamples } from "../e2e/data.ts";
+import { publicGraphHasData, readSiteJSON, requireGraph, requireSamples, requireSeededRelation } from "../e2e/data.ts";
 
 for (const path of ["/api/site/timeline", "/api/site/hot", "/api/site/reports/daily/latest-page", "/api/site/topics", "/api/site/knowledge/overview"]) {
   for (const mode of ["500", "invalid JSON"]) test(`${path} rejects ${mode} in seeded reads`, async () => {
@@ -88,4 +88,22 @@ test("optional external graph needs visible public edges and links, not raw Grap
   assert.equal(publicGraphHasData(stats, overview, { nodes: [], links: [] }), false);
   assert.equal(publicGraphHasData({ entities: 0 }, overview, network), false);
   assert.equal(publicGraphHasData(stats, null, null), false);
+});
+
+test("seeded relation must agree across the public overview and network projections", () => {
+  const overview = { edges: [{
+    id: "seeded", subject: { key: "source" }, object: { key: "target" },
+    evidence: [{ articleId: "public-report" }],
+  }] };
+  const network = { nodes: [{ key: "source" }, { key: "target" }],
+    links: [{ id: "seeded", source: "source", target: "target" }] };
+  requireSeededRelation(overview, network, "seeded", "public-report");
+  assert.throws(() => requireSeededRelation({ edges: [] }, network, "seeded", "public-report"), /missing seeded relation/);
+  assert.throws(() => requireSeededRelation({ edges: [{ ...overview.edges[0], evidence: [{ articleId: "unrelated" }] }] },
+    network, "seeded", "public-report"), /lacks public evidence/);
+  assert.throws(() => requireSeededRelation(overview, { ...network, links: [] }, "seeded", "public-report"), /missing seeded relation/);
+  assert.throws(() => requireSeededRelation(overview, { ...network, links: [{ id: "seeded", source: "target", target: "source" }] },
+    "seeded", "public-report"), /subject mismatch/);
+  assert.throws(() => requireSeededRelation(overview, { ...network, nodes: [{ key: "source" }] },
+    "seeded", "public-report"), /not public nodes/);
 });
