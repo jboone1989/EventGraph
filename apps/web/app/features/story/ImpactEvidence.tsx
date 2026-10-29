@@ -5,6 +5,7 @@ import { localizedMonthDayTime } from "../../lib/format";
 import type { StoryMarket } from "./EventPrices";
 import { IMPACT_AREAS, impactLeadsAt, marketObservationAt, type ImpactArea, type ImpactLead } from "./impact-evidence";
 import { EvidenceRow } from "./StationEvidence";
+import { isRevisedRevision } from "./impact-layers";
 
 const COPY: Record<ImpactArea, [string, string, string, string]> = {
   policy: ["政策报道线索", "Policy reporting", "没有可核查的政策报道线索，不能据此断言没有政策变化。",
@@ -87,7 +88,7 @@ export function ImpactEvidence({ story, route, market, asOf, clock }: {
                 </a>
                 <div className="mt-1 text-[11px] text-ink-4">
                   {sourceName(row.source,row.url)} · {localizedMonthDayTime(clock === "known" ? row.discoveredAt : row.publishedAt ?? row.discoveredAt, lang)}
-                  {row.revision && <span> · {t("现为修订版","Current revision")} {row.revision}</span>}
+                  {isRevisedRevision(row.revision) && <span> · {t("现为修订版","Current revision")} {row.revision}</span>}
                 </div>
                 <LeadEvidenceDrawer lead={row} clock={clock} />
               </li>;
