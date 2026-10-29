@@ -185,6 +185,7 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
     "    if [ \"$STUB_BAD_ID\" = 1 ]; then printf 'sha256:wrong\\n'; else printf '%s\\n' \"$STUB_IMAGE_ID\"; fi ;;",
     "  *'docker image inspect --format'*'org.opencontainers.image.revision'* )",
     "    if [ \"$STUB_BAD_REVISION\" = 1 ]; then printf 'wrong-release\\n'; else printf '%s\\n' \"$STUB_REVISION\"; fi ;;",
+    "  *'rm -f -- '* ) rm -f -- \"$STUB_STAGE.ready\" ;;",
     "  *'rm -rf -- '* ) rm -rf -- \"$STUB_PARTS\" ;;",
     "  * ) : ;;",
     "esac",
@@ -314,11 +315,15 @@ test("insufficient cn-dev free space fails before any rsync and preserves the ex
   assert.doesNotMatch(content(path.join(sb.dir, "ssh-calls.log")), /docker load|rm -rf --/);
 });
 
-test("archive checksum mismatch fails before docker load and release pairing", () => {
+test("archive checksum mismatch preserves the last verified archive and removes failed reassembly", () => {
   const sb = rsyncSandbox({ badHash: true });
+  writeFileSync(sb.env.STUB_STAGE!, "previous verified archive");
   const res = run(sb.env);
   assert.notEqual(res.status, 0);
   assert.match(res.stderr, /checksum mismatch/);
+  assert.equal(content(sb.env.STUB_STAGE!), "previous verified archive");
+  assert.ok(!existsSync(`${sb.env.STUB_STAGE!}.ready`), "failed full-size reassembly must not block a later disk preflight");
+  assert.ok(existsSync(sb.env.STUB_PARTS!), "partial chunks remain for retry");
   assert.doesNotMatch(content(path.join(sb.dir, "ssh-calls.log")), /docker load|eventgraph-last-delivered-image/);
 });
 
