@@ -405,7 +405,7 @@ function ItemExplainer({ explanation }: { explanation: NonNullable<SiteItemDetai
       )}
       {explanation.soWhat && (
         <div className="mt-3 border-t border-line-soft pt-2.5">
-          <div className="mb-1 text-[12px] font-semibold text-ink-3">{t("为什么重要", "Why it matters")}</div>
+          <div className="mb-1 text-[12px] font-semibold text-ink-3">{t("为什么重要", "What this changes")}</div>
           <p className="text-[13.5px] leading-[1.75] text-ink-2">{explanation.soWhat}</p>
         </div>
       )}

@@ -36,25 +36,35 @@ const PROMPT = { zh: "news-explainer", en: "news-explainer-en" } as const;
 const promptFor = (language: "zh" | "en") => PROMPT[language];
 export const explainPromptVersion = (language: "zh" | "en") => promptVersion(promptFor(language));
 
-const line = (max: number) => z.string().trim().max(max).transform((s) => s || null).nullish();
 // A watchpoint date must be a full calendar date that exists (D-04: 2026-02-30 is not a date); one the
 // source does not state in full becomes null (the wording keeps its own date expression in text).
 const calendarDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine((d) => { const [y, m, day] = d.split("-").map(Number); const t = new Date(Date.UTC(y, m - 1, day)); return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === day; })
   .nullish().catch(null);
-export const ExplainSchema = z.object({
-  who: line(240),
-  what: line(500),
-  when: line(160),
-  where: line(200),
-  why: line(500),
-  how: line(500),
-  soWhat: line(900),
+const noChinese = (value: string) => !/[㐀-鿿]/u.test(value);
+const line = (max: number, english = false) => {
+  const value = z.string().trim().max(max);
+  return (english ? value.refine(noChinese, "contains Chinese characters") : value)
+    .transform((s) => s || null).nullish();
+};
+// Reject Chinese characters in EVERY English field, including watchpoint text; prompt language
+// alone is not a guarantee. Invalid model answers follow the existing shape-retry receipt path.
+const explainSchema = (english: boolean) => z.object({
+  who: line(240, english),
+  what: line(500, english),
+  when: line(160, english),
+  where: line(200, english),
+  why: line(500, english),
+  how: line(500, english),
+  soWhat: line(900, english),
   watchpoints: z.array(z.object({
-    text: z.string().trim().min(4).max(240),
+    text: english ? z.string().trim().min(4).max(240).refine(noChinese, "contains Chinese characters")
+      : z.string().trim().min(4).max(240),
     date: calendarDate,
   })).max(3).default([]),
 });
+export const ExplainSchema = explainSchema(false);
+export const EnglishExplainSchema = explainSchema(true);
 
 const MONTHS: Record<string, number> = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
@@ -120,6 +130,10 @@ const candidateColumns = sql`p.article_id, p.url, ${EXPLAIN_ITEM_INPUTS} AS hash
 // news eligibility as the worker queue. Share the predicate so these paths cannot diverge.
 
 
+// Only hash previously explained reports with recent source/publication changes or recent
+// explanation activity; the correlated sibling-title hash must not scan all explained history
+// every 15 minutes. Older never-explained reports and eligible failed shape retries remain
+// candidates without a permanent age cutoff (D-02).
 /** Selected public news reports with a summary that still need an explanation: none yet, or one whose
  *  inputs changed, or one still within its shape retries. Newest first (D-02), bounded by the run's limit
  *  and budget; nothing is too old to be eligible, and reports in languages this phase does not explain
@@ -133,7 +147,13 @@ export async function explanationsPending(opts: { limit?: number } = {}): Promis
     LEFT JOIN stories st ON st.id = p.story_id AND st.merged_into IS NULL
     LEFT JOIN item_explanations ie ON ie.article_id = p.article_id
     WHERE ${EXPLAINABLE_PUBLICATION}
-      AND (ie.article_id IS NULL OR ie.inputs_hash <> ${EXPLAIN_ITEM_INPUTS} OR (ie.outcome = 'failed' AND ie.attempts < ${MAX_ATTEMPTS}))
+      AND (ie.article_id IS NULL OR (ie.outcome = 'failed' AND ie.attempts < ${MAX_ATTEMPTS})
+        OR CASE WHEN p.discovered_at > now() - interval '90 days'
+                 OR p.updated_at > now() - interval '90 days'
+                 OR a.updated_at > now() - interval '90 days'
+                 OR ie.updated_at > now() - interval '90 days'
+             THEN ie.inputs_hash <> ${EXPLAIN_ITEM_INPUTS}
+             ELSE false END)
     ORDER BY p.discovered_at DESC LIMIT ${opts.limit ?? 10}`;
 }
 
@@ -166,7 +186,7 @@ export async function explainOne(r: ExplainCandidate): Promise<ExplainOutcome> {
   try {
     const res = await chatJson({
       model: await modelFor("explain"), purpose: "explain_item", subject: `article:${r.article_id}#${r.hash.slice(0, 8)}`,
-      promptVersion: explainPromptVersion(language), system: promptText(prompt), user: input, schema: ExplainSchema,
+      promptVersion: explainPromptVersion(language), system: promptText(prompt), user: input, schema: language === "en" ? EnglishExplainSchema : ExplainSchema,
       temperature: 0.2, maxTokens: 4096, attemptTag: r.attempts ? `retry-${r.attempts}` : undefined,
     });
     const data = groundWatchpoints(res.data, [r.original_title, r.text, r.title, r.summary, r.reason].filter(Boolean).join("\n"));

@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
 import { upsertMaterial } from "@aihot/backend/content/materials";
-import { ExplainSchema, explanationCandidateFor, explanationsPending, explainOne, fullDatesIn, writeExplanationsPending } from "@aihot/backend/editorial/explain";
+import { ExplainSchema, EnglishExplainSchema, explanationCandidateFor, explanationsPending, explainOne, fullDatesIn, writeExplanationsPending } from "@aihot/backend/editorial/explain";
 import { stopBoss } from "@aihot/backend/jobs/queue";
 import { loadItemDetail } from "@aihot/backend/publication/detail";
 import { publishArticle } from "@aihot/backend/publication/publish";
@@ -24,6 +24,13 @@ test("watchpoints reject bad shapes rather than silently writing an empty answer
   assert.deepEqual(ExplainSchema.parse({}).watchpoints, []);
   assert.equal(ExplainSchema.safeParse({ watchpoints: Array.from({ length: 4 }, (_, i) => ({ text: `Valid next step ${i}`, date: null })) }).success, false);
   assert.equal(ExplainSchema.safeParse({ watchpoints: [{ text: "bad", date: null }] }).success, false);
+});
+
+test("English explanation rejects Chinese characters in any field or watchpoint", () => {
+  assert.equal(EnglishExplainSchema.safeParse({ what: "An English fact with 中文." }).success, false);
+  assert.equal(EnglishExplainSchema.safeParse({ watchpoints: [{ text: "Check 官方 guidance", date: null }] }).success, false);
+  assert.equal(ExplainSchema.safeParse({ what: "来源中文解释" }).success, true, "Chinese explanations stay valid");
+  assert.equal(EnglishExplainSchema.safeParse({ what: "An English fact." }).success, true);
 });
 
 test("full calendar dates are recognised in the source's own forms, and only those (D-04)", () => {
@@ -53,7 +60,9 @@ const provider = await stub(async (_hit, req) => {
   }
   const empty = { who: null, what: null, when: null, where: null, why: null, how: null, soWhat: null };
   const watchpoint = (date: string | null) => ({ watchpoints: [{ text: date === null ? "The deal is expected to close by year-end" : "The rule takes effect", date }] });
-  const content = key.includes("thin") ? { ...empty, watchpoints: [] }
+  const content = key.includes("mixed-language")
+    ? { ...empty, what: "English description with 中文 text", watchpoints: [] }
+    : key.includes("thin") ? { ...empty, watchpoints: [] }
     : key.includes("loose-date") ? { ...empty, watchpoints: [{ text: "Consultation closes December 23", date: "December 23" }] }
       : key.includes("full-date") ? { ...empty, what: "The rule was published.", ...watchpoint("2026-12-23") }
         : key.includes("invented-date") ? { ...empty, what: "The rule was published.", ...watchpoint("2031-01-01") }
@@ -151,12 +160,45 @@ test("a Chinese-language report is explained in Chinese, on the Chinese page onl
   assert.equal(row?.language, "zh");
 });
 
+test("English mixed-language model output fails visibly and consumes shape retries only", async () => {
+  const id = await report("mixed-language", 615);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const result = await explainOne((await explanationCandidateFor(id))!);
+    assert.equal(result.outcome, "failed");
+  }
+  const [row] = await sql<{ outcome: string; attempts: number; content: unknown }[]>`
+    SELECT outcome, attempts, content FROM item_explanations WHERE article_id = ${id}`;
+  assert.equal(row?.outcome, "failed");
+  assert.equal(row?.attempts, 3);
+  assert.equal(row?.content, null);
+  assert.equal(await explanation(id, "original"), null);
+  assert.ok(!(await explanationsPending({ limit: 500 })).some((r) => r.article_id === id),
+    "a fourth identical malformed answer must not be paid for");
+});
+
 test("a report older than any freshness window is still eligible; nothing expires (D-02)", async () => {
   const id = await report("ancient", -60 * 24 * 45);
   const pending = await explanationsPending({ limit: 500 });
   assert.ok(pending.some((r) => r.article_id === id), "a 45-day-old report is still eligible to be explained");
   const calls = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM receipts WHERE purpose = 'explain_item' AND subject LIKE ${`article:${id}#%`}`;
   assert.equal(calls[0]!.n, 0, "eligibility is not a call: old reports are eligible, runs stay bounded");
+});
+
+test("old explained reports are not rehashed until their publication or material changes", async () => {
+  const id = await report("historical-correction", -60 * 24 * 180);
+  await explainOne((await explanationCandidateFor(id))!);
+  assert.ok((await explanation(id, "original"))?.what);
+  await sql`UPDATE publications SET updated_at = now() - interval '180 days' WHERE article_id = ${id}`;
+  await sql`UPDATE articles SET updated_at = now() - interval '180 days' WHERE id = ${id}`;
+  await sql`UPDATE item_explanations SET updated_at = now() - interval '180 days' WHERE article_id = ${id}`;
+  // The public reader must still hide stale text. Only a real recent edit to a historical report
+  // warrants rehashing its full body and correlated sibling titles during a 15-minute run.
+  await sql`UPDATE publications SET summary = 'Old report was corrected.' WHERE article_id = ${id}`;
+  assert.equal(await explanation(id, "original"), null);
+  assert.ok(!(await explanationsPending({ limit: 500 })).some((r) => r.article_id === id));
+  await sql`UPDATE publications SET updated_at = now() WHERE article_id = ${id}`;
+  assert.ok((await explanationsPending({ limit: 500 })).some((r) => r.article_id === id),
+    "a recent correction re-enables stale-hash comparison even on historical reports");
 });
 
 test("a source that says little is recorded insufficient_evidence: shown as nothing, receipted, not re-asked until its inputs change (D-03)", async () => {
