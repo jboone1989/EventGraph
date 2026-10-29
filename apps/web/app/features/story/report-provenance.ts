@@ -15,7 +15,7 @@ export function reportProvenance(route: StoryRoute | null): Map<string, ReportPr
     for (const report of station.reports) {
       const prior = byArticle.get(report.articleId);
       byArticle.set(report.articleId, {
-        revised: (report.revision !== null && report.revision > 1) || (prior?.revised ?? false),
+        revised: station.uncertainty.revised || (report.revision !== null && report.revision > 1) || (prior?.revised ?? false),
         // A report may support several facts. Only show a restrictive marker if
         // every fact it supports has that uncertainty; do not imply all are alike.
         singleSourceFact: station.uncertainty.singleSource && (prior?.singleSourceFact ?? true),
