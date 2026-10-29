@@ -125,3 +125,62 @@ test("image upstream budget persistence failure is logged once per trip", async 
     ["imgproxy_egress_record_failed", true],
   ]);
 });
+
+
+test("feedback initial send and retry failures are logged", async () => {
+  const script = `
+    import { mock } from "node:test";
+    const failure = new Error("injected Feishu outage");
+    const sql = (parts) => {
+      if (!parts.raw) return parts;
+      const query = parts.join(" ");
+      if (query.includes("feedback_bans")) return Promise.resolve([]);
+      if (query.includes("INSERT INTO feedback")) return Promise.resolve([{ id: 17 }]);
+      if (query.includes("SELECT id FROM feedback")) return Promise.resolve([{ id: 17 }]);
+      throw new Error("unexpected SQL query: " + query);
+    };
+    mock.module(new URL("./packages/backend/src/db.ts", import.meta.url).href, {
+      namedExports: { sql },
+    });
+    mock.module(new URL("./packages/backend/src/config.ts", import.meta.url).href, {
+      namedExports: { config: { dataDir: "/tmp" }, credential: () => null },
+    });
+    mock.module(new URL("./packages/backend/src/modules.ts", import.meta.url).href, {
+      namedExports: { serverModules: () => [] },
+    });
+    mock.module(new URL("./packages/backend/src/notify/feishu.ts", import.meta.url).href, {
+      namedExports: {
+        feishuInternalEnabled: () => true,
+        forwardFeedbackToFeishu: async () => { throw failure; },
+      },
+    });
+    const logged = [];
+    const previousError = console.error;
+    try {
+      console.error = (...args) => {
+        if (String(args[0]).startsWith("feedback_forward_")) logged.push([
+          args[0], args[1], args[2] === failure
+        ]);
+      };
+      const { submitFeedback, forwardPendingFeedback } =
+        await import("./packages/backend/src/operations/feedback.ts");
+      const submitted = await submitFeedback({
+        content: "Please fix this page", ip: "127.0.0.1", userAgent: "test",
+      });
+      if (submitted.id !== 17) throw new Error("feedback not inserted");
+      await new Promise(resolve => setImmediate(resolve));
+      const retried = await forwardPendingFeedback();
+      if (retried.failed !== 1 || retried.sent !== 0) throw new Error("retry not counted");
+    } finally {
+      console.error = previousError;
+    }
+    console.log(JSON.stringify(logged));
+  `;
+  const { stdout } = await exec(process.execPath, [
+    "--experimental-test-module-mocks", "--input-type=module", "-e", script,
+  ], { cwd: new URL("../", import.meta.url), timeout: 20_000 });
+  assert.deepEqual(JSON.parse(stdout.trim()), [
+    ["feedback_forward_failed", 17, true],
+    ["feedback_forward_retry_failed", 17, true],
+  ]);
+});
