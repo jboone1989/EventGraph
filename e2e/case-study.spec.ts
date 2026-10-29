@@ -17,8 +17,13 @@ test("the case page lays out its tracks and stays off the index", async ({ page 
   await expect(page.getByRole("heading", { name: /硬件钱包供应链攻击/ })).toBeVisible();
   await expect(page.getByText("轨道之间不画箭头", { exact: false })).toBeVisible();
   await expect(page.getByText("站点按本站收录时间排列", { exact: false })).toBeVisible();
-  // Every track keeps its entry into the story replay, whatever its evidence state.
-  await expect(page.locator('a[href*="/explore?story="]').first()).toBeVisible();
+  // Withdrawn or unavailable routes may remain as honest empty tracks, but
+  // must not advertise a public story replay that has no visible evidence.
+  const api = await page.request.get(`/api/site/case-studies/${CASE}`);
+  expect(api.ok()).toBeTruthy();
+  const data = await api.json() as { tracks: { status: string }[] };
+  const available = data.tracks.filter(track => track.status === "ok").length;
+  await expect(page.locator('a[href*="/explore?story="]')).toHaveCount(available);
   await expect(page.locator('meta[name="robots"][content*="noindex"]')).toHaveCount(1);
   await expectNoOverflow(page);
   expect(problems).toEqual([]);
