@@ -47,6 +47,19 @@ test("shared replay rejects future discovery, embargoes, unpublished reports and
   assert.equal(energyShippingEvidenceAt(r, news, "invalid", "known").energy.length, 0);
 });
 
+test("stale route timestamps cannot expose a future public timeline report", () => {
+  const r = route([station("e", "https://www.eia.gov/todayinenergy/")]);
+  const current = report("e", "Energy outlook");
+  const futurePublication = [{ ...current, publishedAt: "2026-10-23T12:00:00Z" }];
+  assert.equal(energyShippingEvidenceAt(r, futurePublication, discovered, "known").energy.length, 0);
+  assert.equal(energyShippingEvidenceAt(r, futurePublication, discovered, "valid").energy.length, 0);
+
+  const futureDiscovery = [{ ...current, discoveredAt: "2026-10-23T12:00:00Z" }];
+  assert.equal(energyShippingEvidenceAt(r, futureDiscovery, discovered, "known").energy.length, 0);
+  // Valid-time replay intentionally permits a report before this site first saw it.
+  assert.equal(energyShippingEvidenceAt(r, futureDiscovery, discovered, "valid").energy.length, 1);
+});
+
 test("source names, EIA mentions, lookalike hosts and unsafe URLs never authenticate EIA", () => {
   for (const url of ["https://eia.gov.evil.test/report", "https://evil.test/eia.gov",
     "http://www.eia.gov/report", "https://eia.gov@evil.test/report",

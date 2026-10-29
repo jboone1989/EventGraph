@@ -86,6 +86,10 @@ export function publicImpactReportsAt(
       if (!inScope(evidence, cutoff, clock) || !safeUrl(evidence.url)) continue;
       const report = publicReports.get(evidence.articleId);
       if (!report || seen.has(evidence.articleId)) continue;
+      // Route evidence and the public timeline are independent inputs. A stale
+      // route timestamp must never reveal a report before its public release.
+      if (!timestamp(report.publishedAt) || Date.parse(report.publishedAt) > cutoff ||
+          (clock === "known" && (!timestamp(report.discoveredAt) || Date.parse(report.discoveredAt) > cutoff))) continue;
       seen.add(evidence.articleId);
       out.push({
         searchable: [report.title, report.originalTitle, report.english?.title,
