@@ -57,6 +57,17 @@ test("source names, EIA mentions, lookalike hosts and unsafe URLs never authenti
   }
 });
 
+test("shipping drawer excludes credential-bearing links even when text matches", () => {
+  const rows = [
+    station("unsafe", "https://reader:secret@shipping.example.org/report"),
+    station("safe", "https://shipping.example.org/report"),
+  ];
+  const out = energyShippingEvidenceAt(route(rows),
+    [report("unsafe", "Tanker freight report"), report("safe", "Tanker freight report")],
+    discovered, "known");
+  assert.deepEqual(out.shipping.map(row => row.articleId), ["safe"]);
+});
+
 test("freight-only Chinese and English reporting remains discoverable without numeric inference", () => {
   const rows = [station("en", "https://gcaptain.com/freight-report"),
     station("zh", "https://example.org/market-brief"), station("unrelated", "https://example.org/weather")];
