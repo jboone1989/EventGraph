@@ -19,6 +19,7 @@ import { isReload } from "../lib/restore";
 import { Badge, SelectedBadge } from "../components/ui/Badge";
 import { LayerBadge, StationEvidenceDrawer } from "../features/story/StationEvidence";
 import { displayableStationReports, stationLayer } from "../features/story/impact-layers";
+import { reportProvenance, type ReportProvenance } from "../features/story/report-provenance";
 import { PillTabs } from "../components/ui/Tabs";
 import { Select } from "../components/ui/Controls";
 import { IconArrowLeft, IconChevronRight, IconClock, IconDoc, IconUsers } from "../components/icons";
@@ -162,7 +163,7 @@ function useActiveSection(keys: SectionKey[]): [SectionKey, (k: SectionKey) => v
 }
 
 /** One report on the story timeline: time, source and marks, title, a summary that opens on demand. */
-function TimelineRow({ r }: { r: StoryReportView }) {
+function TimelineRow({ r, provenance }: { r: StoryReportView; provenance?: ReportProvenance }) {
   const lang = useUiLanguage();
   const t = useText();
   const title = lang === "en" ? (englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
@@ -184,6 +185,9 @@ function TimelineRow({ r }: { r: StoryReportView }) {
           <span className="min-w-0 truncate">{localizedSourceName(r.source.name, lang, r.originalUrl)}</span>
           {r.selected && <SelectedBadge />}
           {r.source.firstParty && <span className="rounded border border-line-soft px-1.5">{t("一手资料", "First-party source")}</span>}
+          {provenance?.singleSourceFact && <span className="rounded border border-line-soft px-1.5">{t("相关事实仅单一来源", "Related fact: single source")}</span>}
+          {provenance?.reportTimeOnly && <span className="rounded border border-line-soft px-1.5">{t("事实发生时间未证实", "Fact occurrence time unverified")}</span>}
+          {provenance?.revised && <span className="rounded border border-line-soft px-1.5">{t("原始报道有修订", "Original report revised")}</span>}
         </div>
         <IntentLink viewTransition to={lang === "en" ? `/en/items/${r.id}` : `/items/${r.id}`} className="mt-1 block text-[16px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent lg:text-[15.5px]">
           {title}
@@ -317,6 +321,7 @@ export default function StoryPage() {
     official: story.timeline.filter((r) => r.source.firstParty).length,
     selected: story.timeline.filter((r) => r.selected).length,
   };
+  const evidence = useMemo(() => reportProvenance(route), [route]);
   const days = useMemo(() => {
     const list = story.timeline.filter((r) => (filter === "official" ? r.source.firstParty : filter === "selected" ? r.selected : true));
     const sorted = [...list].sort((a, b) => (order === "desc" ? Date.parse(b.publishedAt) - Date.parse(a.publishedAt) : Date.parse(a.publishedAt) - Date.parse(b.publishedAt)));
@@ -486,7 +491,7 @@ export default function StoryPage() {
                   <div className="pb-0.5 pt-5 text-[14px] font-semibold text-ink">{localizedMonthDay(day, uiLang)}</div>
                   <ol>
                     {rows.map((r) => (
-                      <TimelineRow key={r.id} r={r} />
+                      <TimelineRow key={r.id} r={r} provenance={evidence.get(r.id)} />
                     ))}
                   </ol>
                 </div>
