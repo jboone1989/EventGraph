@@ -80,7 +80,7 @@ jobs:
         with:
           ref: main
           persist-credentials: false
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Resolve the current PR and prepare read-only review files
         id: target
@@ -122,6 +122,16 @@ jobs:
           echo "run=true" >> "$GITHUB_OUTPUT"
           echo "number=$pr_number" >> "$GITHUB_OUTPUT"
           echo "sha=$CHECK_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Require configured GLM key
+        if: steps.target.outputs.run == 'true'
+        env:
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+        run: |
+          if [[ -z "$GLM_API_KEY" ]]; then
+            echo "::error::Missing GLM_API_KEY repository secret"
+            exit 1
+          fi
 
       - name: Official Claude Code Action with GLM
         id: glm
