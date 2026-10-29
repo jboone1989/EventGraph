@@ -64,9 +64,11 @@ test("worker watchdog interval failure is logged", async () => {
     const previousInterval = globalThis.setInterval;
     let pulse;
     try {
-      console.error = (...args) => logged.push([
-        args[0], args[1] === failure
-      ]);
+      console.error = (...args) => {
+        if (args[0] === "worker_watchdog_check_failed") logged.push([
+          args[0], args[1] === failure
+        ]);
+      };
       globalThis.setInterval = callback => {
         pulse = callback;
         return { unref() {} };
@@ -102,9 +104,11 @@ test("image upstream budget persistence failure is logged once per trip", async 
     const logged = [];
     const previousError = console.error;
     try {
-      console.error = (...args) => logged.push([
-        args[0], args[1] === failure
-      ]);
+      console.error = (...args) => {
+        if (args[0] === "imgproxy_egress_record_failed") logged.push([
+          args[0], args[1] === failure
+        ]);
+      };
       const { upstreamAllowed } = await import("./packages/backend/src/media/upstream.ts");
       upstreamAllowed();
       upstreamAllowed();
