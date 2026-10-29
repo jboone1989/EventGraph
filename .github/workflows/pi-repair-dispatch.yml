@@ -1,0 +1,44 @@
+# Trusted default-branch dispatch only; the repair worker is native Pi on cn-dev.
+name: EventGraph Pi repair dispatch
+
+on:
+  workflow_run:
+    workflows: [Check]
+    types: [completed]
+  status:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pi-repair-dispatch-${{ github.event.workflow_run.head_sha || github.event.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.event == 'pull_request') ||
+      (github.event_name == 'status' &&
+       github.event.context == 'claude-review' &&
+       github.event.state == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Verify trusted event selector
+        run: node --test scripts/ci/pi-repair-dispatch.test.mjs
+      - name: Hand verified failure to the existing central Agent route
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CENTRAL_DISPATCH_TOKEN: ${{ secrets.CLAUDE_CENTRAL_DISPATCH_TOKEN }}
+        run: node scripts/ci/pi-repair-dispatch.mjs
