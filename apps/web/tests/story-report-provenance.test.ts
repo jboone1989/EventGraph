@@ -47,6 +47,17 @@ test("multiple distinct facts sharing one report do not imply one shared uncerta
   });
 });
 
+test("fact revisions remain visible even when the linked source report is unchanged", () => {
+  const fact = station("fact-a", "article-a", { revised: true });
+  const evidence = reportProvenance(route({
+    ...fact,
+    reports: fact.reports.map(report => ({ ...report, revision: 1 })),
+  }));
+  assert.deepEqual(evidence.get("article-a"), {
+    revised: true, singleSourceFact: false, reportTimeOnly: false,
+  });
+});
+
 test("a missing or insufficient route adds no invented evidence markers", () => {
   assert.equal(reportProvenance(null).size, 0);
   assert.equal(reportProvenance({ status: "insufficient", stations: [] } as unknown as StoryRoute).size, 0);
