@@ -36,7 +36,8 @@ const timestamp = (value: string | null | undefined) =>
 const safeUrl = (url: string) => {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:";
+    return (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      !parsed.username && !parsed.password;
   } catch { return false; }
 };
 
