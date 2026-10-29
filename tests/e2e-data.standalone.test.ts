@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
-import { publicGraphHasData, readSiteJSON, requireGraph, requireSamples, requireSeededRelation } from "../e2e/data.ts";
+import { publicGraphHasData, readSiteJSON, requireGraph, requireSamples, requireSeededEntityProfile, requireSeededRelation } from "../e2e/data.ts";
 
 for (const path of ["/api/site/timeline", "/api/site/hot", "/api/site/reports/daily/latest-page", "/api/site/topics", "/api/site/knowledge/overview"]) {
   for (const mode of ["500", "invalid JSON"]) test(`${path} rejects ${mode} in seeded reads`, async () => {
@@ -106,4 +106,26 @@ test("seeded relation must agree across the public overview and network projecti
     "seeded", "public-report"), /subject mismatch/);
   assert.throws(() => requireSeededRelation(overview, { ...network, nodes: [{ key: "source" }] },
     "seeded", "public-report"), /not public nodes/);
+});
+
+test("seeded entity page must cite the exact seeded relation and public source", () => {
+  const profile = {
+    entity: { key: "entity-a" },
+    edges: [{ id: "seeded", subject: { key: "entity-a" }, object: { key: "entity-b" },
+      evidence: [{ articleId: "public-report" }] }],
+    reports: [{ id: "public-report" }],
+  };
+  requireSeededEntityProfile(profile, "entity-a", "seeded", "public-report");
+  assert.throws(() => requireSeededEntityProfile({ ...profile, entity: { key: "other" } },
+    "entity-a", "seeded", "public-report"), /identity mismatch/);
+  assert.throws(() => requireSeededEntityProfile({ ...profile, edges: [] },
+    "entity-a", "seeded", "public-report"), /missing seeded relation/);
+  assert.throws(() => requireSeededEntityProfile({ ...profile, edges: [{
+    ...profile.edges[0], subject: { key: "other" }, object: { key: "another" },
+  }] }, "entity-a", "seeded", "public-report"), /does not touch/);
+  assert.throws(() => requireSeededEntityProfile({ ...profile, edges: [{
+    ...profile.edges[0], evidence: [{ articleId: "unrelated" }],
+  }] }, "entity-a", "seeded", "public-report"), /lacks public evidence/);
+  assert.throws(() => requireSeededEntityProfile({ ...profile, reports: [{ id: "unrelated" }] },
+    "entity-a", "seeded", "public-report"), /source report is absent/);
 });

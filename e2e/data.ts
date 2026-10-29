@@ -50,6 +50,21 @@ export function requireSeededRelation(overview: any, network: any, relationId: s
     "/api/site/knowledge/network: seeded relation endpoints are not public nodes");
 }
 
+/** Seeded CI must prove the public entity page cites the same relation and report. */
+export function requireSeededEntityProfile(profile: any, entityKey: string, relationId: string, articleId: string) {
+  assert.equal(profile?.entity?.key, entityKey,
+    "/api/site/knowledge/entities: seeded entity identity mismatch");
+  const edge = Array.isArray(profile?.edges)
+    ? profile.edges.find((item: any) => item?.id === relationId) : null;
+  assert.ok(edge, "/api/site/knowledge/entities: missing seeded relation");
+  assert.ok(edge.subject?.key === entityKey || edge.object?.key === entityKey,
+    "/api/site/knowledge/entities: seeded relation does not touch this entity");
+  assert.ok(Array.isArray(edge.evidence) && edge.evidence.some((source: any) => source?.articleId === articleId),
+    "/api/site/knowledge/entities: seeded relation lacks public evidence");
+  assert.ok(Array.isArray(profile?.reports) && profile.reports.some((report: any) => report?.id === articleId),
+    "/api/site/knowledge/entities: seeded source report is absent");
+}
+
 export function requireGraph(stats: any, overview: any, network: any) {
   for (const [path, data] of [["stats", stats], ["overview", overview], ["network", network]] as const) {
     const statusIsValid = data && (!Object.hasOwn(data, "status") || data.status === "ok");
