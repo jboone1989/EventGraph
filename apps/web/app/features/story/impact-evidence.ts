@@ -6,7 +6,7 @@
  * Only dated and currently public StoryRoute evidence is eligible. The route is
  * sourced from the public publication scope, not Graphiti's generic RELATES_TO.
  */
-import type { StoryDetail, StoryRoute, StoryRouteReport } from "@aihot/contracts/site";
+import type { ImpactEvidenceKind, StoryDetail, StoryRoute, StoryRouteReport } from "@aihot/contracts/site";
 
 export const IMPACT_AREAS = ["policy", "logistics", "companies"] as const;
 export type ImpactArea = (typeof IMPACT_AREAS)[number];
@@ -22,10 +22,11 @@ export type ImpactLead = {
   discoveredAt: string;
   revision: number | null;
   /** This is a discovery hint, NOT evidence of a causal or supply-chain edge. */
-  evidenceKind: "related_reporting";
+  evidenceKind: Extract<ImpactEvidenceKind, "related_reporting">;
 };
 
-const TERMS: Record<ImpactArea, RegExp> = {
+// Reading dictionaries shared with the P1 station layer classification (impact-layers.ts).
+export const TERMS: Record<ImpactArea, RegExp> = {
   policy: /制裁|禁运|关税|出口管制|出口限制|监管禁令|行政命令|贸易限制|进口禁令|贸易政策|贸易禁令|解除制裁|制裁豁免|\bsanction(?:s|ed)?\b|\btariff(?:s)?\b|\bexport (?:controls?|ban|restriction(?:s)?)\b|\btrade (?:restrictions?|ban)\b|\bembargo\b|\bexecutive order\b/i,
   logistics: /海峡|航运|船运|油轮|港口|航道|航线|停航|断航|封锁航道|运输中断|物流|供应链|原油供应|天然气供应|能源供应|\bshipping\b|\bport(?:s)?\b|\bmaritime\b|\bfreight\b|\btanker(?:s)?\b|\bstrait\b|\bsupply chain\b|\blogistics\b|\bvessel(?:s)?\b|\bcrude oil\b/i,
   companies: /企业披露|公司披露|上市公司公告|停工|停产|工厂关闭|工厂停工|生产中断|营收影响|成本上升|财报披露|\bcompany disclosure\b|\bfiling\b|\bfactory (?:closure|shutdown)\b|\bproduction (?:halt|suspension|disruption)\b|\bearnings impact\b|\bcompany warns\b/i,
@@ -40,7 +41,7 @@ const safeUrl = (url: string) => {
   } catch { return false; }
 };
 
-function inScope(report: StoryRouteReport, cutoff: number, clock: "known" | "valid") {
+export function inScope(report: StoryRouteReport, cutoff: number, clock: "known" | "valid") {
   const at = clock === "known" ? report.discoveredAt : report.publishedAt;
   // A future-dated or embargoed publication cannot appear before its stated
   // publication time, even if a collector saw it earlier (replay.ts contract).

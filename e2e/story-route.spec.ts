@@ -18,7 +18,8 @@ test("the route panel's evidence link and explorer jump match the route API", as
 
   await open(page, "/en/story/" + encodeURIComponent(story!));
   const routeDetails = page.locator("details").filter({hasText: "Expand the detailed fact route and sources"});
-  await routeDetails.locator("summary").click();
+  // :scope so nested station evidence drawers (their own <summary>) are not collapsed instead.
+  await routeDetails.locator(":scope > summary").click();
   const panel = routeDetails.getByRole("heading", { name: "Story route" });
   await expect(panel).toBeVisible();
 
