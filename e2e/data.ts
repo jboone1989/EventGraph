@@ -33,6 +33,23 @@ export function publicGraphHasData(stats: any, overview: any, network: any): boo
     Array.isArray(network?.links) && network.links.length > 0;
 }
 
+/** The seeded edge must be the same public relation in both API projections. */
+export function requireSeededRelation(overview: any, network: any, relationId: string, articleId: string) {
+  const edge = overview?.edges?.find((item: any) => item?.id === relationId);
+  assert.ok(edge, `/api/site/knowledge/overview: missing seeded relation ${relationId}`);
+  assert.ok(edge.evidence?.some((source: any) => source?.articleId === articleId),
+    `/api/site/knowledge/overview: seeded relation lacks public evidence ${articleId}`);
+  const link = network?.links?.find((item: any) => item?.id === relationId);
+  assert.ok(link, `/api/site/knowledge/network: missing seeded relation ${relationId}`);
+  assert.ok(edge.subject?.key && edge.object?.key,
+    "/api/site/knowledge/overview: seeded relation has missing endpoints");
+  assert.equal(link.source, edge.subject.key, "/api/site/knowledge/network: seeded subject mismatch");
+  assert.equal(link.target, edge.object.key, "/api/site/knowledge/network: seeded object mismatch");
+  const nodes = new Set((network?.nodes ?? []).map((node: any) => node.key));
+  assert.ok(nodes.has(link.source) && nodes.has(link.target),
+    "/api/site/knowledge/network: seeded relation endpoints are not public nodes");
+}
+
 export function requireGraph(stats: any, overview: any, network: any) {
   for (const [path, data] of [["stats", stats], ["overview", overview], ["network", network]] as const) {
     const statusIsValid = data && (!Object.hasOwn(data, "status") || data.status === "ok");
