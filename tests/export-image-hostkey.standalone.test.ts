@@ -145,6 +145,7 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
   sb.env.STUB_BAD_REVISION = opts.badRevision ? "1" : "";
   sb.env.STUB_RSYNC_FAIL = opts.transferFailure ? "1" : "";
   sb.env.STUB_LOW_DISK = opts.lowDisk ? "1" : "";
+  sb.env.STUB_FREE_BASE = "";
   sb.env.STUB_BBR_CALLS = path.join(sb.dir, "bbr-calls.log");
   sb.env.STUB_ACTIVE = path.join(sb.dir, "active.txt");
   sb.env.STUB_MAX = path.join(sb.dir, "max-active.txt");
@@ -169,7 +170,12 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
     "#!/bin/sh",
     "printf '%s\\n' \"$*\" >> \"$STUB_SSH_CALLS\"",
     "case \"$*\" in",
-    "  *'df -B1 --output=avail '* ) if [ \"$STUB_LOW_DISK\" = 1 ]; then echo 100; else echo 10000000000; fi ;;",
+    "  *'df -B1 --output=avail '* )", 
+    "    if [ \"$STUB_LOW_DISK\" = 1 ]; then echo 100;", 
+    "    elif [ -n \"$STUB_FREE_BASE\" ]; then", 
+    "      held=$(find \"$STUB_PARTS\" -name 'part.*' -type f -printf '%s\\n' | awk '{sum += $1} END {print sum+0}')", 
+    "      echo \"$((STUB_FREE_BASE - held))\";", 
+    "    else echo 10000000000; fi ;;",
     "  *'mkdir -p '* )",
     "    mkdir -p \"$STUB_PARTS\";",
     "    if [ -f \"$STUB_STAGE\" ] && [ ! -e \"$STUB_PARTS/part.000\" ]; then",
@@ -186,6 +192,7 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
     "  *'docker image inspect --format'*'org.opencontainers.image.revision'* )",
     "    if [ \"$STUB_BAD_REVISION\" = 1 ]; then printf 'wrong-release\\n'; else printf '%s\\n' \"$STUB_REVISION\"; fi ;;",
     "  *'rm -f -- '* ) rm -f -- \"$STUB_STAGE.ready\" ;;",
+    "  *'du -s -B1 '* ) if [ -d \"$STUB_PARTS\" ]; then du -s -B1 \"$STUB_PARTS\" | cut -f1; else printf 0; fi ;;",
     "  *'rm -rf -- '* ) rm -rf -- \"$STUB_PARTS\" ;;",
     "  * ) : ;;",
     "esac",
@@ -272,6 +279,7 @@ test("rsync transports a digest-verified archive, preserving the existing image 
   assert.match(hops, /eventgraph-last-delivered-image/);
   assert.match(hops, /docker volume rm eventgraph-dev-registry/);
   assert.match(hops, /rm -rf --/);
+  assert.ok(hops.indexOf("rm -rf --") < hops.indexOf("docker load"), "parts must be released before Docker unpacks layers");
   assert.match(content(sb.env.STUB_BBR_CALLS!), /modprobe tcp_bbr/);
   assert.match(content(sb.env.STUB_BBR_CALLS!), /sysctl -w net.ipv4.tcp_congestion_control=bbr/);
   assert.equal(readFileSync(path.join(sb.dir, "remote-current.tar"), "utf8"),
@@ -304,6 +312,22 @@ test("an interrupted transfer preserves partial bytes but cannot load or publish
   const resume = run(sb.env);
   assert.equal(resume.status, 0, resume.stderr);
   assert.match(content(path.join(sb.dir, "ssh-calls.log")), /eventgraph-last-delivered-image/);
+});
+
+test("a resumed transfer credits staged chunks and removes abandoned reassembly", () => {
+  const sb = rsyncSandbox({ transferFailure: true });
+  const archiveSize = Buffer.byteLength("fixture image archive contents - unchanged layers\n");
+  sb.env.STUB_FREE_BASE = String(archiveSize * 2 + 268435456 + 1);
+  const fail = run(sb.env);
+  assert.notEqual(fail.status, 0);
+  assert.ok(existsSync(sb.env.STUB_PARTS!));
+  // This incomplete file may be left by a prior terminated reassembly.
+  writeFileSync(`${sb.env.STUB_STAGE!}.ready`, "unverified full archive");
+  sb.env.STUB_RSYNC_FAIL = "";
+  const result = run(sb.env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(!existsSync(`${sb.env.STUB_STAGE!}.ready`));
+  assert.ok(!existsSync(sb.env.STUB_PARTS!), "verified new archive must release staged chunks");
 });
 
 test("insufficient cn-dev free space fails before any rsync and preserves the existing image", () => {

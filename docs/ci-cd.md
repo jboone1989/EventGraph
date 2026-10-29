@@ -79,13 +79,15 @@ independent jobs — neither gates the other:
   on cn-dev, then verifies the exact image ID and release revision label.
   Only then does it record the existing content-addressed local image tag
   (`eventgraph-dev:<image ID hex>`) and published digest pairing, and remove
-  the retired temporary registry/volume. After the verified image/tag pairing,
-  temporary parts (including obsolete tail chunks) are deleted. Only the single
-  verified `current.tar` remains in steady state to seed later transfers. During
-  transfer, parts plus `current.tar.ready` can temporarily use two additional
-  archive-sized copies; the preflight requires at least twice the new archive
-  size plus 256 MiB free on cn-dev or fails before transferring. Incomplete
-  transfers retain parts for the next attempt; no per-release archive accumulates. The existing `scripts/ci/deploy-image.sh` then deploys
+  the retired temporary registry/volume. After the verified archive replaces
+  `current.tar`, temporary parts (including obsolete tail chunks) are removed
+  **before** Docker layer unpacking. Only that verified archive remains in steady
+  state to seed later transfers. During transfer, parts plus `current.tar.ready`
+  can temporarily use two additional archive-sized copies. The preflight requires
+  twice the new archive size plus 256 MiB free on a cold transfer; on resumption
+  it credits already-staged chunks (capped at one new archive size), and first
+  removes any abandoned `current.tar.ready`. Incomplete transfers retain parts
+  for the next attempt; no per-release archive accumulates. The existing `scripts/ci/deploy-image.sh` then deploys
   only cn-dev's Worker, runs idempotent setup, checks the running revision and
   fresh heartbeat, and rolls back to the previous local image on failure.
   No Web/API containers run on cn-dev, and superseded images are pruned to
