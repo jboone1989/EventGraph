@@ -25,6 +25,14 @@ export function requireSamples(samples: Record<string, unknown>, required = seed
   }
 }
 
+/** Optional external sites may have raw Graphiti entities but no publicly cited graph. */
+export function publicGraphHasData(stats: any, overview: any, network: any): boolean {
+  return Number.isSafeInteger(stats?.entities) && stats.entities > 0 &&
+    Array.isArray(overview?.edges) && overview.edges.length > 0 &&
+    Array.isArray(network?.nodes) && network.nodes.length > 0 &&
+    Array.isArray(network?.links) && network.links.length > 0;
+}
+
 export function requireGraph(stats: any, overview: any, network: any) {
   for (const [path, data] of [["stats", stats], ["overview", overview], ["network", network]] as const) {
     const statusIsValid = data && (!Object.hasOwn(data, "status") || data.status === "ok");
