@@ -38,7 +38,7 @@ cndev_hit="$(ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGE
 awk -v n="$cndev_hit" 'NR == n' "$cndev_scan" > "${cndev_scan}.ok" && mv "${cndev_scan}.ok" "$CNDEV_KNOWN_HOSTS"
 rm -f "$cndev_scan"
 cndev_algo="$(awk '{print $2; exit}' "$CNDEV_KNOWN_HOSTS")"
-ssh_opts="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$CNDEV_KNOWN_HOSTS -o HostKeyAlgorithms=$cndev_algo -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519"
+ssh_opts="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$CNDEV_KNOWN_HOSTS -o HostKeyAlgorithms=$cndev_algo -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519"
 
 # VM13 pulls this digest for its own Web/API deploy on every release; pull only
 # when this job runs first or the image was pruned. VM13 reaches GHCR reliably.
@@ -86,7 +86,7 @@ fi
 # blobs. After a verified delivery we remove the registry and volume; the next
 # release recreates it and seeds shared layers from cn-dev's last local image.
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker ps --format '{{.Names}}' | grep -qx $registry_container || docker start $registry_container 2>/dev/null || docker run -d --name $registry_container --restart unless-stopped -p 127.0.0.1:5000:5000 -v eventgraph-dev-registry:/var/lib/registry $registry_image"
-ssh $ssh_opts ubuntu@"$cn_dev_host" 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do curl -fsS -o /dev/null http://127.0.0.1:5000/v2/ && exit 0; sleep 1; done; echo "cn-dev registry did not become ready" >&2; exit 1'
+ssh $ssh_opts ubuntu@"$cn_dev_host" 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null http://127.0.0.1:5000/v2/ && exit 0; sleep 1; done; echo "cn-dev registry did not become ready" >&2; exit 1'
 
 # Seed the registry from an image cn-dev already has locally (the last
 # delivered tag, else any local eventgraph-dev image). Consecutive releases
@@ -115,14 +115,14 @@ start_tunnel() {
 # blobs, and replace a dead/unresponsive tunnel before the next attempt.
 ensure_tunnel() {
   if [ -z "$tunnel_pid" ] || ! kill -0 "$tunnel_pid" 2>/dev/null ||
-    ! curl -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
+    ! curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
     start_tunnel
   fi
   ready=0
   check=1
   while [ "$check" -le 45 ]; do
     if ! kill -0 "$tunnel_pid" 2>/dev/null; then break; fi
-    if curl -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
+    if curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null "http://$registry_addr/v2/" 2>/dev/null; then
       ready=1
       break
     fi
@@ -133,15 +133,29 @@ ensure_tunnel() {
 }
 
 sudo -n docker tag "$image_id" "$registry_repo:$EVENTGRAPH_RELEASE_SHA"
+# Bound the entire push loop to 16 minutes, but cap each attempt at 14
+# minutes. A hung first push must leave time for a second attempt to send the
+# manifest using blobs already committed to the registry. A single timeout
+# equal to the full shared budget would kill the client with no retry time.
+# timeout runs as root inside sudo to signal docker directly; --quiet avoids
+# progress output on the slow cross-border link.
+push_deadline=$(( $(date +%s) + 16 * 60 ))
 pushed=0
 attempt=1
 while [ "$attempt" -le 3 ]; do
   ensure_tunnel
-  if sudo -n docker push "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
+  remaining=$(( push_deadline - $(date +%s) ))
+  if [ "$remaining" -le 0 ]; then
+    echo "Push budget exhausted before attempt $attempt" >&2
+    break
+  fi
+  attempt_timeout=$remaining
+  [ "$attempt_timeout" -le 840 ] || attempt_timeout=840
+  if sudo -n timeout -k 5 "$attempt_timeout" docker push --quiet "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
     pushed=1
     break
   fi
-  echo "Push attempt $attempt failed; retrying (blobs already uploaded are skipped)" >&2
+  echo "Push attempt $attempt failed or stalled; retrying (blobs already uploaded are skipped)" >&2
   attempt=$((attempt + 1))
   [ "$attempt" -le 3 ] && sleep 5
 done
