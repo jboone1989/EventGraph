@@ -30,13 +30,18 @@ test("shared report is flagged for human inspection, not automatically merged", 
 
 test("manual membership and actual decision receipts survive without invented verdicts", () => {
   const result = storyFactDiagnosis(route([station("f1", "a")]), [
-    { factId: "f1", articleId: "a", role: "primary", factManual: false, membershipManual: true },
+    { factId: "f1", articleId: "a", role: "primary", factManual: false,
+      membershipManual: true, evidence: "issuer filed a dated objection" },
   ], [
-    { id: 7, articleId: "a", verdict: "new_fact", candidates: [{id: 1, score: 0.8}], receiptId: 9, createdAt: "2026-10-25" },
+    { id: 7, articleId: "a", verdict: "new_fact", candidates: [{id: 1, score: 0.8}],
+      factId: 42, storyId: 13, receiptId: 9, createdAt: "2026-10-25" },
   ]);
   const row = result.facts[0]!.reports[0]!;
   assert.equal(row.manual, true);
   assert.equal(row.role, "primary");
+  assert.equal(row.membershipEvidence, "issuer filed a dated objection");
+  assert.equal(row.groupingHistory[0]!.factId, 42);
+  assert.equal(row.groupingHistory[0]!.storyId, 13);
   assert.equal(row.groupingHistory[0]!.receiptId, 9);
   assert.deepEqual(row.groupingHistory[0]!.candidates, [{id: 1, score: 0.8}]);
 });
@@ -56,9 +61,25 @@ test("truncated public route cannot be presented as complete Fact audit", () => 
 test("decision history includes only visible reports and five most recent receipts", () => {
   const decisions = Array.from({length: 7}, (_, i) => ({
     id: i+1, articleId: "a", verdict: "new_fact", candidates: [],
+    factId: null, storyId: null,
     receiptId: i + 1, createdAt: "2026-10-25",
   }));
-  decisions.push({ id: 99, articleId: "not-public", verdict: "merged", candidates: [], receiptId: 99, createdAt: "2026-10-25" });
+  decisions.push({ id: 99, articleId: "not-public", verdict: "merged", candidates: [],
+    factId: null, storyId: null, receiptId: 99, createdAt: "2026-10-25" });
   const result = storyFactDiagnosis(route([station("f1", "a")]), [], decisions);
   assert.deepEqual(result.facts[0]!.reports[0]!.groupingHistory.map(d=>d.id), [7,6,5,4,3]);
+});
+
+test("original source and revision stay attributable to the individual report", () => {
+  const a = station("f1", "revised"), b = station("f1", "original");
+  a.reports[0]!.revision = 3;
+  b.reports[0]!.source = "Another outlet";
+  const combined = { ...a, reports: [...a.reports, ...b.reports], sourceCount: 2 };
+  const result = storyFactDiagnosis(route([combined]), [], []);
+  assert.equal(result.facts[0]!.reports[0]!.revision, 3);
+  assert.equal(result.facts[0]!.reports[0]!.source, "Example");
+  assert.equal(result.facts[0]!.reports[1]!.revision, null);
+  assert.equal(result.facts[0]!.reports[1]!.source, "Another outlet");
+  assert.equal(result.facts[0]!.reports[1]!.membershipEvidence, null);
+  assert.equal(result.facts[0]!.reports[1]!.groupingHistory.length, 0);
 });

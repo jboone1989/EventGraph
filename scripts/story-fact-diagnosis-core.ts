@@ -3,9 +3,11 @@ import type { StoryRoute } from "../packages/contracts/src/site.ts";
 export type Membership = {
   factId: string; articleId: string; role: string;
   factManual: boolean; membershipManual: boolean;
+  evidence: string | null;
 };
 export type DecisionTrace = {
   id: number; articleId: string; verdict: string; candidates: unknown;
+  factId: number | null; storyId: number | null;
   receiptId: number | null; createdAt: string;
 };
 
@@ -45,10 +47,12 @@ export function storyFactDiagnosis(
     reports: station.reports.map(report => {
       const member = membershipsByKey.get(`${station.factId}\0${report.articleId}`);
       return {
-        articleId: report.articleId, url: report.url, publishedAt: report.publishedAt,
+        articleId: report.articleId, url: report.url, source: report.source,
+        revision: report.revision, publishedAt: report.publishedAt,
         discoveredAt: report.discoveredAt, role: member?.role ?? "unknown",
         manual: member?.membershipManual ?? null,
         factManual: member?.factManual ?? null,
+        membershipEvidence: member?.evidence ?? null,
         alsoInFactIds: [...(linkedFacts.get(report.articleId) ?? [])].filter(id => id !== station.factId),
         groupingHistory: byArticle.get(report.articleId) ?? [],
       };

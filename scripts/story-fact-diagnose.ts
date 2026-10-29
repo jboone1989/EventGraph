@@ -20,27 +20,29 @@ async function main() {
   if (!factIds.length || !articleIds.length) throw new Error("No public Fact/report pairs");
 
   const membershipRows = await sql<{
-    fact_id: string; article_id: string; role: string; fact_manual: boolean; membership_manual: boolean;
+    fact_id: string; article_id: string; role: string; fact_manual: boolean;
+    membership_manual: boolean; evidence: string | null;
   }[]>`
-    SELECT f.public_id::text AS fact_id, fa.article_id, fa.role,
+    SELECT f.public_id::text AS fact_id, fa.article_id, fa.role, fa.evidence,
       f.manual AS fact_manual, fa.manual AS membership_manual
     FROM facts f JOIN fact_articles fa ON fa.fact_id = f.id
     WHERE f.public_id::text IN ${sql(factIds)} AND fa.article_id IN ${sql(articleIds)}`;
   const decisions = await sql<{
     id: number; article_id: string; verdict: string; candidates: unknown;
-    receipt_id: number | null; created_at: Date;
+    fact_id: number | null; story_id: number | null; receipt_id: number | null; created_at: Date;
   }[]>`
-    SELECT id, article_id, verdict, candidates, receipt_id, created_at FROM (
-      SELECT id, article_id, verdict, candidates, receipt_id, created_at,
+    SELECT id, article_id, verdict, candidates, fact_id, story_id, receipt_id, created_at FROM (
+      SELECT id, article_id, verdict, candidates, fact_id, story_id, receipt_id, created_at,
         row_number() OVER (PARTITION BY article_id ORDER BY id DESC) AS ordinal
       FROM grouping_decisions WHERE article_id IN ${sql(articleIds)}
     ) recent WHERE ordinal <= 5 ORDER BY article_id, id DESC`;
   const memberships: Membership[] = membershipRows.map(m => ({
     factId: m.fact_id, articleId: m.article_id, role: m.role,
-    factManual: m.fact_manual, membershipManual: m.membership_manual,
+    factManual: m.fact_manual, membershipManual: m.membership_manual, evidence: m.evidence,
   }));
   const history: DecisionTrace[] = decisions.map(d => ({
     id: d.id, articleId: d.article_id, verdict: d.verdict, candidates: d.candidates,
+    factId: d.fact_id, storyId: d.story_id,
     receiptId: d.receipt_id, createdAt: d.created_at.toISOString(),
   }));
   console.log(JSON.stringify(storyFactDiagnosis(route, memberships, history), null, 2));
