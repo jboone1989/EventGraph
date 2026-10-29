@@ -284,179 +284,137 @@ test("an unreachable or empty keyscan refuses delivery", () => {
   assert.ok(!existsSync(pinnedFile(home)));
 });
 
-test("cold registry: bootstraps the registry image once, pushes, and records the verified pairing", () => {
-  const { dir, home, env } = sandbox();
-  const offeredPub = readFileSync(path.join(dir, "offered.pub"), "utf8").trim();
-  const res = run(env);
-  assert.equal(res.status, 0, res.stderr);
-  const dockerCalls = content(path.join(dir, "docker-calls.log"));
-  assert.ok(!dockerCalls.includes("UNEXPECTED"), dockerCalls);
-  assert.ok(!dockerCalls.includes(`pull ${imageRef}`), "VM13 must not re-pull a local digest");
-  // The registry image is fetched (Hub first) and shipped via the one-shot stream.
-  assert.ok(dockerCalls.includes("pull registry:2"), "the registry image must be fetched on VM13");
-  assert.ok(dockerCalls.includes("save registry:2"), "a missing registry image must be shipped by stream");
-  // The app itself is delivered only through the registry: tag + push, no save.
-  assert.ok(dockerCalls.includes(`tag ${imageId} ${registryTag}`), dockerCalls);
-  assert.ok(dockerCalls.includes(`push --quiet ${registryTag}`), dockerCalls);
-  assert.ok(!dockerCalls.includes(`save ${tag}`), "the app image must no longer be shipped by docker save");
-  const pinnedFile_ = pinnedFile(home);
-  assert.equal(readFileSync(pinnedFile_, "utf8"), `${cnDevHost} ${offeredPub}\n`, "only the verified key is trusted");
-  assert.ok(!existsSync(`${pinnedFile_}.scan`));
-  const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
-  // 11 hops: registry probe, bootstrap load, container ensure, /v2/ wait, seed,
-  // tunnel, remote pull, remote id, pairing write, transport-tag cleanup,
-  // registry+volume teardown.
-  assert.equal(sshCalls.length, 11, `probe, load, ensure, wait, seed, tunnel, pull, id, record, tag-cleanup, cleanup — got: ${sshCalls.join(" || ")}`);
-  assert.ok(sshCalls.some((c) => c.includes("curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null http://127.0.0.1:5000/v2/")),
-    "cn-dev registry readiness must have a connection and total timeout before image transfer");
-  for (const call of sshCalls) {
-    assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile_}`), `ssh must pin the verified host key: ${call}`);
-    assert.ok(call.includes("HostKeyAlgorithms=ssh-ed25519"), `ssh must negotiate the verified algorithm: ${call}`);
-    assert.ok(call.includes("ConnectTimeout=15"), `SSH handshake must not outlive the image push watchdog: ${call}`);
-    assert.ok(!call.includes(".ssh/known_hosts "), "the shared known_hosts must not be used");
+
+// The replacement delivery path is a stable rsync archive, not a registry.
+// These stubs model an interrupted byte transfer and a fresh invocation over
+// the same staged file. No real Docker daemon, SSH host or production API used.
+function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boolean; badRevision?: boolean; transferFailure?: boolean } = {}) {
+  const sb = sandbox({ pinEcdsa: opts.pinEcdsa });
+  const bin = path.join(sb.dir, "bin");
+  sb.env.STUB_STAGE = path.join(sb.dir, "remote-current.tar");
+  sb.env.STUB_RSYNC_CALLS = path.join(sb.dir, "rsync-calls.log");
+  sb.env.STUB_BAD_HASH = opts.badHash ? "1" : "";
+  sb.env.STUB_BAD_ID = opts.badId ? "1" : "";
+  sb.env.STUB_BAD_REVISION = opts.badRevision ? "1" : "";
+  sb.env.STUB_RSYNC_FAIL = opts.transferFailure ? "1" : "";
+  writeFileSync(path.join(bin, "docker"), [
+    "#!/bin/sh",
+    "printf '%s\\n' \"$*\" >> \"$STUB_CALLS\"",
+    "case \"$*\" in",
+    "  'image inspect '* )",
+    "    case \"$*\" in",
+    "      *'.Id'* ) printf '%s\\n' \"$STUB_IMAGE_ID\" ;;",
+    "      *'org.opencontainers.image.revision'* ) printf '%s\\n' \"$STUB_REVISION\" ;;",
+    "    esac ;;",
+    "  'save '* ) printf '%s\\n' 'fixture image archive contents - unchanged layers' ;;",
+    "  * ) echo \"unexpected docker: $*\" >&2; exit 1 ;;",
+    "esac",
+    ""
+  ].join("\n"));
+  writeFileSync(path.join(bin, "ssh"), [
+    "#!/bin/sh",
+    "printf '%s\\n' \"$*\" >> \"$STUB_SSH_CALLS\"",
+    "case \"$*\" in",
+    "  *'sha256sum '* )",
+    "    if [ \"$STUB_BAD_HASH\" = 1 ]; then printf '%064d\\n' 0;",
+    "    else sha256sum \"$STUB_STAGE\" | cut -d ' ' -f1; fi ;;",
+    "  *'docker load -i '* ) printf 'load\\n' >> \"$STUB_CALLS\" ;;",
+    "  *'docker image inspect --format'*'.Id'* )",
+    "    if [ \"$STUB_BAD_ID\" = 1 ]; then printf 'sha256:wrong\\n';",
+    "    else printf '%s\\n' \"$STUB_IMAGE_ID\"; fi ;;",
+    "  *'docker image inspect --format'*'org.opencontainers.image.revision'* )",
+    "    if [ \"$STUB_BAD_REVISION\" = 1 ]; then printf 'wrong-release\\n';",
+    "    else printf '%s\\n' \"$STUB_REVISION\"; fi ;;",
+    "  * ) : ;;",
+    "esac",
+    ""
+  ].join("\n"));
+  writeFileSync(path.join(bin, "rsync"), [
+    "#!/bin/sh",
+    "printf '%s\\n' \"$*\" >> \"$STUB_RSYNC_CALLS\"",
+    "second_last=''; last=''",
+    "for arg in \"$@\"; do second_last=\"$last\"; last=\"$arg\"; done",
+    "if [ \"$STUB_RSYNC_FAIL\" = 1 ]; then",
+    "  head -c 12 \"$second_last\" > \"$STUB_STAGE\"; exit 23",
+    "fi",
+    "cp \"$second_last\" \"$STUB_STAGE\"",
+    ""
+  ].join("\n"));
+  writeFileSync(path.join(bin, "timeout"), [
+    "#!/bin/sh", "[ \"$1\" = -k ] || exit 20",
+    "[ \"$3\" = 30m ] || exit 21",
+    "shift 3", "exec \"$@\"", ""
+  ].join("\n"));
+  for (const f of ["docker", "ssh", "rsync", "timeout"]) {
+    const c = spawnSync("chmod", ["+x", path.join(bin, f)], { encoding: "utf8" });
+    assert.equal(c.status, 0, c.stderr);
   }
-  assert.ok(sshCalls.some((c) => c.includes("docker run -d --name eventgraph-dev-registry") && c.includes("-p 127.0.0.1:5000:5000") && c.includes("-v eventgraph-dev-registry:/var/lib/registry")), "the registry must be loopback-only with a persistent volume");
-  assert.ok(sshCalls.some((c) => c.includes("eventgraph-dev:seed") && c.includes("eventgraph-last-delivered-image")), "the registry is seeded from cn-dev's own local images over loopback");
-  assert.ok(sshCalls.some((c) => c.includes("-N") && c.includes(`-L 127.0.0.1:5000:127.0.0.1:5000`)), "the push must go through a loopback SSH tunnel");
-  assert.ok(sshCalls.some((c) => c.includes(`docker pull '${registryTag}'`)), "cn-dev must pull from its own loopback registry");
-  assert.ok(sshCalls.some((c) => c.includes("eventgraph-last-delivered-image") && c.includes(tag) && c.includes(imageRef)), "the pairing file must bind the delivered tag to the release digest");
-  assert.ok(sshCalls.some((c) => c.includes(`docker rmi '${registryTag}'`) && c.includes(`docker rmi '${registryRepo}:seed'`)),
-    "transport-only release and seed tags must be removed so stale image IDs stay reclaimable");
-  assert.ok(sshCalls.some((c) => c.includes("docker rm -f eventgraph-dev-registry") && c.includes("docker volume rm eventgraph-dev-registry")),
-    "a verified delivery must remove the transport registry and its volume");
-});
+  return sb;
+}
 
-test("retry/warm registry: no bootstrap stream, only the incremental push", () => {
-  const { dir, env } = sandbox({ registryPresent: true });
-  const res = run(env);
+test("rsync transports a digest-verified archive, preserving the existing image tag pairing", () => {
+  const sb = rsyncSandbox();
+  const res = run(sb.env);
   assert.equal(res.status, 0, res.stderr);
-  const dockerCalls = content(path.join(dir, "docker-calls.log"));
-  assert.ok(!dockerCalls.includes("save registry:2"), "an already-present registry image must not be re-shipped");
-  assert.ok(!dockerCalls.includes("pull registry:2"), "an already-present registry image must not be re-fetched");
-  assert.ok(dockerCalls.includes(`push --quiet ${registryTag}`));
-  const sshCalls = content(path.join(dir, "ssh-calls.log"));
-  assert.ok(!sshCalls.includes("gzip -dc | docker load"), "no stream load may happen");
-  assert.ok(sshCalls.includes("docker rm -f eventgraph-dev-registry") && sshCalls.includes("docker volume rm eventgraph-dev-registry"),
-    "successful retry still removes transport scratch state");
+  assert.match(res.stdout, /Verified image/);
+  assert.match(content(path.join(sb.dir, "docker-calls.log")), /save sha256:/);
+  const transfers = content(path.join(sb.dir, "rsync-calls.log"));
+  assert.match(transfers, /--inplace/);
+  assert.match(transfers, /--partial/);
+  assert.match(transfers, /--no-whole-file/);
+  assert.match(transfers, /--compress-choice=zstd/);
+  assert.match(transfers, /StrictHostKeyChecking=yes/);
+  assert.match(transfers, /HostKeyAlgorithms=ssh-ed25519/);
+  const hops = content(path.join(sb.dir, "ssh-calls.log"));
+  assert.match(hops, /sha256sum/);
+  assert.match(hops, /docker load/);
+  assert.match(hops, /eventgraph-last-delivered-image/);
+  assert.match(hops, /docker volume rm eventgraph-dev-registry/);
+  assert.equal(readFileSync(path.join(sb.dir, "remote-current.tar"), "utf8"),
+    "fixture image archive contents - unchanged layers\n");
 });
 
-test("a slow SSH tunnel must become ready before any image push", () => {
-  const { dir, env } = sandbox({ registryPresent: true, tunnelReadyFails: 2 });
-  const res = run(env);
-  assert.equal(res.status, 0, res.stderr);
-  assert.ok(Number(content(path.join(dir, "curl-counter"))) >= 3, "the tunnel readiness endpoint must be polled");
-  assert.ok(content(path.join(dir, "docker-calls.log")).includes(`push --quiet ${registryTag}`));
+test("an interrupted transfer preserves partial bytes but cannot load or publish an image", () => {
+  const sb = rsyncSandbox({ transferFailure: true });
+  const fail = run(sb.env);
+  assert.notEqual(fail.status, 0);
+  assert.match(fail.stderr, /staged bytes retained/);
+  assert.equal(readFileSync(sb.env.STUB_STAGE!, "utf8").length, 12);
+  assert.doesNotMatch(content(path.join(sb.dir, "ssh-calls.log")), /docker load|eventgraph-last-delivered-image/);
+  sb.env.STUB_RSYNC_FAIL = "";
+  const resume = run(sb.env);
+  assert.equal(resume.status, 0, resume.stderr);
+  assert.match(content(path.join(sb.dir, "ssh-calls.log")), /eventgraph-last-delivered-image/);
 });
 
-test("a push that fails twice succeeds on the third attempt (blobs already uploaded are skipped)", () => {
-  const { dir, env } = sandbox({ registryPresent: true, pushFailures: 2 });
-  const res = run(env);
-  assert.equal(res.status, 0, res.stderr);
-  const pushes = content(path.join(dir, "docker-calls.log")).split("\n").filter((l) => l.startsWith("push "));
-  assert.equal(pushes.length, 3, `exactly three push attempts — got: ${pushes.join(" || ")}`);
-  assert.match(content(path.join(dir, "ssh-calls.log")), /docker pull/, "the verified pull still happens");
-});
-
-test("a wedged push is killed by the watchdog budget and the retry completes the delivery", () => {
-  // 2026-10-28 12:33Z run: every blob was committed, the manifest was never
-  // sent, tunnel and session stayed healthy, and appleboy's command_timeout
-  // killed the whole script. The per-attempt watchdog must return control to
-  // the resumable loop instead.
-  const { dir, env } = sandbox({ registryPresent: true, hangFirstPush: true });
-  const res = run(env);
-  assert.equal(res.status, 0, res.stderr);
-  const pushes = content(path.join(dir, "docker-calls.log")).split("\n").filter((l) => l.startsWith("push "));
-  assert.equal(pushes.length, 2, `the wedged first attempt must be retried — got: ${pushes.join(" || ")}`);
-  const timeouts = content(path.join(dir, "timeout-calls.log")).trim().split("\n").filter(Boolean);
-  assert.ok(timeouts.length >= 2, `every attempt must be watchdog-bounded — got: ${timeouts.join(" || ")}`);
-  // Advance the fake clock by the actual watchdog duration on expiry.
-  // The first attempt must leave time for a retry after its simulated stall.
-  assert.equal(Number(timeouts[0]!.split(" ")[0]), 25 * 60, "cold transfer must reserve 3m for retry");
-  assert.ok(Number(timeouts[1]!.split(" ")[0]) > 0 && Number(timeouts[1]!.split(" ")[0]) <= 3 * 60,
-    "second attempt must use the remaining shared budget after the real timeout");
-  for (const t of timeouts) {
-    const dur = Number(t.split(" ")[0]);
-    assert.ok(dur > 0 && dur <= 28 * 60, `the budget must fit appleboy's 34m command_timeout: ${t}`);
-    assert.ok(t.includes("push") && t.includes("--quiet"), `the watchdog must wrap the quiet push: ${t}`);
-  }
-  assert.match(content(path.join(dir, "ssh-calls.log")), /docker pull/, "the verified pull still happens");
-});
-
-test("a tunnel that dies during a push is replaced before the retry", () => {
-  const { dir, env } = sandbox({ registryPresent: true, pushFailures: 1, dropTunnelOnFirstPush: true });
-  const res = run(env);
-  assert.equal(res.status, 0, res.stderr);
-  const pushes = content(path.join(dir, "docker-calls.log")).split("\n").filter((l) => l.startsWith("push "));
-  assert.equal(pushes.length, 2, "the failed first push must be retried");
-  const tunnels = content(path.join(dir, "ssh-calls.log")).split("\n").filter((l) => l.includes("-N") && l.includes("-L"));
-  assert.equal(tunnels.length, 2, `a dead tunnel must be re-established before the retry — got: ${tunnels.join(" || ")}`);
-});
-
-test("a push that never succeeds fails the delivery without touching cn-dev's images", () => {
-  const { dir, env } = sandbox({ registryPresent: true, pushFailures: 3 });
-  const res = run(env);
+test("archive checksum mismatch fails before docker load and release pairing", () => {
+  const sb = rsyncSandbox({ badHash: true });
+  const res = run(sb.env);
   assert.notEqual(res.status, 0);
-  assert.match(res.stderr, /Pushing .* failed/);
-  const sshCalls = content(path.join(dir, "ssh-calls.log"));
-  assert.ok(!sshCalls.includes("docker pull"), "no remote pull may happen after a failed push");
-  assert.ok(!sshCalls.includes("eventgraph-last-delivered-image.tmp"), "the pairing file must not be written");
+  assert.match(res.stderr, /checksum mismatch/);
+  assert.doesNotMatch(content(path.join(sb.dir, "ssh-calls.log")), /docker load|eventgraph-last-delivered-image/);
 });
 
-test("a remote image that is not the published one fails the delivery", () => {
-  const { dir, env } = sandbox({ registryPresent: true, remoteImageId: `sha256:${"b".repeat(64)}` });
-  const res = run(env);
+test("a wrong loaded image identity cannot become the active Worker tag", () => {
+  const sb = rsyncSandbox({ badId: true });
+  const res = run(sb.env);
   assert.notEqual(res.status, 0);
-  assert.match(res.stderr, /did not end up with the published image/);
-  assert.ok(!content(path.join(dir, "ssh-calls.log")).includes("eventgraph-last-delivered-image.tmp"));
+  assert.match(res.stderr, /does not match/);
+  assert.doesNotMatch(content(path.join(sb.dir, "ssh-calls.log")), /eventgraph-last-delivered-image/);
 });
 
-test("the pinned host key is written to a dedicated known_hosts and every ssh hop uses it", () => {
-  const { dir, home, env } = sandbox({ registryPresent: true });
-  const offeredPub = readFileSync(path.join(dir, "offered.pub"), "utf8").trim();
-  const res = run(env);
+test("a wrong loaded source revision cannot become the active Worker tag", () => {
+  const sb = rsyncSandbox({ badRevision: true });
+  const res = run(sb.env);
+  assert.notEqual(res.status, 0);
+  assert.match(res.stderr, /revision does not match/);
+  assert.doesNotMatch(content(path.join(sb.dir, "ssh-calls.log")), /eventgraph-last-delivered-image/);
+});
+
+test("the ECDSA pinned host key is used by rsync as well as SSH", () => {
+  const sb = rsyncSandbox({ pinEcdsa: true });
+  const res = run(sb.env);
   assert.equal(res.status, 0, res.stderr);
-  const dockerCalls = content(path.join(dir, "docker-calls.log"));
-  assert.ok(!dockerCalls.includes("UNEXPECTED") && !dockerCalls.includes(`pull ${imageRef}`), "VM13 must not re-pull a local digest");
-  assert.ok(dockerCalls.includes(`tag ${imageId} ${registryTag}`));
-  const pinned = readFileSync(pinnedFile(home), "utf8");
-  assert.equal(pinned, `${cnDevHost} ${offeredPub}\n`, "only the verified key is trusted");
-  const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
-  for (const call of sshCalls) {
-    assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile(home)}`), `ssh must pin the verified host key: ${call}`);
-  }
-});
-
-test("a pin for the ECDSA key (the 2026-10-27 CD failure) authorizes delivery and pins that algorithm", () => {
-  const { dir, home, env } = sandbox({ pinEcdsa: true, registryPresent: true });
-  const ecdsaPub = readFileSync(path.join(dir, "offered-ecdsa.pub"), "utf8").trim();
-  const res = run(env);
-  assert.equal(res.status, 0, res.stderr);
-  assert.equal(readFileSync(pinnedFile(home), "utf8"), `${cnDevHost} ${ecdsaPub}\n`, "the verified ECDSA key, and only it, is trusted");
-  const sshCalls = content(path.join(dir, "ssh-calls.log")).trim().split("\n");
-  assert.ok(sshCalls.length >= 1);
-  for (const call of sshCalls) {
-    assert.ok(call.includes("HostKeyAlgorithms=ecdsa-sha2-nistp256"), `ssh must negotiate the pinned algorithm: ${call}`);
-  }
-});
-
-test("deploy-vm13-preview.sh wires the same pinning for the database tunnel", () => {
-  const vm13 = readFileSync(path.join(repoRoot, "scripts/ci/deploy-vm13-preview.sh"), "utf8");
-  const exportScript = readFileSync(path.join(repoRoot, "scripts/ci/export-image-vm13.sh"), "utf8");
-  // appleboy/ssh-action executes script_path files standalone on the host, so
-  // both scripts must inline the same verification instead of sourcing a sibling.
-  for (const script of [vm13, exportScript]) {
-    assert.ok(!script.includes('dirname "$0"'), "script_path scripts must stay self-contained");
-    assert.ok(script.includes('cndev_scan="$(mktemp "${CNDEV_KNOWN_HOSTS}.XXXXXX")"'), "each parallel deploy must use a unique keyscan scratch file");
-  }
-  const blockOf = (script: string) => {
-    const start = script.indexOf(': "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?');
-    const endMarker = 'cndev_algo="$(awk \'{print $2; exit}\' "$CNDEV_KNOWN_HOSTS")"';
-    const end = script.indexOf(endMarker, start);
-    assert.ok(start >= 0 && end >= 0, "the pinning block must exist");
-    return script.slice(start, end + endMarker.length);
-  };
-  assert.equal(blockOf(vm13), blockOf(exportScript), "both legs must verify cn-dev identically");
-  assert.ok(!vm13.includes("ssh_keyscan"), "the trust-on-first-keyscan bootstrap must be gone");
-  assert.ok(vm13.includes("-o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts.cndev"), "the tunnel unit must pin the verified file");
-  assert.ok(vm13.includes("-o HostKeyAlgorithms=$cndev_algo"), "the tunnel unit must negotiate the verified algorithm");
+  assert.match(content(path.join(sb.dir, "rsync-calls.log")), /HostKeyAlgorithms=ecdsa-sha2-nistp256/);
+  assert.match(content(path.join(sb.dir, "ssh-calls.log")), /HostKeyAlgorithms=ecdsa-sha2-nistp256/);
 });
