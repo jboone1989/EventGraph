@@ -28,6 +28,18 @@ test("shared report is flagged for human inspection, not automatically merged", 
   assert.equal(result.facts[0]!.reports[0]!.manual, null);
 });
 
+test("a visible report's memberships in other Facts are flagged without exposing other reports", () => {
+  const external = { factId: "other-story-fact", articleId: "a", role: "supporting",
+    factManual: false, membershipManual: false, evidence: null };
+  const hidden = { ...external, factId: "private-fact", articleId: "not-public" };
+  const result = storyFactDiagnosis(route([station("public-fact", "a")]),
+    [external, hidden], []);
+  assert.equal(result.facts.length, 1);
+  assert.deepEqual(result.facts[0]!.reports[0]!.alsoInFactIds, ["other-story-fact"]);
+  assert.equal(result.facts[0]!.reports[0]!.manual, null);
+  assert.deepEqual(result.facts[0]!.reports[0]!.groupingHistory, []);
+});
+
 test("manual membership and actual decision receipts survive without invented verdicts", () => {
   const result = storyFactDiagnosis(route([station("f1", "a")]), [
     { factId: "f1", articleId: "a", role: "primary", factManual: false,
