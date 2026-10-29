@@ -231,10 +231,10 @@ jobs:
               const diff = require('fs').readFileSync(process.env.GITHUB_WORKSPACE + '/pr-review.diff', 'utf8');
               const changed = new Map();
               let path = null, line = null, oldLeft = 0, newLeft = 0;
-              for (const part of diff.split(/\\r?\\n/)) {
+              for (const part of diff.split(/\r?\n/)) {
                 if (part.startsWith('diff --git ')) { path = null; line = null; oldLeft = 0; newLeft = 0; }
                 else if (line !== null) {
-                  if (part.startsWith('+')) { if (!part.startsWith('+++')) changed.get(path).add(line); line++; newLeft--; }
+                  if (part.startsWith('+')) { changed.get(path).add(line); line++; newLeft--; }
                   else if (part.startsWith('-')) oldLeft--;
                   else if (part.startsWith(' ')) { line++; oldLeft--; newLeft--; }
                   if (oldLeft <= 0 && newLeft <= 0) line = null;
@@ -242,7 +242,7 @@ jobs:
                   path = part.slice(6);
                   if (!changed.has(path)) changed.set(path, new Set());
                 } else if (part.startsWith('@@ ')) {
-                  const m = /@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@/.exec(part);
+                  const m = /@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(part);
                   if (m && path !== null) {
                     oldLeft = m[2] === undefined ? 1 : Number(m[2]);
                     newLeft = m[4] === undefined ? 1 : Number(m[4]);
