@@ -1,6 +1,7 @@
-# EventGraph only forwards a completed, passing Check for its exact PR HEAD.
-# All code review still happens on the existing livingruntime-remote Claude Runner.
-name: Forward PR to Claude review
+# EventGraph forwards a Check's exact SHA to the central GLM reviewer.
+# Only a missing durable review status triggers an additional paid review; central
+# preflight still authenticates the actual completed PR Check before model use.
+name: Forward PR to central GLM review
 
 on:
   workflow_run:
@@ -8,64 +9,48 @@ on:
     types: [completed]
 
 permissions:
+  actions: read
   contents: read
-  pull-requests: read
-  statuses: read
-
-concurrency:
-  group: review-forward-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha }}
-  cancel-in-progress: false
+  pull-requests: write
+  issues: write
+  statuses: write
 
 jobs:
-  notify:
-    if: >-
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      github.event.workflow_run.pull_requests[0].number != null
+  review-status:
+    # Reruns of a successful Check on the same SHA should not run a second
+    # paid review after the durable claude-review verdict was recorded.
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
+    outputs:
+      required: ${{ steps.status.outputs.required }}
     steps:
-      - name: Notify central Claude reviewer for passing SHA
+      - name: Check for an existing GLM verdict at the exact Check SHA
+        id: status
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          CENTRAL_TOKEN: ${{ secrets.CLAUDE_CENTRAL_DISPATCH_TOKEN }}
-          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           CHECK_SHA: ${{ github.event.workflow_run.head_sha }}
-        shell: bash
         run: |
           set -euo pipefail
-          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
           [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
-          # workflow_run belongs to a fixed commit. Its pull_requests array can
-          # later reflect a newer PR HEAD, so compare against workflow_run.head_sha.
-          actual="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
-            --jq '[.state, .draft, .head.sha, .head.repo.full_name] | @tsv')"
-          IFS=$'\t' read -r state draft live_sha head_repo <<< "$actual"
-          if [[ "$state" != open || "$draft" == true || "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
-            echo "PR closed, draft, or forked; no dispatch"
-            exit 0
-          fi
-          if [[ "$live_sha" != "$CHECK_SHA" ]]; then
-            echo "Superseded Check SHA; next passing Check will dispatch"
-            exit 0
-          fi
-          # Central reviewer already deduplicates per PR and SHA. Avoid unnecessary
-          # dispatch once its durable commit status exists, including a failed review.
-          review_status="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/status" \
+          state="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/status" \
             --jq '[.statuses[] | select(.context == "claude-review")][0].state // "missing"')"
-          if [[ "$review_status" != missing ]]; then
-            echo "Existing claude-review=$review_status at $CHECK_SHA; no repeated dispatch"
-            exit 0
+          if [[ "$state" == missing ]]; then
+            echo 'required=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "Already reviewed HEAD $CHECK_SHA: $state; no duplicate model dispatch"
+            echo 'required=false' >> "$GITHUB_OUTPUT"
           fi
-          if [[ -z "${CENTRAL_TOKEN:-}" ]]; then
-            echo "::error::Set CLAUDE_CENTRAL_DISPATCH_TOKEN: central repo only, Contents: write"
-            exit 1
-          fi
-          GH_TOKEN="$CENTRAL_TOKEN" gh api -X POST \
-            repos/jboone1989/livingruntime-remote/dispatches \
-            -f event_type=claude-pr-review \
-            -f 'client_payload[repository]=jboone1989/EventGraph' \
-            -F "client_payload[pr_number]=$PR_NUMBER" \
-            -f "client_payload[sha]=$CHECK_SHA"
-          echo "Dispatched $GITHUB_REPOSITORY#$PR_NUMBER at $CHECK_SHA"
+
+  official-glm-review:
+    needs: review-status
+    if: needs.review-status.outputs.required == 'true'
+    # Every completed Check reaches central preflight. It checks the real source
+    # run ID + event + success + exact HEAD before exposing the model secret.
+    uses: jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml@main
+    with:
+      check_sha: ${{ github.event.workflow_run.head_sha }}
+      check_run_id: ${{ github.event.workflow_run.id }}
+      pr_number: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
+    secrets:
+      GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
