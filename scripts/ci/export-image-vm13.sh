@@ -65,23 +65,59 @@ sudo -n docker save "$image_id" > "$archive"
 local_sha="$(sha256sum "$archive" | awk '{print $1}')"
 ssh $ssh_opts ubuntu@"$cn_dev_host" "mkdir -p '$remote_dir'"
 
-# --inplace keeps partial data between attempts; --no-whole-file forces delta
-# matching even when the destination is on a remote host. zstd compresses only
-# the changed blocks, including the first cold transfer. The remote archive is
-# not executable and is never docker-loaded until its complete SHA256 matches.
-# A later release can reuse unchanged tar layer blocks from the prior archive.
-if ! timeout -k 5 30m rsync --archive --inplace --partial --no-whole-file \
-     --compress --compress-choice=zstd --compress-level=3 --timeout=600 \
-     --rsh="ssh $ssh_opts" \
-     "$archive" "ubuntu@$cn_dev_host:$remote_archive"; then
-  echo "Resumable VM13→cn-dev image transfer incomplete; staged bytes retained for retry" >&2
+# Public VM13→cn-dev TCP shows ~1.47 MB retransmitted of 5.2 MB and cwnd=2.
+# Eight bounded SSH streams move changed blocks concurrently, without any
+# new service or port. The previous verified archive seeds stable chunk files.
+parts_dir="$work_dir/parts"
+remote_parts="$remote_dir/parts"
+mkdir -p "$parts_dir"
+split -b 8m -d -a 3 "$archive" "$parts_dir/part."
+ssh $ssh_opts ubuntu@"$cn_dev_host" "mkdir -p '$remote_parts'; if [ -f '$remote_archive' ] && [ ! -e '$remote_parts/part.000' ]; then split -b 8m -d -a 3 '$remote_archive' '$remote_parts/part.'; fi"
+cat > "$work_dir/transfer-parts.sh" <<'TRANSFER'
+#!/bin/sh
+set -eu
+parts=$1
+remote_parts=$2
+cn_dev_host=$3
+ssh_opts=$4
+pids=
+active=0
+failed=0
+for part in "$parts"/part.*; do
+  (
+    rsync --archive --inplace --partial --no-whole-file \
+      --compress --compress-choice=zstd --compress-level=3 --timeout=600 \
+      --rsh="ssh $ssh_opts" "$part" "ubuntu@$cn_dev_host:$remote_parts/${part##*/}"
+  ) &
+  pids="$pids $!"
+  active=$((active + 1))
+  if [ "$active" -ge 8 ]; then
+    for pid in $pids; do wait "$pid" || failed=1; done
+    pids=
+    active=0
+  fi
+done
+for pid in $pids; do wait "$pid" || failed=1; done
+[ "$failed" -eq 0 ]
+TRANSFER
+
+if ! timeout -k 5 30m sh "$work_dir/transfer-parts.sh" "$parts_dir" "$remote_parts" "$cn_dev_host" "$ssh_opts"; then
+  echo "Resumable parallel VM13→cn-dev image transfer incomplete; staged bytes retained for retry" >&2
   exit 1
 fi
-remote_sha="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "sha256sum '$remote_archive' | cut -d ' ' -f1")"
+
+# Rebuild into a separate path; never load or overwrite an unverified archive.
+rebuild='set -eu; cat'
+for part in "$parts_dir"/part.*; do
+  rebuild="$rebuild '$remote_parts/${part##*/}'"
+done
+rebuild="$rebuild > '$remote_archive.ready'; sha256sum '$remote_archive.ready' | cut -d ' ' -f1"
+remote_sha="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "$rebuild")"
 [ "$remote_sha" = "$local_sha" ] || {
   echo "cn-dev archive checksum mismatch; refusing to load image" >&2
   exit 1
 }
+ssh $ssh_opts ubuntu@"$cn_dev_host" "mv '$remote_archive.ready' '$remote_archive'"
 
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker load -i '$remote_archive' >/dev/null"
 remote_id="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --format '{{.Id}}' '$image_id'")"

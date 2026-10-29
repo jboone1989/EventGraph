@@ -4,7 +4,7 @@
 // must be shared by export-image-vm13.sh and deploy-vm13-preview.sh.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
@@ -133,10 +133,12 @@ test("an unreachable or empty keyscan refuses delivery", () => {
 // The replacement delivery path is a stable rsync archive, not a registry.
 // These stubs model an interrupted byte transfer and a fresh invocation over
 // the same staged file. No real Docker daemon, SSH host or production API used.
-function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boolean; badRevision?: boolean; transferFailure?: boolean } = {}) {
+function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boolean; badRevision?: boolean; transferFailure?: boolean; largeArchive?: boolean } = {}) {
   const sb = sandbox({ pinEcdsa: opts.pinEcdsa });
   const bin = path.join(sb.dir, "bin");
   sb.env.STUB_STAGE = path.join(sb.dir, "remote-current.tar");
+  sb.env.STUB_PARTS = path.join(sb.dir, "remote-parts");
+  sb.env.STUB_LARGE_ARCHIVE = opts.largeArchive ? "1" : "";
   sb.env.STUB_RSYNC_CALLS = path.join(sb.dir, "rsync-calls.log");
   sb.env.STUB_BAD_HASH = opts.badHash ? "1" : "";
   sb.env.STUB_BAD_ID = opts.badId ? "1" : "";
@@ -151,7 +153,7 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
     "      *'.Id'* ) printf '%s\\n' \"$STUB_IMAGE_ID\" ;;",
     "      *'org.opencontainers.image.revision'* ) printf '%s\\n' \"$STUB_REVISION\" ;;",
     "    esac ;;",
-    "  'save '* ) printf '%s\\n' 'fixture image archive contents - unchanged layers' ;;",
+    "  'save '* ) if [ \"$STUB_LARGE_ARCHIVE\" = 1 ]; then head -c 17825792 /dev/zero; else printf '%s\\n' 'fixture image archive contents - unchanged layers'; fi ;;",
     "  * ) echo \"unexpected docker: $*\" >&2; exit 1 ;;",
     "esac",
     ""
@@ -160,16 +162,21 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
     "#!/bin/sh",
     "printf '%s\\n' \"$*\" >> \"$STUB_SSH_CALLS\"",
     "case \"$*\" in",
-    "  *'sha256sum '* )",
+    "  *'mkdir -p '* )",
+    "    mkdir -p \"$STUB_PARTS\";",
+    "    if [ -f \"$STUB_STAGE\" ] && [ ! -e \"$STUB_PARTS/part.000\" ]; then",
+    "      split -b 8m -d -a 3 \"$STUB_STAGE\" \"$STUB_PARTS/part.\";",
+    "    fi ;;",
+    "  *'cat '*'sha256sum '* )",
+    "    cat \"$STUB_PARTS\"/part.* > \"$STUB_STAGE.ready\";",
     "    if [ \"$STUB_BAD_HASH\" = 1 ]; then printf '%064d\\n' 0;",
-    "    else sha256sum \"$STUB_STAGE\" | cut -d ' ' -f1; fi ;;",
+    "    else sha256sum \"$STUB_STAGE.ready\" | cut -d ' ' -f1; fi ;;",
+    "  *'mv '*'current.tar.ready'* ) mv \"$STUB_STAGE.ready\" \"$STUB_STAGE\" ;;",
     "  *'docker load -i '* ) printf 'load\\n' >> \"$STUB_CALLS\" ;;",
     "  *'docker image inspect --format'*'.Id'* )",
-    "    if [ \"$STUB_BAD_ID\" = 1 ]; then printf 'sha256:wrong\\n';",
-    "    else printf '%s\\n' \"$STUB_IMAGE_ID\"; fi ;;",
+    "    if [ \"$STUB_BAD_ID\" = 1 ]; then printf 'sha256:wrong\\n'; else printf '%s\\n' \"$STUB_IMAGE_ID\"; fi ;;",
     "  *'docker image inspect --format'*'org.opencontainers.image.revision'* )",
-    "    if [ \"$STUB_BAD_REVISION\" = 1 ]; then printf 'wrong-release\\n';",
-    "    else printf '%s\\n' \"$STUB_REVISION\"; fi ;;",
+    "    if [ \"$STUB_BAD_REVISION\" = 1 ]; then printf 'wrong-release\\n'; else printf '%s\\n' \"$STUB_REVISION\"; fi ;;",
     "  * ) : ;;",
     "esac",
     ""
@@ -179,10 +186,10 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
     "printf '%s\\n' \"$*\" >> \"$STUB_RSYNC_CALLS\"",
     "second_last=''; last=''",
     "for arg in \"$@\"; do second_last=\"$last\"; last=\"$arg\"; done",
-    "if [ \"$STUB_RSYNC_FAIL\" = 1 ]; then",
-    "  head -c 12 \"$second_last\" > \"$STUB_STAGE\"; exit 23",
-    "fi",
-    "cp \"$second_last\" \"$STUB_STAGE\"",
+    "mkdir -p \"$STUB_PARTS\"",
+    "dest=\"$STUB_PARTS/${second_last##*/}\"",
+    "if [ \"$STUB_RSYNC_FAIL\" = 1 ]; then head -c 12 \"$second_last\" > \"$dest\"; exit 23; fi",
+    "cp \"$second_last\" \"$dest\"",
     ""
   ].join("\n"));
   writeFileSync(path.join(bin, "timeout"), [
@@ -241,12 +248,25 @@ test("rsync transports a digest-verified archive, preserving the existing image 
     "fixture image archive contents - unchanged layers\n");
 });
 
+test("parallel transfer divides a real 17 MiB archive into three resumable parts", () => {
+  const sb = rsyncSandbox({ largeArchive: true });
+  const result = run(sb.env);
+  assert.equal(result.status, 0, result.stderr);
+  const lines = content(sb.env.STUB_RSYNC_CALLS!).trim().split("\n");
+  assert.equal(lines.length, 3, lines.join("\n"));
+  assert.deepEqual(lines.map(line => line.match(/part\.00[0-2]/)?.[0]).sort(),
+    ["part.000", "part.001", "part.002"]);
+  assert.equal(statSync(sb.env.STUB_STAGE!).size, 17825792);
+  assert.ok(lines.every(line => line.includes("--inplace") && line.includes("StrictHostKeyChecking=yes")));
+});
+
 test("an interrupted transfer preserves partial bytes but cannot load or publish an image", () => {
   const sb = rsyncSandbox({ transferFailure: true });
   const fail = run(sb.env);
   assert.notEqual(fail.status, 0);
   assert.match(fail.stderr, /staged bytes retained/);
-  assert.equal(readFileSync(sb.env.STUB_STAGE!, "utf8").length, 12);
+  assert.equal(readFileSync(path.join(sb.env.STUB_PARTS!, "part.000"), "utf8").length, 12);
+  assert.ok(!existsSync(sb.env.STUB_STAGE!));
   assert.doesNotMatch(content(path.join(sb.dir, "ssh-calls.log")), /docker load|eventgraph-last-delivered-image/);
   sb.env.STUB_RSYNC_FAIL = "";
   const resume = run(sb.env);
