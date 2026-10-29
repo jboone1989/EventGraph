@@ -3,6 +3,7 @@ import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { englishText, hasHan } from "../../lib/english";
 import { localizedMonthDayTime } from "../../lib/format";
 import type { StoryMarket } from "./EventPrices";
+import { EnergyShippingEvidence } from "./EnergyShippingEvidence";
 import { IMPACT_AREAS, impactLeadsAt, marketObservationAt, type ImpactArea } from "./impact-evidence";
 
 const COPY: Record<ImpactArea, [string, string, string, string]> = {
@@ -101,6 +102,7 @@ export function ImpactEvidence({ story, route, market, asOf, clock }: {
         </p>}
       </section>
     </div>
+    <EnergyShippingEvidence story={story} route={route} asOf={asOf} clock={clock} />
     <p className="mt-3 text-[11.5px] leading-relaxed text-ink-4">
       {t("当前公开事件内的关键词线索，不是已核验的政策状态或企业供应链关系。报道文字可能被事后修订，双时间视图是有界重建。",
         "Keyword leads from currently public reports, not verified policy states or supplier relationships. Copy may have been revised later; time replay is bounded.")}
