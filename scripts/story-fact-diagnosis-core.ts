@@ -27,6 +27,15 @@ export function storyFactDiagnosis(
   }
   const membershipsByKey = new Map(memberships.map(m => [`${m.factId}\0${m.articleId}`, m]));
   const linkedFacts = new Map<string, Set<string>>();
+  // Public route stations are capped. Query all Fact memberships for each visible
+  // article so a report reused by another Fact (even outside this Story) is visible
+  // to the human reviewer, without adding private reports to the public route.
+  for (const member of memberships) {
+    if (!visible.has(member.articleId)) continue;
+    const facts = linkedFacts.get(member.articleId) ?? new Set<string>();
+    facts.add(member.factId);
+    linkedFacts.set(member.articleId, facts);
+  }
   for (const station of route.stations) for (const report of station.reports) {
     const facts = linkedFacts.get(report.articleId) ?? new Set<string>();
     facts.add(station.factId);
@@ -53,7 +62,8 @@ export function storyFactDiagnosis(
         manual: member?.membershipManual ?? null,
         factManual: member?.factManual ?? null,
         membershipEvidence: member?.evidence ?? null,
-        alsoInFactIds: [...(linkedFacts.get(report.articleId) ?? [])].filter(id => id !== station.factId),
+        alsoInFactIds: [...(linkedFacts.get(report.articleId) ?? [])]
+          .filter(id => id !== station.factId).sort(),
         groupingHistory: byArticle.get(report.articleId) ?? [],
       };
     }),
