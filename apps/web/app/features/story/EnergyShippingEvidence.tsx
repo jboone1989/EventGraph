@@ -35,7 +35,7 @@ export function EnergyShippingEvidence({ story, route, asOf, clock }: {
               <p>{t("发布", "Published")}: <time dateTime={row.publishedAt!}>{row.publishedAt}</time></p>
               <p>{t("收录", "Discovered")}: <time dateTime={row.discoveredAt}>{row.discoveredAt}</time></p>
               <p>{t("当前修订版", "Current revision")}: {row.revision ?? t("原版", "Original")}</p>
-              {domain === "energy" && <p>Source: U.S. Energy Information Administration</p>}
+              {domain === "energy" && <p>{t("来源：美国能源信息署", "Source: U.S. Energy Information Administration")}</p>}
               <a className="text-accent hover:underline" href={`${lang === "en" ? "/en" : ""}/items/${encodeURIComponent(row.articleId)}`}>
                 {t("阅读本站报道与证据", "Open report and provenance")}
               </a>
