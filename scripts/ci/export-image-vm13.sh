@@ -129,6 +129,9 @@ rebuild="$rebuild > '$remote_archive.ready'; sha256sum '$remote_archive.ready' |
 remote_sha="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "$rebuild")"
 [ "$remote_sha" = "$local_sha" ] || {
   echo "cn-dev archive checksum mismatch; refusing to load image" >&2
+  # Preserve the last verified archive and resumable parts, but free the
+  # full-size failed reassembly or the next run can fail its disk preflight.
+  ssh $ssh_opts ubuntu@"$cn_dev_host" "rm -f -- '$remote_archive.ready'"
   exit 1
 }
 ssh $ssh_opts ubuntu@"$cn_dev_host" "mv '$remote_archive.ready' '$remote_archive'"
