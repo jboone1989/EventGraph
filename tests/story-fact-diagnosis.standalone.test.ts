@@ -29,7 +29,7 @@ test("shared report is flagged for human inspection, not automatically merged", 
 });
 
 test("a visible report's memberships in other Facts are flagged without exposing other reports", () => {
-  const external = { factId: "other-story-fact", articleId: "a", role: "supporting",
+  const external = { factId: "other-story-fact", articleId: "a", role: "report",
     factManual: false, membershipManual: false, evidence: null };
   const hidden = { ...external, factId: "private-fact", articleId: "not-public" };
   const result = storyFactDiagnosis(route([station("public-fact", "a")]),
@@ -95,3 +95,18 @@ test("original source and revision stay attributable to the individual report", 
   assert.equal(result.facts[0]!.reports[1]!.membershipEvidence, null);
   assert.equal(result.facts[0]!.reports[1]!.groupingHistory.length, 0);
 });
+
+test("mention-only cross-Fact references are not mislabeled as shared occurrence evidence", () => {
+  const result = storyFactDiagnosis(route([station("visible", "a")]), [
+    { factId: "mentioned-fact", articleId: "a", role: "mention",
+      factManual: false, membershipManual: false, evidence: null },
+    { factId: "supported-fact", articleId: "a", role: "report",
+      factManual: true, membershipManual: true, evidence: "public report" },
+  ], []);
+  const row = result.facts[0]!.reports[0]!;
+  assert.deepEqual(row.alsoInFactIds, ["supported-fact"]);
+  assert.deepEqual(row.mentionedInFactIds, ["mentioned-fact"]);
+  assert.equal(result.decision, "human_source_review_required");
+  assert.equal(result.facts.length, 1);
+});
+
