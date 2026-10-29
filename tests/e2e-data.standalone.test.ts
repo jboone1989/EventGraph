@@ -33,7 +33,7 @@ test("every required sample is nonempty; optional deployments may be empty", () 
 test("nonzero graph data cannot hide any non-ok status", () => {
   const stats = { entities: 2, relations: 1 };
   const overview = { edges: [{ id: "edge", evidence: [{ articleId: "public-source" }] }] };
-  const network = { nodes: [{ key: "entity" }], links: [{ id: "edge" }] };
+  const network = { nodes: [{ key: "entity" }], links: [{ id: "edge", source: "entity", target: "entity" }] };
   requireGraph(stats, overview, network);
   for (const status of ["disabled", "unavailable", "error", "failed", "empty", "partial", "stale", "unexpected"]) {
     assert.throws(() => requireGraph({ ...stats, status }, overview, network), /stats/);
@@ -48,7 +48,7 @@ test("nonzero graph data cannot hide any non-ok status", () => {
 test("malformed graph payloads cannot pass the seeded E2E integrity gate", () => {
   const stats = { entities: 2, relations: 1 };
   const overview = { edges: [{ id: "edge", evidence: [{ articleId: "source" }] }] };
-  const network = { nodes: [{ key: "entity" }], links: [{ id: "edge" }] };
+  const network = { nodes: [{ key: "entity" }], links: [{ id: "edge", source: "entity", target: "entity" }] };
   for (const bad of [{ entities: "2", relations: 1 }, { entities: 2, relations: "1" },
     { entities: Infinity, relations: 1 }, { entities: 1.5, relations: 1 }]) {
     assert.throws(() => requireGraph(bad, overview, network), /stats/);
@@ -58,4 +58,22 @@ test("malformed graph payloads cannot pass the seeded E2E integrity gate", () =>
   }
   assert.throws(() => requireGraph(stats, overview, { nodes: "node", links: "link" }), /network/);
   assert.throws(() => requireGraph(stats, overview, { nodes: [], links: [{}] }), /network/);
+});
+
+test("seeded graph checks require real cited article IDs and public link endpoints", () => {
+  const stats = { entities: 2, relations: 1 };
+  const overview = { edges: [{ id: "edge", evidence: [{ articleId: "public-report" }] }] };
+  const network = { nodes: [{ key: "a" }, { key: "b" }],
+    links: [{ id: "edge", source: "a", target: "b" }] };
+  requireGraph(stats, overview, network);
+  for (const evidence of [[null], [{}], [{ articleId: "" }], [{ articleId: "   " }],
+    [{ articleId: "public-report" }, {}]]) {
+    assert.throws(() => requireGraph(stats, { edges: [{ id: "edge", evidence }] }, network), /overview/);
+  }
+  assert.throws(() => requireGraph(stats, overview,
+    { ...network, nodes: [{ key: "a" }, { key: " " }] }), /network/);
+  assert.throws(() => requireGraph(stats, overview,
+    { ...network, links: [{ source: "a", target: "withdrawn" }] }), /network/);
+  assert.throws(() => requireGraph(stats, overview,
+    { ...network, links: [{ source: "a", target: "" }] }), /network/);
 });

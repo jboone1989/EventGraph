@@ -31,11 +31,18 @@ export function requireGraph(stats: any, overview: any, network: any) {
     assert.ok(statusIsValid, `/api/site/knowledge/${path}: graph unavailable or returned a non-ok status (${data?.status ?? "missing"})`);
   }
   const positiveCount = (value: unknown) => Number.isSafeInteger(value) && (value as number) > 0;
+  const nonempty = (value: unknown) => typeof value === "string" && value.trim().length > 0;
   assert.ok(positiveCount(stats.entities) && positiveCount(stats.relations), "/api/site/knowledge/stats: empty or invalid graph counts");
   assert.ok(Array.isArray(overview.edges) && overview.edges.length > 0 &&
-    overview.edges.every((edge: any) => Array.isArray(edge?.evidence) && edge.evidence.length > 0),
+    overview.edges.every((edge: any) => Array.isArray(edge?.evidence) && edge.evidence.length > 0 &&
+      edge.evidence.every((source: any) => nonempty(source?.articleId))),
     "/api/site/knowledge/overview: missing public relation evidence");
   assert.ok(Array.isArray(network.nodes) && network.nodes.length > 0 &&
-    Array.isArray(network.links) && network.links.length > 0,
+    network.nodes.every((node: any) => nonempty(node?.key)) &&
+    Array.isArray(network.links) && network.links.length > 0 &&
+    network.links.every((link: any) => nonempty(link?.source) && nonempty(link?.target)),
     "/api/site/knowledge/network: missing public graph arrays");
+  const nodeKeys = new Set(network.nodes.map((node: any) => node.key));
+  assert.ok(network.links.every((link: any) => nodeKeys.has(link.source) && nodeKeys.has(link.target)),
+    "/api/site/knowledge/network: relation endpoint missing from public nodes");
 }
