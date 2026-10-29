@@ -35,7 +35,7 @@ async function pick(zh: number, en: number): Promise<ExplainCandidate[]> {
 async function reachable(url: string): Promise<string> {
   try {
     const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(8000), headers: { "user-agent": "Mozilla/5.0 (compatible; acceptance-check)" } });
-    return res.ok || res.status < 500 ? `HTTP ${res.status}` : `HTTP ${res.status} (error status)`;
+    return res.ok ? `HTTP ${res.status}` : `HTTP ${res.status} (not OK)`;
   } catch (error) {
     return `unreachable from this host: ${String((error as Error).cause ?? (error as Error).message).slice(0, 120)}`;
   }
