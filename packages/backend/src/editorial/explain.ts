@@ -116,6 +116,12 @@ const candidateColumns = sql`p.article_id, p.url, ${EXPLAIN_ITEM_INPUTS} AS hash
   CASE WHEN p.body_mode = 'full' THEN coalesce(a.body_text, a.excerpt) END AS text, p.published_at, st.title AS story_title,
   ${SIBLING_REPORT_TITLES} AS other_reports`;
 
+// The acceptance harness's explicit --ids must not bypass the same public, released, selected
+// news eligibility as the worker queue. Share the predicate so these paths cannot diverge.
+const explainablePublication = sql`p.channel = 'news' AND p.visibility = 'public' AND p.selected
+  AND p.eligible AND p.visible_after <= now() AND p.summary IS NOT NULL
+  AND (a.language IN ('zh', 'en') OR a.language IS NULL)`;
+
 /** Selected public news reports with a summary that still need an explanation: none yet, or one whose
  *  inputs changed, or one still within its shape retries. Newest first (D-02), bounded by the run's limit
  *  and budget; nothing is too old to be eligible, and reports in languages this phase does not explain
@@ -128,8 +134,7 @@ export async function explanationsPending(opts: { limit?: number } = {}): Promis
     JOIN articles a ON a.id = p.article_id
     LEFT JOIN stories st ON st.id = p.story_id AND st.merged_into IS NULL
     LEFT JOIN item_explanations ie ON ie.article_id = p.article_id
-    WHERE p.channel = 'news' AND p.visibility = 'public' AND p.selected AND p.eligible AND p.visible_after <= now() AND p.summary IS NOT NULL
-      AND (a.language IN ('zh', 'en') OR a.language IS NULL)
+    WHERE ${explainablePublication}
       AND (ie.article_id IS NULL OR ie.inputs_hash <> ${EXPLAIN_ITEM_INPUTS} OR (ie.outcome = 'failed' AND ie.attempts < ${MAX_ATTEMPTS}))
     ORDER BY p.discovered_at DESC LIMIT ${opts.limit ?? 10}`;
 }
@@ -143,7 +148,7 @@ export async function explanationCandidateFor(articleId: string): Promise<Explai
     JOIN articles a ON a.id = p.article_id
     LEFT JOIN stories st ON st.id = p.story_id AND st.merged_into IS NULL
     LEFT JOIN item_explanations ie ON ie.article_id = p.article_id
-    WHERE p.article_id = ${articleId}`;
+    WHERE p.article_id = ${articleId} AND ${explainablePublication}`;
   return row ?? null;
 }
 
