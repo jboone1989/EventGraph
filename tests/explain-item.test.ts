@@ -126,6 +126,22 @@ test("a selected report gets an explanation in its own language, on that languag
   assert.ok(String((await explanation(id, "original"))?.what).includes("40 billion"), "the corrected explanation is written again");
 });
 
+test("a previously written explanation is hidden when public eligibility is revoked", async () => {
+  const id = await report("revoked", 605);
+  await explainOne((await explanationCandidateFor(id))!);
+  assert.ok((await explanation(id, "original"))?.what, "initially selected public report is explained");
+
+  // A stale, hash-matching row must not bypass the worker's current eligibility rules.
+  await sql`UPDATE publications SET selected = false WHERE article_id = ${id}`;
+  assert.equal(await explanation(id, "original"), null, "deselected reports do not display old explanations");
+  await sql`UPDATE publications SET selected = true, eligible = false WHERE article_id = ${id}`;
+  assert.equal(await explanation(id, "original"), null, "ineligible reports do not display old explanations");
+  await sql`UPDATE publications SET eligible = true, visible_after = now() + interval '1 day' WHERE article_id = ${id}`;
+  assert.equal(await explanation(id, "original"), null, "future-scheduled reports do not display old explanations");
+  await sql`UPDATE publications SET visible_after = now() - interval '1 day' WHERE article_id = ${id}`;
+  assert.ok((await explanation(id, "original"))?.what, "restoring eligibility reveals the still-current explanation");
+});
+
 test("a Chinese-language report is explained in Chinese, on the Chinese page only (D-01)", async () => {
   const id = await report("zh-ok", 610, { language: "zh" });
   await explainOne((await explanationCandidateFor(id))!);
