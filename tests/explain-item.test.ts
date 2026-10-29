@@ -219,6 +219,23 @@ test("a provider 503 stops the run without consuming shape retries, then recover
   assert.ok((await explanation(id, "original"))?.what, "a later healthy call should recover");
 });
 
+test("an unreleased unselected sibling never enters another report's model context", async () => {
+  const main = await report("sibling-visible", 820);
+  const hidden = await report("sibling-unreleased", 821, { selected: false });
+  const [story] = await sql<{ id: number }[]>`INSERT INTO stories (public_id, title)
+    VALUES (${crypto.randomUUID()}, ${`SIBLING-VISIBILITY-${T}`}) RETURNING id`;
+  await sql`UPDATE publications SET story_id = ${story!.id} WHERE article_id IN (${main}, ${hidden})`;
+  await sql`UPDATE publications SET visible_after = now() + interval '2 days' WHERE article_id = ${hidden}`;
+
+  const before = await explanationCandidateFor(main);
+  assert.deepEqual(before?.other_reports ?? [], [], "future-scheduled siblings must not leak via prompt or input hash");
+
+  await sql`UPDATE publications SET visible_after = now() - interval '1 day' WHERE article_id = ${hidden}`;
+  const after = await explanationCandidateFor(main);
+  assert.ok(after?.other_reports?.some((title) => title.includes(`sibling-unreleased ${T}`)),
+    "the same public sibling becomes context only after its visibility time");
+});
+
 test("an unselected report and a post are never explained", async () => {
   const unselected = await report("pool", 900, { selected: false });
   const post = await report("post", 1000, { post: true });
