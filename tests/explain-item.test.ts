@@ -191,6 +191,7 @@ test("old explained reports are not rehashed until their publication or material
   await sql`UPDATE publications SET updated_at = now() - interval '180 days' WHERE article_id = ${id}`;
   await sql`UPDATE articles SET updated_at = now() - interval '180 days' WHERE id = ${id}`;
   await sql`UPDATE item_explanations SET updated_at = now() - interval '180 days' WHERE article_id = ${id}`;
+  await sql`UPDATE sources SET updated_at = now() - interval '180 days' WHERE id = ${SOURCE}`;
   // The public reader must still hide stale text. Only a real recent edit to a historical report
   // warrants rehashing its full body and correlated sibling titles during a 15-minute run.
   await sql`UPDATE publications SET summary = 'Old report was corrected.' WHERE article_id = ${id}`;
@@ -199,6 +200,48 @@ test("old explained reports are not rehashed until their publication or material
   await sql`UPDATE publications SET updated_at = now() WHERE article_id = ${id}`;
   assert.ok((await explanationsPending({ limit: 500 })).some((r) => r.article_id === id),
     "a recent correction re-enables stale-hash comparison even on historical reports");
+});
+
+test("a report older than 90 days is re-evaluated when a new story sibling changes its context", async () => {
+  const old = await report("old-story-sibling", -60 * 24 * 180);
+  const [story] = await sql<{ id: number }[]>`INSERT INTO stories (public_id, title)
+    VALUES (${crypto.randomUUID()}, ${`OLD-STORY-${T}`}) RETURNING id`;
+  await sql`UPDATE publications SET story_id = ${story!.id} WHERE article_id = ${old}`;
+  await explainOne((await explanationCandidateFor(old))!);
+  assert.ok((await explanation(old, "original"))?.what);
+  await sql`UPDATE publications SET updated_at = now() - interval '180 days' WHERE article_id = ${old}`;
+  await sql`UPDATE articles SET updated_at = now() - interval '180 days' WHERE id = ${old}`;
+  await sql`UPDATE item_explanations SET updated_at = now() - interval '180 days' WHERE article_id = ${old}`;
+  await sql`UPDATE stories SET updated_at = now() - interval '180 days' WHERE id = ${story!.id}`;
+  await sql`UPDATE sources SET updated_at = now() - interval '180 days' WHERE id = ${SOURCE}`;
+
+  const sibling = await report("new-story-sibling", 820);
+  await sql`UPDATE publications SET story_id = ${story!.id} WHERE article_id = ${sibling}`;
+  await sql`UPDATE sources SET updated_at = now() - interval '180 days' WHERE id = ${SOURCE}`;
+  // The actual grouping writer bumps stories.updated_at when a report joins.
+  await sql`UPDATE stories SET updated_at = now() WHERE id = ${story!.id}`;
+  assert.equal(await explanation(old, "original"), null);
+  const queue = await explanationsPending({ limit: 500 });
+  const refreshed = queue.find((r) => r.article_id === old);
+  assert.ok(refreshed, "old report becomes pending when a new sibling changes the input hash");
+  assert.ok(refreshed.other_reports?.some((x) => x.includes("new-story-sibling")), "new sibling is part of the recomputed input");
+});
+
+test("a source rename requeues an old explanation without touching its publication", async () => {
+  const id = await report("old-source-rename", -60 * 24 * 180);
+  await explainOne((await explanationCandidateFor(id))!);
+  await sql`UPDATE publications SET updated_at = now() - interval '180 days' WHERE article_id = ${id}`;
+  await sql`UPDATE articles SET updated_at = now() - interval '180 days' WHERE id = ${id}`;
+  await sql`UPDATE item_explanations SET updated_at = now() - interval '180 days' WHERE article_id = ${id}`;
+  await sql`UPDATE sources SET updated_at = now() - interval '180 days' WHERE id = ${SOURCE}`;
+  try {
+    await sql`UPDATE sources SET name = ${`Renamed source ${T}`}, updated_at = now() WHERE id = ${SOURCE}`;
+    assert.equal(await explanation(id, "original"), null, "old source attribution cannot remain visible");
+    const queue = await explanationsPending({ limit: 500 });
+    assert.ok(queue.some((r) => r.article_id === id), "changed source attribution triggers re-evaluation");
+  } finally {
+    await sql`UPDATE sources SET name = 'Test explain', updated_at = now() - interval '180 days' WHERE id = ${SOURCE}`;
+  }
 });
 
 test("a source that says little is recorded insufficient_evidence: shown as nothing, receipted, not re-asked until its inputs change (D-03)", async () => {

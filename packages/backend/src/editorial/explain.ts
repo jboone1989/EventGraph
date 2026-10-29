@@ -126,35 +126,41 @@ const candidateColumns = sql`p.article_id, p.url, ${EXPLAIN_ITEM_INPUTS} AS hash
   CASE WHEN p.body_mode = 'full' THEN coalesce(a.body_text, a.excerpt) END AS text, p.published_at, st.title AS story_title,
   ${SIBLING_REPORT_TITLES} AS other_reports`;
 
-// The acceptance harness's explicit --ids must not bypass the same public, released, selected
-// news eligibility as the worker queue. Share the predicate so these paths cannot diverge.
-
-
-// Only hash previously explained reports with recent source/publication changes or recent
-// explanation activity; the correlated sibling-title hash must not scan all explained history
-// every 15 minutes. Older never-explained reports and eligible failed shape retries remain
-// candidates without a permanent age cutoff (D-02).
-/** Selected public news reports with a summary that still need an explanation: none yet, or one whose
- *  inputs changed, or one still within its shape retries. Newest first (D-02), bounded by the run's limit
- *  and budget; nothing is too old to be eligible, and reports in languages this phase does not explain
- *  (and posts, unselected and non-public reports) are never selected or paid for. */
+// Re-check stored hashes only for recently touched reports, source metadata, or stories.
+// Story/source edits may change an old report's model context without updating its own rows.
+// Never put an age cutoff on the *unexplained* backlog (D-02).
+/** Select cheap candidate IDs first, then build full, licence-gated inputs for at most the run limit.
+ * The MATERIALIZED limit barrier is intentional: a full-body md5 and correlated sibling lookup
+ * must not be evaluated in the SELECT list for the entire eligible historical backlog. */
 export async function explanationsPending(opts: { limit?: number } = {}): Promise<ExplainCandidate[]> {
   return sql<ExplainCandidate[]>`
+    WITH pending AS MATERIALIZED (
+      SELECT p.article_id, p.discovered_at
+      FROM publications p
+      JOIN sources s ON s.id = p.source_id
+      JOIN articles a ON a.id = p.article_id
+      LEFT JOIN stories st ON st.id = p.story_id AND st.merged_into IS NULL
+      LEFT JOIN item_explanations ie ON ie.article_id = p.article_id
+      WHERE ${EXPLAINABLE_PUBLICATION}
+        AND (ie.article_id IS NULL OR (ie.outcome = 'failed' AND ie.attempts < ${MAX_ATTEMPTS})
+          OR CASE WHEN p.discovered_at > now() - interval '90 days'
+                   OR p.updated_at > now() - interval '90 days'
+                   OR a.updated_at > now() - interval '90 days'
+                   OR ie.updated_at > now() - interval '90 days'
+                   OR (st.updated_at > now() - interval '90 days' AND st.updated_at > ie.updated_at)
+                   OR (s.updated_at > now() - interval '90 days' AND s.updated_at > ie.updated_at)
+               THEN ie.inputs_hash <> ${EXPLAIN_ITEM_INPUTS}
+               ELSE false END)
+      ORDER BY p.discovered_at DESC, p.article_id LIMIT ${opts.limit ?? 10}
+    )
     SELECT ${candidateColumns}
-    FROM publications p
+    FROM pending chosen
+    JOIN publications p ON p.article_id = chosen.article_id
     JOIN sources s ON s.id = p.source_id
     JOIN articles a ON a.id = p.article_id
     LEFT JOIN stories st ON st.id = p.story_id AND st.merged_into IS NULL
     LEFT JOIN item_explanations ie ON ie.article_id = p.article_id
-    WHERE ${EXPLAINABLE_PUBLICATION}
-      AND (ie.article_id IS NULL OR (ie.outcome = 'failed' AND ie.attempts < ${MAX_ATTEMPTS})
-        OR CASE WHEN p.discovered_at > now() - interval '90 days'
-                 OR p.updated_at > now() - interval '90 days'
-                 OR a.updated_at > now() - interval '90 days'
-                 OR ie.updated_at > now() - interval '90 days'
-             THEN ie.inputs_hash <> ${EXPLAIN_ITEM_INPUTS}
-             ELSE false END)
-    ORDER BY p.discovered_at DESC LIMIT ${opts.limit ?? 10}`;
+    ORDER BY chosen.discovered_at DESC, p.article_id`;
 }
 
 /** One report by id, whatever state its explanation is in: the acceptance harness runs fixed samples this way. */
