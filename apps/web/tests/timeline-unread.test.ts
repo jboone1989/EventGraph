@@ -195,13 +195,13 @@ test("all-read pages stop at the automatic bound and can continue manually witho
     await page.getByRole("button", { name: "只看未读" }).click();
     const more = page.getByRole("button", { name: "加载更多", exact: true });
     await expect(more).toBeVisible();
-    assert.deepEqual([...new Set(boundaryCursors)], ["1", "2", "3"], "the unread filter stops before requesting batch four");
+    assert.deepEqual([...new Set(boundaryCursors)].sort((a, b) => Number(a) - Number(b)), ["1", "2", "3"], "the unread filter stops before requesting batch four");
     await more.click();
     await expect(more).toBeVisible();
     await expect(page.getByText("这批精选都读过了", { exact: true })).toBeVisible();
     await more.click();
     await expect(page.getByRole("link", { name: "批次 5", exact: true })).toBeVisible();
-    assert.deepEqual([...new Set(boundaryCursors)], ["1", "2", "3", "4", "5"], "manual paging reaches batch five");
+    assert.deepEqual([...new Set(boundaryCursors)].sort((a, b) => Number(a) - Number(b)), ["1", "2", "3", "4", "5"], "manual paging reaches batch five");
     assert.equal(await page.evaluate(() => localStorage.getItem("aihot-read-items")), raw);
   } finally { await context.close(); }
 });
