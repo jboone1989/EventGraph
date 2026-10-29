@@ -58,46 +58,30 @@ independent jobs — neither gates the other:
 - `deploy_vm13_preview` SSHes to VM13 and runs `scripts/ci/deploy-vm13-preview.sh`
   for the Web and API containers, which reach the cn-dev development database
   through the private SSH tunnel (details in `docs/vm13-preview.md`).
-- `deploy_dev_worker` first SSHes to VM13, where `scripts/ci/export-image-vm13.sh`
-  pulls the digest (VM13 reaches GHCR reliably) and delivers it to cn-dev over
-  the pre-authorized VM13→cn-dev SSH path through a registry bound to cn-dev's
-  loopback (`127.0.0.1:5000`, reachable only through that path). The push is
-  content-addressed — each blob is HEAD-checked and only layers cn-dev does not
-  already have are uploaded — so a code-only release ships its app layer instead
-  of the full ~146 MB `docker save` stream that repeatedly missed the 20-minute
-  deadline across the variable cross-border link (measured ~123 KB/s sustained
-  on 2026-10-28, when both attempts of the morning timed out), and a push that
-  dies mid-way resumes on retry because uploaded blobs are skipped. The push
-  itself runs quiet with a **shared 16-minute budget** and a **14-minute
-  per-attempt cap**, leaving at least 2 minutes after a full first-attempt
-  stall for an incremental retry. On 2026-10-28 the first live run committed
-  blobs and then wedged before the manifest; the watchdog kills a hung
-  client while preserving committed blobs for the next attempt. A first
-  attempt that needs more than 14 minutes can still require a later workflow
-  retry; this is bounded recovery, not a guarantee of one-run delivery. Docker
-  treats `127.0.0.0/8` as insecure by default, so the plain-HTTP registry needs
-  no daemon configuration on either host; `registry:2` itself is bootstrapped
-  once over a compressed one-shot stream. Each successful delivery uses
-  transport scratch storage: the registry is seeded from the last local
-  cn-dev app image over loopback, so the cross-border push sends only missing
-  layers, then after the pulled image ID and digest pairing are verified the
-  registry container and volume are removed. If a transfer dies before
-  verification, the registry volume is deliberately retained so a workflow
-  retry resumes already-uploaded blobs. Rollback images live in cn-dev's local
-  image store and are never tied to registry retention.
-  Delivery keeps the content-addressed local tag contract
-  (`eventgraph-dev:<image ID hex>`) that `deploy-image.sh` asserts: the export
-  pulls on cn-dev from the loopback registry, verifies the image ID there and
-  records the tag/digest pairing. cn-dev never contacts GHCR. The job then
-  SSHes to cn-dev and runs
-  `scripts/ci/deploy-image.sh`: the worker-only deploy asserts the local tag
-  points at the image named by its own hex and carries the release's
-  `org.opencontainers.image.revision` label, runs the idempotent setup
-  (migrations + missing-source seed; an advisory lock serializes it against the
-  VM13 job's setup), recreates **only the worker**, verifies it runs that image
-  and its `settings` heartbeat is fresh, and rolls back to the last good local
-  image on failure. No Web/API containers run on cn-dev, and superseded images
-  are pruned to keep the host's disk bounded.
+- `deploy_dev_worker` SSHes to VM13, where `scripts/ci/export-image-vm13.sh`
+  obtains the immutable digest (VM13 reaches GHCR reliably). It uses the
+  existing **pinned VM13→cn-dev SSH connection** and `rsync` to deliver a
+  verified Docker archive into cn-dev's fixed `~/.eventgraph-transfer/current.tar`
+  staging path. `--inplace --partial --no-whole-file` plus zstd compression
+  transfers changed blocks and retains incomplete bytes across attempts and
+  subsequent releases. No direct cn-dev GHCR pull, registry proxy, new daemon
+  or public port is required. This replaces the old temporary registry
+  transport: its unfinished large HTTP blob uploads were not resumable and
+  repeatedly exhausted 16/28-minute timeouts while consuming scratch space.
+  The 30-minute bounded transfer is within the 34-minute SSH command limit
+  and 50-minute Worker job. A truly cold transfer may need another run;
+  completed blocks remain staged, **not** interpreted as a successful delivery.
+  VM13 verifies the staged archive's full SHA256 before executing `docker load`
+  on cn-dev, then verifies the exact image ID and release revision label.
+  Only then does it record the existing content-addressed local image tag
+  (`eventgraph-dev:<image ID hex>`) and published digest pairing, and remove
+  the retired temporary registry/volume. The single ~700 MB staging archive
+  remains to permit future rsync block deltas; no accumulating per-release
+  archives are kept. The existing `scripts/ci/deploy-image.sh` then deploys
+  only cn-dev's Worker, runs idempotent setup, checks the running revision and
+  fresh heartbeat, and rolls back to the previous local image on failure.
+  No Web/API containers run on cn-dev, and superseded images are pruned to
+  keep the host's disk bounded.
 
 A failed worker delivery or deploy never blocks the VM13 preview, and the VM13
 job never waits for cn-dev. Both deployments use the pre-existing

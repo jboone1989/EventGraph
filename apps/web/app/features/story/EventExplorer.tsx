@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import type { StoryDetail, StoryRoute } from "@aihot/contracts/site";
 import type { StoryMarket } from "./EventPrices";
 import { ImpactEvidence } from "./ImpactEvidence";
+import { StationEvidenceList } from "./StationEvidence";
 import type { KnowledgeGraph } from "../../components/KnowledgeNetwork";
 import { TemporalKnowledgeAtlas } from "./TemporalKnowledgeAtlas";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
@@ -115,6 +116,10 @@ export function EventExplorer({ story, route = null, market = null, initialTime,
     </div>
     <div className={tab==="impact" ? "" : "hidden lg:block"}>
       <ImpactEvidence story={story} route={route} market={market} asOf={asOf} clock={clock}/>
+    </div>
+    {/* Station drawers live in the impact tab and stay reachable from the sources tab on phones (spec §4). */}
+    <div className={tab==="impact"||tab==="evidence" ? "" : "hidden lg:block"}>
+      <StationEvidenceList route={route} asOf={asOf} clock={clock}/>
     </div>
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
       <div className={tab==="graph"?"min-w-0":"hidden min-w-0 lg:block"}>

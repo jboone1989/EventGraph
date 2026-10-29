@@ -12,7 +12,8 @@ const STATION_LIMIT = 24;
 const REPORT_LIMIT = 6;
 
 interface RouteRow {
-  id: number; public_id: string; title: string; occurred_at: Date | null;
+  id: number; public_id: string; title: string; subject: string | null; action: string | null;
+  object: string | null; occurred_at: Date | null;
   article_id: string; url: string; source_name: string; published_at: Date | null;
   discovered_at: Date; revision: number; selected: boolean;
 }
@@ -32,7 +33,7 @@ async function readStoryRoute(storyId: number, publicId: string, now: Date): Pro
   // One row per (fact, article), primary role preferred; only public evidence (non-mention,
   // not composite) counts — the same evidence the story page's developments are built from.
   const rows = await sql<RouteRow[]>`
-    SELECT DISTINCT ON (f.id, p.article_id) f.id, f.public_id::text, f.title, f.occurred_at,
+    SELECT DISTINCT ON (f.id, p.article_id) f.id, f.public_id::text, f.title, f.subject, f.action, f.object, f.occurred_at,
       p.article_id::text, p.url, s.name AS source_name, p.published_at, p.discovered_at, a.revision, p.selected
     FROM facts f
     JOIN fact_articles fa ON fa.fact_id = f.id
@@ -52,6 +53,9 @@ async function readStoryRoute(storyId: number, publicId: string, now: Date): Pro
     return {
       factId: members[0]!.public_id,
       title: members[0]!.title,
+      subject: members[0]!.subject,
+      action: members[0]!.action,
+      object: members[0]!.object,
       timeEffective: members[0]!.occurred_at?.toISOString() ?? null,
       timeRecorded: members.reduce((m, r) => (r.discovered_at < m ? r.discovered_at : m), members[0]!.discovered_at).toISOString(),
       reports: ordered.slice(0, REPORT_LIMIT).map((r) => ({

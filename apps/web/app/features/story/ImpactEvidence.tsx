@@ -3,17 +3,41 @@ import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { englishText, hasHan } from "../../lib/english";
 import { localizedMonthDayTime } from "../../lib/format";
 import type { StoryMarket } from "./EventPrices";
-import { IMPACT_AREAS, impactLeadsAt, marketObservationAt, type ImpactArea } from "./impact-evidence";
+import { IMPACT_AREAS, impactLeadsAt, marketObservationAt, type ImpactArea, type ImpactLead } from "./impact-evidence";
+import { EvidenceRow } from "./StationEvidence";
+import { isRevisedRevision } from "./impact-layers";
 
 const COPY: Record<ImpactArea, [string, string, string, string]> = {
   policy: ["政策报道线索", "Policy reporting", "没有可核查的政策报道线索，不能据此断言没有政策变化。",
     "No policy reporting lead found; this does not prove there was no policy change."],
   logistics: ["航运与供应链", "Logistics & supply", "没有可核查的航运或供应链线索；不推断供应中断。",
     "No shipping or supply-chain lead found; disruption is not inferred."],
-  companies: ["企业影响线索", "Company-impact reporting", "没有可核查的企业影响线索；公司被提及不等于受到损失。",
-    "No company exposure lead found; a mention alone does not establish impact."],
+  companies: ["企业影响线索", "Company-impact reporting", "没有可核查的企业影响线索；公司被提及不等于受到损失。当前数据无法核实企业暴露或供应依赖。",
+    "No company exposure lead found; a mention alone does not establish impact. Current data cannot verify company exposure or supply dependence."],
 };
 const price = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 1 : 4 });
+
+/** §4 drawer for one related_reporting lead: the report's own provenance, first version kept visible. */
+function LeadEvidenceDrawer({ lead, clock }: { lead: ImpactLead; clock: "known" | "valid" }) {
+  const t = useText();
+  const badge = "rounded border border-line-soft px-1.5 py-0.5";
+  return <details className="mt-1">
+    <summary className="cursor-pointer list-none text-[11.5px] font-medium text-accent hover:underline">
+      {t("证据与修订", "Evidence & revisions")}
+    </summary>
+    <div className="mt-2 rounded-panel border border-line-soft bg-bg-sunk/30 p-3">
+      <EvidenceRow report={lead} clock={clock} />
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-4">
+        <span className={badge}>{t("相关报道线索", "Related reporting")}</span>
+        <span className={badge}>{t("仅报道时间", "Report-time only")}</span>
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-ink-4">
+        {t("关键词只标记值得核对的报道，不是已验证的影响；报道文字可能被事后修订，双时间视图是有界重建。",
+          "Keywords only flag a report worth checking, not a verified impact. Copy may have been revised later; time replay is bounded.")}
+      </p>
+    </div>
+  </details>;
+}
 
 /** Source-linked leads at the shared Explorer cutoff; never render inferred causal edges. */
 export function ImpactEvidence({ story, route, market, asOf, clock }: {
@@ -64,12 +88,9 @@ export function ImpactEvidence({ story, route, market, asOf, clock }: {
                 </a>
                 <div className="mt-1 text-[11px] text-ink-4">
                   {sourceName(row.source,row.url)} · {localizedMonthDayTime(clock === "known" ? row.discoveredAt : row.publishedAt ?? row.discoveredAt, lang)}
-                  {row.revision && <span> · {t("现为修订版","Current revision")} {row.revision}</span>}
+                  {isRevisedRevision(row.revision) && <span> · {t("现为修订版","Current revision")} {row.revision}</span>}
                 </div>
-                <a href={(lang === "en" ? "/en" : "") + "/items/" + encodeURIComponent(row.articleId)}
-                  className="mt-1 inline-block text-[11.5px] text-accent hover:underline">
-                  {t("阅读本站报道与证据","Open report and provenance")}
-                </a>
+                <LeadEvidenceDrawer lead={row} clock={clock} />
               </li>;
             })}
           </ul> : <p className="mt-2 text-[12.5px] leading-relaxed text-ink-4">{lang === "zh" ? copy[2] : copy[3]}</p>}
