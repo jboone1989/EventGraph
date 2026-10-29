@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { StoryDetail, StoryRoute, StoryRouteStation } from "@aihot/contracts/site";
 import { impactLeadsAt, marketObservationAt } from "../app/features/story/impact-evidence.ts";
+import { isRevisedRevision } from "../app/features/story/impact-layers.ts";
 
 const t0 = "2026-10-20T12:00:00.000Z";
 const t1 = "2026-10-21T12:00:00.000Z";
@@ -96,4 +97,20 @@ test("markets cannot show an after-event price before that snapshot exists", () 
   assert.equal(marketObservationAt(market, t0), null);
   assert.deepEqual(marketObservationAt(market, t1)?.assets.map(x => x.asset), ["ETH"]);
   assert.deepEqual(marketObservationAt(market, t2)?.assets.map(x => x.asset), ["BTC", "ETH"]);
+});
+
+test("first-version related-reporting leads are not marked as revised", () => {
+  const first = station("first");
+  first.reports[0]!.revision = 1;
+  const unknown = station("unknown");
+  unknown.reports[0]!.revision = null;
+  const changed = station("changed");
+  const leads = impactLeadsAt(route([first, unknown, changed]), [
+    report("first", "Sanctions announced"),
+    report("unknown", "Tariffs proposed"),
+    report("changed", "Export restrictions updated"),
+  ], t2, "known").policy;
+  assert.deepEqual(leads.map(lead => [lead.articleId, lead.revision, isRevisedRevision(lead.revision)]), [
+    ["changed", 2, true], ["first", 1, false], ["unknown", null, false],
+  ]);
 });
