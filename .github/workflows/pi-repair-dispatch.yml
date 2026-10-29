@@ -23,7 +23,7 @@ jobs:
        github.event.workflow_run.event == 'pull_request') ||
       (github.event_name == 'status' &&
        github.event.context == 'claude-review' &&
-       github.event.state == 'failure')
+       (github.event.state == 'failure' || github.event.state == 'error'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
