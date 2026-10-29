@@ -282,8 +282,8 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
   const auto = await lifecycleEnabled(db);
   // Every pending candidate gets its daily walk, not only today's registrations: one registered while
   // autoPromote was off must still enter its trial once an operator enables it.
-  const pending = await db<{ id: string; preflight: { previewPassed?: boolean }; expires_at: Date | null }[]>`
-    SELECT id, preflight, expires_at FROM source_candidates
+  const pending = await db<{ id: string; kind: string; config: { mode?: string }; preflight: { previewPassed?: boolean }; expires_at: Date | null }[]>`
+    SELECT id, kind, config, preflight, expires_at FROM source_candidates
     WHERE status = 'discovered' AND NOT manual_hold ORDER BY created_at`;
   const now = opts.now ?? new Date();
   for (const c of pending) {
@@ -300,8 +300,10 @@ export async function runDailyDiscovery(opts: { now?: Date; search?: Search; db?
     // records the outcome itself; its dates are the preview's proof, not a search result's claim.
     // An already-passed preview is never paid for twice — it goes straight to the trial decision.
     if (c.preflight?.previewPassed !== true) {
-      // A missing paid budget or credential is not evidence that a source is invalid.
-      if (run.skipped === "budget" || run.skipped === "credential") continue;
+      // A missing search credential/budget cannot block free RSS or direct JSON previews.
+      // Only DeepSeek-backed candidates need the unavailable paid route.
+      if ((run.skipped === "budget" || run.skipped === "credential") &&
+          c.kind === "json_list" && c.config?.mode === "deepseek_search") continue;
       if (run.previewed >= settings.maxCandidates) continue;
       const preview = await previewCandidate(c.id, ACTOR, db);
       if (preview.skipped) {

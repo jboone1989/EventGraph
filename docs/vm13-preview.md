@@ -33,10 +33,11 @@ on either host, and no new cloud security-group rule is used.
 2. `deploy_dev_worker` (independent of the VM13 job below; neither gates the
    other) ships the digest to cn-dev **without cn-dev contacting GHCR**:
    `scripts/ci/export-image-vm13.sh` runs on VM13, pulls the digest there and
-   pushes it through a `registry:2` bound to cn-dev's loopback (seeded from
-   cn-dev's last local image so only missing layers cross the link; successful
-   delivery removes the transport registry volume, while an interrupted retry
-   keeps it; see `docs/ci-cd.md`) into a content-addressed local tag; then
+   delivers it with pinned-SSH rsync/zstd to cn-dev's single resumable
+   `~/.eventgraph-transfer/current.tar` staging file. The complete archive
+   SHA256, exact loaded Docker image ID and source revision are verified
+   before a content-addressed local tag is recorded (see `docs/ci-cd.md`);
+   then
    `scripts/ci/deploy-image.sh` runs on
    cn-dev, asserts the local tag's image ID and
    `org.opencontainers.image.revision` label, stages
