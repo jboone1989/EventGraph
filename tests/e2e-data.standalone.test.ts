@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { test } from "node:test";
-import { readSiteJSON, requireGraph, requireSamples } from "../e2e/data.ts";
+import { publicGraphHasData, readSiteJSON, requireGraph, requireSamples } from "../e2e/data.ts";
 
 for (const path of ["/api/site/timeline", "/api/site/hot", "/api/site/reports/daily/latest-page", "/api/site/topics", "/api/site/knowledge/overview"]) {
   for (const mode of ["500", "invalid JSON"]) test(`${path} rejects ${mode} in seeded reads`, async () => {
@@ -76,4 +76,16 @@ test("seeded graph checks require real cited article IDs and public link endpoin
     { ...network, links: [{ source: "a", target: "withdrawn" }] }), /network/);
   assert.throws(() => requireGraph(stats, overview,
     { ...network, links: [{ source: "a", target: "" }] }), /network/);
+});
+
+
+test("optional external graph needs visible public edges and links, not raw Graphiti counts", () => {
+  const stats = { entities: 2, relations: 1 };
+  const overview = { edges: [{ id: "public-edge" }] };
+  const network = { nodes: [{ key: "a" }], links: [{ source: "a", target: "a" }] };
+  assert.equal(publicGraphHasData(stats, overview, network), true);
+  assert.equal(publicGraphHasData(stats, { edges: [] }, network), false);
+  assert.equal(publicGraphHasData(stats, overview, { nodes: [], links: [] }), false);
+  assert.equal(publicGraphHasData({ entities: 0 }, overview, network), false);
+  assert.equal(publicGraphHasData(stats, null, null), false);
 });
