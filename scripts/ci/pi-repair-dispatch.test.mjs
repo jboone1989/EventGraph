@@ -53,6 +53,38 @@ test("uses only the original independent review failure",async()=>{
   assert.equal(await selectFailure("status",{...ev,context:"e2e"},async()=>pr),null);
 });
 
+test("status path requires the exact current PR head",async()=>{
+  const ev={context:"claude-review",state:"failure",sha,repository:{full_name:repo}};
+  assert.equal(await selectFailure("status",ev,async(path)=>
+    path.includes("commits/")?[{number:101}]:
+      {...pr,head:{...pr.head,sha:"c".repeat(40)}}),null);
+});
+
+test("rejects malformed commit SHA in both event kinds",async()=>{
+  const refuse=async()=>{throw Error("read must not be called")};
+  assert.equal(await selectFailure("workflow_run",
+    {workflow_run:{...run,head_sha:"not-a-sha"}},async()=>pr),null);
+  assert.equal(await selectFailure("status",
+    {context:"claude-review",state:"failure",sha:"xyz",
+     repository:{full_name:repo}},refuse),null);
+});
+
+test("ignores malformed PR entries and dedupes repeated associations",async()=>{
+  const answer=await selectFailure("workflow_run",{workflow_run:{...run,
+    pull_requests:[{number:101},{number:101},{number:"102"},{number:0}]}},async()=>pr);
+  assert.deepEqual(answer,
+    {repository:repo,pr_number:101,sha,failure_kind:"check",run_id:55});
+});
+
+test("dispatch refuses payloads that did not pass selection",async()=>{
+  const refuse=()=>{throw Error("post must not be called")};
+  await assert.rejects(dispatchFailure(
+    {repository:"evil/repo",pr_number:101,sha},"secret",refuse),/invalid repair payload/);
+  await assert.rejects(dispatchFailure(
+    {repository:repo,pr_number:101,sha:"zz"},"secret",refuse),/invalid repair payload/);
+  await assert.rejects(dispatchFailure(null,"secret",refuse),/invalid repair payload/);
+});
+
 test("dispatch transfers identifiers only, no credentials or source",async()=>{
   let called=false;
   const payload={repository:repo,pr_number:101,sha,failure_kind:"check",run_id:55};

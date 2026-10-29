@@ -23,6 +23,7 @@ export async function selectFailure(kind,event,read) {
     if(event.context!=="claude-review" || event.state!=="failure" ||
        event.repository?.full_name!==REPO) return null;
     sha=event.sha;reason="claude-review";
+    if(!SHA.test(sha||""))return null;
     const prs=await read("/repos/"+REPO+"/commits/"+sha+"/pulls?per_page=100");
     numbers=prs.map(p=>p.number);
   } else return null;
