@@ -39,6 +39,7 @@ test("source drawer renders bilingual evidence and honest gaps at the shared cut
     assert.match(en, /PortWatch data is withheld/);
     assert.match(en, /Co-occurrence does not establish an event effect/);
     assert.match(zh, /能源与航运证据/);
+    assert.match(zh, /来源：美国能源信息署/);
     assert.match(zh, /尚无可比数值序列/);
     assert.match(zh, /来源与时间/);
     assert.match(zh, /href="\/items\/energy"/);
