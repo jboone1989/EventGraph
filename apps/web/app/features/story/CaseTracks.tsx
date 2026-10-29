@@ -24,8 +24,8 @@ function Track({ track, prefix, historical }: { track: CaseStudyTrack; prefix: s
   return <section className="rounded-panel border border-line-soft p-4" aria-label={label}>
     <div className="flex items-baseline justify-between gap-2">
       <h3 className="text-[15px] font-semibold text-ink">{label}</h3>
-      <Link to={`${prefix}/explore?story=${track.story.publicId}`}
-        className="shrink-0 text-[12px] text-accent hover:underline">{t("打开回放 ↗", "Open replay ↗")}</Link>
+      {track.status === "ok" && <Link to={`${prefix}/explore?story=${track.story.publicId}`}
+        className="shrink-0 text-[12px] text-accent hover:underline">{t("打开回放 ↗", "Open replay ↗")}</Link>}
     </div>
     {track.status !== "ok"
       ? <p className="mt-3 text-[13px] leading-[1.7] text-ink-4">
