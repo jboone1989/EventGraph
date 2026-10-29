@@ -98,17 +98,19 @@ test("both admin navigations render before badges and update them after arriving
       badge = 7;
       await page.goto(web.origin + "/admin/sources");
       const sources = page.locator('nav a[href="/admin/sources"]').filter({ visible: true });
-      await expect(sources).toHaveText("信源7");
+      await expect(sources).toHaveText("新闻信源7");
       badge = 19;
       holdBadges();
+      // On phones non-primary tools live in the visible More menu; desktop keeps the sidebar.
+      if (viewport.width < 961) await page.locator("summary").filter({ hasText: "更多" }).click();
       await page.getByRole("link", { name: "内容诊断", exact: true }).filter({ visible: true }).click();
       await expect(page.getByRole("heading", { name: "内容诊断", exact: true })).toBeVisible({ timeout: 1000 });
       resumeBadges();
-      await expect(sources).toHaveText("信源19");
+      await expect(sources).toHaveText("新闻信源19");
       badgeFailure = true;
       await sources.click();
       await expect(page.getByRole("heading", { name: "信源", exact: true })).toBeVisible();
-      await expect(sources).toHaveText("信源");
+      await expect(sources).toHaveText("新闻信源");
     } finally {
       badgeFailure = false;
       resumeBadges();

@@ -19,6 +19,8 @@ const pages: Record<string, string> = {
   "/fragments": feed(entry('<link href="notes#first"/>') + entry('<link href="notes#second"/>'), ' xml:base="https://publisher.example/"'),
   "/nbs-clock.xml": '<rss version="2.0"><channel><title>NBS</title><item><title>Release</title><link>https://example.org/nbs-release</link><pubDate>2026-10-24 09:30:00</pubDate></item></channel></rss>',
   "/zoned-clock.xml": '<rss version="2.0"><channel><title>Global</title><item><title>Release</title><link>https://example.org/zoned-release</link><pubDate>Sat, 24 Oct 2026 09:30:00 GMT</pubDate></item></channel></rss>',
+  "/council-a10.xml": '<rss version="2.0" xmlns:a10="http://www.w3.org/2005/Atom"><channel><title>Council</title><item><title>Decision</title><link>https://example.org/council-release</link><a10:updated>2026-10-23T17:00:00Z</a10:updated></item></channel></rss>',
+  "/un-cest.xml": '<rss version="2.0"><channel><title>Geneva</title><item><title>UN release</title><link>https://example.org/un-release</link><pubDate>Wed, 07 Oct 2026 16:53:37 CEST</pubDate></item></channel></rss>',
 };
 const server = http.createServer((req, res) => {
   if (req.url === "/old/feed.xml") {
@@ -68,6 +70,13 @@ test("RSS dates without zones use the configured publisher offset, not the host 
   assert.equal(nbs[0]?.publishedAt?.toISOString(), "2026-10-24T01:30:00.000Z");
   const zoned = await read("/zoned-clock.xml", { publishedAtUtcOffset: "+08:00" });
   assert.equal(zoned[0]?.publishedAt?.toISOString(), "2026-10-24T09:30:00.000Z", "explicit GMT must win");
+});
+
+test("RSS Council a10:updated and UN Geneva named timezone keep publication timestamps", async () => {
+  const council = await read("/council-a10.xml");
+  assert.equal(council[0]?.publishedAt?.toISOString(), "2026-10-23T17:00:00.000Z");
+  const un = await read("/un-cest.xml");
+  assert.equal(un[0]?.publishedAt?.toISOString(), "2026-10-07T14:53:37.000Z");
 });
 
 test("resolved Atom article URLs keep their fragments, which sources of page sections use as identity", async () => {

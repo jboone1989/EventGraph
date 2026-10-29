@@ -51,9 +51,18 @@ for (const [day, note] of Object.entries(EDITOR_NOTES)) {
   await sql`INSERT INTO editor_notes (day, note, note_en, updated_by) VALUES (${day}, ${note.note}, ${note.noteEn ?? null}, 'seed')
     ON CONFLICT (day) DO NOTHING`;
 }
-// NVIDIA Developer Program endpoint: default conservative request budget, not a money limit.
-// An administrator can adjust this; setup never overwrites an existing setting.
-await sql`INSERT INTO budgets (service, per_minute, per_hour, per_day, note)
-  VALUES ('nvidia', 16, 480, 3000, 'NVIDIA Developer Program prototype tier: requests, no paid fallback')
-  ON CONFLICT (service) DO NOTHING`;
+// Enable the already implemented daily discovery/trial scheduler on first deployment.
+// Both development and production run this seed on every release. Only insert
+// missing settings; a subsequent admin choice (including disabling) wins.
+for (const setting of [
+  { key: "sourceLifecycle.discovery", value: { enabled: true, maxGaps: 6, maxCandidates: 8 } },
+  { key: "sourceLifecycle.autoPromote", value: { enabled: true } },
+]) {
+  await sql`
+    INSERT INTO settings (key, value, updated_by)
+    VALUES (${setting.key}, ${sql.json(setting.value)}, 'seed:source-lifecycle')
+    ON CONFLICT (key) DO NOTHING`;
+}
+// Model providers are not throttled by project-owned seed defaults.
+// Existing operator budgets are managed separately; provider HTTP 429 still has retry handling.
 await closeDb();

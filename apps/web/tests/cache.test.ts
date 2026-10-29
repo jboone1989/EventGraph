@@ -5,6 +5,8 @@ import { after, before, test } from "node:test";
 import { CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { UNSAFE_decodeViaTurboStream } from "react-router";
 import { startWebServer, type WebServer } from "./web-server.ts";
+import { pageReuse, hasFreshPage } from "../app/lib/page-reuse.ts";
+import { feedFrameKey, feedFrameFallbackKeys, feedFrameScope } from "../app/lib/seo.ts";
 
 let web: WebServer;
 let origin: string;
@@ -12,9 +14,11 @@ let deadline: number;
 /** Root metadata answers only after the selected deadline has passed: a slow sibling loader. */
 let metaAfterDeadline = false;
 const apiCookies: Array<string | undefined> = [];
+const apiPaths: string[] = [];
 const api = createServer((req, res) => {
   const url = new URL(req.url!, "http://api.local");
   apiCookies.push(req.headers.cookie);
+  apiPaths.push(url.pathname);
   res.setHeader("Content-Type", "application/json");
   if (url.pathname === "/api/site/meta") {
     const respond = () => res.end(JSON.stringify({ changelogVersion: "2026-09-28T12:00" }));
@@ -27,6 +31,14 @@ const api = createServer((req, res) => {
     return res.end(JSON.stringify({ filters, cards: [], nextCursor: null, dayCounts: [], hot: null }));
   }
   if (url.pathname === "/api/site/hot") return res.end(JSON.stringify({ entries: [] }));
+  if (url.pathname === "/api/site/reports/daily") return res.end(JSON.stringify({ items: [] }));
+  if (url.pathname === "/api/site/pool") {
+    return res.end(JSON.stringify({
+      filters: { channel: "all", category: null, tag: null, q: url.searchParams.get("q"), tab: "time" },
+      items: [], total: 0, page: 1, pageCount: 1, todayCount: 0,
+      freshness: "2026-10-26T00:00:00.000Z",
+    }));
+  }
   if (url.pathname === "/api/site/echo-client") return res.end(JSON.stringify({ forwarded: req.headers["x-forwarded-for"], real: req.headers["x-real-ip"] }));
   if (url.pathname === "/api/site/download") {
     res.setHeader("Content-Type", "text/markdown; charset=utf-8");
@@ -61,12 +73,234 @@ test("public route subsets produce the same complete navigation data; filters st
     assert.ok(body.includes("root") && body.includes("routes/home"));
     return body;
   }));
-  assert.ok(answers.every((body) => body === answers[0]));
+  // Each server request can generate a new fresh timestamp; the route data itself must agree. Turbo-stream
+  // writes repeated keys (both loaders carry "expiresAt") as references, so only the first stays a literal
+  // followed by digits; normalize every epoch-millisecond number wherever the stream happens to put it.
+  const withoutClock = (body: string) => body.replace(/\b1\d{12}\b/g, "<deadline>");
+  assert.ok(answers.every((body) => withoutClock(body) === withoutClock(answers[0]!)));
   const category = CATEGORY_KEYS.at(-1)!;
   const filtered = await fetch(`${origin}/_.data?category=${category}&_routes=root`);
   const body = await filtered.text();
   assert.ok(body.includes(category));
   assert.notEqual(body, answers[0]);
+});
+
+test("filtered pages skip hidden feed overview APIs, but unfiltered pages still request them", async () => {
+  const category = CATEGORY_KEYS.at(-1)!;
+  const begin = apiPaths.length;
+  const filtered = await fetch(`${origin}/?category=${category}`);
+  assert.equal(filtered.status, 200);
+  await filtered.text();
+  const filteredPaths = apiPaths.slice(begin);
+  for (const path of ["/api/site/knowledge/overview", "/api/site/knowledge/stats", "/api/site/hot", "/api/site/stats"]) {
+    assert.equal(filteredPaths.includes(path), false, `hidden request: ${path}`);
+  }
+
+  const searchBegin = apiPaths.length;
+  const search = await fetch(`${origin}/all?q=example`);
+  assert.equal(search.status, 200);
+  await search.text();
+  const searchPaths = apiPaths.slice(searchBegin);
+  assert.ok(searchPaths.includes("/api/site/hot"), "search-only Trending still needs ranking data");
+  for (const path of ["/api/site/knowledge/overview", "/api/site/knowledge/stats", "/api/site/stats"]) {
+    assert.equal(searchPaths.includes(path), false, `search must skip hidden endpoint: ${path}`);
+  }
+  assert.equal(searchPaths.some(path => path.startsWith("/api/site/knowledge/stories/")), false,
+    "search must not wait for the hidden lead story graph");
+
+  const fullBegin = apiPaths.length;
+  const full = await fetch(`${origin}/`);
+  assert.equal(full.status, 200);
+  await full.text();
+  const fullPaths = apiPaths.slice(fullBegin);
+  for (const path of ["/api/site/knowledge/overview", "/api/site/knowledge/stats", "/api/site/hot", "/api/site/stats"]) {
+    assert.ok(fullPaths.includes(path), `unfiltered overview must fetch ${path}`);
+  }
+});
+
+test("feed-frame scopes reuse only superset snapshots, without cache poisoning", async () => {
+  const category = CATEGORY_KEYS.at(-1)!;
+  const home = new URL("http://example.test/");
+  const all = new URL("http://example.test/all");
+  const search = new URL("http://example.test/all?q=example");
+  const filtered = new URL(`http://example.test/?category=${category}`);
+  assert.deepEqual([home, all, search, filtered].map(feedFrameScope),
+    ["overview", "overview", "search", "filtered"]);
+  assert.deepEqual(feedFrameFallbackKeys(home), []);
+  assert.deepEqual(feedFrameFallbackKeys(search), ["feed-frame:overview"]);
+  assert.deepEqual(feedFrameFallbackKeys(filtered), ["feed-frame:overview", "feed-frame:search"]);
+
+  function session(prefix: string) {
+    const key = (url: URL) => `${prefix}:${feedFrameKey(url)}`;
+    const fallback = (url: URL) => feedFrameFallbackKeys(url).map(k => `${prefix}:${k}`);
+    const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(key, fallback);
+    let calls = 0;
+    return {
+      visit: async (url: URL, source: string) => clientLoader({
+        request: new Request(url),
+        serverLoader: async () => {
+          calls++;
+          return { expiresAt: Date.now() + 60_000, source, hotOk: true, dailyOk: true };
+        },
+      } as unknown as Parameters<typeof clientLoader>[0]),
+      count: () => calls,
+    };
+  }
+
+  const narrowFirst = session("narrow-first");
+  assert.equal((await narrowFirst.visit(filtered, "filtered")).source, "filtered");
+  assert.equal((await narrowFirst.visit(search, "search")).source, "search");
+  assert.equal((await narrowFirst.visit(home, "overview")).source, "overview");
+  assert.equal((await narrowFirst.visit(all, "should-not-fetch")).source, "overview");
+  assert.equal(narrowFirst.count(), 3, "narrow data must never populate broader caches");
+
+  const fullFirst = session("full-first");
+  assert.equal((await fullFirst.visit(home, "full")).source, "full");
+  assert.equal((await fullFirst.visit(search, "should-not-fetch")).source, "full");
+  assert.equal((await fullFirst.visit(filtered, "should-not-fetch")).source, "full");
+  assert.equal(fullFirst.count(), 1, "warm full frame satisfies search and filtered views");
+
+  const searchFirst = session("search-first");
+  assert.equal((await searchFirst.visit(search, "search")).source, "search");
+  assert.equal((await searchFirst.visit(filtered, "should-not-fetch")).source, "search");
+  assert.equal((await searchFirst.visit(home, "overview")).source, "overview");
+  assert.equal(searchFirst.count(), 2, "search can satisfy filters but cannot replace the homepage");
+});
+
+test("explicit same-address revalidation bypasses even a fresh superset cache", async () => {
+  const category = CATEGORY_KEYS.at(-1)!;
+  const home = new URL("http://retry.example.test/");
+  const search = new URL("http://retry.example.test/all?q=term");
+  const filtered = new URL(`http://retry.example.test/all?category=${category}`);
+  const { clientLoader, shouldRevalidate } = pageReuse<{ expiresAt: number; source: string }>(
+    feedFrameKey, feedFrameFallbackKeys,
+  );
+  let requests = 0;
+  const visit = (url: URL, source: string) => clientLoader({
+    request: new Request(url),
+    serverLoader: async () => {
+      requests++;
+      return { expiresAt: Date.now() + 60_000, source, hotOk: true, dailyOk: true };
+    },
+  } as unknown as Parameters<typeof clientLoader>[0]);
+
+  assert.equal((await visit(home, "overview")).source, "overview");
+  assert.equal((await visit(search, "search-should-use-overview")).source, "overview");
+  assert.equal((await visit(filtered, "filter-should-use-overview")).source, "overview");
+  assert.equal(requests, 1);
+
+  for (const url of [search, filtered]) {
+    assert.equal(shouldRevalidate({
+      currentUrl: url, nextUrl: url, defaultShouldRevalidate: true,
+    } as Parameters<typeof shouldRevalidate>[0]), true);
+    const refreshed = await visit(url, `refreshed-${requests}`);
+    assert.ok(refreshed.source.startsWith("refreshed-"), "explicit revalidation must reach the server");
+  }
+  assert.equal(requests, 3);
+  assert.equal((await visit(home, "should-not-fetch")).source, "overview", "the broad cache remains reusable");
+  assert.equal(requests, 3);
+});
+
+test("IntentLink freshness matches the frame and the child list separately", async () => {
+  const home = new URL("http://prefetch.example.test/");
+  const search = new URL("http://prefetch.example.test/all?q=term");
+  const filtered = new URL("http://prefetch.example.test/all?tag=research");
+  const { clientLoader } = pageReuse<{ expiresAt: number; source: string }>(
+    feedFrameKey, feedFrameFallbackKeys,
+  );
+  // Earlier tests may have populated the same global scope key; absence is not guaranteed.
+  const load = (url: URL) => clientLoader({
+    request: new Request(url),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source: "overview", hotOk: true, dailyOk: true }),
+  } as unknown as Parameters<typeof clientLoader>[0]);
+  await load(home);
+  for (const url of [home, search, filtered]) {
+    assert.equal(hasFreshPage(url, "feed-layout"), true, "superset frame must be recognized");
+    assert.equal(hasFreshPage(url), false, "a warm frame alone cannot hide an uncached child list");
+  }
+  const { clientLoader: listLoader } = pageReuse<{ expiresAt: number; source: string }>();
+  await listLoader({
+    request: new Request(home),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source: "list" }),
+  } as unknown as Parameters<typeof listLoader>[0]);
+  assert.equal(hasFreshPage(home), true);
+  assert.equal(hasFreshPage(search), false, "search results still need their own child loader");
+});
+
+test("English feed prefetch needs its shared frame even with a warm /en list", async () => {
+  const en = new URL("http://prefetch.example.test/en");
+  const { clientLoader: frameLoader, shouldRevalidate } = pageReuse<{
+    expiresAt: number; hotOk: boolean; dailyOk: boolean;
+  }>(feedFrameKey, feedFrameFallbackKeys);
+  shouldRevalidate({
+    currentUrl: en, nextUrl: en, defaultShouldRevalidate: true,
+  } as Parameters<typeof shouldRevalidate>[0]);
+  const { clientLoader: listLoader } = pageReuse<{ expiresAt: number }>();
+  await listLoader({
+    request: new Request(en),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000 }),
+  } as unknown as Parameters<typeof listLoader>[0]);
+  assert.equal(hasFreshPage(en), false, "warm English list alone cannot suppress frame prefetch");
+  await frameLoader({
+    request: new Request(en),
+    serverLoader: async () => ({
+      expiresAt: Date.now() + 60_000, hotOk: true, dailyOk: true,
+    }),
+  } as unknown as Parameters<typeof frameLoader>[0]);
+  assert.equal(hasFreshPage(en), true, "both list and frame are warm");
+});
+
+test("superset fallback accesses keep the overview alive under LRU pressure", async () => {
+  const home = new URL("http://lru.example.test/");
+  const filtered = new URL("http://lru.example.test/?tag=test");
+  const search = new URL("http://lru.example.test/all?q=test");
+  const key = (url: URL) => `lru:${feedFrameKey(url)}`;
+  const fallback = (url: URL) => feedFrameFallbackKeys(url).map(k => `lru:${k}`);
+  const { clientLoader: frameLoader } = pageReuse<{
+    expiresAt: number; source: string; hotOk: boolean; dailyOk: boolean;
+  }>(key, fallback);
+  let frameCalls = 0;
+  const visit = (url: URL) => frameLoader({
+    request: new Request(url),
+    serverLoader: async () => {
+      frameCalls++;
+      return {
+        expiresAt: Date.now() + 60_000,
+        source: `fetch-${frameCalls}`, hotOk: true, dailyOk: true,
+      };
+    },
+  } as unknown as Parameters<typeof frameLoader>[0]);
+  const { clientLoader: unrelatedLoader } = pageReuse<{ expiresAt: number }>();
+  const unrelated = async (index: number) => unrelatedLoader({
+    request: new Request(`http://lru.example.test/__lru-pressure-${index}`),
+    serverLoader: async () => ({ expiresAt: Date.now() + 60_000 }),
+  } as unknown as Parameters<typeof unrelatedLoader>[0]);
+  await visit(home);
+  for (let i = 0; i < 12; i++) await unrelated(i);
+  assert.equal((await visit(filtered)).source, "fetch-1", "a filter reads the warm overview");
+  for (let i = 12; i < 18; i++) await unrelated(i);
+  assert.equal((await visit(search)).source, "fetch-1", "recent fallback usage prevents LRU eviction");
+  assert.equal(frameCalls, 1);
+});
+
+test("degraded hot/daily responses cannot satisfy a narrower page cache", async () => {
+  for (const [kind, upstream, destination] of [
+    ["hot", { hotOk: false, dailyOk: true }, "http://example.test/all?q=must-refetch"],
+    ["daily", { hotOk: true, dailyOk: false }, "http://example.test/?tag=must-refetch"],
+  ] as const) {
+    const key = (url: URL) => `unavailable-${kind}:${feedFrameKey(url)}`;
+    const fallback = (url: URL) => feedFrameFallbackKeys(url).map(k => `unavailable-${kind}:${k}`);
+    const { clientLoader } = pageReuse<{ expiresAt: number; source: string; hotOk: boolean; dailyOk: boolean }>(key, fallback);
+    const load = (url: URL, source: string, status: { hotOk: boolean; dailyOk: boolean }) => clientLoader({
+      request: new Request(url),
+      serverLoader: async () => ({ expiresAt: Date.now() + 60_000, source, ...status }),
+    } as unknown as Parameters<typeof clientLoader>[0]);
+    await load(new URL("http://example.test/"), "degraded", upstream);
+    const result = await load(new URL(destination), "fresh", { hotOk: true, dailyOk: true });
+    assert.equal(result.source, "fresh", `missing ${kind} data must not satisfy the narrower view`);
+  }
+
+
 });
 
 test("navigation streams are plain text for download managers, including errors", async () => {

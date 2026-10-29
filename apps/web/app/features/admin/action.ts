@@ -27,7 +27,7 @@ export function useAdminAction() {
       method: "POST" | "PATCH" | "PUT" | "DELETE",
       path: string,
       body?: unknown,
-      opts: { success?: string; label?: string; revalidate?: boolean; onError?:(problem:{detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>})=>void } = {},
+      opts: { success?: string; label?: string; revalidate?: boolean; quietError?: boolean; onError?:(problem:{detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>})=>void } = {},
     ): Promise<T | null> => {
       const label = opts.label ?? `${method} ${path}`;
       // The same command retried after a failure keeps its key, so paid work is not repeated.
@@ -54,7 +54,7 @@ export function useAdminAction() {
         // null means failure to callers; an empty success (204) is an empty object.
         return (json ?? {}) as T;
       } catch (error) {
-        toast(error instanceof AdminError ? error.message : "网络错误，请稍后再试", "error");
+        if (!opts.quietError) toast(error instanceof AdminError ? error.message : "网络错误，请稍后再试", "error");
         return null;
       } finally {
         setPending(null);

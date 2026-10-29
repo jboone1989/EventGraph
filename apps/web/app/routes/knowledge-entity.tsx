@@ -1,7 +1,7 @@
-import { Link, useLoaderData } from "react-router";
+import { data, Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/knowledge-entity";
 import { beijingDate } from "@aihot/contracts/time";
-import { cachedPage, apiGet } from "../lib/api.server";
+import { cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
 import { localized, pageMeta, siteUrl } from "../lib/seo";
 import { PhoneBar } from "../components/shell/PhoneBar";
@@ -11,6 +11,7 @@ import { KnowledgeAtlas } from "../components/KnowledgeAtlas";
 import { IntentLink } from "../components/ui/IntentLink";
 import { IconArrowLeft, IconArrowRight } from "../components/icons";
 import { useText, useUiLanguage } from "../components/LanguageSwitch";
+import { localizedSourceName } from "../lib/english";
 import { FollowControls } from "../components/FollowButton";
 
 export const handle: Screen = { tab: "knowledge", name: "实体档案" };
@@ -22,13 +23,16 @@ interface EntityProfile extends KnowledgeGraph {
   reports?: Array<{ id: string; title: string; originalTitle: string | null; source: { name: string; firstParty: boolean }; publishedAt: string }>;
   stories?: Array<{ publicId: string; title: string; englishTitle: string | null; reportCount: number; latestAt: string }>;
 }
-const UNAVAILABLE: EntityProfile = { entity: null, entities: 0, edges: [], status: "unavailable" };
 const hasHan = (s: string) => /[㐀-鿿]/u.test(s);
 const day = (iso: string | null) => (iso ? beijingDate(iso) : null);
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  const profile = await apiGet<EntityProfile>(`/api/site/knowledge/entities/${encodeURIComponent(params.key)}`, { signal: request.signal, timeoutMs: 4_000 })
-    .catch(() => UNAVAILABLE);
+  // A temporary knowledge API failure must not turn an already indexed entity into a 200/noindex page.
+  const profile = await loadOr404<EntityProfile>(`/api/site/knowledge/entities/${encodeURIComponent(params.key)}`, { signal: request.signal, timeoutMs: 4_000 });
+  // The knowledge backend reports Graphiti outages inside a 200 JSON response.
+  // Do not cache that as a successful empty, noindex page for search crawlers.
+  if (profile.status === "unavailable" || profile.status === "disabled")
+    throw data({ message: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "300" } });
   return cachedPage(120, { profile });
 }
 
@@ -159,7 +163,7 @@ export default function KnowledgeEntity() {
                   <h3 id="entity-reports">{t("来源报道", "Source reports")} <small className="mono">{reports.length}</small></h3>
                   <ul className="lr-entity-list">
                     {reports.map((r) => {
-                      const source = lang === "en" && hasHan(r.source.name) ? "Publisher" : r.source.name;
+                      const source = localizedSourceName(r.source.name, lang);
                       const title = lang === "en" ? (r.originalTitle && !hasHan(r.originalTitle) ? r.originalTitle : !hasHan(r.title) ? r.title : `Original report from ${source}`) : r.title;
                       return (
                         <li key={r.id}>

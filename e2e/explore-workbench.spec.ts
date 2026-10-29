@@ -81,7 +81,7 @@ test("the story page links into the standalone workbench with its event", async 
   test.skip(!seeded.story, "No public event available");
   await page.addInitScript(() => localStorage.setItem("livingruntime-language", "en"));
   await open(page, "/en/story/" + seeded.story);
-  const entry = page.getByRole("link", {name: /Open in the standalone explorer/}).first();
+  const entry = page.getByRole("link", {name: /Explore the timeline, relations and evidence/}).first();
   await expect(entry).toBeVisible();
   expect(await entry.getAttribute("href")).toContain(`/en/explore?story=${seeded.story}`);
   await entry.click();

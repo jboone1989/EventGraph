@@ -122,7 +122,7 @@ test("a story with a digest gets an English title and digest", async () => {
   assert.ok(row?.digest.includes("Regulators"));
 });
 
-test("an English page is indexed when a copy is written and its event has several reports", async () => {
+test("English reports are indexable with their own current copy, including standalone reports", async () => {
   const first = await selected("ether-context-a", 1300);
   const second = await selected("ether-context-b", 1400);
   const alone = await selected("ether-context-c", 1500);
@@ -131,15 +131,15 @@ test("an English page is indexed when a copy is written and its event has severa
     INSERT INTO stories (public_id, title, digest, latest_at) VALUES (gen_random_uuid(), ${`以太坊 ETF-${T}`}, '以太坊 ETF 有了新进展。', now())
     RETURNING id`;
   await sql`UPDATE publications SET story_id = ${story!.id} WHERE article_id IN (${first}, ${second})`;
-  // The editor curated all three (specs/002-adsense-readiness FR-012): what differs below is the event's size.
+  // English indexing depends on a real current English copy, not curation or event group size.
   await sql`UPDATE publications SET indexable = true, seo_indexed_at = now() WHERE article_id IN (${first}, ${second}, ${alone})`;
   for (let i = 0; i < 3; i++) await writeEnglishPending({ limit: 3 });
 
   const detail = await loadItemDetail(first);
   assert.ok(detail.kind === "found", "the report has a page");
-  assert.equal(detail.item.englishIndexable, true, "a curated report with English copy and an event of several reports");
+  assert.equal(detail.item.englishIndexable, true, "a report with current English copy is eligible");
   const lone = await loadItemDetail(alone);
   assert.ok(lone.kind === "found");
-  assert.equal(lone.item.englishIndexable, false, "a report on its own is not indexed in English");
+  assert.equal(lone.item.englishIndexable, true, "a standalone report with English copy is also eligible");
   assert.equal((await loadItemDetail(`missing-${T}`)).kind, "not_found");
 });

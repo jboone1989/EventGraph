@@ -6,6 +6,7 @@ import type { ReportNavigationEntry, ReportNavigationResponse, ReportKind } from
 import { PillTabs } from "../../components/ui/Tabs";
 import { IconChevronRight } from "../../components/icons";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
+import { englishText } from "../../lib/english";
 import { KINDS, KIND_LABEL, KIND_LABEL_EN, KIND_PATH, kindLabel, archiveGroups, archiveMark, chipLabel, reportPath } from "./format";
 
 /** 日报 / 周报 / 月报 as the site's pill switch: spread across the archive column, or compact in the phone bar (opening at the top). */
@@ -19,7 +20,7 @@ export function KindSwitch({ kind, phone = false }: { kind: ReportKind; phone?: 
       layoutId={phone ? "report-kind-phone" : "report-kind"}
       label={t("切换日报、周报、月报", "Switch between the daily, weekly and monthly brief")}
       active={kind}
-      items={KINDS.map((k) => ({ key: k, label: kindLabel(k, lang), to: KIND_PATH[k], resetScroll: phone, prefetch: 'intent' }))}
+      items={KINDS.map((k) => ({ key: k, label: lang === "en" && !phone ? { daily: "Daily", weekly: "Weekly", monthly: "Monthly" }[k] : kindLabel(k, lang), to: lang === "en" ? `/en${KIND_PATH[k]}` : KIND_PATH[k], resetScroll: phone, prefetch: 'intent' }))}
     />
   );
 }
@@ -28,7 +29,6 @@ export function KindSwitch({ kind, phone = false }: { kind: ReportKind; phone?: 
 export function ReportArchive({ kind, index, current }: { kind: ReportKind; index: ReportNavigationEntry[]; current: string | null }) {
   const lang = useUiLanguage();
   const t = useText();
-  const en = lang === "en";
   const groups = archiveGroups(kind, index, lang);
   const openId = groups.find((g) => g.entries.some((e) => e.key === current))?.id ?? groups[0]?.id;
   return (
@@ -43,7 +43,7 @@ export function ReportArchive({ kind, index, current }: { kind: ReportKind; inde
         ))}
       </nav>
       {kind === "daily" && (
-        <IntentLink to="/daily/archive" className="flex h-12 shrink-0 items-center justify-between border-t border-line pl-1 pr-1.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:text-accent">
+        <IntentLink to={lang === "en" ? "/en/daily/archive" : "/daily/archive"} className="flex h-12 shrink-0 items-center justify-between border-t border-line pl-1 pr-1.5 text-[12.5px] font-medium text-ink-2 transition-colors hover:text-accent">
           {t("日报合订本", "Daily archive")} <IconChevronRight size={14} />
         </IntentLink>
       )}
@@ -81,12 +81,13 @@ function ArchiveGroup({ g, kind, current, initiallyOpen }: {
       {(kind !== "daily" || open) && <ul className="space-y-0.5 pb-3">
         {entries.map((e) => {
           const on = e.key === current;
+          const title = lang === "en" ? englishText(e.titleEn) ?? englishText(e.title) ?? `${KIND_LABEL_EN[kind]} · ${e.key}` : e.title ?? `${KIND_LABEL[kind]} ${e.key}`;
           return (
             <li key={e.key}>
               <IntentLink
                 to={reportPath(kind, e.key, lang)}
                 aria-current={on ? "page" : undefined}
-                title={e.title ?? undefined}
+                title={title}
 
                 className={`group flex gap-3 rounded-tile py-2.5 pl-2.5 pr-2 transition-colors ${on ? "bg-accent-soft" : "hover:bg-bg-sunk"}`}
               >
@@ -95,7 +96,7 @@ function ArchiveGroup({ g, kind, current, initiallyOpen }: {
                   {mark(e.key).small && <span className="mt-1 whitespace-nowrap text-[10px] leading-none text-ink-4">{mark(e.key).small}</span>}
                 </span>
                 <span className={`line-clamp-2 min-w-0 text-[12.5px] leading-[18px] transition-colors ${on ? "font-semibold text-ink" : "text-ink-2 group-hover:text-ink"}`}>
-                  {e.title ?? (lang === "en" ? `${KIND_LABEL_EN[kind]} ${e.key}` : `${KIND_LABEL[kind]} ${e.key}`)}
+                  {title}
                 </span>
               </IntentLink>
             </li>
@@ -112,7 +113,7 @@ export function ReportPhoneNav({ kind, index, current, today }: { kind: ReportKi
   const lang = useUiLanguage();
   const t = useText();
   const recent = index.slice(0, 3);
-  const earlier = kind === "daily" ? "/daily/archive" : "#report-history";
+  const earlier = kind === "daily" ? (lang === "en" ? "/en/daily/archive" : "/daily/archive") : "#report-history";
   const chip = "inline-flex h-11 shrink-0 items-center rounded-full border px-4 text-[13px] transition-colors";
   if (recent.length === 0) return null;
   return (

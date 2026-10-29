@@ -56,6 +56,24 @@ export function readFilters(params: URLSearchParams): TimelineFilters {
   };
 }
 
+/** Data required by the shared feed frame, ordered from most to least complete. */
+export function feedFrameScope(url: URL): "overview" | "search" | "filtered" {
+  const filters = readFilters(url.searchParams);
+  if (filters.tag || filters.category || filters.channel !== "all") return "filtered";
+  return url.searchParams.get("q")?.trim() ? "search" : "overview";
+}
+
+export function feedFrameKey(url: URL): string {
+  return `feed-frame:${feedFrameScope(url)}`;
+}
+
+/** A narrower view may reuse any fresh broader frame; not vice versa. */
+export function feedFrameFallbackKeys(url: URL): string[] {
+  const scope = feedFrameScope(url);
+  return scope === "filtered" ? ["feed-frame:overview", "feed-frame:search"]
+    : scope === "search" ? ["feed-frame:overview"] : [];
+}
+
 /** Feed filters as list address parameters: the default channel and unset filters are left out. */
 export function filterParams(f: TimelineFilters) {
   return { channel: f.channel === "all" ? null : f.channel, category: f.category, tag: f.tag };

@@ -17,6 +17,7 @@ For a small fix, an Issue with concrete acceptance criteria is sufficient. Eithe
 
 ## Product specifications
 
+- [Dynamic source lifecycle (007) — coverage audit + auto discovery/trial/promotion spec](007-dynamic-source-lifecycle/spec.md)
 - [EventGraph Explorer + Story — Draft full product spec](eventgraph-explorer/spec.md)
 - [Minimal reuse/implementation plan](eventgraph-explorer/plan.md)
 - [Agent-sized tasks and acceptance](eventgraph-explorer/tasks.md)

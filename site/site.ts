@@ -19,6 +19,8 @@ export const EDITION_WHEN = {
 export const SITE = {
   /** 站名：导航、页面标题、分享图、RSS、MCP、后台都用它。 */
   name: "EventGraph",
+  /** Public GitHub Discussions identity for the optional giscus reader module. Category ID is a build variable. */
+  discussions: { repo: "jboone1989/EventGraph", repoId: "R_kgDOVHEeYA" },
   /**
    * 行业词：拼进默认说法里，比如“AI 日报”“AI 动态”。
    * 改成“法律”“HR”“黄金”之类，页面上就会变成“法律日报”“法律动态”。
@@ -110,14 +112,10 @@ export const POLICY = {
 } as const;
 
 /**
- * 搜索收录策略。依据 specs/002-adsense-readiness（FR-006~009）与 Google 发布商政策：不得在
- * 「未经人工审核或策展的自动生成内容」上放广告——收录（索引/sitemap）只认编辑策展标记，
- * 模型精选本身不再自动让页面进索引。
+ * Public content is eligible for search by default; manual approval is not an AdSense prerequisite.
+ * Keep a small guard for empty single-source event pages (which redirect to their source item).
  */
 export const SEO = {
-  /** true：只有后台标记「可收录」（seo_indexed_at）的页面进索引与 sitemap；false：精选仍自动收录（旧行为）。 */
-  curatedIndexOnly: true,
-  /** 事件页收录的薄页门槛：单来源事件的 AI 综述至少这么多字，否则该事件页不收录。 */
   minSingleSourceDigestChars: 100,
 } as const;
 
@@ -342,7 +340,7 @@ export const DEPLOYMENT = {
    * 已实测应由服务器直接连接、不走出网代理（EGRESS_PROXY_URL）的域名，采集和图片共用（选填）。
    * 每次重定向重新按目标域名选路，直连仍检查实际连接地址。
    */
-  directFetchHosts: [] as string[],
+  directFetchHosts: ["integrate.api.nvidia.com"] as string[],
   /**
    * 精选评测（scripts/eval-selection.ts）不带参数时用的金标集：文件（相对仓库根目录）、抽样条数、只抽哪一份、门槛扫描范围。
    * null 就用 .data/gold.jsonl 的全部样本（最多 200 条），在 40–90 之间扫描。

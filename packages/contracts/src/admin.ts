@@ -133,6 +133,41 @@ export interface AdminSourcePreview {
   items: Array<{ title: string; url: string; publishedAt: Timestamp | null; excerpt: string }>;
 }
 
+// Dynamic source lifecycle candidates (specs/007): what discovery proposed and where it stands.
+
+/** One source_candidates row joined with the live state of the trial source it became. */
+export interface AdminCandidateRow {
+  id: string;
+  name: string;
+  kind: string;
+  status: string;
+  origin_channel: string;
+  origin_note: string | null;
+  tags: string[];
+  rationale: string;
+  official_low_frequency: boolean;
+  manual_hold: boolean;
+  expires_at: Timestamp | null;
+  attached_source_id: string | null;
+  source_enabled: boolean | null;
+  source_health: string | null;
+  source_mode: string | null;
+  trial_started_at: Timestamp | null;
+  preflight: { ok?: boolean; reasons?: string[]; previewPassed?: boolean; previewCount?: number; previewDated?: number };
+  last_decision: string | null;
+  last_decision_at: Timestamp | null;
+  last_score: { action?: string; score?: number; reasons?: string[] } | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface AdminSourceCandidates {
+  page: number;
+  rows: AdminCandidateRow[];
+  /** Candidates per lifecycle status; absent statuses have none. */
+  totals: Record<string, number>;
+}
+
 // Content and events
 
 export interface AdminContentRow {
@@ -282,6 +317,9 @@ export interface AdminRuns {
   jobs: Array<{ job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null; failed_24h: number; runs_24h: number }>;
   timeline: Array<{ id: number; job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null }>;
   queues: Array<{ name: string; state: string; n: number; oldest: Timestamp }>;
+  articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
+  /** Articles first discovered within the last 24 hours, excluding historical backfills and signal-only feeds. */
+  live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
   failedJobs: Array<{ name: string; failed: number; last: Timestamp | null; last_output: string | null }>;
   grouping: {
     waiting: number;

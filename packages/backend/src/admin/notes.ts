@@ -15,6 +15,7 @@ export interface EditorNoteRow {
 
 export class InvalidNote extends Error {
   code = "invalid_note";
+  statusCode = 400;
 }
 
 /** The notes of the last `days` days, newest first; the admin lists them beside their dailies. */

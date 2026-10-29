@@ -24,6 +24,9 @@ test("source pages retain order and count selected history regardless of public 
     INSERT INTO publications (article_id, title, source_id, channel, url, discovered_at, timeline_at, sort_at, visibility, selected)
     SELECT id, title, source_id, 'news', url, discovered_at, timeline_at, timeline_at, 'withdrawn', true
     FROM articles WHERE source_id = 'page-001'`;
+  await sql`UPDATE sources SET tags = ARRAY['中国', '科技']::text[] WHERE id = 'page-001'`;
+  const tagged = await listSources({ q: "中国" });
+  assert.deepEqual(tagged.rows.map(row => row.id), ["page-001"]);
   const first = await listSources({ q: "Page" });
   assert.equal(first.rows.length, 100);
   assert.deepEqual(first.rows.slice(0, 3).map(row => row.id), ["page-103", "page-102", "page-001"]);

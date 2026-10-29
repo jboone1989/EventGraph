@@ -6,12 +6,24 @@
 
 ## 对新开发任务使用
 
-- 小 Bug、文案、样式：仍可直接以 Issue 的验收标准修复，不必生成三份文件。
+- 小 Bug 也先写一个**轻量 Spec**（问题、可复现根因、期望结果、验收方式），不强制拆出 plan.md/tasks.md；纯文案/文档可直接走 PR；可执行 CI、生产配置和部署脚本的变更也需事先确定轻量 Spec。不要用‘小修复’口头标签绕过 Spec。
 - 跨模块功能：让开发 Agent 执行 `speckit-specify → speckit-plan → speckit-tasks → speckit-analyze → speckit-implement → speckit-converge`。在 Codex 使用 `$speckit-...`，在 Claude Code 使用 `/speckit-...`（由各自集成安装的 Skills 提供）。
 - **Search Before Build**：先核对 EventGraph 当前代码、AIHOT 上游及官方资料，写入 `plan.md` 的复用依据，禁止另造并行系统。
 - `specs/<feature>/spec.md` 写用户可验证的行为，`plan.md` 写技术方案，`tasks.md` 写任务与测试。只通过 Agent Skills 使用官方流程，不额外部署调度服务。
-- 推荐在实施前通过独立 Spec PR 或用户批准的 Issue 确定规格；实现 PR 写明批准的 `spec.md` **commit SHA + path** 或批准的 Issue 评论。不把实现分支内自行修改的 Spec 当作批准版。
+- **必须先单独合入 Spec PR，再做实现 PR**；用户决定范围后才能开工。实现 PR 描述中写 `Spec: specs/<feature>/spec.md@<40位提交SHA>`，同时写明实际审批记录。Spec 需已存在于目标分支，且与锁定提交内容一致；在实现 PR 中临时补 spec.md 不符合门禁。
 - 分支策略仍为 `feature → develop → main`，不安装 Spec Kit 可选 Git 扩展；常规开发合并到 `develop`，每周才发布 `main`。
+
+## GitHub 强制门禁
+
+纯文档和 Spec Markdown 修改不阻塞；**可执行 CI、workflow、部署脚本与生产配置变更必须引用事先确定的 Spec**。仅首次安装门禁本身、且改动严格限于受限 bootstrap 文件时可免引用；独立评审仍必需。
+
+现有 `Check / check` 任务中运行 `scripts/ci/check-spec.mjs`，复用 develop 的现有 Ruleset（`check` 为必需状态）；不用第二套 CI。该脚本基于 PR 改动和 base/head SHA 判定：产品实现/配置/测试修改必须引用目标分支**事先存在且未变更的 Spec**；纯文档、Spec Markdown 修改，以及同仓库的 `develop → main` 正式提升合并不阻塞（此前实现 PR 已在 `develop` 检查）。直接提交到 `main` 的其他实现 PR 不豁免。缺失、伪造提交 SHA、Spec 在本实现分支新建、**与实现代码在同一 PR 修改已批准 Spec**、Spec 中途漂移均使 Check 失败。
+
+PR 自动触发与 `workflow_dispatch` 都执行同一门禁：后者必须通过 GitHub API 精确找到该 SHA 的唯一未关闭 PR；找不到即失败，而不是静默跳过。只有直接在 `main` 或 `develop` 分支执行的非 PR 检查不需要功能 Spec。`industry/prompts/*.md` 属于运行时配置，不能作为普通 Markdown 文档免检；纯文档例外只接受指定目录内的文本格式，不包括脚本。
+
+**AIHOT 上游同步特殊处理**：仅 GitHub Actions Bot 创建、同仓库、目标 `develop`、分支名和 PR 正文包含一致完整上游 SHA，且改动严格限于 `industry/prompts/*.md`、`industry/sources.json`、`industry/topics.json`、`industry/taxonomy.ts` 时可免事先 Spec；其他上游应用代码仍需先确定 Spec。仍强制 Check、Docker、E2E 和 Claude 独立审查；此检查不宣称自动验证上游提交真实性。
+
+脚本证明的是 Spec 版本存在、锁定且在实现前；**无法自动证明用户真的批准、或每一条需求都已实现**。Claude 必须进一步核对 PR 的审批依据和实际行为，不允许用填模板或测试替身冒充验证。
 
 ## 任意 Reviewer 的验收方法
 

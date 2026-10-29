@@ -32,8 +32,10 @@ test('a saved note reaches the daily and the audit log; bad input is refused', a
   assert.ok(history.some((h) => h.action === 'notes.save' && h.actor === 'tester'), 'the save is audited');
 
   // A blank note or a malformed day is refused instead of written.
-  await assert.rejects(() => saveNote({ day: '2026-10-24', note: '  ' }, 'tester'), InvalidNote);
-  await assert.rejects(() => saveNote({ day: '24-10-2026', note: 'x' }, 'tester'), InvalidNote);
+  await assert.rejects(() => saveNote({ day: '2026-10-24', note: '  ' }, 'tester'),
+    (error: unknown) => error instanceof InvalidNote && error.statusCode === 400 && error.code === 'invalid_note');
+  await assert.rejects(() => saveNote({ day: '24-10-2026', note: 'x' }, 'tester'),
+    (error: unknown) => error instanceof InvalidNote && error.statusCode === 400);
 
   const listed = await listNotes(60);
   assert.ok(listed.some((n) => n.day === '2026-10-24'), 'the note lists in the admin');

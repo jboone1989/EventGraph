@@ -167,6 +167,11 @@ test('intent on a selected link preserves visited data and the next revisit star
   page.on('request',request=>{if(request.url().includes('.data'))requests.push(request.url());});
   try{
     await page.goto(origin+'/');
+    // Arm the router's prefetch before navigation so this exercises its mounted state,
+    // rather than depending on a loaded runner making a click take over 100ms.
+    const prefetched=page.waitForResponse(r=>r.url().includes('_.data?category=research'));
+    await page.getByRole('link',{name:'深度研究',exact:true}).hover();
+    await prefetched;
     await page.getByRole('link',{name:'深度研究',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 research',exact:true})).toBeVisible();
     await page.getByRole('link',{name:'深度研究',exact:true}).focus();
@@ -179,6 +184,10 @@ test('intent on a selected link preserves visited data and the next revisit star
     await page.getByRole('link',{name:'深度研究',exact:true}).click();
     await expect(page.getByRole('link',{name:'分类 research',exact:true})).toBeVisible();
     assert.deepEqual(requests.slice(before),[],'neither prefetch nor navigation may evict and reload a still-valid visited page');
+    const refreshed=page.waitForResponse(r=>r.url().includes('_.data?category=research'));
+    await page.getByRole('link',{name:'深度研究',exact:true}).click();
+    await refreshed;
+    await expect(page.getByRole('link',{name:'分类 research',exact:true})).toBeVisible();
   }finally{await context.close();}
 });
 
