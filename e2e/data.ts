@@ -30,7 +30,12 @@ export function requireGraph(stats: any, overview: any, network: any) {
     const statusIsValid = data && (!Object.hasOwn(data, "status") || data.status === "ok");
     assert.ok(statusIsValid, `/api/site/knowledge/${path}: graph unavailable or returned a non-ok status (${data?.status ?? "missing"})`);
   }
-  assert.ok(stats.entities > 0 && stats.relations > 0, "/api/site/knowledge/stats: empty graph");
-  assert.ok(overview.edges?.length > 0, "/api/site/knowledge/overview: no public relations");
-  assert.ok(network.nodes?.length > 0 && network.links?.length > 0, "/api/site/knowledge/network: no public graph");
+  const positiveCount = (value: unknown) => Number.isSafeInteger(value) && (value as number) > 0;
+  assert.ok(positiveCount(stats.entities) && positiveCount(stats.relations), "/api/site/knowledge/stats: empty or invalid graph counts");
+  assert.ok(Array.isArray(overview.edges) && overview.edges.length > 0 &&
+    overview.edges.every((edge: any) => Array.isArray(edge?.evidence) && edge.evidence.length > 0),
+    "/api/site/knowledge/overview: missing public relation evidence");
+  assert.ok(Array.isArray(network.nodes) && network.nodes.length > 0 &&
+    Array.isArray(network.links) && network.links.length > 0,
+    "/api/site/knowledge/network: missing public graph arrays");
 }

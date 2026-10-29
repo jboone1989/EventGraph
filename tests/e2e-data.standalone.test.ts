@@ -32,7 +32,7 @@ test("every required sample is nonempty; optional deployments may be empty", () 
 
 test("nonzero graph data cannot hide any non-ok status", () => {
   const stats = { entities: 2, relations: 1 };
-  const overview = { edges: [{ id: "edge" }] };
+  const overview = { edges: [{ id: "edge", evidence: [{ articleId: "public-source" }] }] };
   const network = { nodes: [{ key: "entity" }], links: [{ id: "edge" }] };
   requireGraph(stats, overview, network);
   for (const status of ["disabled", "unavailable", "error", "failed", "empty", "partial", "stale", "unexpected"]) {
@@ -42,4 +42,20 @@ test("nonzero graph data cannot hide any non-ok status", () => {
   }
   assert.throws(() => requireGraph(stats, { edges: [] }, network), /overview/);
   assert.throws(() => requireGraph(stats, overview, { nodes: [], links: [] }), /network/);
+});
+
+
+test("malformed graph payloads cannot pass the seeded E2E integrity gate", () => {
+  const stats = { entities: 2, relations: 1 };
+  const overview = { edges: [{ id: "edge", evidence: [{ articleId: "source" }] }] };
+  const network = { nodes: [{ key: "entity" }], links: [{ id: "edge" }] };
+  for (const bad of [{ entities: "2", relations: 1 }, { entities: 2, relations: "1" },
+    { entities: Infinity, relations: 1 }, { entities: 1.5, relations: 1 }]) {
+    assert.throws(() => requireGraph(bad, overview, network), /stats/);
+  }
+  for (const edges of ["edge", [{ id: "edge" }], [{ id: "edge", evidence: "source" }]]) {
+    assert.throws(() => requireGraph(stats, { edges }, network), /overview/);
+  }
+  assert.throws(() => requireGraph(stats, overview, { nodes: "node", links: "link" }), /network/);
+  assert.throws(() => requireGraph(stats, overview, { nodes: [], links: [{}] }), /network/);
 });
