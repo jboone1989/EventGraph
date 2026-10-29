@@ -27,7 +27,8 @@ export function requireSamples(samples: Record<string, unknown>, required = seed
 
 export function requireGraph(stats: any, overview: any, network: any) {
   for (const [path, data] of [["stats", stats], ["overview", overview], ["network", network]] as const) {
-    assert.ok(data && !["disabled", "unavailable"].includes(data.status), `/api/site/knowledge/${path}: graph unavailable`);
+    const statusIsValid = data && (!Object.hasOwn(data, "status") || data.status === "ok");
+    assert.ok(statusIsValid, `/api/site/knowledge/${path}: graph unavailable or returned a non-ok status (${data?.status ?? "missing"})`);
   }
   assert.ok(stats.entities > 0 && stats.relations > 0, "/api/site/knowledge/stats: empty graph");
   assert.ok(overview.edges?.length > 0, "/api/site/knowledge/overview: no public relations");

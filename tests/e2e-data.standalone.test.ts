@@ -30,12 +30,12 @@ test("every required sample is nonempty; optional deployments may be empty", () 
   requireSamples({}, false);
 });
 
-test("nonzero stats cannot hide unavailable or empty public graph responses", () => {
+test("nonzero graph data cannot hide any non-ok status", () => {
   const stats = { entities: 2, relations: 1 };
   const overview = { edges: [{ id: "edge" }] };
   const network = { nodes: [{ key: "entity" }], links: [{ id: "edge" }] };
   requireGraph(stats, overview, network);
-  for (const status of ["disabled", "unavailable"]) {
+  for (const status of ["disabled", "unavailable", "error", "failed", "empty", "partial", "stale", "unexpected"]) {
     assert.throws(() => requireGraph({ ...stats, status }, overview, network), /stats/);
     assert.throws(() => requireGraph(stats, { ...overview, status }, network), /overview/);
     assert.throws(() => requireGraph(stats, overview, { ...network, status }), /network/);
