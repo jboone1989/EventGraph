@@ -23,8 +23,6 @@ export function energyShippingEvidenceAt(
   const out: Record<EvidenceDomain, EnergyShippingEvidence[]> = { energy: [], shipping: [] };
   for (const { lead, searchable } of publicImpactReportsAt(route, timeline, asOf, clock)) {
     const url = new URL(lead.url);
-    // Never render credential-bearing links as public evidence, including shipping leads.
-    if (url.username || url.password) continue;
     // Never treat a source display name or a mention of EIA as official EIA evidence.
     const eia = url.protocol === "https:" &&
       (url.hostname === "eia.gov" || url.hostname === "www.eia.gov");
