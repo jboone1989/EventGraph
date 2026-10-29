@@ -20,7 +20,7 @@ export async function selectFailure(kind,event,read) {
       numbers=prs.map(p=>p.number);
     }
   } else if(kind==="status") {
-    if(event.context!=="claude-review" || !["failure","error"].includes(event.state) ||
+    if(event.context!=="claude-review" || event.state!=="failure" ||
        event.repository?.full_name!==REPO) return null;
     sha=event.sha;reason="claude-review";
     if(!SHA.test(sha||""))return null;
