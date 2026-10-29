@@ -68,6 +68,12 @@ export const SIBLING_REPORT_TITLES = sql`(
     ORDER BY coalesce(p2.published_at, p2.discovered_at) DESC LIMIT 5
   ) x)`;
 
+/** One eligibility predicate for both paid explanation selection and public rendering.
+ * A previously written row must not reappear after selection, release or licence is revoked. */
+export const EXPLAINABLE_PUBLICATION = sql`p.channel = 'news' AND p.visibility = 'public' AND p.selected
+  AND p.eligible AND p.visible_after <= now() AND p.summary IS NOT NULL
+  AND (a.language IN ('zh', 'en') OR a.language IS NULL)`;
+
 /** What an item explanation is written from (editorial/explain.ts): every field buildExplainInput reads —
  *  the site's copy, the licence-gated body, the source, the published time and the event context — so a
  *  correction, a licence change or a new sibling report makes the stored explanation stale (E-03/D-03). */
