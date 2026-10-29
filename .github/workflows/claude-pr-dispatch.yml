@@ -110,8 +110,9 @@ jobs:
             echo 'PR is stale, draft, forked or not targeting develop.'
             exit 0
           fi
-          git fetch --no-tags origin develop "$CHECK_SHA"
-          base="$(git merge-base FETCH_HEAD "$CHECK_SHA")"
+          git fetch --no-tags origin develop:refs/remotes/origin/develop
+          git fetch --no-tags origin "$CHECK_SHA"
+          base="$(git merge-base refs/remotes/origin/develop "$CHECK_SHA")"
           git diff --no-ext-diff --unified=3 "$base" "$CHECK_SHA" -- > "$GITHUB_WORKSPACE/pr-review.diff"
           test -s "$GITHUB_WORKSPACE/pr-review.diff"
           git worktree add --detach "$GITHUB_WORKSPACE/review-source" "$CHECK_SHA"
