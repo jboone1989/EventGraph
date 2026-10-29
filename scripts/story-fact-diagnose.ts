@@ -3,7 +3,7 @@
 import { parseArgs } from "node:util";
 import { closeDb, sql } from "@aihot/backend/db";
 import { publicStoryRoute } from "@aihot/backend/publication/story-route";
-import { storyFactDiagnosis, type DecisionTrace, type Membership } from "./story-fact-diagnosis-core.ts";
+import { storyFactDiagnosis, type DecisionTrace, type Membership, type SourceRecord } from "./story-fact-diagnosis-core.ts";
 
 const { values } = parseArgs({ options: { story: { type: "string" } } });
 
@@ -28,6 +28,12 @@ async function main() {
     -- Search every Fact membership for the visible public reports, not only
     -- Fact IDs already in the truncated StoryRoute. This is read-only.
     WHERE fa.article_id IN ${sql(articleIds)}`;
+  // Public-route article IDs are the sole scope; source tiers are recorded metadata,
+  // not an assertion that an original document was independently verified.
+  const sourceRows = await sql<{ article_id: string; tier: string | null; body_mode: "full" | "summary" | null }[]>`
+    SELECT p.article_id::text, s.tier, p.body_mode
+    FROM publications p JOIN sources s ON s.id = p.source_id
+    WHERE p.article_id IN ${sql(articleIds)} AND p.visibility = 'public'`;
   const decisions = await sql<{
     id: number; article_id: string; verdict: string; candidates: unknown;
     fact_id: number | null; story_id: number | null; receipt_id: number | null; created_at: Date;
@@ -46,7 +52,10 @@ async function main() {
     factId: d.fact_id, storyId: d.story_id,
     receiptId: d.receipt_id, createdAt: d.created_at.toISOString(),
   }));
-  console.log(JSON.stringify(storyFactDiagnosis(route, memberships, history), null, 2));
+  const sources: SourceRecord[] = sourceRows.map(r => ({
+    articleId: r.article_id, tier: r.tier, bodyMode: r.body_mode,
+  }));
+  console.log(JSON.stringify(storyFactDiagnosis(route, memberships, history, sources), null, 2));
 }
 
 try { await main(); } finally { await closeDb(); }
