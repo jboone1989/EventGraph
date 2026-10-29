@@ -15,9 +15,8 @@ async function main() {
   // Reuse the public read boundary: no private/withdrawn/mention evidence is introduced.
   const route = await publicStoryRoute(id);
   if (!route || route.status !== "ok") throw new Error("No public story evidence for this ID");
-  const factIds = route.stations.map(s => s.factId);
   const articleIds = [...new Set(route.stations.flatMap(s => s.reports.map(r => r.articleId)))];
-  if (!factIds.length || !articleIds.length) throw new Error("No public Fact/report pairs");
+  if (!route.stations.length || !articleIds.length) throw new Error("No public Fact/report pairs");
 
   const membershipRows = await sql<{
     fact_id: string; article_id: string; role: string; fact_manual: boolean;
@@ -26,7 +25,9 @@ async function main() {
     SELECT f.public_id::text AS fact_id, fa.article_id, fa.role, fa.evidence,
       f.manual AS fact_manual, fa.manual AS membership_manual
     FROM facts f JOIN fact_articles fa ON fa.fact_id = f.id
-    WHERE f.public_id::text IN ${sql(factIds)} AND fa.article_id IN ${sql(articleIds)}`;
+    -- Search every Fact membership for the visible public reports, not only
+    -- Fact IDs already in the truncated StoryRoute. This is read-only.
+    WHERE fa.article_id IN ${sql(articleIds)}`;
   const decisions = await sql<{
     id: number; article_id: string; verdict: string; candidates: unknown;
     fact_id: number | null; story_id: number | null; receipt_id: number | null; created_at: Date;
