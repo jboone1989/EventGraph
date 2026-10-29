@@ -321,9 +321,12 @@ export default function StoryPage() {
     official: story.timeline.filter((r) => r.source.firstParty).length,
     selected: story.timeline.filter((r) => r.selected).length,
   };
+  // A saved filter can outlive the Story that supplied its reports.
+  // Do not leave readers on an empty, no-longer-available source category.
+  const activeFilter: Filter = counts[filter] > 0 ? filter : "all";
   const evidence = useMemo(() => reportProvenance(route), [route]);
   const days = useMemo(() => {
-    const list = story.timeline.filter((r) => (filter === "official" ? r.source.firstParty : filter === "selected" ? r.selected : true));
+    const list = story.timeline.filter((r) => (activeFilter === "official" ? r.source.firstParty : activeFilter === "selected" ? r.selected : true));
     const sorted = [...list].sort((a, b) => (order === "desc" ? Date.parse(b.publishedAt) - Date.parse(a.publishedAt) : Date.parse(a.publishedAt) - Date.parse(b.publishedAt)));
     const out: Array<{ day: string; rows: StoryReportView[] }> = [];
     for (const r of sorted) {
@@ -333,7 +336,7 @@ export default function StoryPage() {
       else out.push({ day: d, rows: [r] });
     }
     return out;
-  }, [story.timeline, filter, order]);
+  }, [story.timeline, activeFilter, order]);
   const newest = story.latestReport;
   const latestText = uiLang === "en" ? (englishText(story.timeline.find((r) => r.id === newest?.id)?.english?.title) ?? englishText(story.latest)) : story.latest;
   const overview = uiLang === "en"
@@ -475,12 +478,12 @@ export default function StoryPage() {
               size="xs"
               layoutId="story-report-filter"
               label={t("报道筛选","Filter reports")}
-              active={filter}
+              active={activeFilter}
               onSelect={(k) => setFilter(k as Filter)}
               items={[
                 { key: "all", label: t("全部报道","All reports"), count: counts.all },
-                { key: "official", label: t("官方一手","First-party"), count: counts.official },
-                { key: "selected", label: t("精选报道","Selected"), count: counts.selected },
+                ...(counts.official ? [{ key: "official", label: t("官方一手","First-party"), count: counts.official }] : []),
+                ...(counts.selected ? [{ key: "selected", label: t("精选报道","Selected"), count: counts.selected }] : []),
               ]}
             />
             {days.length === 0 ? (
