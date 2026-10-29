@@ -63,7 +63,21 @@ archive="$work_dir/current.tar"
 # Write as this user via a shell redirect; docker itself requires sudo.
 sudo -n docker save "$image_id" > "$archive"
 local_sha="$(sha256sum "$archive" | awk '{print $1}')"
+# On VM13, high-loss outbound TCP collapses CUBIC's congestion window.
+# BBR is available in the dev kernel; enable it before starting new SSH flows.
+sudo -n modprobe tcp_bbr
+sudo -n sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null
 ssh $ssh_opts ubuntu@"$cn_dev_host" "mkdir -p '$remote_dir'"
+
+# Retain the previous verified archive during transfer and reassembly.
+# Parts plus the new ready archive require up to two more archive copies.
+archive_bytes="$(stat -c %s "$archive")"
+needed_bytes="$((archive_bytes * 2 + 268435456))"
+free_bytes="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "df -B1 --output=avail '$remote_dir' | tail -n 1 | tr -d ' '")"
+if [ "$free_bytes" -lt "$needed_bytes" ]; then
+  echo "cn-dev free space $free_bytes is below safe transport requirement $needed_bytes" >&2
+  exit 1
+fi
 
 # Public VM13→cn-dev TCP shows ~1.47 MB retransmitted of 5.2 MB and cwnd=2.
 # Eight bounded SSH streams move changed blocks concurrently, without any
@@ -132,6 +146,11 @@ remote_revision="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --f
 }
 # Preserve deploy-image.sh's existing content-addressed tag and digest pairing.
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker tag '$image_id' 'eventgraph-dev:${image_id#sha256:}' && printf '%s\n%s\n' 'eventgraph-dev:${image_id#sha256:}' '$EVENTGRAPH_IMAGE' > /home/ubuntu/.eventgraph-last-delivered-image.tmp && mv /home/ubuntu/.eventgraph-last-delivered-image.tmp /home/ubuntu/.eventgraph-last-delivered-image"
+
+# Failed transfers retain resumable parts. After successful verification,
+# remove all parts (including stale tail chunks); the next run seeds from the
+# single verified current.tar. Keep only one full archive in steady state.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "rm -rf -- '$remote_parts'"
 
 # This only runs after the exact verified image has arrived; the retired
 # transport-only registry and its scratch volume have no rollback role.

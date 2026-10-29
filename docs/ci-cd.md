@@ -63,7 +63,8 @@ independent jobs — neither gates the other:
   existing **pinned VM13→cn-dev SSH connection** and `rsync` to deliver a
   immutable Docker archive as 8 MiB parts to cn-dev's stable
   `~/.eventgraph-transfer/parts/part.NNN` scratch files. Up to 8 independently
-  bounded SSH streams run concurrently; `--inplace --partial --no-whole-file`
+  bounded SSH streams run concurrently with VM13's BBR TCP congestion control
+  enabled for the lossy cross-region path. `--inplace --partial --no-whole-file`
   with zstd compression retains changed blocks across failed attempts and
   later releases. The last verified `current.tar` seeds the parts on first use,
   and the parts are reassembled into a separate `current.tar.ready` file. No direct cn-dev GHCR pull, registry proxy, new daemon
@@ -78,9 +79,13 @@ independent jobs — neither gates the other:
   on cn-dev, then verifies the exact image ID and release revision label.
   Only then does it record the existing content-addressed local image tag
   (`eventgraph-dev:<image ID hex>`) and published digest pairing, and remove
-  the retired temporary registry/volume. The single ~700 MB staging archive
-  remains to permit future rsync block deltas; no accumulating per-release
-  archives are kept. The existing `scripts/ci/deploy-image.sh` then deploys
+  the retired temporary registry/volume. After the verified image/tag pairing,
+  temporary parts (including obsolete tail chunks) are deleted. Only the single
+  verified `current.tar` remains in steady state to seed later transfers. During
+  transfer, parts plus `current.tar.ready` can temporarily use two additional
+  archive-sized copies; the preflight requires at least twice the new archive
+  size plus 256 MiB free on cn-dev or fails before transferring. Incomplete
+  transfers retain parts for the next attempt; no per-release archive accumulates. The existing `scripts/ci/deploy-image.sh` then deploys
   only cn-dev's Worker, runs idempotent setup, checks the running revision and
   fresh heartbeat, and rolls back to the previous local image on failure.
   No Web/API containers run on cn-dev, and superseded images are pruned to
