@@ -133,13 +133,13 @@ ensure_tunnel() {
 }
 
 sudo -n docker tag "$image_id" "$registry_repo:$EVENTGRAPH_RELEASE_SHA"
-# Bound the entire push loop to 16 minutes, but cap each attempt at 14
-# minutes. A hung first push must leave time for a second attempt to send the
-# manifest using blobs already committed to the registry. A single timeout
-# equal to the full shared budget would kill the client with no retry time.
+# Normally the pinned base/dependency layers are already in the cn-dev registry.
+# A one-off cold transfer (after a base-image update) can require ~21 minutes at
+# the measured cross-border rate, so reserve 28 minutes total and 3 for a
+# resumable retry. Every attempt is still bounded; a hung push cannot pin CI.
 # timeout runs as root inside sudo to signal docker directly; --quiet avoids
 # progress output on the slow cross-border link.
-push_deadline=$(( $(date +%s) + 16 * 60 ))
+push_deadline=$(( $(date +%s) + 28 * 60 ))
 pushed=0
 attempt=1
 while [ "$attempt" -le 3 ]; do
@@ -150,7 +150,7 @@ while [ "$attempt" -le 3 ]; do
     break
   fi
   attempt_timeout=$remaining
-  [ "$attempt_timeout" -le 840 ] || attempt_timeout=840
+  [ "$attempt_timeout" -le 1500 ] || attempt_timeout=1500
   if sudo -n timeout -k 5 "$attempt_timeout" docker push --quiet "$registry_repo:$EVENTGRAPH_RELEASE_SHA"; then
     pushed=1
     break

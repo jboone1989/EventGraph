@@ -1,6 +1,9 @@
 # One image for every role: setup (migrations and seed), api, worker and web.
 # Build arg NPM_REGISTRY switches the npm registry (e.g. https://registry.npmmirror.com in mainland China).
-FROM node:24-trixie-slim AS base
+# Pin the verified 2026-10-29 amd64/multiarch manifest. Floating node:24-trixie-slim
+# changed its base layers between Oct 28 and Oct 29, turning every release into a
+# full image transfer to cn-dev instead of reusing content-addressed layers.
+FROM node:24-trixie-slim@sha256:54f84b4cf8432b21aaffd5d3ce8d41e12cea0d10d33c09d2f3c9879d49d6b446 AS base
 WORKDIR /app
 # pg_dump for the optional database backups (Debian's client matches the PostgreSQL 17 server in compose).
 RUN apt-get update \
