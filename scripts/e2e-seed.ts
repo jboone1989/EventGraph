@@ -47,9 +47,11 @@ const storyId = existing?.id ?? (await sql<{ id: number }[]>`
   INSERT INTO stories (public_id, title, first_report_at, latest_at) VALUES (gen_random_uuid(), 'E2E 实验室发布开源推理模型', now() - interval '3 hours', now()) RETURNING id`)[0]!.id;
 // The story-route panel renders fact titles verbatim as data (no English-copy pipeline for
 // facts), so the fact seeds in the English edition's wording to keep the /en pages chrome-only.
+// Structured subject/action/object seed the P1 station layer projection (unclassified here).
 const [fact] = await sql<{ id: number }[]>`
-  INSERT INTO facts (public_id, story_id, title) VALUES ('e2e-fact-release', ${storyId}, 'E2E Lab releases an open reasoning model')
-  ON CONFLICT (public_id) DO UPDATE SET title = EXCLUDED.title RETURNING id`;
+  INSERT INTO facts (public_id, story_id, title, subject, action, object)
+  VALUES ('e2e-fact-release', ${storyId}, 'E2E Lab releases an open reasoning model', 'E2E Lab', 'releases an open reasoning model for long documents', 'an open reasoning model')
+  ON CONFLICT (public_id) DO UPDATE SET title = EXCLUDED.title, subject = EXCLUDED.subject, action = EXCLUDED.action, object = EXCLUDED.object RETURNING id`;
 for (const [i, id] of ids.slice(0, 2).entries()) {
   await sql`INSERT INTO fact_articles (fact_id, article_id, role) VALUES (${fact!.id}, ${id}, ${i ? "report" : "primary"}) ON CONFLICT DO NOTHING`;
   if (!(await sql`SELECT 1 FROM story_signals WHERE story_id = ${storyId} AND article_id = ${id}`).length) {

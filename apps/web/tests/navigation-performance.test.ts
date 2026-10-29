@@ -167,6 +167,9 @@ test('intent on a selected link preserves visited data and the next revisit star
   page.on('request',request=>{if(request.url().includes('.data'))requests.push(request.url());});
   try{
     await page.goto(origin+'/');
+    // The hover listener is installed during hydration, not when SSR first paints the link.
+    // Wait for a client-only market fallback before testing the intent prefetch.
+    await expect(page.locator('section[aria-labelledby="market-title"]')).toContainText('行情暂时不可用。');
     // Arm the router's prefetch before navigation so this exercises its mounted state,
     // rather than depending on a loaded runner making a click take over 100ms.
     const prefetched=page.waitForResponse(r=>r.url().includes('_.data?category=research'));

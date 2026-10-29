@@ -4,6 +4,7 @@
 // beyond the local stub; no source is ever created without a passed preview.
 import { stub, tag } from "./setup.ts";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import { after, before, test } from "node:test";
 import { config } from "@aihot/backend/config";
 import { closeDb, sql } from "@aihot/backend/db";
@@ -227,5 +228,56 @@ test("budget exhausted at preview time does not permanently reject the candidate
     assert.ok(run.trialsStarted >= 1);
   } finally {
     await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
+  }
+});
+
+
+// Spec 007 §V/T: a paid discovery outage must not freeze a previously accepted
+// RSS lead; its real HTTP feed preview does not consume the DeepSeek budget.
+test("a queued RSS feed can preview and enter trial while DeepSeek discovery is out of budget", async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "application/rss+xml" });
+    res.end(`<?xml version="1.0"?><rss version="2.0"><channel>
+      <title>Trial publisher</title><link>https://example.org/</link>
+      <description>Publisher updates</description><item>
+      <title>New public report</title><link>https://example.org/new-report</link>
+      <guid>https://example.org/new-report</guid>
+      <pubDate>${new Date().toUTCString()}</pubDate>
+      <description>A real dated report from the local feed fixture.</description>
+      </item></channel></rss>`);
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  const id = `test-discovery-free-rss-${T}`;
+  const rss = { feedUrl: `http://127.0.0.1:${port}/feed.xml`,
+    publishedAfter: new Date(Date.now() - HOUR).toISOString(),
+    _aihot: { initialBackfillLimit: 2 } };
+  const identity = sourceIdentity("rss", rss);
+  assert.ok(identity);
+  try {
+    await sql`INSERT INTO source_candidates
+      (id, identity, status, origin_channel, kind, name, config, tags, rationale, preflight)
+      VALUES (${id}, ${identity}, 'discovered', 'operator', 'rss', 'Free local RSS',
+        ${sql.json(rss)}, ARRAY['测试'], 'independent feed test',
+        ${sql.json({ ok: true, reasons: [] })})`;
+    await sql`UPDATE budgets SET per_day = 0 WHERE service = 'deepseek_web'`;
+    const paidCalls = hits;
+    const run = await runDailyDiscovery();
+    assert.equal(run.skipped, "budget", "paid discovery should still be skipped");
+    assert.equal(hits, paidCalls, "RSS preview must not call DeepSeek");
+    const [candidate] = await sql<{ status: string; preflight: { previewPassed: boolean; previewDated: number } }[]>`
+      SELECT status, preflight FROM source_candidates WHERE id = ${id}`;
+    assert.equal(candidate.status, "trial", "a dated, independently previewed RSS lead must enter T2");
+    assert.equal(candidate.preflight.previewPassed, true);
+    assert.ok(candidate.preflight.previewDated > 0);
+    assert.ok(run.previewed > 0 && run.trialsStarted > 0);
+    const [source] = await sql<{ tier: string; participation_mode: string; site_fulltext: boolean }[]>`
+      SELECT tier, participation_mode, site_fulltext FROM sources WHERE id = ${`lc-${id}`}`;
+    assert.equal(source.tier, "T2");
+    assert.equal(source.participation_mode, "hot_signal");
+    assert.equal(source.site_fulltext, false);
+  } finally {
+    await sql`UPDATE budgets SET per_day = 100000 WHERE service = 'deepseek_web'`;
+    await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });

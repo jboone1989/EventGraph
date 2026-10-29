@@ -45,3 +45,52 @@ StoryRoute 每站只携带最多六条、精选优先的来源，不代表全部
 因此时点查询要求 Graphiti 显式返回 `temporalSupport: "bitemporal-v1"`。
 服务未升级时 API 只返回 `status: "unavailable"` 和空关系，绝不可把当前图谱当历史关系。
 完整的图谱时序功能必须在开发机上部署匹配的 Graphiti 服务并验证后才算上线。
+
+## 影响层与站级证据抽屉（impact-tracing P1）
+
+Spec：`specs/event-impact-tracing-p1/spec.md`（PR #198 merge `b9a913c`，Issue #176 T07）。P1 只补三件
+现有实现缺的东西：封闭的证据类型词汇（`packages/contracts` 的 `IMPACT_EVIDENCE_KINDS`：
+`fact_station` / `related_reporting` / `market_observation`；"客观暴露/依赖"与"分析假设"两类永远只
+以空态文案出现）、事实站的一跳类型化投影、站级来源证据抽屉。无新表、无迁移、无新查询、无模型
+调用、无回填；渲染不触发模型调用。
+
+- **字段透传**：`publicStoryRoute` 在同一条只读查询里补选 `facts.subject/action/object`（可空，null
+  保持 null），`StoryRouteStation` 契约增加同名 `string | null` 字段；公开过滤与合并解析不变。
+- **层归类**（`apps/web/app/features/story/impact-layers.ts` 纯函数）：每个站确定性归入唯一层，
+  优先级 `conflict_event`（结构化 action 命中冲突词）→ `policy_statement` → `company_disclosure`
+  （还须 action 明确为披露/停产/停工陈述）→ `logistics_observation` → `unclassified`。词典复用
+  PR #134；**结构化 action 缺失时不得用标题共现顶替动作守护**，冲突/企业分类不命中。词典只决定
+  "这条事实在哪个层被阅读"，错分可能性存在，层标签一律用"线索/陈述"措辞，绝不使用"影响/导致/
+  生效"，政策站永不显示"拟议/宣布/生效/撤销"阶段标签（是机构言语行为，不是政策生效状态）。
+- **抽屉**：影响工作台的"影响线索"页（手机端"来源"页同样可达）列出带层标签的事实站；每站与每条
+  `related_reporting` 线索都有可展开抽屉：原文链接（`source_open`）、`/items/:id` 入口、修订号
+  （`revision=null` 显示"原版/Original"，首版证据绝不隐藏）、occurred/published/discovered 三个
+  时间（随时钟高亮依据侧）、`singleSource`/`revised`/`occurredAtMissing` 旗标、evidenceKind 标签
+  与"有界重建"警示。事件页的 Story 路线面板同样带层标签与抽屉。
+- **红线**：任何两个层之间不渲染箭头/连线/连线语义，跨层"链"只能以"断链说明"文案出现；Graphiti
+  的泛化 `RELATES_TO` 不参与影响类型化；市场观测只来自 `market_snapshots`（数字共现如 "$117"
+  永不进入）；站点仅在无可显示报道（缺原文链接或缺 published/discovered 必需时间）时隐藏，隐藏不
+  反推不存在。图谱不可用时影响工作台照常渲染（route-only）。
+
+### 只读 DB 复核 SQL（供任意审查者复跑，不进 CI）
+
+```sql
+-- T0（story 3d1ae73d…）事实站与唯一证据行：层输入字段 + 三时间 + 修订
+SELECT f.public_id, f.title, f.subject, f.action, f.object, f.occurred_at,
+       p.revision, p.published_at, p.discovered_at, src.name AS source
+FROM facts f JOIN stories s ON s.id = f.story_id
+JOIN fact_articles fa ON fa.fact_id = f.id JOIN articles a ON a.id = fa.article_id
+JOIN publications p ON p.article_id = a.id JOIN sources src ON src.id = p.source_id
+WHERE s.public_id::text LIKE '3d1ae73d%';
+
+-- USTR 关税表态（story 7bdc9a83…）：政策层站，USTR 官方 + France24 两来源各自修订
+SELECT f.public_id, f.title, f.subject, f.action, f.object, src.name AS source, p.revision
+FROM facts f JOIN stories s ON s.id = f.story_id
+JOIN fact_articles fa ON fa.fact_id = f.id JOIN articles a ON a.id = fa.article_id
+JOIN publications p ON p.article_id = a.id JOIN sources src ON src.id = p.source_id
+WHERE s.public_id::text LIKE '7bdc9a83%' AND p.visibility = 'public';
+
+-- gCaptain 两稿的归组状态（T06 §6.1 背景案例；混淆控制证据）
+SELECT a.id, a.grouping_status, a.title FROM articles a
+JOIN sources src ON src.id = a.source_id WHERE src.id LIKE '%gcaptain%' ORDER BY a.created_at DESC;
+```
