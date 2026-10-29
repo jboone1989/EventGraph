@@ -11,7 +11,7 @@ export async function selectFailure(kind,event,read) {
   if(kind==="workflow_run") {
     const run=event.workflow_run;
     if(run?.name!=="Check" || run?.event!=="pull_request" ||
-       run?.conclusion!=="failure" || run?.head_repository?.full_name!==REPO) return null;
+       run?.conclusion!=="failure" || (run?.head_repository && run.head_repository.full_name!==REPO)) return null;
     sha=run.head_sha; reason="check";runId=run.id;
     numbers=(run.pull_requests||[]).map(p=>p.number);
     if(!numbers.length && /^[a-zA-Z0-9_./-]{1,240}$/.test(run.head_branch||"")) {
