@@ -47,13 +47,20 @@ test("multiple distinct facts sharing one report do not imply one shared uncerta
   });
 });
 
-test("fact revisions remain visible even when the linked source report is unchanged", () => {
-  const fact = station("fact-a", "article-a", { revised: true });
+test("one revised source does not mark unchanged sibling reports as revised", () => {
+  const fact = station("fact-a", "article-a");
   const evidence = reportProvenance(route({
     ...fact,
-    reports: fact.reports.map(report => ({ ...report, revision: 1 })),
+    uncertainty: { ...fact.uncertainty, revised: true },
+    reports: [
+      fact.reports[0]!,
+      { ...fact.reports[0]!, articleId: "article-b", revision: 2 },
+    ],
   }));
   assert.deepEqual(evidence.get("article-a"), {
+    revised: false, singleSourceFact: false, reportTimeOnly: false,
+  });
+  assert.deepEqual(evidence.get("article-b"), {
     revised: true, singleSourceFact: false, reportTimeOnly: false,
   });
 });

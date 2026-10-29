@@ -17,7 +17,9 @@ export function reportProvenance(route: StoryRoute | null): Map<string, ReportPr
     for (const report of displayableStationReports(station)) {
       const prior = byArticle.get(report.articleId);
       byArticle.set(report.articleId, {
-        revised: station.uncertainty.revised || (report.revision !== null && report.revision > 1) || (prior?.revised ?? false),
+        // Route-level revised means SOME report for this fact was edited.
+        // It must not label every unchanged sibling article as revised.
+        revised: (report.revision !== null && report.revision > 1) || (prior?.revised ?? false),
         // A report may support several facts. Only show a restrictive marker if
         // every fact it supports has that uncertainty; do not imply all are alike.
         singleSourceFact: station.uncertainty.singleSource && (prior?.singleSourceFact ?? true),
