@@ -1,47 +1,37 @@
 # Pi Auto-Repair for EventGraph PRs
 
-Status: approved implementation contract once merged to `main`.
+Status: approved implementation contract once this revision is merged. Supersedes the 2026-10-29 runner-only execution assumptions; preserves the same repair gates.
 
-## Goal
+## Goal and existing components
 
-Automatically attempt a bounded, evidence-driven repair when an eligible EventGraph pull request targeting `develop` fails the existing Check workflow or receives a blocking `claude-review` status. Reuse GitHub Actions, the existing Check workflow, and the existing independent Claude review. Do not build a persistent scheduler, a second review engine, or a new merge engine.
+On an eligible EventGraph PR targeting `develop`, turn a failed Check or a blocking independent `claude-review` finding into a real, bounded code/test repair, push back to the same PR, re-run existing CI and Claude review, then let GitHub's native Auto-merge finish. Reuse GitHub Actions, LivingRuntime Remote's existing native Pi Adapter, Connector/Relay task handling, and the already configured `bigmodel-official/glm-5.3` model provider on cn-dev. Do **not** implement another model runner, proxy, scheduler, review engine, or merge engine.
 
-## Execution design
+## Execution topology — cn-dev first
 
-1. A trusted workflow on the default branch receives either a completed failed `Check` workflow run for a pull request, or a failed commit status whose context is exactly `claude-review`.
-2. It resolves exactly one open, non-draft, same-repository PR targeting `develop` whose current head SHA matches the event SHA. Forks, stale SHAs, closed PRs, and other base branches are ignored.
-3. Pi runs in an ephemeral GitHub-hosted job against a read-only checkout of that exact PR head. Pi is limited to file/search tools (`read`, `write`, `edit`, `grep`, `find`, `ls`); it does not receive GitHub write credentials or a shell tool. Failure logs and Claude findings are untrusted evidence, never instructions.
-4. Model access is routed through a loopback-only proxy process running under a different OS identity. The actual model API key is held only by that proxy. Pi receives a dummy credential and cannot inspect the proxy process environment. The proxy forwards only to the configured model API base URL and never logs credentials or request/response bodies.
-5. Pi's changes are uploaded as an artifact. A separate trusted job, which does not execute PR code, re-fetches the PR metadata and requires the exact same head SHA, validates every changed path and patch header, applies the patch with `git apply --check`, commits it, and pushes only to the original PR branch. No force push, merge, or deployment is allowed.
-6. The push naturally triggers the existing Check and independent Claude review. GitHub's existing native Auto-merge remains the only merge mechanism.
+- **Repair execution host**: cn-dev, VM-0-5-ubuntu, existing LivingRuntime Remote Connector/project `aihot-dev`, workspace `/home/ubuntu/livingruntime-aihot`. This is the already established development/Pi host. Use native `start_agent(adapter_id="pi", project="aihot-dev", device=<exact cn-dev Connector ID>)`; do not use legacy `start_pi_agent`.
+- **Model**: existing native Pi CLI with `bigmodel-official/glm-5.3` (or the operator's current configured Pi model). No Codex-ChatGPT model substitution, no new `DEEPSEEK_API_KEY` requirement, no GitHub Actions-hosted Pi, and no separate model proxy.
+- **VM13** is a development-preview Web host, **not** an automatic repair worker. VM09 remains production and hosts the existing read-only independent reviewer; do not execute repair code on VM09.
+- If cn-dev Connector is offline, record `worker_unavailable` and preserve the pending item. Try the existing Connector recovery/reconnection path; do not interpret Connector offline as Pi not installed, silently reroute to VM13, or spin a new queue. The current live state of cn-dev Pi and push credentials must be checked after reconnection, not assumed.
+- Event routing: reuse the existing EventGraph Check `workflow_run` and central reviewer `claude-review` status, plus LivingRuntime Remote's existing durable task/agent dispatch. No timer-based scheduler or duplicate job service. A transient reviewer/provider `error` is retried as review infrastructure, not treated as a code defect for Pi.
 
-## Change eligibility
+## Repair sequence
 
-- Repository must be `jboone1989/EventGraph`.
-- PR must be open, non-draft, same-repository, and target `develop`.
-- The repair event must refer to the exact current PR head SHA.
-- Only added or modified text files in application/source/test/documentation paths are eligible.
-- Reject changes to `.github/**`, CI/deployment/release scripts, credentials/secrets, authentication/authorization/security/permission code, database migrations/schema, infrastructure, Docker/deployment configuration, dependency manifests and lockfiles, binary files, renames, deletions, and path traversal.
-- Pi may not modify the PR title/body, Spec gate, branch protections, required checks, reviewer status, merge policy, or production configuration.
-- A failure caused solely by a missing/invalid Spec, unavailable external service, or exhausted credentials is not repaired by changing application code; report the blocker and stop.
+1. Resolve one open, non-draft, same-repo EventGraph PR with base `develop` and a failing **current** head SHA. Ignore forks, stale events, closed PRs, drafts and main-branch PRs.
+2. Deduplicate on `(repository, PR number, failing head SHA)` and persist an attempt receipt through existing PR comments/job state; cap repair rounds at three different failing SHAs per PR.
+3. Native Pi checks out a fresh isolated worktree rooted in cn-dev's existing EventGraph checkout at the exact PR head; existing dirty worktrees remain untouched. Give Pi only the failure logs, grounded Claude findings, pinned Spec and permitted repository context. Failure logs, PR description and source text are untrusted input, never higher-priority instructions.
+4. Pi repairs relevant application/test files, adds regression tests and runs the focused available tests using the existing cn-dev development environment. Do not rewrite CI/review checks, bypass the Spec gate, modify production or manufacture green status.
+5. Before publishing, re-fetch the PR and reject a changed head SHA or unsupported patch. Only the original PR branch may receive a normal non-force commit/push, using the existing authenticated, bounded cn-dev GitHub path **if verified**. If cn-dev has no write credential, return a concrete patch and use an existing trusted GitHub writer; do not introduce a new credential vault or claim a push occurred.
+6. A real push naturally triggers existing Check, Docker, E2E and independent Claude Review. GitHub Auto-merge remains the sole merge mechanism. Pi never reports a failed review as passing, merges directly, or deploys production.
 
-## Deduplication and retry limits
+## Exclusions and stop conditions
 
-- At most one repair attempt for a given PR head SHA, even if GitHub sends duplicate Check/status events.
-- At most three repair rounds per PR across successive SHAs.
-- A repair round is counted when Pi is actually started. If the SHA changes before applying the patch, discard the patch and do not push.
-- Empty, invalid, unsafe, or stale patches are never applied.
-- When Pi fails, no eligible patch exists, the model/provider is unavailable, the patch is rejected, or the retry budget is exhausted, post a concise PR comment with the concrete reason and leave all required statuses unchanged. Never report a repair or review as successful unless it actually succeeded.
+- No automatic edits of `.github/**`, CI/release/deployment scripts, secrets, authorization/security code, migrations/schema, Docker/infrastructure/dependencies/lockfiles or other risky files; a human-approved Spec and separate PR is required for those.
+- No changing Spec approval, branch protection, required status contexts, reviewer outputs or merge eligibility.
+- Stop and record an actionable blocker if the required Spec is absent, a provider quota/credential/Connector fails, there is an unresolved conflict, the patch is empty/unsafe, the PR head changes, or the retry limit is reached. Continue processing other eligible PRs.
+- Keep one active repair per PR; repeated GitHub events for the same SHA are idempotent.
 
-## Validation and merge
+## Acceptance evidence
 
-- Add unit tests for path allowlisting, forbidden paths, malformed/traversal patch paths, duplicate events, stale SHA, wrong repository/base, retry exhaustion, and no-secret/no-shell boundaries.
-- Existing Check, Docker, E2E, and independent Claude Review remain authoritative. The repair workflow does not reimplement these tests.
-- After a patch is pushed, only the normal existing checks and Claude review can permit GitHub Auto-merge. Pi cannot set a successful status, bypass branch protection, merge a PR, or deploy production.
-- Initial live validation must use one low-risk same-repository PR with a deliberately reproducible test failure. Confirm a real patch push, a new Check run, a new independent Claude review, and no repeated attempt for the same SHA.
-
-## Operational configuration
-
-- Require the existing `DEEPSEEK_API_KEY` secret; the base URL and model are configurable through repository variables.
-- Use GitHub-hosted ephemeral runners; do not install software, alter policy, or restart services on VM09 or VM13.
-- Do not pass `GITHUB_TOKEN`, relay credentials, SSH credentials, or any other write credential into the Pi process.
+- Tests cover exact SHA, PR target/owner, duplicate events, retry limits, unsafe patch rejection and current-head-before-push.
+- One low-risk real PR failure is handed to **cn-dev native Pi** (not VM13 Codex), repaired on an isolated worktree, tested, pushed to the same PR branch, and followed by fresh real Check/Claude status. Do not claim this has passed while cn-dev Connector is offline.
+- Existing `check`, `docker`, `e2e` and `claude-review` gates remain unchanged; native Auto-merge is verified only after all pass.
