@@ -1,7 +1,7 @@
 // The knowledge graph: the map draws when the graph has data, and an entity page lists its relations.
 import { test, expect } from "@playwright/test";
 import { open, samples } from "./site.ts";
-import { publicGraphHasData, readSiteJSON, requireGraph, seeded } from "./data.ts";
+import { publicGraphHasData, readSiteJSON, requireGraph, requireSeededRelation, seeded } from "./data.ts";
 
 const base = process.env.E2E_BASE_URL ?? "http://127.0.0.1:3000";
 const stats = await readSiteJSON(base, "/api/site/knowledge/stats");
@@ -17,11 +17,7 @@ test("the knowledge map draws the graph", async ({ page }) => {
   test.skip(!seeded() && !publicGraphHasData(stats, overview, network),
     `no publicly cited graph at this site (status ${stats?.status ?? "unknown"})`);
   requireGraph(stats, overview, network);
-  if (seeded()) {
-    const relation = overview.edges.find((edge: any) => edge.id === "e2e-python-feature");
-    expect(relation?.evidence.map((item: any) => item.articleId)).toContain("e2e-python-3130");
-    expect(network.links.some((link: any) => link.id === "e2e-python-feature")).toBe(true);
-  }
+  if (seeded()) requireSeededRelation(overview, network, "e2e-python-feature", "e2e-python-3130");
   expect(overview.edges.every((edge: any) => edge.evidence?.length > 0)).toBe(true);
   await open(page, `/knowledge?entity=${encodeURIComponent(entity!)}`);
   const canvas = page.locator(".lr-atlas-canvas");
