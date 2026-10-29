@@ -135,3 +135,41 @@ test("missing source metadata stays unknown; unrelated records cannot enter publ
     originalSourceVerified: false,
   });
 });
+
+test("recorded model relations resolve only candidates with visible public Fact evidence", () => {
+  const memberships = [
+    { factId: "f1", factNumericId: 11, articleId: "a", role: "primary",
+      factManual: false, membershipManual: false, evidence: null },
+    { factId: "f2", factNumericId: 42, articleId: "b", role: "primary",
+      factManual: false, membershipManual: false, evidence: null },
+    { factId: "private", factNumericId: 99, articleId: "not-public", role: "report",
+      factManual: false, membershipManual: false, evidence: null },
+  ];
+  const decisions = [{
+    id: 7, articleId: "a", verdict: "new_fact", factId: 11, storyId: 2,
+    receiptId: 9, createdAt: "2026-10-25",
+    candidates: [
+      { id: 42, score: 0.88, relation: "UNRELATED", confidence: 0.91 },
+      { id: 99, score: 0.92, relation: "SAME_OCCURRENCE", confidence: 0.99 },
+    ],
+  }];
+  const result = storyFactDiagnosis(route([station("f1", "a"), station("f2", "b")]),
+    memberships, decisions);
+  assert.deepEqual(result.facts[0]!.reports[0]!.candidateRouteRelations, [{
+    decisionId: 7,
+    visibleCandidates: [{
+      factId: "f2", relation: "UNRELATED", score: 0.88, confidence: 0.91,
+    }],
+  }]);
+  assert.equal(result.facts[0]!.reports[0]!.groupingHistory[0]!.candidates, decisions[0]!.candidates);
+});
+
+test("missing or malformed model candidates do not become fabricated recall failures", () => {
+  const result = storyFactDiagnosis(route([station("f1", "a")]), [], [{
+    id: 1, articleId: "a", verdict: "kept", candidates: null,
+    factId: null, storyId: null, receiptId: null, createdAt: "2026-10-25",
+  }]);
+  assert.deepEqual(result.facts[0]!.reports[0]!.candidateRouteRelations, [
+    { decisionId: 1, visibleCandidates: [] },
+  ]);
+});
