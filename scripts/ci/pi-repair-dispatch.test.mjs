@@ -44,15 +44,13 @@ test("rejects ambiguous PR associations",async()=>{
   assert.equal(answer,null);
 });
 
-test("routes independent review failure and error statuses, ignores nonblocking states",async()=>{
+test("routes confirmed blocking reviews but not provider or reviewer infrastructure errors",async()=>{
   const ev={context:"claude-review",state:"failure",sha,repository:{full_name:repo}};
-  for (const state of ["failure","error"]) {
-    const answer=await selectFailure("status",{...ev,state},async(path)=>
-      path.includes("commits/")?[{number:101}]:pr);
-    assert.equal(answer.failure_kind,"claude-review");
-    assert.equal(answer.sha,sha);
-  }
-  for (const state of ["success","pending"]) {
+  const answer=await selectFailure("status",ev,async(path)=>
+    path.includes("commits/")?[{number:101}]:pr);
+  assert.equal(answer.failure_kind,"claude-review");
+  assert.equal(answer.sha,sha);
+  for (const state of ["success","pending","error"]) {
     assert.equal(await selectFailure("status",{...ev,state},async()=>pr),null);
   }
   assert.equal(await selectFailure("status",{...ev,context:"e2e"},async()=>pr),null);
