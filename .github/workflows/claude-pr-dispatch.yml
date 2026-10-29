@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  statuses: read
+
+concurrency:
+  group: review-forward-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
 
 jobs:
   notify:
@@ -43,6 +48,14 @@ jobs:
           fi
           if [[ "$live_sha" != "$CHECK_SHA" ]]; then
             echo "Superseded Check SHA; next passing Check will dispatch"
+            exit 0
+          fi
+          # Central reviewer already deduplicates per PR and SHA. Avoid unnecessary
+          # dispatch once its durable commit status exists, including a failed review.
+          review_status="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/status" \
+            --jq '[.statuses[] | select(.context == "claude-review")][0].state // "missing"')"
+          if [[ "$review_status" != missing ]]; then
+            echo "Existing claude-review=$review_status at $CHECK_SHA; no repeated dispatch"
             exit 0
           fi
           if [[ -z "${CENTRAL_TOKEN:-}" ]]; then
