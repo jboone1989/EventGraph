@@ -57,6 +57,17 @@ test("source names, EIA mentions, lookalike hosts and unsafe URLs never authenti
   }
 });
 
+test("freight-only Chinese and English reporting remains discoverable without numeric inference", () => {
+  const rows = [station("en", "https://gcaptain.com/freight-report"),
+    station("zh", "https://example.org/market-brief"), station("unrelated", "https://example.org/weather")];
+  const out = energyShippingEvidenceAt(route(rows),
+    [report("en", "Freight costs rise"), report("zh", "集装箱运价上涨"),
+      report("unrelated", "Sunny weather")], discovered, "known");
+  assert.deepEqual(out.shipping.map(x => x.articleId), ["en", "zh"]);
+  assert.equal(out.energy.length, 0);
+  assert.ok(out.shipping.every(x => x.evidenceKind === "related_reporting" && !("price" in x)));
+});
+
 test("PortWatch remains excluded and numerical report text never becomes an observation", () => {
   const rows = [station("p", "https://portwatch.imf.org/"), station("f", "https://gcaptain.com/report")];
   const out = energyShippingEvidenceAt(route(rows),
