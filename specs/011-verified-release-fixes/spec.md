@@ -26,7 +26,7 @@
 | AC-2 | Every successful promote run leaves `LRSITE_APP_IMAGE_REF=<pinned IMAGE_REF>` in the host `.env` | `WRITE_RELEASE` writes the key from the validated `IMAGE_REF` argument on both the pull and keep paths (PR #112) |
 | AC-3 | `promote` fails when the pinned digest differs from the digest of `sha-<SOURCE_SHA>` | workflow resolves the tag digest and compares it to `IMAGE_REF`; format check fails closed (PR #112) |
 | AC-4 | Home page hydrates with zero hydration-mismatch console errors | browser verification on the local develop build 2026-10-24: reload before the fix logged the `y2`/`cy` mismatch every load; after, zero errors and two-decimal coordinates |
-| AC-5 | English daily/monthly calendar renders without duplicate-key React warnings | SPA navigation `/daily→/hot→/daily` on the local build: 4 warnings per pass before the fix, 0 after |
+| AC-5 | English daily calendar renders without duplicate-key React warnings | SPA navigation `/daily→/hot→/daily` on the local build: 4 warnings per pass before the fix, 0 after (weekly and monthly grids render no heads at all) |
 
 ## Validation
 
