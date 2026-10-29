@@ -1,7 +1,7 @@
 // Read-only evidence markers for the canonical Story report timeline. Every marker
 // comes from the existing fact route; no Fact identity or public report is merged.
 import type { StoryRoute } from "@aihot/contracts/site";
-import { displayableStationReports } from "./impact-layers";
+import { displayableStationReports } from "./impact-layers.ts";
 
 export type ReportProvenance = {
   revised: boolean;
