@@ -1,7 +1,7 @@
 // Execute the real Action shell preflight with a fake gh status endpoint.
 // This validates status-based dedupe without contacting GitHub or running a model.
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,17 +34,25 @@ test "$FAKE_STATUS" != api-failed
 }
 
 test("completed status on the exact SHA prevents duplicate paid review", () => {
-  for (const state of ["success", "failure", "error", "pending"]) {
+  for (const state of ["success", "failure", "pending"]) {
     const result = run(state);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.outputs, /required=false/);
   }
 });
 
-test("a new SHA with no review status invokes central reviewer", () => {
-  const result = run("missing");
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.outputs, /required=true/);
+test("missing or infrastructure-error review may retry after a successful Check", () => {
+  for (const state of ["missing", "error"]) {
+    const result = run(state);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.outputs, /required=true/);
+  }
+});
+
+test("unknown status fails closed rather than marking the reviewer complete", () => {
+  const result = run("unknown");
+  assert.notEqual(result.status, 0);
+  assert.doesNotMatch(result.outputs, /required=(?:true|false)/);
 });
 
 test("invalid SHA or failed API cannot give review-required output", () => {
