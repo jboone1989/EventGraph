@@ -64,7 +64,7 @@ export const SIBLING_REPORT_TITLES = sql`(
     SELECT concat_ws(' | ', s2.name, p2.title) AS t
     FROM publications p2 JOIN sources s2 ON s2.id = p2.source_id
     WHERE p2.story_id = p.story_id AND p2.article_id <> p.article_id AND p2.visibility = 'public'
-      AND p2.eligible AND (NOT p2.selected OR p2.visible_after <= now())
+      AND p2.eligible AND p2.visible_after <= now()
     ORDER BY coalesce(p2.published_at, p2.discovered_at) DESC LIMIT 5
   ) x)`;
 
