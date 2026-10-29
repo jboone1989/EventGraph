@@ -250,11 +250,12 @@ test("only released, publicly listed siblings enter another report's model conte
 
   await sql`UPDATE publications SET visible_after = now() - interval '1 day' WHERE article_id = ${hidden}`;
   const after = await explanationCandidateFor(main);
-  assert.ok(after?.other_reports?.some((title) => title.includes(`sibling-unreleased ${T}`)),
+  // Publication titles are the analysed Chinese copy (slug-tag), not the original English material (slug tag).
+  assert.ok(after?.other_reports?.some((title) => title.includes(`sibling-unreleased-${T}`)),
     "the now-released and selected sibling becomes context only after its visibility time");
-  assert.ok(!after?.other_reports?.some((title) => title.includes(`sibling-unselected ${T}`)),
+  assert.ok(!after?.other_reports?.some((title) => title.includes(`sibling-unselected-${T}`)),
     "a non-public unselected sibling does not enter another report's context");
-  assert.ok(!after?.other_reports?.some((title) => title.includes(`sibling-post ${T}`)),
+  assert.ok(!after?.other_reports?.some((title) => title.includes(`sibling-post-${T}`)),
     "a post never enters another news report's model context");
 });
 
