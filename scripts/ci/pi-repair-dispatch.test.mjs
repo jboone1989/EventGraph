@@ -30,6 +30,14 @@ test("skips stale SHA, main, forks, drafts and closed PR",async()=>{
   }
 });
 
+test("Check payloads may omit head_repository but explicit foreign repositories are rejected",async()=>{
+  const missing={...run,head_repository:undefined};
+  const selected=await selectFailure("workflow_run",{workflow_run:missing},async()=>pr);
+  assert.equal(selected?.pr_number,101);
+  const foreign={...run,head_repository:{full_name:"outsider/fork"}};
+  assert.equal(await selectFailure("workflow_run",{workflow_run:foreign},async()=>pr),null);
+});
+
 test("resolves PR by head branch when workflow event has no PR association",async()=>{
   const answer=await selectFailure("workflow_run",{workflow_run:{...run,
     pull_requests:[],head_branch:"feat/repair"}},async(path)=>
