@@ -7,6 +7,8 @@
 //     node scripts/explain-acceptance.ts [--ids a,b,c] [--zh 6 --en 6] [--out <file>]
 // Without --ids the sample is the newest pending selected news reports, six per language, at most one
 // per source; prefer a mix of licensed-full and summary-only sources when reporting E-06.
+// Default sampling is strict: if six distinct sources per language are unavailable, stop before
+// paid calls. Explicit --ids supports focused retests, not an automatic 12-sample signoff.
 import { writeFile } from "node:fs/promises";
 import { sql, closeDb } from "@aihot/backend/db";
 import { explanationCandidateFor, explanationsPending, explainLanguage, explainOne, explainPromptVersion, type ExplainCandidate } from "@aihot/backend/editorial/explain";
@@ -47,11 +49,18 @@ for (const id of ids ?? []) {
   if (!row) { console.error(`no selected publication for article ${id}`); process.exitCode = 1; }
   else rows.push(row);
 }
-if (!ids?.length) rows.push(...(await pick(Number(arg("zh") ?? 6), Number(arg("en") ?? 6))));
+const requestedZh = Number(arg("zh") ?? 6);
+const requestedEn = Number(arg("en") ?? 6);
+if (!ids?.length) rows.push(...(await pick(requestedZh, requestedEn)));
 
 const zhCount = rows.filter((r) => explainLanguage(r) === "zh").length;
-console.log(`model route: ${model} · samples: ${rows.length} (zh ${zhCount}, en ${rows.length - zhCount})`);
-if (rows.length === 0) process.exit(1);
+const enCount = rows.length - zhCount;
+console.log(`model route: ${model} · samples: ${rows.length} (zh ${zhCount}, en ${enCount})`);
+if (process.exitCode || rows.length === 0 || (!ids?.length && (zhCount !== requestedZh || enCount !== requestedEn))) {
+  console.error(`incomplete acceptance sample: requested zh ${requestedZh}/en ${requestedEn}, found zh ${zhCount}/en ${enCount}; no paid calls started`);
+  await closeDb();
+  process.exit(1);
+}
 
 const sections: string[] = [];
 const counts = { written: 0, insufficient_evidence: 0, failed: 0 } as Record<string, number>;
@@ -85,8 +94,9 @@ ${JSON.stringify(detail?.content ?? null, null, 2)}
 const out = arg("out") ?? "specs/news-explainer/acceptance-run.md";
 await writeFile(out, `# Item explainer acceptance run — ${new Date().toISOString()}
 
-Model route \`${model}\`, run on cn-dev against the managed provider; every sample below is one paid call
-with its receipt. Sample: the newest pending selected news reports (one per source) or an explicit
+Model route \`${model}\`, run against the managed provider. Each sample records its actual
+outcome and receipt if available; halted/skipped attempts are not claimed as paid calls.
+Sample: the newest pending selected news reports (one per source) or an explicit
 \`--ids\` list. Grounding and language rules: specs/news-explainer D-01–D-04; per-claim audit E-06.
 
 - outcome counts: ${JSON.stringify(counts)}
