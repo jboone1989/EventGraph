@@ -10,7 +10,7 @@ import type { StoryRoute, StoryRouteReport, StoryRouteStation } from "@aihot/con
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { localizedSourceName } from "../../lib/english";
 import { localizedMonthDayTime } from "../../lib/format";
-import { displayableStationReports, LAYER_LABELS, stationEvidenceAt, type ImpactStationLayer } from "./impact-layers";
+import { displayableStationReports, isRevisedRevision, LAYER_LABELS, stationEvidenceAt, type ImpactStationLayer } from "./impact-layers";
 
 export function EvidenceRow({ report, clock }: { report: StoryRouteReport; clock?: "known" | "valid" }) {
   const t = useText(), lang = useUiLanguage();
@@ -28,7 +28,7 @@ export function EvidenceRow({ report, clock }: { report: StoryRouteReport; clock
       <Link to={(lang === "en" ? "/en" : "") + "/items/" + encodeURIComponent(report.articleId)}
         className="text-[11.5px] text-accent hover:underline">{t("本站报道页", "Report page")}</Link>
       <span className="text-[11.5px] text-ink-4">
-        {report.revision
+        {isRevisedRevision(report.revision)
           ? <>{t("版本", "Revision")} {report.revision} · {t("现为修订版", "currently revised")}</>
           : t("原版 / Original", "Original / first version")}
       </span>
@@ -61,7 +61,7 @@ export function StationEvidenceDrawer({ station, clock }: { station: StoryRouteS
       {structured.some(([, v]) => v) && <dl className="mb-2 grid gap-x-4 gap-y-0.5 text-[11.5px] text-ink-4 sm:grid-cols-3">
         {structured.map(([label, value]) => <div key={label} className="flex min-w-0 gap-1.5">
           <dt className="shrink-0">{label}：</dt>
-          <dd className="truncate" title={value ?? undefined}>{value ?? t("未记录", "not recorded")}</dd>
+          <dd className="min-w-0 break-words [overflow-wrap:anywhere]">{value ?? t("未记录", "not recorded")}</dd>
         </div>)}
       </dl>}
       <dl className="mb-2 text-[11.5px] text-ink-4">
