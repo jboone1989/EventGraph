@@ -5,6 +5,9 @@ export type Membership = {
   factManual: boolean; membershipManual: boolean;
   evidence: string | null;
 };
+export type SourceRecord = {
+  articleId: string; tier: string | null; bodyMode: "full" | "summary" | null;
+};
 export type DecisionTrace = {
   id: number; articleId: string; verdict: string; candidates: unknown;
   factId: number | null; storyId: number | null;
@@ -16,6 +19,7 @@ export function storyFactDiagnosis(
   route: StoryRoute,
   memberships: readonly Membership[],
   decisions: readonly DecisionTrace[],
+  sourceRecords: readonly SourceRecord[] = [],
 ) {
   const visible = new Set(route.stations.flatMap(s => s.reports.map(r => r.articleId)));
   const byArticle = new Map<string, DecisionTrace[]>();
@@ -26,6 +30,7 @@ export function storyFactDiagnosis(
     byArticle.set(decision.articleId, history);
   }
   const membershipsByKey = new Map(memberships.map(m => [`${m.factId}\0${m.articleId}`, m]));
+  const sourceByArticle = new Map(sourceRecords.filter(r => visible.has(r.articleId)).map(r => [r.articleId, r]));
   const linkedFacts = new Map<string, Set<string>>();
   const mentionFacts = new Map<string, Set<string>>();
   // Only primary/report memberships are occurrence evidence. A 'mention'
@@ -65,6 +70,15 @@ export function storyFactDiagnosis(
         manual: member?.membershipManual ?? null,
         factManual: member?.factManual ?? null,
         membershipEvidence: member?.evidence ?? null,
+        sourceRecord: (() => {
+          const recorded = sourceByArticle.get(report.articleId);
+          return {
+            tier: recorded?.tier ?? null,
+            bodyMode: recorded?.bodyMode ?? null,
+            attribution: !recorded?.tier ? "metadata_missing" : recorded.tier === "T1" ? "recorded_first_party" : "recorded_other",
+            originalSourceVerified: false,
+          };
+        })(),
         alsoInFactIds: [...(linkedFacts.get(report.articleId) ?? [])]
           .filter(id => id !== station.factId).sort(),
         mentionedInFactIds: [...(mentionFacts.get(report.articleId) ?? [])]
