@@ -1,6 +1,7 @@
 # EventGraph forwards a Check's exact SHA to the central GLM reviewer.
-# Only a missing durable review status triggers an additional paid review; central
-# preflight still authenticates the actual completed PR Check before model use.
+# A missing status or prior infrastructure error needs real review; success,
+# verified blocking failure and in-flight pending results are not duplicated.
+# Central preflight validates the completed PR Check before model use.
 name: Forward PR to central GLM review
 
 on:
@@ -35,12 +36,22 @@ jobs:
           [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
           state="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/status" \
             --jq '[.statuses[] | select(.context == "claude-review")][0].state // "missing"')"
-          if [[ "$state" == missing ]]; then
-            echo 'required=true' >> "$GITHUB_OUTPUT"
-          else
-            echo "Already reviewed HEAD $CHECK_SHA: $state; no duplicate model dispatch"
-            echo 'required=false' >> "$GITHUB_OUTPUT"
-          fi
+          case "$state" in
+            missing|error)
+              # A failed reviewer/transport is not a code verdict. Allow the
+              # next successful Check to retry instead of sticking forever.
+              echo "Review needed for HEAD $CHECK_SHA: $state"
+              echo 'required=true' >> "$GITHUB_OUTPUT"
+              ;;
+            success|failure|pending)
+              echo "Review already resolved or running for HEAD $CHECK_SHA: $state"
+              echo 'required=false' >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unrecognized review status: $state" >&2
+              exit 1
+              ;;
+          esac
 
   official-glm-review:
     needs: review-status
