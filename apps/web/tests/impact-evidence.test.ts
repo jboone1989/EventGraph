@@ -96,3 +96,15 @@ test("markets cannot show an after-event price before that snapshot exists", () 
   assert.deepEqual(marketObservationAt(market, t1)?.assets.map(x => x.asset), ["ETH"]);
   assert.deepEqual(marketObservationAt(market, t2)?.assets.map(x => x.asset), ["BTC", "ETH"]);
 });
+
+
+test("valid-time impact leads do not render reports with missing discovery provenance", () => {
+  const s = station("dated");
+  const r = route([s]);
+  const news = [report("dated", "Shipping disruption")];
+  s.reports[0]!.discoveredAt = "unknown";
+  assert.equal(impactLeadsAt(r, news, t2, "valid").logistics.length, 0);
+  s.reports[0]!.discoveredAt = t1;
+  assert.equal(impactLeadsAt(r, [report("dated", "Shipping disruption", t0, "unknown")], t2, "valid").logistics.length, 0);
+  assert.equal(impactLeadsAt(r, news, t0, "valid").logistics.length, 1);
+});

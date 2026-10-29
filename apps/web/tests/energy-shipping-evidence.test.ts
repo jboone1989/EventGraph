@@ -106,3 +106,18 @@ test("PortWatch remains excluded and numerical report text never becomes an obse
   assert.equal(out.shipping[0]?.title, "Shipping freight index rises to 123");
   assert.ok(out.shipping.every(x => !Object.keys(x).some(k => /price|value|count|change|baseline/i.test(k))));
 });
+
+
+test("valid-time reporting still requires trustworthy discovery timestamps on both evidence and public timeline", () => {
+  const s = station("e", "https://www.eia.gov/todayinenergy/");
+  const r = route([s]);
+  const news = [report("e", "Energy outlook")];
+  s.reports[0]!.discoveredAt = "not-a-timestamp";
+  assert.equal(energyShippingEvidenceAt(r, news, discovered, "valid").energy.length, 0);
+  s.reports[0]!.discoveredAt = discovered;
+  const invalidPublicDiscovery = [{ ...news[0]!, discoveredAt: "not-a-timestamp" }];
+  assert.equal(energyShippingEvidenceAt(r, invalidPublicDiscovery, discovered, "valid").energy.length, 0);
+  assert.equal(energyShippingEvidenceAt(r, invalidPublicDiscovery, discovered, "known").energy.length, 0);
+  // A *valid* discovery after the selected publication cutoff remains allowed in valid-time replay.
+  assert.equal(energyShippingEvidenceAt(r, news, published, "valid").energy.length, 1);
+});

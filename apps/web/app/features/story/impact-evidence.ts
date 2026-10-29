@@ -45,7 +45,7 @@ function inScope(report: StoryRouteReport, cutoff: number, clock: "known" | "val
   const at = clock === "known" ? report.discoveredAt : report.publishedAt;
   // A future-dated or embargoed publication cannot appear before its stated
   // publication time, even if a collector saw it earlier (replay.ts contract).
-  return timestamp(report.publishedAt) && Date.parse(report.publishedAt!) <= cutoff &&
+  return timestamp(report.discoveredAt) && timestamp(report.publishedAt) && Date.parse(report.publishedAt!) <= cutoff &&
     timestamp(at) && Date.parse(at!) <= cutoff;
 }
 
@@ -88,7 +88,8 @@ export function publicImpactReportsAt(
       if (!report || seen.has(evidence.articleId)) continue;
       // Route evidence and the public timeline are independent inputs. A stale
       // route timestamp must never reveal a report before its public release.
-      if (!timestamp(report.publishedAt) || Date.parse(report.publishedAt) > cutoff ||
+      if (!timestamp(report.publishedAt) || !timestamp(report.discoveredAt) ||
+          Date.parse(report.publishedAt) > cutoff ||
           (clock === "known" && (!timestamp(report.discoveredAt) || Date.parse(report.discoveredAt) > cutoff))) continue;
       seen.add(evidence.articleId);
       out.push({
