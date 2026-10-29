@@ -371,12 +371,12 @@ test("a wedged push is killed by the watchdog budget and the retry completes the
   assert.ok(timeouts.length >= 2, `every attempt must be watchdog-bounded — got: ${timeouts.join(" || ")}`);
   // Advance the fake clock by the actual watchdog duration on expiry.
   // The first attempt must leave time for a retry after its simulated stall.
-  assert.equal(Number(timeouts[0]!.split(" ")[0]), 14 * 60, "first attempt must reserve 2m for retry");
-  assert.ok(Number(timeouts[1]!.split(" ")[0]) > 0 && Number(timeouts[1]!.split(" ")[0]) <= 2 * 60,
+  assert.equal(Number(timeouts[0]!.split(" ")[0]), 25 * 60, "cold transfer must reserve 3m for retry");
+  assert.ok(Number(timeouts[1]!.split(" ")[0]) > 0 && Number(timeouts[1]!.split(" ")[0]) <= 3 * 60,
     "second attempt must use the remaining shared budget after the real timeout");
   for (const t of timeouts) {
     const dur = Number(t.split(" ")[0]);
-    assert.ok(dur > 0 && dur <= 16 * 60, `the budget must fit appleboy's 20m command_timeout: ${t}`);
+    assert.ok(dur > 0 && dur <= 28 * 60, `the budget must fit appleboy's 34m command_timeout: ${t}`);
     assert.ok(t.includes("push") && t.includes("--quiet"), `the watchdog must wrap the quiet push: ${t}`);
   }
   assert.match(content(path.join(dir, "ssh-calls.log")), /docker pull/, "the verified pull still happens");
