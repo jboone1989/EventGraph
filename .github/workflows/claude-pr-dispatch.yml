@@ -91,13 +91,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ${{ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ }}
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
           pr_number="$EVENT_PR_NUMBER"
-          if ${{ ! "$pr_number" =~ ^[1-9][0-9]*$ }}; then
+          if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
             pr_number="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/pulls?per_page=100" \
               --jq '[.[] | select(.state == "open" and .base.ref == "develop" and .head.sha == "'"$CHECK_SHA"'")] | if length == 1 then .[0].number else empty end')"
           fi
-          if ${{ ! "$pr_number" =~ ^[1-9][0-9]*$ }}; then
+          if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
             echo 'No unique current PR for passing Check; nothing to review.'
             exit 0
           fi
