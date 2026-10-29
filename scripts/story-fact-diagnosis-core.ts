@@ -1,7 +1,7 @@
 import type { StoryRoute } from "../packages/contracts/src/site.ts";
 
 export type Membership = {
-  factId: string; articleId: string; role: string;
+  factId: string; articleId: string; role: string; factNumericId?: number;
   factManual: boolean; membershipManual: boolean;
   evidence: string | null;
 };
@@ -13,6 +13,25 @@ export type DecisionTrace = {
   factId: number | null; storyId: number | null;
   receiptId: number | null; createdAt: string;
 };
+
+/** Candidate IDs are internal; only candidates matching visible route Facts are resolved. */
+function visibleCandidateRelations(history: readonly DecisionTrace[], routeIds: ReadonlyMap<number, string>) {
+  return history.map(decision => ({
+    decisionId: decision.id,
+    visibleCandidates: Array.isArray(decision.candidates) ? decision.candidates.flatMap(value => {
+      if (!value || typeof value !== "object") return [];
+      const candidate = value as Record<string, unknown>;
+      const factId = typeof candidate.id === "number" ? routeIds.get(candidate.id) : undefined;
+      if (!factId) return [];
+      return [{
+        factId,
+        relation: typeof candidate.relation === "string" ? candidate.relation : null,
+        score: typeof candidate.score === "number" ? candidate.score : null,
+        confidence: typeof candidate.confidence === "number" ? candidate.confidence : null,
+      }];
+    }) : [],
+  }));
+}
 
 /** A review ledger, not a classifier. Shared reporting does not establish identical occurrences. */
 export function storyFactDiagnosis(
@@ -31,6 +50,10 @@ export function storyFactDiagnosis(
   }
   const membershipsByKey = new Map(memberships.map(m => [`${m.factId}\0${m.articleId}`, m]));
   const sourceByArticle = new Map(sourceRecords.filter(r => visible.has(r.articleId)).map(r => [r.articleId, r]));
+  const routeFactIds = new Set(route.stations.map(s => s.factId));
+  const publicIdByNumeric = new Map(memberships
+    .filter(m => visible.has(m.articleId) && routeFactIds.has(m.factId) && m.factNumericId !== undefined)
+    .map(m => [m.factNumericId!, m.factId] as const));
   const linkedFacts = new Map<string, Set<string>>();
   const mentionFacts = new Map<string, Set<string>>();
   // Only primary/report memberships are occurrence evidence. A 'mention'
@@ -84,6 +107,7 @@ export function storyFactDiagnosis(
         mentionedInFactIds: [...(mentionFacts.get(report.articleId) ?? [])]
           .filter(id => id !== station.factId).sort(),
         groupingHistory: byArticle.get(report.articleId) ?? [],
+        candidateRouteRelations: visibleCandidateRelations(byArticle.get(report.articleId) ?? [], publicIdByNumeric),
       };
     }),
   }));
