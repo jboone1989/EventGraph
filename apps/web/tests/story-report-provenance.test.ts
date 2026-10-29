@@ -62,3 +62,22 @@ test("a missing or insufficient route adds no invented evidence markers", () => 
   assert.equal(reportProvenance(null).size, 0);
   assert.equal(reportProvenance({ status: "insufficient", stations: [] } as unknown as StoryRoute).size, 0);
 });
+
+test("undated or unsafe route links cannot create timeline evidence markers", () => {
+  const unsafe = station("fact-unsafe", "article-unsafe", { source: true, revised: true });
+  unsafe.reports[0]!.url = "javascript:alert(1)";
+  const undated = station("fact-undated", "article-undated", { time: true });
+  undated.reports[0]!.discoveredAt = "";
+  const evidence = reportProvenance(route(unsafe, undated));
+  assert.equal(evidence.size, 0);
+});
+
+test("unverifiable links cannot erase a valid report's uncertainty", () => {
+  const verified = station("fact-verified", "article-a", { source: true, time: true });
+  const unverified = station("fact-unverified", "article-a", { revised: true });
+  unverified.reports[0]!.url = "file:///private/report";
+  const evidence = reportProvenance(route(verified, unverified));
+  assert.deepEqual(evidence.get("article-a"), {
+    revised: false, singleSourceFact: true, reportTimeOnly: true,
+  });
+});
