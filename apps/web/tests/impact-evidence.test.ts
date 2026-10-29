@@ -102,7 +102,7 @@ test("markets cannot show an after-event price before that snapshot exists", () 
 test("first-version related-reporting leads are not marked as revised", () => {
   const first = station("first");
   first.reports[0]!.revision = 1;
-  const unknown = station("unknown");
+  const unknown: StoryRouteStation = station("unknown");
   unknown.reports[0]!.revision = null;
   const changed = station("changed");
   const leads = impactLeadsAt(route([first, unknown, changed]), [
