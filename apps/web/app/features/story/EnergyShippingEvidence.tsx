@@ -10,6 +10,8 @@ export function EnergyShippingEvidence({ story, route, asOf, clock }: {
 }) {
   const t = useText(), lang = useUiLanguage();
   const evidence = energyShippingEvidenceAt(route, story.timeline, asOf, clock);
+  const available = EVIDENCE_DOMAINS.filter(domain => evidence[domain].length > 0);
+  if (!available.length) return null;
   return <section data-testid="energy-shipping-evidence" className="mt-4 border-t border-line-soft pt-4">
     <h4 className="text-[13.5px] font-semibold text-ink">{t("能源与航运证据", "Energy & shipping evidence")}</h4>
     <p className="mt-1 text-[12px] leading-relaxed text-ink-4">
@@ -17,7 +19,7 @@ export function EnergyShippingEvidence({ story, route, asOf, clock }: {
         "Public reporting leads at the selected cutoff, not prices, freight rates or transit counts. Numbers in reports are not converted to indicators.")}
     </p>
     <div className="mt-3 grid gap-3 md:grid-cols-2">
-      {EVIDENCE_DOMAINS.map(domain => <section key={domain} data-evidence-domain={domain}
+      {available.map(domain => <section key={domain} data-evidence-domain={domain}
         className="min-w-0 rounded-panel border border-line-soft p-3">
         <h5 className="text-[13px] font-semibold text-ink">{domain === "energy" ?
           t("EIA 能源报道", "EIA energy reporting") : t("航运报道", "Shipping reporting")}</h5>
