@@ -60,37 +60,48 @@ export function impactLeadsAt(
   clock: "known" | "valid",
 ): Record<ImpactArea, ImpactLead[]> {
   const out: Record<ImpactArea, ImpactLead[]> = { policy: [], logistics: [], companies: [] };
-  if (!route || route.status !== "ok" || !timestamp(asOf)) return out;
+  for (const { lead, searchable } of publicImpactReportsAt(route, timeline, asOf, clock)) {
+    for (const area of IMPACT_AREAS) {
+      if (TERMS[area].test(searchable)) out[area].push({ ...lead, area });
+    }
+  }
+  return out;
+}
+
+/** Shared public evidence boundary; classification never broadens publication scope. */
+export function publicImpactReportsAt(
+  route: StoryRoute | null,
+  timeline: readonly StoryDetail["timeline"][number][],
+  asOf: string | null | undefined,
+  clock: "known" | "valid",
+): { lead: Omit<ImpactLead, "area">; searchable: string }[] {
+  if (!route || route.status !== "ok" || !timestamp(asOf)) return [];
   const cutoff = Date.parse(asOf!);
-  const publicReports = new Map(timeline.map((report) => [report.id, report]));
+  const publicReports = new Map(timeline.map(report => [report.id, report]));
   const seen = new Set<string>();
+  const out: { lead: Omit<ImpactLead, "area">; searchable: string }[] = [];
   for (const station of route.stations) {
     for (const evidence of station.reports) {
       if (!inScope(evidence, cutoff, clock) || !safeUrl(evidence.url)) continue;
       const report = publicReports.get(evidence.articleId);
-      if (!report) continue; // No evidence beyond the current public page's approved reports.
-      // A title may be revised; this list is an explicitly bounded reconstruction.
-      const searchable = [report.title, report.originalTitle, report.english?.title, report.summary, report.english?.summary]
-        .filter(Boolean).join(" ");
-      for (const area of IMPACT_AREAS) {
-        const key = area + ":" + evidence.articleId;
-        if (!TERMS[area].test(searchable) || seen.has(key)) continue;
-        seen.add(key);
-        out[area].push({
-          area, articleId: evidence.articleId, title: report.title,
+      if (!report || seen.has(evidence.articleId)) continue;
+      seen.add(evidence.articleId);
+      out.push({
+        searchable: [report.title, report.originalTitle, report.english?.title,
+          report.summary, report.english?.summary].filter(Boolean).join(" "),
+        lead: {
+          articleId: evidence.articleId, title: report.title,
           englishTitle: report.english?.title ?? report.originalTitle ?? null,
-          source: evidence.source, url: evidence.url,
-          publishedAt: evidence.publishedAt, discoveredAt: evidence.discoveredAt,
-          revision: evidence.revision, evidenceKind: "related_reporting",
-        });
-      }
+          source: evidence.source, url: evidence.url, publishedAt: evidence.publishedAt,
+          discoveredAt: evidence.discoveredAt, revision: evidence.revision,
+          evidenceKind: "related_reporting",
+        },
+      });
     }
   }
-  for (const area of IMPACT_AREAS) {
-    out[area].sort((a, b) => Date.parse(clock === "known" ? a.discoveredAt : a.publishedAt!) -
-      Date.parse(clock === "known" ? b.discoveredAt : b.publishedAt!) || a.articleId.localeCompare(b.articleId));
-  }
-  return out;
+  return out.sort((a, b) => Date.parse(clock === "known" ? a.lead.discoveredAt : a.lead.publishedAt!) -
+    Date.parse(clock === "known" ? b.lead.discoveredAt : b.lead.publishedAt!) ||
+    a.lead.articleId.localeCompare(b.lead.articleId));
 }
 
 /** Only show a market observation after BOTH underlying snapshots were observed. */
