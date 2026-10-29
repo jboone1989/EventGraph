@@ -258,7 +258,7 @@ jobs:
                     !changed.get(f.path)?.has(f.line) || !['important', 'nit'].includes(f.severity) ||
                     !Number.isInteger(f.confidence) || f.confidence < 80 ||
                     ![f.reason, f.evidence, f.fix].every(v => typeof v === 'string' && v.trim()))
-                  continue;
+                  throw new Error('Verifier returned invalid or unchanged-line finding; refusing success');
                 const key = f.path + '\\0' + f.line + '\\0' + f.reason.toLowerCase();
                 if (seen.has(key)) continue;
                 seen.add(key);
