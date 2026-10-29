@@ -23,7 +23,7 @@
 | # | Criterion | Evidence |
 | --- | --- | --- |
 | AC-1 | Pin-only change deploys the pinned digest; unchanged pin with matching record keeps the existing release | `deploy-prod.sh` reads `LRSITE_APP_IMAGE_REF` and forces `APP_CHANGED=1` on mismatch (PR #112) |
-| AC-2 | Every successful promote run leaves `LRSITE_APP_IMAGE_REF=<pinned IMAGE_REF>` in the host `.env` | `WRITE_RELEASE` writes the key from the validated `IMAGE_REF` argument on both the pull and keep paths (PR #112) |
+| AC-2 | Every completed promotion run leaves `LRSITE_APP_IMAGE_REF=<pinned IMAGE_REF>` in the host `.env` — the `--check` dry-run exits before any write and records nothing | `WRITE_RELEASE` writes the key from the validated `IMAGE_REF` argument on both the pull and keep paths (PR #112) |
 | AC-3 | `promote` fails when the pinned digest differs from the digest of `sha-<SOURCE_SHA>` | workflow resolves the tag digest and compares it to `IMAGE_REF`; format check fails closed (PR #112) |
 | AC-4 | Home page hydrates with zero hydration-mismatch console errors | browser verification on the local develop build 2026-10-24: reload before the fix logged the `y2`/`cy` mismatch every load; after, zero errors and two-decimal coordinates |
 | AC-5 | English daily calendar renders without duplicate-key React warnings | SPA navigation `/daily→/hot→/daily` on the local build: 4 warnings per pass before the fix, 0 after (weekly and monthly grids render no heads at all) |
