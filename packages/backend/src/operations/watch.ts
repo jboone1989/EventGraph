@@ -58,7 +58,7 @@ export async function checkWorkerHeartbeat(): Promise<void> {
 }
 
 export function startWorkerWatchdog(): NodeJS.Timeout {
-  const timer = setInterval(() => void checkWorkerHeartbeat().catch(() => {}), 5 * 60_000);
+  const timer = setInterval(() => void checkWorkerHeartbeat().catch((error: unknown) => console.error("worker_watchdog_check_failed", error)), 5 * 60_000);
   timer.unref();
   return timer;
 }
