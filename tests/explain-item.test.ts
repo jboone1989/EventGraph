@@ -225,6 +225,8 @@ test("a report older than 90 days is re-evaluated when a new story sibling chang
   const refreshed = queue.find((r) => r.article_id === old);
   assert.ok(refreshed, "old report becomes pending when a new sibling changes the input hash");
   assert.ok(refreshed.other_reports?.some((x) => x.includes("new-story-sibling")), "new sibling is part of the recomputed input");
+  // Leave no newer unprocessed fixture ahead of the D-03 pending-queue test.
+  assert.equal((await explainOne((await explanationCandidateFor(sibling))!)).outcome, "written");
 });
 
 test("a source rename requeues an old explanation without touching its publication", async () => {
