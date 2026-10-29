@@ -239,9 +239,10 @@ test("only released, publicly listed siblings enter another report's model conte
   const main = await report("sibling-visible", 820);
   const hidden = await report("sibling-unreleased", 821);
   const unselected = await report("sibling-unselected", 822, { selected: false });
+  const post = await report("sibling-post", 823, { post: true });
   const [story] = await sql<{ id: number }[]>`INSERT INTO stories (public_id, title)
     VALUES (${crypto.randomUUID()}, ${`SIBLING-VISIBILITY-${T}`}) RETURNING id`;
-  await sql`UPDATE publications SET story_id = ${story!.id} WHERE article_id IN (${main}, ${hidden}, ${unselected})`;
+  await sql`UPDATE publications SET story_id = ${story!.id} WHERE article_id IN (${main}, ${hidden}, ${unselected}, ${post})`;
   await sql`UPDATE publications SET visible_after = now() + interval '2 days' WHERE article_id = ${hidden}`;
 
   const before = await explanationCandidateFor(main);
@@ -253,6 +254,8 @@ test("only released, publicly listed siblings enter another report's model conte
     "the now-released and selected sibling becomes context only after its visibility time");
   assert.ok(!after?.other_reports?.some((title) => title.includes(`sibling-unselected ${T}`)),
     "a non-public unselected sibling does not enter another report's context");
+  assert.ok(!after?.other_reports?.some((title) => title.includes(`sibling-post ${T}`)),
+    "a post never enters another news report's model context");
 });
 
 test("an unselected report and a post are never explained", async () => {
