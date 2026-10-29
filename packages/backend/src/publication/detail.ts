@@ -6,7 +6,7 @@ import { sql } from "../db.ts";
 import { stripTagMarkup } from "../lib/text.ts";
 import { proxyBodyImages } from "../media/imgproxy.ts";
 import { textToHtml } from "../content/sanitize.ts";
-import { exportTranslation, isChineseBody, EXPLAIN_ITEM_INPUTS, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
+import { exportTranslation, isChineseBody, EXPLAINABLE_PUBLICATION, EXPLAIN_ITEM_INPUTS, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
 import { storyContextFor } from "./stories.ts";
 import { evidenceCondition, listedCondition } from "./scope.ts";
 import { itemUrl, siteUrl } from "./links.ts";
@@ -49,7 +49,7 @@ async function loadRow(id: string, language: "zh" | "original" = "zh"): Promise<
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
       st.id AS story_id, ${topicMembership()} AS topics, ie.content AS explanation
     ${ITEM_FROM}
-    LEFT JOIN item_explanations ie ON ie.article_id = p.article_id AND ie.outcome = 'written' AND ie.inputs_hash = ${EXPLAIN_ITEM_INPUTS}
+    LEFT JOIN item_explanations ie ON ie.article_id = p.article_id AND ie.outcome = 'written' AND ie.inputs_hash = ${EXPLAIN_ITEM_INPUTS} AND ${EXPLAINABLE_PUBLICATION}
       AND ie.language = ${language === "original" ? "en" : "zh"}
     WHERE p.article_id = ${id}`;
   return row ?? null;
