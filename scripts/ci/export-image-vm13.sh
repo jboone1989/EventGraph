@@ -86,7 +86,7 @@ fi
 # blobs. After a verified delivery we remove the registry and volume; the next
 # release recreates it and seeds shared layers from cn-dev's last local image.
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker ps --format '{{.Names}}' | grep -qx $registry_container || docker start $registry_container 2>/dev/null || docker run -d --name $registry_container --restart unless-stopped -p 127.0.0.1:5000:5000 -v eventgraph-dev-registry:/var/lib/registry $registry_image"
-ssh $ssh_opts ubuntu@"$cn_dev_host" 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do curl -fsS -o /dev/null http://127.0.0.1:5000/v2/ && exit 0; sleep 1; done; echo "cn-dev registry did not become ready" >&2; exit 1'
+ssh $ssh_opts ubuntu@"$cn_dev_host" 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null http://127.0.0.1:5000/v2/ && exit 0; sleep 1; done; echo "cn-dev registry did not become ready" >&2; exit 1'
 
 # Seed the registry from an image cn-dev already has locally (the last
 # delivered tag, else any local eventgraph-dev image). Consecutive releases
