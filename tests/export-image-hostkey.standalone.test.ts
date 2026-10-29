@@ -1,19 +1,7 @@
-// scripts/ci/export-image-vm13.sh ships the published digest over the
-// VM13→cn-dev SSH path, and deploy-vm13-preview.sh bootstraps the database
-// tunnel to the same host (specs/008-dev-cd-vm13-api: the tunnel uses the
-// pre-existing, pre-authorized host key). Both legs accept cn-dev only if one
-// of the offered host keys (sshd offers ed25519 and ECDSA) matches the pinned
-// fingerprint (EVENTGRAPH_DEV_SSH_FINGERPRINT) — the same secret the runner
-// verifies on its own hops, where appleboy's client negotiates ECDSA (the
-// pinned VM13 key in check.yml is ECDSA). Delivery itself pushes into a
-// registry on cn-dev's loopback (docker save ships every layer every time and
-// repeatedly missed the 20-minute deadline across the cross-border link), so
-// these tests also pin down the bootstrap, the blob-resumable push retry, the
-// verified pull/record contract deploy-image.sh depends on, and teardown of
-// the ephemeral registry volume after a verified delivery. They drive the real export script against stub
-// docker/ssh/ssh-keyscan/sudo binaries, but the fingerprint check runs a REAL
-// ssh-keygen, so a wrong host key exercises real fingerprint math rather than
-// a stubbed assertion.
+// Delivery uses a pinned SSH host key and resumable rsync, verifies the
+// full archive SHA256 and exact image ID/revision, then records the digest.
+// Real ssh-keygen verifies fingerprint matching. The same pinning block
+// must be shared by export-image-vm13.sh and deploy-vm13-preview.sh.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
@@ -26,128 +14,7 @@ const digest = "a".repeat(64);
 const imageRef = `ghcr.io/jboone1989/eventgraph-app@sha256:${digest}`;
 const releaseSha = "5".repeat(40);
 const imageId = `sha256:${digest}`;
-const tag = `eventgraph-dev:${digest}`;
-const registryRepo = "127.0.0.1:5000/eventgraph-dev";
-const registryTag = `${registryRepo}:${releaseSha}`;
 const cnDevHost = "43.142.127.40";
-
-const dockerStub = `#!/usr/bin/env node
-// VM13-side docker stub: the digest is already local (no pull), carries the
-// release revision label, and can be tagged, pushed and saved. The registry
-// bootstrap image is only local when STUB_REGISTRY_LOCAL says so; push fails
-// the first STUB_PUSH_FAILURES attempts to exercise blob-resumable retries,
-// and STUB_HANG_FIRST_PUSH wedges the first attempt (blobs committed, the
-// manifest never sent) to exercise the watchdog that must kill it.
-const { spawnSync } = require("child_process");
-const { appendFileSync, readFileSync, existsSync, writeFileSync } = require("fs");
-const log = (line) => appendFileSync(process.env.STUB_CALLS, line + "\\n");
-const args = process.argv.slice(2);
-if (args[0] === "image" && args[1] === "inspect") {
-  if (args[2] === "registry:2" && !process.env.STUB_REGISTRY_LOCAL) process.exit(1);
-  log("image inspect " + args.slice(2).join(" "));
-  const fmt = args[2] === "--format" ? args[3] : "";
-  if (fmt.includes("revision")) console.log(process.env.STUB_REVISION);
-  else if (fmt.includes(".Id")) console.log(process.env.STUB_IMAGE_ID);
-  process.exit(0);
-}
-if (args[0] === "pull") {
-  if (args[1] !== "registry:2" && !args[1].startsWith("mirror.gcr.io/")) {
-    log("UNEXPECTED pull " + args.join(" "));
-    process.exit(1);
-  }
-  log("pull " + args.join(" "));
-  process.exit(0);
-}
-if (args[0] === "tag") { log("tag " + args.join(" ")); process.exit(0); }
-if (args[0] === "push") {
-  const counter = process.env.STUB_PUSH_COUNTER;
-  let failures = 0;
-  if (existsSync(counter)) failures = Number(readFileSync(counter, "utf8")) || 0;
-  writeFileSync(counter, String(failures + 1));
-  log("push " + args.join(" ") + " attempt " + (failures + 1));
-  if (failures === 0 && process.env.STUB_DROP_TUNNEL_ON_FIRST_PUSH) {
-    try { process.kill(Number(readFileSync(process.env.STUB_TUNNEL_PID_FILE, "utf8")), "SIGTERM"); } catch {}
-  }
-  if (failures === 0 && process.env.STUB_HANG_FIRST_PUSH) spawnSync("sleep", ["30"]);
-  process.exit(failures < Number(process.env.STUB_PUSH_FAILURES || 0) ? 1 : 0);
-}
-if (args[0] === "save") { log("save " + args.join(" ")); console.log("tar-bytes"); process.exit(0); }
-log("UNEXPECTED " + args.join(" "));
-process.exit(1);
-`;
-
-const sshStub = `#!/bin/sh
-# cn-dev-side ssh stub: logs the options it was given and answers the remote
-# commands the export script issues. printf (not echo: dash's echo would
-# expand the literal backslash-n inside the pairing command). The bootstrap
-# registry-image probe answers "absent" unless STUB_REGISTRY_PRESENT is set.
-printf '%s\n' "$*" >> "$STUB_SSH_CALLS"
-case "$*" in
-  *"eventgraph-dev:seed"*) exit 0 ;;
-  *"-N"*"-L"*) printf '%s\\n' "$$" > "$STUB_TUNNEL_PID_FILE"; exec sleep 30 >/dev/null 2>&1 ;;
-  *"registry:2 >"*) [ -n "$STUB_REGISTRY_PRESENT" ] && exit 0; exit 1 ;;
-  *"gzip -dc | docker load"*) exit 0 ;;
-  *"docker run -d --name eventgraph-dev-registry"*) exit 0 ;;
-  *"curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null http://127.0.0.1:5000/v2/"*) exit 0 ;;
-  *"docker pull"*) exit 0 ;;
-  *"docker image inspect"*) echo "\${STUB_REMOTE_IMAGE_ID:-$STUB_IMAGE_ID}" ;;
-  *"eventgraph-last-delivered-image"*) exit 0 ;;
-  *"docker rmi 127.0.0.1:5000/eventgraph-dev:"*) exit 0 ;;
-  *"docker rm -f eventgraph-dev-registry"*"docker volume rm eventgraph-dev-registry"*) exit 0 ;;
-  *) echo "ssh stub: unexpected remote command: $*" >&2; exit 1 ;;
-esac
-`;
-
-const curlStub = `#!/bin/sh
-case "$*" in *"http://127.0.0.1:5000/v2/"*) ;; *) exit 1 ;; esac
-# Both readiness probes must be bounded: a stalled curl must not consume the
-# whole push budget before the docker push watchdog is even started.
-case " $* " in *" --connect-timeout 3 "*) ;; *) echo "missing connect timeout" >&2; exit 9 ;; esac
-case " $* " in *" --max-time 5 "*) ;; *) echo "missing total timeout" >&2; exit 9 ;; esac
-n="$(cat "$STUB_CURL_COUNTER")"
-n=$((n + 1))
-printf '%s\\n' "$n" > "$STUB_CURL_COUNTER"
-[ "$n" -gt "$STUB_TUNNEL_READY_FAILS" ] || exit 7
-exit 0
-`;
-
-const dateStub = `#!/bin/sh
-if [ "$1" = "+%s" ] && [ -f "$STUB_FAKE_NOW" ]; then
-  cat "$STUB_FAKE_NOW"
-else
-  /bin/date "$@"
-fi
-`;
-
-const timeoutStub = `#!/bin/sh
-# timeout(1) stub: passthrough unless STUB_EXPIRE_FAST is set, in which case
-# the wrapped command is killed almost immediately (the watchdog firing)
-# instead of waiting out the real multi-minute budget.
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -k) shift 2 ;;
-    -*) shift ;;
-    *) break ;;
-  esac
-done
-dur="$1"; shift
-printf '%s %s\\n' "$dur" "$*" >> "$STUB_TIMEOUT_CALLS"
-if [ -n "$STUB_EXPIRE_FAST" ]; then
-  "$@" & child=$!
-  sleep 0.3
-  if kill "$child" 2>/dev/null; then
-    wait "$child" 2>/dev/null
-    if [ -n "$STUB_ADVANCE_CLOCK_ON_EXPIRE" ]; then
-      now="$(cat "$STUB_FAKE_NOW")"
-      printf '%s\\n' "$((now + dur))" > "$STUB_FAKE_NOW"
-    fi
-    exit 124
-  fi
-  wait "$child"
-  exit $?
-fi
-exec "$@"
-`;
 
 const keyscanStub = `#!/bin/sh
 # Emulates ssh-keyscan: offers the per-test generated ed25519 and ECDSA host
@@ -181,7 +48,7 @@ interface Sandbox {
 // other modes (pinEcdsa reproduces the 2026-10-27 CD failure: the secret pins
 // the ECDSA key while the script only scanned ed25519).
 function sandbox(
-  opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean; registryPresent?: boolean; pushFailures?: number; remoteImageId?: string; tunnelReadyFails?: number; dropTunnelOnFirstPush?: boolean; hangFirstPush?: boolean } = {},
+  opts: { pinOtherKey?: boolean; pinEcdsa?: boolean; noPin?: boolean; failKeyscan?: boolean } = {},
 ): Sandbox {
   const dir = mkdtempSync(path.join(tmpdir(), "export-image-"));
   dirs.push(dir);
@@ -191,20 +58,14 @@ function sandbox(
   mkdirSync(path.join(home, ".ssh"), { recursive: true });
   const bin = path.join(dir, "bin");
   mkdirSync(bin);
-  writeFileSync(path.join(bin, "docker"), dockerStub);
-  writeFileSync(path.join(bin, "ssh"), sshStub);
   writeFileSync(path.join(bin, "ssh-keyscan"), keyscanStub);
-  writeFileSync(path.join(bin, "curl"), curlStub);
-  writeFileSync(path.join(bin, "timeout"), timeoutStub);
-  writeFileSync(path.join(bin, "date"), dateStub);
   writeFileSync(path.join(bin, "sudo"), `#!/bin/sh\n[ "$1" = "-n" ] && shift\nexec "$@"\n`);
-  for (const f of ["docker", "ssh", "ssh-keyscan", "sudo", "curl", "timeout", "date"]) spawnSync("chmod", ["+x", path.join(bin, f)]);
+  for (const f of ["ssh-keyscan", "sudo"]) {
+    const mode = spawnSync("chmod", ["+x", path.join(bin, f)]);
+    assert.equal(mode.status, 0);
+  }
   writeFileSync(path.join(dir, "ssh-calls.log"), "");
   writeFileSync(path.join(dir, "docker-calls.log"), "");
-  writeFileSync(path.join(dir, "timeout-calls.log"), "");
-  writeFileSync(path.join(dir, "push-counter"), "0");
-  writeFileSync(path.join(dir, "curl-counter"), "0");
-  writeFileSync(path.join(dir, "fake-now"), String(Math.floor(Date.now() / 1000)));
   const env: Record<string, string | undefined> = {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
@@ -216,26 +77,10 @@ function sandbox(
     STUB_REVISION: releaseSha,
     STUB_OFFERED_PUB: path.join(dir, "offered.pub"),
     STUB_OFFERED_ECDSA_PUB: path.join(dir, "offered-ecdsa.pub"),
-    STUB_PUSH_COUNTER: path.join(dir, "push-counter"),
-    STUB_CURL_COUNTER: path.join(dir, "curl-counter"),
-    STUB_TIMEOUT_CALLS: path.join(dir, "timeout-calls.log"),
-    STUB_FAKE_NOW: path.join(dir, "fake-now"),
-    STUB_TUNNEL_PID_FILE: path.join(dir, "tunnel.pid"),
-    STUB_TUNNEL_READY_FAILS: "0",
     EVENTGRAPH_IMAGE: imageRef,
     EVENTGRAPH_RELEASE_SHA: releaseSha,
     EVENTGRAPH_DEV_SSH_FINGERPRINT: undefined,
   };
-  if (opts.registryPresent) env.STUB_REGISTRY_PRESENT = "1";
-  if (opts.pushFailures) env.STUB_PUSH_FAILURES = String(opts.pushFailures);
-  if (opts.tunnelReadyFails) env.STUB_TUNNEL_READY_FAILS = String(opts.tunnelReadyFails);
-  if (opts.dropTunnelOnFirstPush) env.STUB_DROP_TUNNEL_ON_FIRST_PUSH = "1";
-  if (opts.hangFirstPush) {
-    env.STUB_HANG_FIRST_PUSH = "1";
-    env.STUB_EXPIRE_FAST = "1";
-    env.STUB_ADVANCE_CLOCK_ON_EXPIRE = "1";
-  }
-  if (opts.remoteImageId) env.STUB_REMOTE_IMAGE_ID = opts.remoteImageId;
   if (!opts.noPin) {
     env.EVENTGRAPH_DEV_SSH_FINGERPRINT = opts.pinEcdsa
       ? offeredEcdsa.fingerprint
@@ -352,6 +197,18 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
   return sb;
 }
 
+test("VM13 database tunnel and image delivery use identical cn-dev host key pinning", () => {
+  const extract = (file: string) => {
+    const source = readFileSync(path.join(repoRoot, "scripts/ci", file), "utf8");
+    const start = source.indexOf(': "${EVENTGRAPH_DEV_SSH_FINGERPRINT:');
+    const end = source.indexOf('cndev_algo="$(awk', start);
+    assert.ok(start !== -1 && end > start, file);
+    assert.ok(!source.includes("ssh_keyscan"), file);
+    return source.slice(start, end);
+  };
+  assert.equal(extract("deploy-vm13-preview.sh"), extract("export-image-vm13.sh"));
+});
+
 test("rsync transports a digest-verified archive, preserving the existing image tag pairing", () => {
   const sb = rsyncSandbox();
   const res = run(sb.env);
@@ -365,7 +222,16 @@ test("rsync transports a digest-verified archive, preserving the existing image 
   assert.match(transfers, /--compress-choice=zstd/);
   assert.match(transfers, /StrictHostKeyChecking=yes/);
   assert.match(transfers, /HostKeyAlgorithms=ssh-ed25519/);
+  assert.match(transfers, /UserKnownHostsFile=/);
+  assert.match(transfers, /ConnectTimeout=15/);
+  const offeredPub = readFileSync(path.join(sb.dir, "offered.pub"), "utf8").trim();
+  assert.equal(readFileSync(pinnedFile(sb.home), "utf8"),
+    `${cnDevHost} ${offeredPub}\n`);
   const hops = content(path.join(sb.dir, "ssh-calls.log"));
+  for (const hop of hops.trim().split("\n")) {
+    assert.match(hop, /UserKnownHostsFile=/);
+    assert.match(hop, /ConnectTimeout=15/);
+  }
   assert.match(hops, /sha256sum/);
   assert.match(hops, /docker load/);
   assert.match(hops, /eventgraph-last-delivered-image/);
