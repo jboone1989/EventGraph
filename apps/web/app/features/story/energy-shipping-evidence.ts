@@ -8,7 +8,7 @@ export type EnergyShippingEvidence = Omit<ImpactLead, "area"> & (
   { domain: "shipping"; sourceKind: "shipping_reporting" }
 );
 
-const SHIPPING = /海峡|航运|船运|油轮|港口|航道|航线|停航|船舶|\bshipping\b|\bmaritime\b|\btankers?\b|\bstrait\b|\bvessels?\b|\bports?\b/i;
+const SHIPPING = /海峡|航运|船运|油轮|港口|航道|航线|停航|船舶|运费|运价|\bshipping\b|\bmaritime\b|\btankers?\b|\bstrait\b|\bvessels?\b|\bports?\b/i;
 
 /** Evidence-only projection of existing public stations. No extracted prices,
  * transit counts, freight indices, external fetches or inferred causal edges.
