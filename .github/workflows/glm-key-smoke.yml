@@ -1,0 +1,57 @@
+name: Temporary GLM API key smoke test
+
+on:
+  pull_request:
+    branches: [develop]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/glm-key-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  glm-api-key:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call BigModel Anthropic-compatible Messages API
+        env:
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          GLM_BASE_URL: ${{ vars.GLM_BASE_URL || 'https://open.bigmodel.cn/api/anthropic' }}
+          GLM_MODEL: ${{ vars.GLM_REVIEW_MODEL || 'glm-5.3' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          if [[ -z "${GLM_API_KEY:-}" ]]; then
+            echo "::error::GLM_API_KEY secret is missing or empty"
+            exit 1
+          fi
+          payload="$(jq -cn --arg model "$GLM_MODEL" '{model:$model,max_tokens:16,messages:[{role:"user",content:"Reply exactly GLM_KEY_OK"}]}')"
+          for auth_mode in bearer x-api-key; do
+            if [[ "$auth_mode" == bearer ]]; then
+              status="$(curl -sS --max-time 45 -o /tmp/glm-response.json -w '%{http_code}' \
+                "$GLM_BASE_URL/v1/messages" \
+                -H "Authorization: Bearer $GLM_API_KEY" \
+                -H 'anthropic-version: 2023-06-01' \
+                -H 'content-type: application/json' \
+                --data "$payload")"
+            else
+              status="$(curl -sS --max-time 45 -o /tmp/glm-response.json -w '%{http_code}' \
+                "$GLM_BASE_URL/v1/messages" \
+                -H "x-api-key: $GLM_API_KEY" \
+                -H 'anthropic-version: 2023-06-01' \
+                -H 'content-type: application/json' \
+                --data "$payload")"
+            fi
+            echo "Auth scheme: $auth_mode; HTTP status: $status"
+            if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "GLM API key accepted; model response:"
+              python3 -c 'import json,os; d=json.load(open("/tmp/glm-response.json")); key=os.environ.get("GLM_API_KEY",""); text=" ".join(x.get("text","") for x in d.get("content",[]) if x.get("type")=="text"); print(text.replace(key,"[REDACTED]"))'
+              exit 0
+            fi
+            python3 -c 'import json,os; d=json.load(open("/tmp/glm-response.json")); e=d.get("error",{}); s=e.get("message") or d.get("message") or "No error message"; key=os.environ.get("GLM_API_KEY",""); print(("API error: "+s).replace(key,"[REDACTED]"))'
+          done
+          echo "::error::GLM API key test failed for both Bearer and x-api-key authentication"
+          exit 1
