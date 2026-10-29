@@ -18,7 +18,7 @@ import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
 import { Badge, SelectedBadge } from "../components/ui/Badge";
 import { LayerBadge, StationEvidenceDrawer } from "../features/story/StationEvidence";
-import { stationLayer } from "../features/story/impact-layers";
+import { displayableStationReports, stationLayer } from "../features/story/impact-layers";
 import { PillTabs } from "../components/ui/Tabs";
 import { Select } from "../components/ui/Controls";
 import { IconArrowLeft, IconChevronRight, IconClock, IconDoc, IconUsers } from "../components/icons";
@@ -225,6 +225,10 @@ function StoryRoutePanel({ route, storyPublicId }: { route: StoryRoute; storyPub
   const when = (iso: string) => localizedMonthDayTime(iso, uiLang);
   const prefix = uiLang === "en" ? "/en" : "";
   const badge = "rounded border border-line-soft px-1.5 py-0.5";
+  const visibleStations = route.status === "ok" ? route.stations.flatMap(station => {
+    const reports = displayableStationReports(station);
+    return reports.length ? [{ ...station, reports }] : [];
+  }) : [];
   return (
     <Panel title={t("Story 路线","Story route")}
       sub={t("从第一份公开证据到最新进展的逐站路线；每一站都带着自己的证据和不确定性。","A station-by-station route from the first public evidence onward; every station carries its own evidence and uncertainty.")}
@@ -235,38 +239,46 @@ function StoryRoutePanel({ route, storyPublicId }: { route: StoryRoute; storyPub
         </p>
       ) : (
         <>
-          <ol className="border-l border-line-soft pl-4">
-            {route.stations.map((s, i) => (
-              <li key={s.factId} className="pb-4 last:pb-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-4">
-                  <span className="num font-semibold text-ink-3">{i + 1}</span>
-                  <LayerBadge layer={stationLayer(s)} />
-                  <span className="num">{when(s.timeEffective ?? s.timeRecorded)}</span>
-                  {s.timeEffective && <span className="num">{t("收录于","recorded")} {when(s.timeRecorded)}</span>}
-                  {s.uncertainty.singleSource && <span className={badge}>{t("单一来源","single source")}</span>}
-                  {s.uncertainty.occurredAtMissing && <span className={badge}>{t("时间来自报道","report-time only")}</span>}
-                  {s.uncertainty.revised && <span className={badge}>{t("有修订","revised")}</span>}
-                </div>
-                <p className="mt-1 text-[14px] font-semibold leading-[1.6] text-ink">{s.title}</p>
-                {s.reports[0] && /^https?:\/\//i.test(s.reports[0].url) && (
-                  <a href={s.reports[0].url} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open"
-                    className="mt-1 inline-block text-[12.5px] text-accent hover:underline">
-                    {t("核对原始报道","Read original source")} ↗ {localizedSourceName(s.reports[0].source, uiLang, s.reports[0].url)}
-                  </a>
-                )}
-                <Link to={`${prefix}/explore?story=${encodeURIComponent(storyPublicId)}&clock=known&asOf=${encodeURIComponent(s.timeRecorded)}`}
-                  className="mt-1.5 inline-flex items-center gap-0.5 text-[12.5px] font-medium text-accent hover:underline">
-                  {t("在探索工作台回到这个时点","Replay this moment in the explorer")} <IconChevronRight size={13} />
-                </Link>
-                <StationEvidenceDrawer station={s} />
-              </li>
-            ))}
-          </ol>
-          <p className="mt-2 text-[12px] leading-[1.6] text-ink-4">
-            {route.limits.truncated
-              ? t("路线有截断；完整证据以探索工作台和证据包为准。","The route is truncated; the explorer and the evidence bundle carry the full evidence.")
-              : t("不确定性标注指出需要核对原文的地方，不是已证实的因果。","Uncertainty marks flag where to check the sources; they are not proven causation.")}
-          </p>
+          {visibleStations.length ? (
+            <>
+              <ol className="border-l border-line-soft pl-4">
+                {visibleStations.map((s, i) => (
+                  <li key={s.factId} className="pb-4 last:pb-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-4">
+                      <span className="num font-semibold text-ink-3">{i + 1}</span>
+                      <LayerBadge layer={stationLayer(s)} />
+                      <span className="num">{when(s.timeEffective ?? s.timeRecorded)}</span>
+                      {s.timeEffective && <span className="num">{t("收录于","recorded")} {when(s.timeRecorded)}</span>}
+                      {s.uncertainty.singleSource && <span className={badge}>{t("单一来源","single source")}</span>}
+                      {s.uncertainty.occurredAtMissing && <span className={badge}>{t("时间来自报道","report-time only")}</span>}
+                      {s.uncertainty.revised && <span className={badge}>{t("有修订","revised")}</span>}
+                    </div>
+                    <p className="mt-1 text-[14px] font-semibold leading-[1.6] text-ink">{s.title}</p>
+                    {s.reports[0] && /^https?:\/\//i.test(s.reports[0].url) && (
+                      <a href={s.reports[0].url} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open"
+                        className="mt-1 inline-block text-[12.5px] text-accent hover:underline">
+                        {t("核对原始报道","Read original source")} ↗ {localizedSourceName(s.reports[0].source, uiLang, s.reports[0].url)}
+                      </a>
+                    )}
+                    <Link to={`${prefix}/explore?story=${encodeURIComponent(storyPublicId)}&clock=known&asOf=${encodeURIComponent(s.timeRecorded)}`}
+                      className="mt-1.5 inline-flex items-center gap-0.5 text-[12.5px] font-medium text-accent hover:underline">
+                      {t("在探索工作台回到这个时点","Replay this moment in the explorer")} <IconChevronRight size={13} />
+                    </Link>
+                    <StationEvidenceDrawer station={s} />
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-2 text-[12px] leading-[1.6] text-ink-4">
+                {route.limits.truncated
+                  ? t("路线有截断；完整证据以探索工作台和证据包为准。","The route is truncated; the explorer and the evidence bundle carry the full evidence.")
+                  : t("不确定性标注指出需要核对原文的地方，不是已证实的因果。","Uncertainty marks flag where to check the sources; they are not proven causation.")}
+              </p>
+            </>
+          ) : (
+            <p className="text-[13.5px] leading-[1.7] text-ink-4">
+              {t("当前没有同时具备原文链接、发布时间和收录时间的事实站。","No fact stations have a safe source URL and both publication and discovery times.")}
+            </p>
+          )}
         </>
       )}
     </Panel>

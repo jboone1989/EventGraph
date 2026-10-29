@@ -4,7 +4,7 @@ import { IMPACT_EVIDENCE_KINDS } from "@aihot/contracts/site";
 import type { ImpactEvidenceKind, StoryDetail, StoryRoute, StoryRouteStation } from "@aihot/contracts/site";
 import { impactLeadsAt, marketObservationAt } from "../app/features/story/impact-evidence.ts";
 import {
-  IMPACT_STATION_LAYERS, LAYER_LABELS, stationEvidenceAt, stationLayer,
+  IMPACT_STATION_LAYERS, LAYER_LABELS, displayableStationReports, stationEvidenceAt, stationLayer,
 } from "../app/features/story/impact-layers.ts";
 
 // Real-sample fixtures (read-only dev-DB check, 2026-10-28; specs/event-impact-tracing §5/§6):
@@ -181,4 +181,17 @@ test("AC-2: reports without a safe URL or required timestamps hide the station, 
   assert.equal(noOccurrence.length, 1);
   assert.equal(noOccurrence[0]!.station.uncertainty.occurredAtMissing, true);
   assert.equal(noOccurrence[0]!.station.timeEffective, null);
+});
+
+
+test("AC-2: raw story-route drawers exclude reports missing safe URLs or either required timestamp", () => {
+  const good = { ...t0Station.reports[0]!, articleId: "good" };
+  const missingPublished = { ...good, articleId: "missing-published", publishedAt: null };
+  const missingDiscovered = { ...good, articleId: "missing-discovered", discoveredAt: null };
+  const unzoned = { ...good, articleId: "unzoned", publishedAt: "2026-10-23T22:36:43" };
+  const unsafe = { ...good, articleId: "unsafe", url: "javascript:alert(1)" };
+  const visible = displayableStationReports({
+    ...t0Station, reports: [good, missingPublished, missingDiscovered, unzoned, unsafe],
+  }).map(report => report.articleId);
+  assert.deepEqual(visible, ["good"]);
 });

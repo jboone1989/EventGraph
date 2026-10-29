@@ -10,7 +10,7 @@ import type { StoryRoute, StoryRouteReport, StoryRouteStation } from "@aihot/con
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { localizedSourceName } from "../../lib/english";
 import { localizedMonthDayTime } from "../../lib/format";
-import { LAYER_LABELS, stationEvidenceAt, type ImpactStationLayer } from "./impact-layers";
+import { displayableStationReports, LAYER_LABELS, stationEvidenceAt, type ImpactStationLayer } from "./impact-layers";
 
 export function EvidenceRow({ report, clock }: { report: StoryRouteReport; clock?: "known" | "valid" }) {
   const t = useText(), lang = useUiLanguage();
@@ -47,6 +47,7 @@ export function EvidenceRow({ report, clock }: { report: StoryRouteReport; clock
 export function StationEvidenceDrawer({ station, clock }: { station: StoryRouteStation; clock?: "known" | "valid" }) {
   const t = useText(), lang = useUiLanguage();
   const badge = "rounded border border-line-soft px-1.5 py-0.5";
+  const reports = displayableStationReports(station);
   const structured: Array<[string, string | null]> = [
     [t("主体", "Subject"), station.subject],
     [t("动作", "Action"), station.action],
@@ -54,7 +55,7 @@ export function StationEvidenceDrawer({ station, clock }: { station: StoryRouteS
   ];
   return <details className="mt-1 group">
     <summary className="cursor-pointer list-none text-[12px] font-medium text-accent hover:underline">
-      {t("证据与修订", "Evidence & revisions")} · {station.reports.length} {t("条来源记录", "source records")}
+      {t("证据与修订", "Evidence & revisions")} · {reports.length} {t("条来源记录", "source records")}
     </summary>
     <div className="mt-2 rounded-panel border border-line-soft bg-bg-sunk/30 p-3">
       {structured.some(([, v]) => v) && <dl className="mb-2 grid gap-x-4 gap-y-0.5 text-[11.5px] text-ink-4 sm:grid-cols-3">
@@ -70,9 +71,7 @@ export function StationEvidenceDrawer({ station, clock }: { station: StoryRouteS
         </div>
       </dl>
       <div className="divide-y divide-line-soft">
-        {station.reports.map(r => /^https?:\/\//i.test(r.url)
-          ? <EvidenceRow key={r.articleId} report={r} clock={clock} />
-          : null)}
+        {reports.map(r => <EvidenceRow key={r.articleId} report={r} clock={clock} />)}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-ink-4">
         <span className={badge}>{t("事实站", "Fact station")}</span>
