@@ -28,7 +28,8 @@ test("source drawer renders bilingual evidence and honest gaps at the shared cut
     assert.match(en, /Energy report/);
     assert.match(en, /Source: U.S. Energy Information Administration/);
     assert.match(en, /data-evidence-domain="energy"/);
-    assert.doesNotMatch(en, /data-evidence-domain="shipping"/);
+    assert.match(en, /data-evidence-domain="shipping"/);
+    assert.match(en, /No loaded public evidence at this cutoff/);
     assert.match(en, /Source &amp; times/);
     assert.match(en, /Published/);
     assert.match(en, /Discovered/);
@@ -43,8 +44,8 @@ test("source drawer renders bilingual evidence and honest gaps at the shared cut
     assert.match(zh, /href="\/items\/energy"/);
     const early = render("/en/explore", publishedAt);
     assert.doesNotMatch(early, /Energy report|eia.gov\/todayinenergy/);
-    assert.doesNotMatch(early, /data-testid="energy-shipping-evidence"/);
-    assert.doesNotMatch(en, /No loaded public evidence/);
+    assert.match(early, /data-testid="energy-shipping-evidence"/);
+    assert.match(early, /No loaded public evidence at this cutoff/);
     assert.doesNotMatch(en, /<svg|<canvas|data-edge|priceUsdt/);
   } finally { await server.close(); }
 });
