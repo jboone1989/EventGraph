@@ -36,3 +36,15 @@ test("The canonical report timeline retains fact-linked uncertainties without an
   assert.match(story, /provenance\?\.revised/);
   assert.equal((story.match(/<TimelineRow key=/g) ?? []).length, 1);
 });
+
+test("Empty first-party or selected categories are not offered as dead-end filters", () => {
+  // An old saved filter can be restored when navigating to a Story with no
+  // reports in that category; the timeline must recover to all reports.
+  assert.match(story, /const activeFilter: Filter = counts\[filter\] > 0 \? filter : "all"/);
+  assert.match(story, /active=\{activeFilter\}/);
+  assert.match(story, /activeFilter === "official"/);
+  assert.match(story, /activeFilter === "selected"/);
+  assert.match(story, /\.\.\.\(counts\.official \? \[/);
+  assert.match(story, /\.\.\.\(counts\.selected \? \[/);
+  assert.doesNotMatch(story, /active=\{filter\}/);
+});
