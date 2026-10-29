@@ -38,7 +38,7 @@ cndev_hit="$(ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGE
 awk -v n="$cndev_hit" 'NR == n' "$cndev_scan" > "${cndev_scan}.ok" && mv "${cndev_scan}.ok" "$CNDEV_KNOWN_HOSTS"
 rm -f "$cndev_scan"
 cndev_algo="$(awk '{print $2; exit}' "$CNDEV_KNOWN_HOSTS")"
-ssh_opts="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$CNDEV_KNOWN_HOSTS -o HostKeyAlgorithms=$cndev_algo -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519"
+ssh_opts="-o StrictHostKeyChecking=yes -o UserKnownHostsFile=$CNDEV_KNOWN_HOSTS -o HostKeyAlgorithms=$cndev_algo -o ConnectTimeout=15 -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519"
 
 # VM13 pulls this digest for its own Web/API deploy on every release; pull only
 # when this job runs first or the image was pruned. VM13 reaches GHCR reliably.
