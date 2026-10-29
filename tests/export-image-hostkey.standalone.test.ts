@@ -229,6 +229,7 @@ test("rsync transports a digest-verified archive, preserving the existing image 
     `${cnDevHost} ${offeredPub}\n`);
   const hops = content(path.join(sb.dir, "ssh-calls.log"));
   for (const hop of hops.trim().split("\n")) {
+    assert.match(hop, /StrictHostKeyChecking=yes/);
     assert.match(hop, /UserKnownHostsFile=/);
     assert.match(hop, /ConnectTimeout=15/);
   }
