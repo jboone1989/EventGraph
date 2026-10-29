@@ -187,7 +187,7 @@ function TimelineRow({ r, provenance }: { r: StoryReportView; provenance?: Repor
           {r.source.firstParty && <span className="rounded border border-line-soft px-1.5">{t("一手资料", "First-party source")}</span>}
           {provenance?.singleSourceFact && <span className="rounded border border-line-soft px-1.5">{t("相关事实仅单一来源", "Related fact: single source")}</span>}
           {provenance?.reportTimeOnly && <span className="rounded border border-line-soft px-1.5">{t("事实发生时间未证实", "Fact occurrence time unverified")}</span>}
-          {provenance?.revised && <span className="rounded border border-line-soft px-1.5">{t("原始报道有修订", "Original report revised")}</span>}
+          {provenance?.revised && <span className="rounded border border-line-soft px-1.5">{t("相关事实或原始报道有修订", "Related fact or source revised")}</span>}
         </div>
         <IntentLink viewTransition to={lang === "en" ? `/en/items/${r.id}` : `/items/${r.id}`} className="mt-1 block text-[16px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent lg:text-[15.5px]">
           {title}
