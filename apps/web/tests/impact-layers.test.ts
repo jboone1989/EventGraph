@@ -4,7 +4,7 @@ import { IMPACT_EVIDENCE_KINDS } from "@aihot/contracts/site";
 import type { ImpactEvidenceKind, StoryDetail, StoryRoute, StoryRouteStation } from "@aihot/contracts/site";
 import { impactLeadsAt, marketObservationAt } from "../app/features/story/impact-evidence.ts";
 import {
-  IMPACT_STATION_LAYERS, LAYER_LABELS, displayableStationReports, stationEvidenceAt, stationLayer,
+  IMPACT_STATION_LAYERS, LAYER_LABELS, displayableStationReports, isRevisedRevision, stationEvidenceAt, stationLayer,
 } from "../app/features/story/impact-layers.ts";
 
 // Real-sample fixtures (read-only dev-DB check, 2026-10-28; specs/event-impact-tracing §5/§6):
@@ -194,4 +194,12 @@ test("AC-2: raw story-route drawers exclude reports missing safe URLs or either 
     ...t0Station, reports: [good, missingPublished, missingDiscovered, unzoned, unsafe],
   }).map(report => report.articleId);
   assert.deepEqual(visible, ["good"]);
+});
+
+
+test("P1 §4: original revision 1 is not mislabeled as a revised source", () => {
+  assert.equal(isRevisedRevision(null), false, "missing revision means original");
+  assert.equal(isRevisedRevision(1), false, "revision 1 is the first version");
+  assert.equal(isRevisedRevision(2), true, "revision 2 is revised");
+  assert.equal(isRevisedRevision(3), true, "later revisions stay marked");
 });
