@@ -88,7 +88,7 @@ case "$*" in
   *"registry:2 >"*) [ -n "$STUB_REGISTRY_PRESENT" ] && exit 0; exit 1 ;;
   *"gzip -dc | docker load"*) exit 0 ;;
   *"docker run -d --name eventgraph-dev-registry"*) exit 0 ;;
-  *"curl -fsS -o /dev/null http://127.0.0.1:5000/v2/"*) exit 0 ;;
+  *"curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null http://127.0.0.1:5000/v2/"*) exit 0 ;;
   *"docker pull"*) exit 0 ;;
   *"docker image inspect"*) echo "\${STUB_REMOTE_IMAGE_ID:-$STUB_IMAGE_ID}" ;;
   *"eventgraph-last-delivered-image"*) exit 0 ;;
@@ -307,6 +307,8 @@ test("cold registry: bootstraps the registry image once, pushes, and records the
   // tunnel, remote pull, remote id, pairing write, transport-tag cleanup,
   // registry+volume teardown.
   assert.equal(sshCalls.length, 11, `probe, load, ensure, wait, seed, tunnel, pull, id, record, tag-cleanup, cleanup — got: ${sshCalls.join(" || ")}`);
+  assert.ok(sshCalls.some((c) => c.includes("curl --connect-timeout 3 --max-time 5 -fsS -o /dev/null http://127.0.0.1:5000/v2/")),
+    "cn-dev registry readiness must have a connection and total timeout before image transfer");
   for (const call of sshCalls) {
     assert.ok(call.includes(`UserKnownHostsFile=${pinnedFile_}`), `ssh must pin the verified host key: ${call}`);
     assert.ok(call.includes("HostKeyAlgorithms=ssh-ed25519"), `ssh must negotiate the verified algorithm: ${call}`);
