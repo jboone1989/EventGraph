@@ -19,10 +19,10 @@ async function main() {
   if (!route.stations.length || !articleIds.length) throw new Error("No public Fact/report pairs");
 
   const membershipRows = await sql<{
-    fact_id: string; article_id: string; role: string; fact_manual: boolean;
+    fact_id: string; fact_numeric_id: number; article_id: string; role: string; fact_manual: boolean;
     membership_manual: boolean; evidence: string | null;
   }[]>`
-    SELECT f.public_id::text AS fact_id, fa.article_id, fa.role, fa.evidence,
+    SELECT f.public_id::text AS fact_id, f.id AS fact_numeric_id, fa.article_id, fa.role, fa.evidence,
       f.manual AS fact_manual, fa.manual AS membership_manual
     FROM facts f JOIN fact_articles fa ON fa.fact_id = f.id
     -- Search every Fact membership for the visible public reports, not only
@@ -44,7 +44,7 @@ async function main() {
       FROM grouping_decisions WHERE article_id IN ${sql(articleIds)}
     ) recent WHERE ordinal <= 5 ORDER BY article_id, id DESC`;
   const memberships: Membership[] = membershipRows.map(m => ({
-    factId: m.fact_id, articleId: m.article_id, role: m.role,
+    factId: m.fact_id, factNumericId: Number(m.fact_numeric_id), articleId: m.article_id, role: m.role,
     factManual: m.fact_manual, membershipManual: m.membership_manual, evidence: m.evidence,
   }));
   const history: DecisionTrace[] = decisions.map(d => ({
