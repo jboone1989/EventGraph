@@ -6,7 +6,8 @@ import { caseStudyAt } from "../app/features/story/case-time.ts";
 const early = "2026-10-20T12:00:00.000Z";
 const later = "2026-10-22T12:00:00.000Z";
 const station = (id: string, discoveredAt = later): StoryRouteStation => ({
-  factId: id, title: id, timeEffective: null, timeRecorded: discoveredAt,
+  factId: id, title: id, subject: null, action: null, object: null,
+  timeEffective: null, timeRecorded: discoveredAt,
   reports: [{ articleId: id, url: "https://example.org/" + id, source: "Wire",
     publishedAt: early, discoveredAt, revision: null }],
   sourceCount: 1, uncertainty: { singleSource: true, occurredAtMissing: true, revised: false },
