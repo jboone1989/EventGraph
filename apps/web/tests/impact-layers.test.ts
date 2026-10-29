@@ -187,7 +187,7 @@ test("AC-2: reports without a safe URL or required timestamps hide the station, 
 test("AC-2: raw story-route drawers exclude reports missing safe URLs or either required timestamp", () => {
   const good = { ...t0Station.reports[0]!, articleId: "good" };
   const missingPublished = { ...good, articleId: "missing-published", publishedAt: null };
-  const missingDiscovered = { ...good, articleId: "missing-discovered", discoveredAt: null };
+  const missingDiscovered = { ...good, articleId: "missing-discovered", discoveredAt: null } as unknown as typeof good;
   const unzoned = { ...good, articleId: "unzoned", publishedAt: "2026-10-23T22:36:43" };
   const unsafe = { ...good, articleId: "unsafe", url: "javascript:alert(1)" };
   const visible = displayableStationReports({
