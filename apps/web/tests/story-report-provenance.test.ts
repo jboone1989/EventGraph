@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { StoryRoute, StoryRouteStation } from "@aihot/contracts/site";
-import { reportProvenance } from "../app/features/story/report-provenance";
+import { reportProvenance } from "../app/features/story/report-provenance.ts";
 
 const station = (
   factId: string, articleId: string, opts: {
