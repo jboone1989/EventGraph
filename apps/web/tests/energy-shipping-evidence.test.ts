@@ -66,6 +66,12 @@ test("shipping drawer excludes credential-bearing links even when text matches",
     [report("unsafe", "Tanker freight report"), report("safe", "Tanker freight report")],
     discovered, "known");
   assert.deepEqual(out.shipping.map(row => row.articleId), ["safe"]);
+  // An unsafe duplicate must not suppress the same public article at a safe URL.
+  const duplicate = energyShippingEvidenceAt(route([
+    station("same", "https://reader:secret@shipping.example.org/report"),
+    station("same", "https://shipping.example.org/report"),
+  ]), [report("same", "Shipping freight report")], discovered, "known");
+  assert.deepEqual(duplicate.shipping.map(row => row.url), ["https://shipping.example.org/report"]);
 });
 
 test("freight-only Chinese and English reporting remains discoverable without numeric inference", () => {
