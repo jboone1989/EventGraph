@@ -110,3 +110,28 @@ test("mention-only cross-Fact references are not mislabeled as shared occurrence
   assert.equal(result.facts.length, 1);
 });
 
+
+test("source tiers are recorded provenance, not independently verified originals", () => {
+  const result = storyFactDiagnosis(route([station("f1", "a"), station("f2", "b")]), [], [], [
+    { articleId: "a", tier: "T1", bodyMode: "summary" },
+    { articleId: "b", tier: "T2", bodyMode: "full" },
+  ]);
+  assert.deepEqual(result.facts[0]!.reports[0]!.sourceRecord, {
+    tier: "T1", bodyMode: "summary", attribution: "recorded_first_party",
+    originalSourceVerified: false,
+  });
+  assert.deepEqual(result.facts[1]!.reports[0]!.sourceRecord, {
+    tier: "T2", bodyMode: "full", attribution: "recorded_other",
+    originalSourceVerified: false,
+  });
+});
+
+test("missing source metadata stays unknown; unrelated records cannot enter public audit", () => {
+  const result = storyFactDiagnosis(route([station("f1", "a")]), [], [], [
+    { articleId: "not-public", tier: "T1", bodyMode: "full" },
+  ]);
+  assert.deepEqual(result.facts[0]!.reports[0]!.sourceRecord, {
+    tier: null, bodyMode: null, attribution: "metadata_missing",
+    originalSourceVerified: false,
+  });
+});
