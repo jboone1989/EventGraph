@@ -222,6 +222,11 @@ test("a provider 503 stops the run without consuming shape retries, then recover
 test("an unselected report and a post are never explained", async () => {
   const unselected = await report("pool", 900, { selected: false });
   const post = await report("post", 1000, { post: true });
+  const unreleased = await report("unreleased", 1010);
+  await sql`UPDATE publications SET visible_after = now() + interval '1 day' WHERE article_id = ${unreleased}`;
+  assert.equal(await explanationCandidateFor(unselected), null, "explicit IDs must not bypass selection");
+  assert.equal(await explanationCandidateFor(post), null, "explicit IDs must not explain posts");
+  assert.equal(await explanationCandidateFor(unreleased), null, "explicit IDs must not reveal unreleased reports");
   await writeExplanationsPending({ limit: 10 });
   assert.equal(await explanation(unselected, "original"), null);
   assert.equal(await explanation(post, "original"), null);
