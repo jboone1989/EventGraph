@@ -14,6 +14,9 @@ export const IMPACT_STATION_LAYERS = [
 ] as const;
 export type ImpactStationLayer = (typeof IMPACT_STATION_LAYERS)[number];
 
+/** Revision 1 (or a missing revision) is the original, not an edited copy (P1 §4). */
+export const isRevisedRevision = (revision: number | null): boolean => revision !== null && revision > 1;
+
 // Conflict vocabulary (spec §3; zh primary, EN translations). An open set by design — the
 // dictionaries group reading, they do not assert conflict severity.
 const CONFLICT_ACTION = /触雷|爆炸|袭击|交火|击沉|伤亡|开火|炮击|空袭|\bmine strike\b|\bstruck a mine\b|\bhit a mine\b|\bexplosion\b|\battacked?\b|\bclashes?\b|\bs(?:an|un)k\b|\bshelling\b|\bairstrikes?\b|\bcasualt(?:y|ies)\b|\bopened fire\b|\bfired (?:on|at)\b/i;
