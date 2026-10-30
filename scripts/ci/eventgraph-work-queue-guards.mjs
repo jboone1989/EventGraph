@@ -31,14 +31,15 @@ export function validateAgentWorkPr(pr) {
 
 export function getOpenAgentWorkPrs() {
   const prs = ghJson(["api", "--method", "GET", `repos/${REPOSITORY}/pulls`,
-    "-f", "state=open", "-f", "base=develop", "-f", "per_page=100"]);
+    "-f", "state=open", "-f", "base=develop", "-f", "labels=agent-work", "-f", "per_page=100"]);
   return prs.filter((pr) => (pr.labels ?? []).some((label) => label.name === "agent-work"));
 }
 
 export function verifySuccessfulWorkerRun(runId) {
   const run = ghJson(["api", `repos/${REPOSITORY}/actions/runs/${runId}`]);
   if (String(run.id) !== String(runId) || run.name !== WORKER_NAME ||
-      run.event !== "workflow_dispatch" || run.status !== "completed" || run.conclusion !== "success") {
+      run.event !== "workflow_dispatch" || run.status !== "completed" || run.conclusion !== "success" ||
+      run.repository?.full_name !== REPOSITORY || run.head_repository?.full_name !== REPOSITORY) {
     throw new Error(`Worker run ${runId} is not a completed successful EventGraph GH-AW Worker run`);
   }
   return run;
