@@ -13,6 +13,9 @@ network:
   allowed:
     - github.com
     - open.bigmodel.cn
+sandbox:
+  agent:
+    token-steering: false
 models:
   providers:
     anthropic:
