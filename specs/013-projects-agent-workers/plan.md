@@ -1,6 +1,6 @@
 # Implementation plan: Multi-Engine GH-AW Workers
 
-**Status:** Draft; implementation starts only after the Spec PR is approved and merged.
+**Status:** Owner-approved; implementation starts after this Spec PR merges to develop.
 
 ## 1. Repository findings
 

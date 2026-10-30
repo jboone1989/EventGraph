@@ -1,6 +1,6 @@
 # Multi-Engine GH-AW Workers
 
-**Status:** Draft — owner approval required before implementation  
+**Status:** Owner-approved on 2026-10-30 — Pi + existing GLM-5.3 is approved as the second GH-AW Worker; implementation starts after this Spec PR merges to develop  
 **Date:** 2026-10-30  
 **Repository:** `jboone1989/EventGraph`  
 **Control-plane branch:** `main`  
@@ -89,7 +89,7 @@ After the existing smoke Work is settled and the queue is quiescent:
 
 If the queue cannot be proven quiescent, retain concurrency one. A config-file edit alone does not change an already installed Policy.
 
-## 6. Acceptance criteria
+## 5. Acceptance criteria
 
 ### Agent Workers
 

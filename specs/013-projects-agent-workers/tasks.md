@@ -1,6 +1,6 @@
 # Tasks: Multi-Engine GH-AW Workers
 
-**Status:** Draft; implementation starts only after the Spec is approved and merged.
+**Status:** Owner-approved; implementation starts after this Spec PR merges to develop.
 
 ## A. Owner approval
 
