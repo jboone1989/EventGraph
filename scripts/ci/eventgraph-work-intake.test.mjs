@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWorkPayload, parseAdmission, selectWorkerProfile } from "./eventgraph-work-intake.mjs";
+import { buildWorkPayload, parseAdmission, selectWorkerProfile, workRequestId } from "./eventgraph-work-intake.mjs";
 
 const specSha = "e90f7e4343e122b4985abd1e530ac848199bc323";
 const body = `## Task
@@ -96,4 +96,13 @@ test("route is captured at admission, not changed by a later label", () => {
   assert.equal(admission.workerProfile, "eventgraph-worker");
   admission.issue.labels = [{ name: "agent-worker:pi" }];
   assert.equal(admission.workerProfile, "eventgraph-worker");
+});
+
+test("a later Pi label cannot create a second request ID for the same admitted Issue", () => {
+  const first = parseAdmission(event());
+  const later = parseAdmission(event({ issue: { labels: [{ name: "agent-worker:pi" }] } }));
+  assert.equal(first.workerProfile, "eventgraph-worker");
+  assert.equal(later.workerProfile, "eventgraph-pi-worker");
+  assert.equal(workRequestId(first.issue.number), workRequestId(later.issue.number));
+  assert.equal(workRequestId(first.issue.number), "issue-42");
 });
