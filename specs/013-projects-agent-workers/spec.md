@@ -1,4 +1,4 @@
-# GitHub Projects and Multi-Engine GH-AW Workers
+# Multi-Engine GH-AW Workers
 
 **Status:** Draft — owner approval required before implementation  
 **Date:** 2026-10-30  
@@ -8,53 +8,20 @@
 
 ## 1. Problem
 
-The GH-AW Work Queue is now present in EventGraph, but its current deployment has one registered Worker profile (`eventgraph-worker`, Claude engine configured for GLM-5.3) and a pool concurrency of one. There is no GitHub Projects board serving as the human-facing planning view.
+The GH-AW Work Queue is now present in EventGraph, but its current deployment has one registered Worker profile (`eventgraph-worker`, Claude engine configured for GLM-5.3) and a pool concurrency of one.
 
-The intended system needs both:
-
-- A visible place to plan, prioritize and follow EventGraph work.
-- More than one GitHub-hosted Agent Worker that can execute the same queue contract.
-
-These are complementary responsibilities. They must not become competing task stores or schedulers.
+The intended change is to add a second supported GitHub-hosted Agent Worker that executes the same immutable queue contract, while preserving the existing backlog, scheduler and delivery pipeline.
 
 ## 2. Architectural decisions
 
-1. **GitHub Projects is the planning and visibility surface.** It contains Issues and Pull Requests and presents their status. It is not a queue backend or a second scheduler.
-2. **GitHub Issues remain the canonical task records.** Task requirements, approved Spec references and acceptance criteria live in Issues. Existing Issue #176 remains the current parent/backlog record for its existing checklist; this rollout does not create duplicate Issues for every checkbox.
-3. **The GH-AW native Work Queue remains the only execution scheduler.** Its Git-backed `work-queue.jsonl` ledger remains authoritative for Work, Claims, retries, dependencies, reservations and Results. No new queue, database, timer, host-side process or scheduling service is introduced.
-4. **Agent Workers are GH-AW worker profiles using different supported engines.** A Work selects an approved `worker_profile`; the native scheduler still selects eligible Work and grants Claims. Every Worker receives the same immutable assignment contract and must return through the same claim-scoped delivery path.
-5. **Keep the existing GLM Worker.** `eventgraph-worker` remains the default profile and continues to use the existing Claude engine with GLM-5.3. Existing accepted Work and its profile binding must not be rewritten.
-6. **Add a Pi engine Worker.** Add `eventgraph-pi-worker` using GH-AW's documented `engine: pi` and native Work Queue worker role. Reuse the existing `GLM_API_KEY` and `GLM_BASE_URL` secrets/variables with `model: anthropic/glm-5.3`. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker. This adds a second Agent Harness over the existing GLM model service; it does not add a second model provider.
-7. **Use Pi as a Worker engine, not as a scheduler.** GH-AW runs Pi inside the GitHub-hosted Worker workflow and exposes the native Work Queue and safe-output MCP tools. Do not create a separate Pi dispatcher or session manager. The Pi engine reference says threat detection defaults to Copilot regardless of Pi's model provider; therefore `eventgraph-pi-worker` must explicitly configure `safe-outputs.threat-detection.engine` as the built-in `claude` engine with the same GLM-5.3 Anthropic-compatible endpoint and key. This avoids an implicit Copilot dependency.
-8. **Use native GitHub Project automations.** Configure the Project's built-in Auto-add workflow and built-in status workflows. Do not build ProjectOps or a custom Project synchronizer for simple, rule-based transitions. Existing matching items must be bulk-added once because GitHub's Auto-add workflow only adds items when they are created or updated after the workflow is enabled.
-9. **Do not let Project status replace queue state.** Project Status is for human planning. The Work Queue ledger remains the source of truth for execution state. Project labels expose priority and Worker selection; they do not grant queue authority.
+1. **Issue #176 remains the only human-maintained backlog.** Its unchecked tasks, approved Specs and acceptance criteria remain the source of human-authorized work. Do not create a second planning board or duplicate task tracker.
+2. **The GH-AW native Work Queue remains the only execution scheduler.** Its Git-backed `work-queue.jsonl` ledger remains authoritative for Work, Claims, retries, dependencies, reservations and Results. No new queue, database, timer, host-side process or scheduling service is introduced.
+3. **Agent Workers are GH-AW worker profiles using different supported engines.** A Work selects an approved `worker_profile`; the native scheduler still selects eligible Work and grants Claims. Every Worker receives the same immutable assignment contract and must return through the same claim-scoped delivery path.
+4. **Keep the existing GLM Worker.** `eventgraph-worker` remains the default profile and continues to use the existing Claude engine with GLM-5.3. Existing accepted Work and its profile binding must not be rewritten.
+5. **Add a Pi engine Worker.** Add `eventgraph-pi-worker` using GH-AW's documented `engine: pi` and native Work Queue worker role. Reuse the existing `GLM_API_KEY` and `GLM_BASE_URL` secrets/variables with `model: anthropic/glm-5.3`. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker. This adds a second Agent Harness over the existing GLM model service; it does not add a second model provider.
+6. **Use Pi as a Worker engine, not as a scheduler.** GH-AW runs Pi inside the GitHub-hosted Worker workflow and exposes the native Work Queue and safe-output MCP tools. Do not create a separate Pi dispatcher or session manager. The Pi engine reference says threat detection defaults to Copilot regardless of Pi's model provider; therefore `eventgraph-pi-worker` must explicitly configure the detector as described in §4.3. This avoids an implicit Copilot dependency.
 
-## 3. GitHub Project requirements
-
-Create one user-owned GitHub Project:
-
-- **Title:** `EventGraph Delivery`
-- **Owner:** `jboone1989`
-- **Initial items:** Issue #176 and all currently open EventGraph Issues and Pull Requests.
-- **Views:** a Board grouped by Status, and a Table view showing Title, Status, Assignees, Labels, Repository and linked Pull Requests.
-- **Status:** use GitHub's built-in Status field and its standard Todo, In Progress and Done values. Do not add a parallel status field or custom status database.
-- **Labels:** use repository labels to expose routing and priority in the Project:
-  - `priority:P0`, `priority:P1`, `priority:P2`, `priority:P3`
-  - `agent-ready`
-  - `agent-worker:glm`
-  - `agent-worker:pi`
-  - `blocked`
-
-Configure the built-in Project workflows:
-
-1. Auto-add new open Issues and Pull Requests from `jboone1989/EventGraph` using the `is:open` filter.
-2. Set the Status to Done when an Issue or Pull Request is closed.
-3. Set the Status to Done when a Pull Request is merged.
-4. Set newly added items to Todo. Use `agent-ready` and `blocked` labels to distinguish ready and blocked work without expanding the Status field.
-
-The one-time bulk import of existing open items is separate from Auto-add. Do not create a custom API integration or PAT-backed ProjectOps workflow for this initial use case.
-
-## 4. Worker routing and authorization
+## 3. Worker routing and authorization
 
 ### 4.1 Intake labels
 
@@ -90,7 +57,7 @@ The existing central independent GLM review, exact-SHA Check/E2E/Docker gates, b
 
 The existing `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` completion path must recognize both Worker workflow names (`EventGraph GH-AW Worker` and `EventGraph GH-AW Pi Worker`). Both Worker results must pass through the same marker verification, exact-SHA Check dispatch and queue continuation. Do not create a second completion pipeline.
 
-### 4.3 Pi + existing GLM provider
+### 3.3 Pi + existing GLM provider
 
 GH-AW's Pi engine supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. Reuse the existing EventGraph `GLM_API_KEY` and `GLM_BASE_URL` values and select `anthropic/glm-5.3`; no Copilot entitlement or new provider key is required. This is a second Agent Harness using the same GLM model/backend, not a second model provider.
 
@@ -109,7 +76,7 @@ safe-outputs:
 
 This is required because GH-AW does not inherit the main Pi engine's `env`, API target or custom model aliases when the detection engine differs. Validate both Pi inference and this separately configured GLM-backed detector with real GitHub-hosted no-write smoke Work before enabling ordinary development. If either fails, leave only the Pi profile disabled and retain the existing GLM Worker.
 
-## 5. Parallel execution
+## 4. Parallel execution
 
 The currently installed Work Queue Policy has a pool capacity of one. Do not change it while the existing smoke Work, Claims, reservations or delivery barriers remain unfinished.
 
@@ -154,16 +121,16 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 - [ ] Existing Work Queue ledger history, active reservations and Claim bindings are preserved.
 - [ ] Missing Pi/GLM provider compatibility, Project setup or queue quiescence is reported as a concrete blocker; it never becomes a false success.
 
-## 7. Out of scope
+## 6. Out of scope
 
 - Replacing the GH-AW native Work Queue or changing its transaction protocol.
-- A custom ProjectOps agent, Project GraphQL client or custom Project status database.
+- Creating a GitHub Projects board or another task tracker; Issue #176 remains the only human-maintained backlog.
 - Codex execution through ChatGPT subscription login is not part of this GitHub-hosted rollout; GH-AW's native Codex engine requires an OpenAI API key or Copilot inference.
 - Adding Codex, Claude Cloud Agent or other engines in this first implementation. The Worker-profile boundary must allow future additions without changing the queue protocol.
 - Migrating every checkbox in Issue #176 into a new Issue. Existing #176 remains the parent/backlog record; future independently assigned work should use its own Issue.
 - Any application product feature, production release or VM09 change.
 
-## 8. Rollback
+## 7. Rollback
 
 - If Project setup is unavailable, continue using the existing Issues and GH-AW queue; Project is not a runtime dependency.
 - If Pi/GLM compatibility or the explicit detection configuration fails smoke validation, disable only the Pi route and retain the existing GLM Worker.
