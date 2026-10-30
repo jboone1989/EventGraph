@@ -40,7 +40,7 @@ This is a development-automation control plane only. It does not replace EventGr
 - All agent and framework jobs use GitHub-hosted runners. No self-hosted runner or SSH hop is part of the development execution path.
 - EventGraph's GitHub default branch is currently `main`, while normal development targets `develop`. GH-AW requires worker workflow sources and compiled locks to be registered on the repository default branch. Therefore the worker workflow definition must be present on `main`, but its code checkout and PR base must remain `develop`. Promote only the approved automation workflow/configuration files to `main`; do not merge unrelated `develop` application commits, change the default branch, or release application code as a side effect.
 - GH-AW source Markdown and generated `.lock.yml` files must be compiled by the pinned official CLI and committed together. Generated lock files must never be hand-authored.
-- The GitHub Actions token does not automatically trigger follow-on workflows for most events it creates. Where safe-output PR creation uses that token, explicitly dispatch the existing Check workflow for the exact PR SHA through the supported `workflow_dispatch` event; do not assume a `pull_request` event will fire.
+- The GitHub Actions token does not automatically trigger follow-on workflows for most events it creates. Where safe-output PR creation uses that token, explicitly dispatch the existing Check workflow for the exact PR SHA through the supported `workflow_dispatch` event; do not assume a `pull_request` event will fire. Extend `.github/workflows/claude-pr-dispatch.yml` so a successful `workflow_dispatch` Check is also forwarded to the existing central independent reviewer, but only after resolving exactly one open, non-draft, same-repository PR whose live head SHA equals the checked SHA; retain the current stale-SHA and repository guards. Extend the `docker` job condition in `check.yml` so this dispatched Check runs the real Docker integration for any eligible code PR branch, not only `chore/aihot-upstream-*`. The existing E2E job already runs for non-docs `workflow_dispatch` checks. Documentation-only PRs may keep the existing heavy-test skip behavior.
 - Keep the existing Spec gate. Every code-producing Work must carry an immutable Spec path/SHA and approval evidence; the worker must verify that the Spec is already on `develop` and unchanged before editing code.
 
 ## 5. Acceptance criteria
@@ -60,6 +60,8 @@ This is a development-automation control plane only. It does not replace EventGr
 - [ ] The worker runs only on GitHub-hosted infrastructure and checks out `develop`; no user-managed host is contacted.
 - [ ] The worker creates one PR to `develop` with the exact Spec path/SHA and approval evidence in its body.
 - [ ] The PR's exact HEAD receives Check, E2E, Docker, and independent R01–R18 review. A stale Check or review cannot authorize a newer SHA.
+- [ ] For a worker-created PR using `GITHUB_TOKEN`, a successful `workflow_dispatch` Check automatically triggers the central independent reviewer after exact open-PR/live-SHA validation; the resulting review is recorded against that exact PR SHA without a manual prompt.
+- [ ] The same dispatched Check runs the real Docker integration for code PRs; the job cannot be silently skipped merely because the event is `workflow_dispatch`.
 - [ ] A passing PR is squash-merged without bypassing branch protection; a failing or blocked PR stops queue progression and preserves evidence.
 - [ ] After merge, the next queued Work starts automatically from the new `develop` HEAD.
 
@@ -67,6 +69,7 @@ This is a development-automation control plane only. It does not replace EventGr
 
 - [ ] No `tasks.json`, `runs.jsonl`, host-side queue, timer, cron, tmux, or long-running agent is required.
 - [ ] Queue state, claims, attempts, delivery and result can be inspected through the official GH-AW operator CLI and GitHub Actions history.
+- [ ] The implementation verifies that GLM credentials are configured and readable by an EventGraph-hosted workflow before the hosted smoke test; missing credentials block intake.
 - [ ] Missing credentials, unsupported API compatibility, queue protocol errors, failed checks, or failed review are visible as failures/blocked work; they are never reported as completed.
 - [ ] A real hosted smoke test is required before enabling the development intake label for normal work.
 
