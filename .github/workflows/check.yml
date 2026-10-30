@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: check-${{ github.event.pull_request.number || github.ref }}
@@ -45,6 +46,34 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      - name: Test Spec gate
+        if: github.event_name == 'pull_request'
+        run: node --test scripts/ci/check-spec.test.mjs
+      - name: Enforce pre-existing approved Spec
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SPEC_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          SPEC_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SPEC_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          SPEC_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          SPEC_REPOSITORY: ${{ github.repository }}
+          SPEC_PR_BODY: ${{ github.event.pull_request.body }}
+          SPEC_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SPEC_BASE_REF" == main ]] || { echo "::error::Main Spec gate only accepts PRs targeting main"; exit 1; }
+          SPEC_BASE_SHA="$(gh api "repos/$GITHUB_REPOSITORY/branches/$SPEC_BASE_REF" --jq '.commit.sha')"
+          export SPEC_BASE_SHA
+          # Use the trusted gate already present on the base branch, never the candidate PR copy.
+          if ! git cat-file -e "${SPEC_BASE_SHA}:scripts/ci/check-spec.mjs" 2>/dev/null; then
+            echo "::error::Trusted Spec gate is missing from main base"
+            exit 1
+          fi
+          git show "${SPEC_BASE_SHA}:scripts/ci/check-spec.mjs" > "$RUNNER_TEMP/check-spec.mjs"
+          node "$RUNNER_TEMP/check-spec.mjs"
 
       - name: Install
         run: npm ci --no-audit --no-fund
