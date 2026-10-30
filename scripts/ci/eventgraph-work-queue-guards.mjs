@@ -30,7 +30,7 @@ export function validateAgentWorkPr(pr) {
 }
 
 export function getOpenAgentWorkPrs() {
-  const prs = ghJson(["api", "--method", "GET", `repos/${REPOSITORY}/pulls",
+  const prs = ghJson(["api", "--method", "GET", `repos/${REPOSITORY}/pulls`,
     "-f", "state=open", "-f", "base=develop", "-f", "per_page=100"]);
   return prs.filter((pr) => (pr.labels ?? []).some((label) => label.name === "agent-work"));
 }
