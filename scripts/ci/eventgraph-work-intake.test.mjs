@@ -15,12 +15,13 @@ Spec PR: https://github.com/jboone1989/EventGraph/pull/236
 `;
 
 function event(overrides = {}) {
+  const { issue: issueOverrides = {}, ...eventOverrides } = overrides;
   return {
     action: "labeled",
     label: { name: "agent-ready" },
     sender: { login: "jboone1989" },
-    issue: { number: 42, title: "Implement the approved task", body, ...overrides.issue },
-    ...overrides,
+    issue: { number: 42, title: "Implement the approved task", body, ...issueOverrides },
+    ...eventOverrides,
   };
 }
 
