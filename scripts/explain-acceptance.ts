@@ -1,14 +1,6 @@
-// Runs the item explainer (specs/news-explainer, E-01/E-06 acceptance) against the site's real model
-// route for a fixed sample of selected reports and writes the acceptance record: per sample the source
-// facts (URL, language, body mode, published time), the input revision and prompt version, the paid
-// receipt and the stored explanation. Reads no secrets — the model comes from the configured route
-// (EXPLAIN_MODEL / the managed provider registry), everything else is a database read.
-//   MODEL_CALLS_ENABLED=true DATABASE_URL=postgres://... EXPLAIN_MODEL=model:<uuid> \
-//     node scripts/explain-acceptance.ts [--ids a,b,c] [--zh 6 --en 6] [--out <file>]
-// Without --ids the sample is the newest pending selected news reports, six per language, at most one
-// per source; prefer a mix of licensed-full and summary-only sources when reporting E-06.
-// Default sampling is strict: if six distinct sources per language are unavailable, stop before
-// paid calls. Explicit --ids supports focused retests, not an automatic 12-sample signoff.
+// Real-model E-01/E-06 acceptance ledger; never substitutes a stub for a paid receipt.
+// Usage: node scripts/explain-acceptance.ts [--ids a,b,c] [--zh 6 --en 6] [--out file]
+// Default: six distinct sources per language or fail before spending. Explicit IDs are retests.
 import { writeFile } from "node:fs/promises";
 import { sql, closeDb } from "@aihot/backend/db";
 import { explanationCandidateFor, explanationsPending, explainLanguage, explainOne, explainPromptVersion, type ExplainCandidate } from "@aihot/backend/editorial/explain";

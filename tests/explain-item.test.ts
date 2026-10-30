@@ -1,11 +1,4 @@
-// The item explainer (specs/news-explainer Phase 1, v0.2 alignment): written by the worker for a selected
-// news report in the report's own language and shown only on that language's page (D-01), newest reports
-// first with nothing too old to be eligible (D-02). A source that says little is recorded as an explicit
-// insufficient-evidence row, receipted and not re-asked until its inputs change (D-03). A watchpoint date
-// is kept only when the source itself states the full calendar date, and only real dates survive (D-04).
-// The explanation stays visible while it matches its inputs — copy, licence-gated text or a new sibling
-// report changes the inputs and hides it until written again; a wrong shape is rejected with at most three
-// attempts; unselected reports and posts are never explained.
+// News-explainer D-01–D-04: language, revision, licence, receipt and date regressions.
 import { Reply, stub, tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
@@ -43,10 +36,7 @@ test("a date that is not a real calendar day cannot survive the schema (D-04)", 
     [{ text: "A valid next step to check", date: null }]);
 });
 
-// The model: a full explanation, except for inputs marked "thin" (nothing supportable), "loose-date"
-// (a watchpoint the source does not date as a calendar date), "full-date" / "copy-date" /
-// "invented-date" / "invalid-date" (watchpoint dates the original states, only the site's derived copy
-// states, the source does not state, or cannot support) and "malformed" (a field the schema rejects).
+// Stub variants exercise empty, invalid shape, unsupported and grounded watchpoint dates.
 const seenInputs = new Map<string, { originalTitle: string | null; originalText: string | null }>();
 const transientCalls = new Map<string, number>();
 const provider = await stub(async (_hit, req) => {

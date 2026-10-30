@@ -1,17 +1,6 @@
-// The item explainer (specs/news-explainer Phase 1, v0.2 alignment): 5W1H + So What + What Next for a
-// selected news report, written by the worker from the report's own copy and text plus the titles of its
-// event's other reports; a page read never writes. Each explanation records the hash of the inputs it was
-// written from (publication/items.ts EXPLAIN_ITEM_INPUTS), so a corrected report, a licence change or a
-// new sibling report hides its explanation until it is written again. The explanation is written in the
-// report's own language (D-01: Chinese in Chinese, English in English) and shown only on that language's
-// page; a report in another language stays unexplained in this phase. New reports come first but nothing
-// expires from eligibility (D-02): each run works within its time budget and per-run limit, and old
-// unprocessed reports stay unprocessed, never marked done. A source that says nothing supportable is
-// recorded as insufficient_evidence with its input revision (D-03): it shows nothing and is not asked
-// again until its inputs change. A watchpoint date is kept only when the source's own original-language
-// material — the original title and the licensed body — states the full calendar date (never the site's
-// derived copy) and the date is a real calendar day (D-04). An answer of the wrong shape fails the schema,
-// which leaves its receipt failed so a retry pays for a fresh one; a report stops after three failures.
+// Worker-only 5W1H explainer (approved news-explainer D-01–D-04).
+// Input hashes hide stale explanations; malformed answers retry, ambiguous paid receipts never re-send.
+// New reports first, with no age cutoff for unexplained reports.
 import { z } from "zod";
 import { sql } from "../db.ts";
 import { chatJson, ModelOutputError } from "../providers/llm.ts";
@@ -89,11 +78,7 @@ export function fullDatesIn(text: string): Set<string> {
   return dates;
 }
 
-/** D-04: keep a watchpoint's date only when the report's original-language material — the original
- *  title and licensed body — states that full calendar date. The site's own derived copy
- *  (title/summary/reason) is not the 原文 the approved decision grounds dates in. The event's title and
- *  sibling titles are context for spotting the increment, never a fact source for this report (spec
- *  E-06), and publishedAt is provenance, not a date the report states as a watchpoint. */
+/** D-04: dates require the original title/licensed body, never site copy or event context. */
 function groundWatchpoints(data: z.infer<typeof ExplainSchema>, material: string): z.infer<typeof ExplainSchema> {
   const supported = fullDatesIn(material);
   return { ...data, watchpoints: data.watchpoints.map((w) => ({ ...w, date: w.date && supported.has(w.date) ? w.date : null })) };
