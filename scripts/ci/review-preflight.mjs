@@ -17,13 +17,13 @@ export async function planReview(github, { owner, repo, runId }) {
   if (pr.state !== 'open' || pr.draft || pr.head.sha !== run.head_sha ||
       pr.head.repo?.full_name !== repository || pr.base.repo?.full_name !== repository ||
       !['develop','main'].includes(pr.base.ref)) return skip;
-  const [{ data: branch }, { data: combined }] = await Promise.all([
+  const [{ data: branch }, { data: statuses }] = await Promise.all([
     github.rest.repos.getBranch({ owner, repo, branch: pr.base.ref }),
-    github.rest.repos.getCombinedStatusForRef({ owner, repo, ref: run.head_sha, per_page: 100 }),
+    github.rest.repos.listCommitStatusesForRef({ owner, repo, ref: run.head_sha, per_page: 100 }),
   ]);
   const baseSha = branch.commit.sha;
   if (!hex.test(baseSha || '')) throw new Error('Target branch has no immutable commit');
-  const status = combined.statuses.find(s => s.context === 'claude-review');
+  const status = statuses.find(s => s.context === 'claude-review');
   const marker = `base=${pr.base.ref}@${baseSha}; `;
   const reusable = status?.state === 'success' && status.creator?.login === 'github-actions[bot]' && status.description?.startsWith(marker);
   return { eligible: true, required: !reusable, number, sha: run.head_sha, baseRef: pr.base.ref, baseSha };

@@ -1,6 +1,8 @@
 ---
 name: EventGraph GH-AW Worker
 on: workflow_dispatch
+checkout:
+  ref: develop
 permissions:
   contents: read
   issues: read
