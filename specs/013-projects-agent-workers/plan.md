@@ -74,7 +74,7 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
    - add focused intake routing tests;
    - compile all affected GH-AW Markdown sources and lock files together with pinned v1.0.1 in strict mode.
 4. Keep the existing queue Policy at concurrency one while current Work remains unfinished.
-5. Verify GLM and Copilot no-write smoke Work through their actual GitHub-hosted Workers. Do not use synthetic local-only test output as hosted evidence.
+5. Verify GLM and Pi no-write smoke Work through their actual GitHub-hosted Workers, including the Pi Worker's explicit GLM-backed Claude threat-detection job. Do not use synthetic local-only test output as hosted evidence.
 6. After queue quiescence, apply the concurrency-two Policy epoch and verify two independent Claims execute concurrently.
 7. Run one low-risk, owner-authorized code Work through each enabled profile. Verify exact PR markers, current-HEAD CI, independent GLM review, normal merge and post-merge queue continuation.
 8. Create/configure the Project in GitHub UI, bulk-add existing items, enable Auto-add and built-in status workflows. Verify a new Issue/PR is added automatically and a merged PR is marked Done.
