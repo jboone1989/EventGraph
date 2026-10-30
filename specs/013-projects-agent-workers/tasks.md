@@ -33,6 +33,7 @@
 ## E. Route Work to both Worker profiles
 
 - [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-worker-pi`.
+- [ ] Verify the compiled Dispatcher lock resolves `eventgraph-worker` (not `eventgraph-worker-pi`) as the default pool profile while registering both profiles.
 - [ ] Update `eventgraph-work-intake.mjs` to select the profile from `agent-worker:glm` / `agent-worker:pi` labels.
 - [ ] Preserve owner-only `agent-ready` admission and stable Issue-derived idempotency.
 - [ ] Reject both Worker labels being present; verify that Worker labels alone cannot submit Work.
