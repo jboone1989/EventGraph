@@ -1,7 +1,14 @@
 import { execFileSync } from "node:child_process";
 
 export const REPOSITORY = "jboone1989/EventGraph";
-export const WORKER_NAME = "EventGraph GH-AW Worker";
+// Registered workflow identity; run.name is the native queue's dynamic run-name.
+export const WORKER_ID = 401548383;
+export const WORKER_PATH = ".github/workflows/eventgraph-worker.lock.yml";
+
+export function isWorkerRun(run) {
+  return run?.workflow_id === WORKER_ID && run.path === WORKER_PATH &&
+    run.repository?.full_name === REPOSITORY && run.head_repository?.full_name === REPOSITORY;
+}
 
 export function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }).trim();
@@ -35,11 +42,10 @@ export function getOpenAgentWorkPrs() {
   return prs.filter((pr) => (pr.labels ?? []).some((label) => label.name === "agent-work"));
 }
 
-export function verifySuccessfulWorkerRun(runId) {
-  const run = ghJson(["api", `repos/${REPOSITORY}/actions/runs/${runId}`]);
-  if (String(run.id) !== String(runId) || run.name !== WORKER_NAME ||
-      run.event !== "workflow_dispatch" || run.status !== "completed" || run.conclusion !== "success" ||
-      run.repository?.full_name !== REPOSITORY || run.head_repository?.full_name !== REPOSITORY) {
+export function verifySuccessfulWorkerRun(runId, read = ghJson) {
+  const run = read(["api", `repos/${REPOSITORY}/actions/runs/${runId}`]);
+  if (String(run.id) !== String(runId) || !isWorkerRun(run) ||
+      run.event !== "workflow_dispatch" || run.status !== "completed" || run.conclusion !== "success") {
     throw new Error(`Worker run ${runId} is not a completed successful EventGraph GH-AW Worker run`);
   }
   return run;

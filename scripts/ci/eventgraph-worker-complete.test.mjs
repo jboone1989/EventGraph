@@ -1,0 +1,105 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { handleWorkerCompletion } from "./eventgraph-worker-complete.mjs";
+import { verifySuccessfulWorkerRun } from "./eventgraph-work-queue-guards.mjs";
+
+const repository = "jboone1989/EventGraph";
+// Sanitized fields from the real successful native Worker run 41126279153.
+const run = {
+  id: 41126279153,
+  workflow_id: 401548383,
+  name: "gh-aw work-queue d_0a8c26724a8138ad7c8c0ace75f61fadd06bca9cc97cb66c4d598dc7099c0277_1",
+  path: ".github/workflows/eventgraph-worker.lock.yml",
+  event: "workflow_dispatch",
+  status: "completed",
+  conclusion: "success",
+  repository: { full_name: repository },
+  head_repository: { full_name: repository },
+};
+
+test("a native Worker with a dynamic run-name advances the no-PR queue", () => {
+  const calls = [];
+  const result = handleWorkerCompletion({ action: "completed", workflow_run: run }, {
+    getOpenAgentWorkPrs: () => [],
+    dispatchGate: () => calls.push("gate"),
+  });
+  assert.equal(result, "gate-dispatched");
+  assert.deepEqual(calls, ["gate"]);
+});
+
+test("wrong workflow, repository, event and lifecycle identities cannot advance", () => {
+  for (const changed of [
+    { workflow_id: 401548384 }, { path: ".github/workflows/check.yml" },
+    { repository: { full_name: "someone/EventGraph" } },
+    { head_repository: { full_name: "someone/EventGraph" } },
+    { event: "push" }, { status: "in_progress" },
+  ]) {
+    assert.throws(() => handleWorkerCompletion({ action: "completed", workflow_run: { ...run, ...changed } }, {
+      getOpenAgentWorkPrs: () => assert.fail("Rejected events must not access PRs"),
+    }), /Unexpected workflow_run/);
+  }
+  assert.throws(() => handleWorkerCompletion({ action: "requested", workflow_run: run }), /Unexpected workflow_run/);
+});
+
+function pullRequest() {
+  return {
+    number: 42, state: "open", draft: false, labels: [{ name: "agent-work" }],
+    base: { ref: "develop", repo: { full_name: repository } },
+    head: { ref: "agent/acceptance", sha: "a".repeat(40), repo: { full_name: repository } },
+    body: `<!-- eventgraph-work-id:070d0c4f897da5a1055577e095aaf445c8655d6c804870f2860cd5d2c5dc0b55 worker-run-id:${run.id} -->`,
+  };
+}
+
+test("a matching successful native Worker routes only its live PR SHA to Check", () => {
+  const pr = pullRequest(), calls = [];
+  assert.equal(handleWorkerCompletion({ action: "completed", workflow_run: run }, {
+    getOpenAgentWorkPrs: () => [pr],
+    verifySuccessfulWorkerRun: id => {
+      calls.push(["verify", id]);
+      return verifySuccessfulWorkerRun(id, args => {
+        assert.deepEqual(args, ["api", `repos/${repository}/actions/runs/${run.id}`]);
+        return run;
+      });
+    },
+    dispatchCheck: current => calls.push(["check", current.number, current.head.sha]),
+    dispatchGate: () => assert.fail("An open agent-work PR must block next dispatch"),
+  }), "check-dispatched");
+  assert.deepEqual(calls, [["verify", run.id], ["check", 42, pr.head.sha]]);
+});
+
+test("ambiguous, mismatched, draft and failed Worker PRs cannot dispatch Check", () => {
+  const pr = pullRequest();
+  for (const [prs, current] of [
+    [[pr, pr], run],
+    [[{ ...pr, body: pr.body.replace(String(run.id), "123") }], run],
+    [[{ ...pr, draft: true }], run],
+    [[pr], { ...run, conclusion: "failure" }],
+  ]) {
+    const calls = [];
+    assert.throws(() => handleWorkerCompletion({ action: "completed", workflow_run: current }, {
+      getOpenAgentWorkPrs: () => prs,
+      verifySuccessfulWorkerRun: () => calls.push("verify"),
+      dispatchCheck: () => calls.push("check"),
+      dispatchGate: () => calls.push("gate"),
+    }), /Expected at most|does not match|violates|did not succeed/);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("API verification accepts dynamic names but rejects wrong IDs and unsuccessful runs", () => {
+  assert.equal(verifySuccessfulWorkerRun(run.id, () => run), run);
+  for (const changed of [
+    { id: run.id + 1 }, { workflow_id: 1 }, { path: ".github/workflows/other.yml" },
+    { conclusion: "failure" }, { status: "in_progress" }, { event: "push" },
+    { repository: { full_name: "other/repo" } }, { head_repository: { full_name: "other/repo" } },
+  ]) assert.throws(() => verifySuccessfulWorkerRun(run.id, () => ({ ...run, ...changed })), /not a completed successful/);
+});
+
+test("a failed native Worker without a PR requests only the bounded native retry gate", () => {
+  const calls = [];
+  assert.equal(handleWorkerCompletion({ action: "completed", workflow_run: { ...run, conclusion: "failure" } }, {
+    getOpenAgentWorkPrs: () => [],
+    dispatchGate: () => calls.push("gate"),
+  }), "gate-dispatched");
+  assert.deepEqual(calls, ["gate"]);
+});
