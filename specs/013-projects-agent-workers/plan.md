@@ -18,7 +18,7 @@ Inspected the current EventGraph repository, GH-AW control-plane files and the p
 
 ### Official GH-AW v1.0.1 capabilities reused
 
-- The pinned GH-AW v1.0.1 Pi engine documentation supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. EventGraph's existing Worker already uses the GLM Anthropic-compatible endpoint (`GLM_BASE_URL`, default `https://open.bigmodel.cn/api/anthropic`) and `GLM_API_KEY`; the Pi profile can reuse those exact values with `model: anthropic/glm-5.3`.
+- The pinned GH-AW v1.0.1 Pi engine documentation supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. The owner-approved recovery pins compiled GH-AW workflows to `https://open.bigmodel.cn/api/anthropic` and preserves the existing `GLM_API_KEY`; those workflows no longer read `vars.GLM_BASE_URL`. The Pi profile must reuse the same literal endpoint and key with `model: anthropic/glm-5.3`.
 - GH-AW v1.0.1 supports multiple registered Worker workflows. The Dispatcher declares the allowed worker workflow names, while the immutable Work selects an approved `worker_profile`. The native scheduler still chooses eligible Work and creates Claims.
 - GH-AW v1.0.1 Pi supports native MCP and Work Queue tools. The Pi engine reference states threat detection defaults to Copilot regardless of Pi's model provider. Configure `safe-outputs.threat-detection.engine` as an object with `id: claude`, `model: glm-5.3`, and explicit `env.ANTHROPIC_BASE_URL` / `env.ANTHROPIC_API_KEY` pointing to the existing GLM endpoint and secret. The threat-detection reference explicitly says different engines do not inherit main-engine environment, API targets or custom model aliases. This avoids any Copilot entitlement dependency.
 
@@ -61,7 +61,7 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 2. Extend the existing central GLM reviewer in `jboone1989/livingruntime-remote` to resolve exact-head PRs targeting both `develop` and `main`. Add `claude-review` to the EventGraph `main` ruleset alongside `check` and `docker`, then verify a docs-only PR to `main` receives the exact-head review status. Reuse the existing reviewer and checklist; do not add a second review system.
 3. Mirror the exact approved Spec content to `main` in a docs-only PR. Record the main-specific Spec commit SHA.
 4. Create one main-only control-plane PR pinned to the main Spec SHA:
-   - add `eventgraph-pi-worker.md` with `engine: pi`, `model: anthropic/glm-5.3`, and the existing GLM API key/base URL;
+   - add `eventgraph-pi-worker.md` with `engine: pi`, `model: anthropic/glm-5.3`, and the existing GLM API key and the owner-approved fixed endpoint literal `https://open.bigmodel.cn/api/anthropic`;
    - update `eventgraph-dispatcher.md` to allowlist the new profile;
    - update `eventgraph-work-intake.mjs` to select the profile from labels;
    - extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to accept the Pi Worker run name through the same completion handler, with focused tests;
