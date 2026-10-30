@@ -18,8 +18,8 @@ jobs:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
           (github.event_name == 'push' &&
-           contains(github.event.head_commit.message, 'feat(gh-aw): native Work Queue') ||
-           contains(github.event.head_commit.message, 'fix(gh-aw): use user PAT for queue operations')) }}
+           (contains(github.event.head_commit.message, 'feat(gh-aw): native Work Queue') ||
+            contains(github.event.head_commit.message, '[gh-aw-smoke]'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -42,9 +42,9 @@ jobs:
           JSON
           gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-work \
             --file "$RUNNER_TEMP/gh-aw-smoke-1.json" --worker-profile eventgraph-worker \
-            --request-id "eventgraph-smoke-20261030-one"
+            --request-id "eventgraph-smoke-${GITHUB_RUN_ID}-one"
           gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-work \
             --file "$RUNNER_TEMP/gh-aw-smoke-2.json" --worker-profile eventgraph-worker \
-            --request-id "eventgraph-smoke-20261030-two"
+            --request-id "eventgraph-smoke-${GITHUB_RUN_ID}-two"
           gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
           gh aw work-queue --repo "$GITHUB_REPOSITORY" stats --json
