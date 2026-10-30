@@ -35,6 +35,34 @@ This is a development-automation control plane only. It does not replace EventGr
 9. The model endpoint and key are configuration, not code. Use GLM-5.3 initially, with `ANTHROPIC_BASE_URL` from `vars.GLM_BASE_URL` when configured, otherwise `https://open.bigmodel.cn/api/anthropic`. The current default-branch `main` copy of EventGraph `.github/workflows/claude-pr-dispatch.yml` (blob `3c9afe1c37e4895f731a0aecc050a3d857b180c2`) already calls `jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml@main` for completed Check runs and passes `secrets.GLM_API_KEY`; this confirms the reference and forwarding path, not that the secret value has been successfully read. The central reusable reviewer currently accepts only a successful `pull_request` Check. Extend its preflight to also accept a completed, successful `workflow_dispatch` Check for the exact SHA, then retain its existing unique-PR resolution, same-repository/open/non-draft/`develop` checks and live-HEAD staleness guard. For a dispatched Check with no PR association, resolve exactly one current PR from the checked SHA. Synchronize EventGraph's stale `develop` copy of `claude-pr-dispatch.yml` with the current `main` forwarding behavior before the next normal promotion, so promotion cannot revert the reviewer path. Missing credentials must fail visibly; do not claim secret readability until a hosted run proves it. Pass the key only through GH-AW's documented engine-specific secret mechanism, never through workflow-level `env` or model-visible prompt text. Changing provider credentials or base URL must not require rewriting queue or worker logic.
 10. Bound every agentic Work run: `timeout-minutes: 30`, `jobs.agent.timeout-minutes: 30`, `safe-outputs.timeout-minutes: 10`, `max-turns: 40`, and `max-ai-credits: 50`. Do not disable the credit guardrail. GH-AW AIC is a best-effort estimate, not an exact provider invoice cap; the pinned GLM-5.3 model pricing must be present in the compiled firewall configuration (or explicitly configured from the provider's published rates) and verified in the hosted smoke test. Report actual token/AIC usage from GH-AW run records and reconcile it with the provider billing view. Exceeding a turn, credit, or time limit fails the Work visibly; it is not silently retried as success.
 
+### Canonical code Work payload
+
+The code Work's immutable payload must use the v1.0.1 field shapes below (the task text and any Issue/Spec metadata are additional ordinary Work fields):
+
+```json
+{
+  "task": "Implement the pinned, owner-approved Issue against the pinned Spec.",
+  "effect_contract": {
+    "version": 1,
+    "outputs": [
+      { "type": "create_pull_request", "min": 1, "max": 1 }
+    ]
+  },
+  "resource_scope": {
+    "version": 1,
+    "resources": [
+      {
+        "host": "github.com",
+        "repository": "jboone1989/EventGraph",
+        "repository_id": "1416699488"
+      }
+    ]
+  }
+}
+```
+
+The `effect_contract` and `resource_scope` objects are closed schemas: no extra fields, aliases, wildcards, or mutable post-admission edits. A read-only smoke Work uses `"effect_contract": {"kind":"none"}`. The native Work Queue validates the versioned contract and checks every delivered resource against the immutable Work scope and installed worker profile.
+
 ## 4. Platform and branch constraints
 
 - Pin GitHub Agentic Workflows to the immutable, verified `v1.0.1` release. Use its native Work Queue; do not hand-implement queue storage, fairness, Claims, retry state, or task dependency state. The v1.0.1 documentation marks the Work Queue operator command experimental, so the hosted smoke test below is a mandatory release gate.
@@ -42,7 +70,7 @@ This is a development-automation control plane only. It does not replace EventGr
 - EventGraph's GitHub default branch is `main`, while normal development targets `develop`. GH-AW requires worker Markdown sources and compiled locks to be published on the repository default branch. Develop and validate them on `develop` first; they become active only through the existing normal `develop`→`main` promotion after this Spec is merged. Do not cherry-pick/selectively push automation files to `main`, directly push unreviewed workflow changes, change the default branch, or promote application code as a side effect of this feature. Keep normal intake disabled until the approved Spec and compiled worker sources are present on `main`.
 - GH-AW source Markdown and generated `.lock.yml` files must be compiled together by the pinned official CLI in strict mode and committed together. Generated lock files must never be hand-authored.
 - GitHub does not start most follow-on workflows from events created with `GITHUB_TOKEN`. The current `main` `.github/workflows/claude-pr-dispatch.yml` forwards completed Check runs to the central reusable reviewer and passes the EventGraph `GLM_API_KEY`; the central reusable reviewer's current preflight in `jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml` accepts only `workflow_run.event == 'pull_request'`. Extend that preflight to accept `workflow_dispatch` only after it independently verifies the source run is completed/successful and its SHA is the exact live HEAD of one open, non-draft, same-repository PR targeting `develop`. Keep the existing exact-SHA PR resolution and stale-head guard. Update EventGraph's `develop` copy of `claude-pr-dispatch.yml` to match the default-branch forwarding behavior before promotion.
-- Extend both `main` and `develop` copies of EventGraph `.github/workflows/check.yml` so a dispatched Check for an `agent/*` code PR branch runs the real Docker integration, while preserving the existing `chore/aihot-upstream-*` behavior and documentation-only skip. Add an optional `expected_sha` input for the post-merge `develop` dispatch; the release re-entry path must reject a missing/mismatched SHA. Widen the develop `publish` and existing development deployment job conditions only for this exact, validated `workflow_dispatch` path, preserving the existing push behavior and deployment flag. The queue-resume workflow must require successful Check, E2E and publish results for the same SHA and current `develop` head before requesting the next Claim.
+- Extend both `main` and `develop` copies of EventGraph `.github/workflows/check.yml` so a dispatched Check for an `agent/*` code PR branch runs the real Docker integration, while preserving the existing `chore/aihot-upstream-*` behavior and documentation-only skip. Declare the optional `expected_sha` input in both copies so GitHub accepts the dispatch payload; the post-merge `develop` release re-entry path must reject a missing/mismatched SHA. Widen the develop `publish` and existing development deployment job conditions only for this exact, validated `workflow_dispatch` path, preserving the existing push behavior and deployment flag. The queue-resume workflow must require successful Check, E2E and publish results for the same SHA and current `develop` head before requesting the next Claim.
 - Keep the existing Spec gate. Every code-producing Work must carry an immutable Spec path/SHA and the owner-approved Issue/Spec PR evidence; the Worker verifies the Spec is already on `develop` and unchanged before editing code.
 
 ## 5. Acceptance criteria
