@@ -1,6 +1,6 @@
 # GitHub-hosted autonomous development queue
 
-**Status:** Owner-approved direction; independent Spec review passed (0 blocking, 0 non-blocking)  
+**Status:** Owner-approved direction; final implementation-contract amendment pending independent review  
 **Date:** 2026-10-30  
 **Target repository:** `jboone1989/EventGraph`  
 **Target development branch:** `develop`
@@ -24,10 +24,10 @@ This is a development-automation control plane only. It does not replace EventGr
 ## 3. User-visible behavior
 
 1. A maintainer marks an eligible GitHub Issue with the `agent-ready` label. The Issue must identify a previously merged and approved Spec by exact path and 40-character commit SHA, include approval evidence, and contain testable acceptance criteria.
-2. GitHub Actions admits the Issue as immutable Work in the official GitHub Agentic Workflows (GH-AW) Work Queue. The Work Queue's Git-backed ledger is authoritative; no `tasks.json`, `runs.jsonl`, custom database, or host-side scheduler is introduced.
+2. A GH-AW Producer validates the pinned Spec and approval evidence, then submits the Issue as immutable Work through the native `work_queue_submit` interface. The Work Queue's Git-backed ledger is authoritative; no `tasks.json`, `runs.jsonl`, custom database, or host-side scheduler is introduced. Submission uses a stable Issue-derived request identity so repeated label events are idempotent.
 3. The GH-AW dispatcher requests one eligible Claim. The Work Queue, not the agent prompt, selects the next task according to its configured policy.
-4. A GH-AW worker runs on a GitHub-hosted `ubuntu-latest` runner, checks out EventGraph `develop`, verifies the immutable approved Spec, researches existing code/upstream/official interfaces, implements the task, runs relevant tests, and proposes one PR targeting `develop`.
-5. The worker has no direct GitHub write permissions. PR creation and queue completion use GH-AW's claim-scoped safe-output and Work Queue mechanisms. Every immutable Work carries a closed version-1 `effect_contract` and `resource_scope`: synthetic smoke Work uses `{"kind":"none"}`; code Work permits exactly one `create_pull_request` output scoped to the EventGraph repository. No other agent-authored write is authorized.
+4. A GH-AW worker runs on a GitHub-hosted `ubuntu-latest` runner, checks out EventGraph `develop`, verifies the immutable approved Spec, researches existing code/upstream/official interfaces, implements the task, runs relevant tests, and proposes one non-draft PR targeting `develop`, using an `agent/*` branch and the `agent-work` label.
+5. The worker has no direct GitHub write permissions. PR creation and queue completion use GH-AW's claim-scoped safe-output and Work Queue mechanisms. Every immutable Work carries a closed version-1 `effect_contract` and version-1 `resource_scope`. Synthetic smoke Work uses `{"kind":"none"}`. Code Work permits exactly one `create_pull_request` output (`min: 1`, `max: 1`) scoped to `github.com/jboone1989/EventGraph` and its repository ID. No other agent-authored write is authorized.
 6. The existing Check/E2E/Docker and independent R01–R18 review remain mandatory. The PR is eligible for squash merge only when the exact current PR HEAD has every required check and an explicit successful independent review. No branch-protection bypass is allowed.
 7. The dispatcher must not request another Claim while an open `agent-work` PR targets `develop`. Worker completion triggers a dispatcher check: if that PR exists, it waits; if no PR exists, the native Work Queue may retry the failed Work. A merged PR triggers the next dispatch. The PR merge path runs only after successful exact-SHA Check and independent review, uses a normal squash merge without `--admin`, then explicitly dispatches the next dispatcher with `workflow_dispatch` because GITHUB_TOKEN-created PR-close events do not reliably start follow-on workflows. Manual merges also resume through the merged-PR event. This keeps one implementation PR in flight and prevents later work from silently building on unmerged code.
 8. Queue progression is event-driven: a GH-AW Producer accepts maintainer-labeled Issues, a GH-AW Dispatcher requests native Claims, and a GH-AW Worker executes them. Worker completion, Check/review completion, and PR merge events resume the appropriate workflow. The Dispatcher checks for an open `agent-work` PR before dispatching. Configure native Work Queue concurrency to one Claim per pool and a short bounded retry backoff; no systemd timer, Linux cron, scheduled polling loop, tmux session, or persistent agent process is used. A manual workflow-dispatch recovery entry point is allowed.
@@ -50,7 +50,7 @@ This is a development-automation control plane only. It does not replace EventGr
 - [ ] The first accepted submission initializes the native Work Queue and its Policy on the dedicated `work-queue` branch.
 - [ ] A synthetic no-write Work is admitted, receives exactly one Claim, runs on a GitHub-hosted runner, finishes, and obtains a verified Result.
 - [ ] The dispatcher cannot choose a specific Work or worker; it requests a bounded pool prefix and the native scheduler selects it.
-- [ ] `.github/workflows/aw.json` sets native Work Queue concurrency to one Claim per pool; duplicate Issue events do not create duplicate Work.
+- [ ] `.github/workflows/aw.json` sets native Work Queue concurrency to one Claim per pool and bounded retry (`max_attempts: 3`, `backoff_seconds: 1`); duplicate Issue events do not create duplicate Work.
 - [ ] Every Work has a closed version-1 `effect_contract` and immutable `resource_scope`; code Work permits exactly one repository-scoped `create_pull_request`, while synthetic smoke Work permits no resource effects.
 - [ ] A second synthetic Work is dispatched automatically after the first Work's lifecycle completes, without a user prompt or external timer.
 
