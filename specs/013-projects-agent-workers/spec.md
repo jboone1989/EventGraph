@@ -37,7 +37,7 @@ Create one user-owned GitHub Project:
 - **Owner:** `jboone1989`
 - **Initial items:** Issue #176 and all currently open EventGraph Issues and Pull Requests.
 - **Views:** a Board grouped by Status, and a Table view showing Title, Status, Assignees, Labels, Repository and linked Pull Requests.
-- **Status values:** Backlog, Ready, In Progress, In Review, Blocked and Done. Use the Project's Status field; do not introduce a second status database.
+- **Status:** use GitHub's built-in Status field and its standard Todo, In Progress and Done values. Do not add a parallel status field or custom status database.
 - **Labels:** use repository labels to expose routing and priority in the Project:
   - `priority:P0`, `priority:P1`, `priority:P2`, `priority:P3`
   - `agent-ready`
@@ -50,7 +50,7 @@ Configure the built-in Project workflows:
 1. Auto-add new open Issues and Pull Requests from `jboone1989/EventGraph` using the `is:open` filter.
 2. Set the Status to Done when an Issue or Pull Request is closed.
 3. Set the Status to Done when a Pull Request is merged.
-4. Keep the default behavior that new Project items start in Todo/Backlog; humans may move them to Ready or In Progress.
+4. Set newly added items to Todo. Use `agent-ready` and `blocked` labels to distinguish ready and blocked work without expanding the Status field.
 
 The one-time bulk import of existing open items is separate from Auto-add. Do not create a custom API integration or PAT-backed ProjectOps workflow for this initial use case.
 
@@ -60,14 +60,16 @@ The one-time bulk import of existing open items is separate from Auto-add. Do no
 
 The existing owner-authorized `agent-ready` label remains the only admission trigger. Only an event authored by `jboone1989` may admit Work.
 
-The intake script chooses the Worker profile from the Issue's labels:
+The intake script chooses the Worker profile from the Issue's labels at the time the owner adds `agent-ready`:
 
-| Issue labels | Selected profile |
+| Issue labels at admission | Selected profile |
 |---|---|
 | `agent-ready` with no Worker label | `eventgraph-worker` (GLM default) |
 | `agent-ready` + `agent-worker:glm` | `eventgraph-worker` |
 | `agent-ready` + `agent-worker:copilot` | `eventgraph-copilot-worker` |
 | Both Worker labels | Reject as ambiguous; submit no Work |
+
+Apply the Worker-selection label first and add `agent-ready` last. This ensures the owner-authorized admission event sees the intended route. Changing labels after admission does not mutate the immutable Work or its selected Worker profile.
 
 A Worker-selection label without the owner-authored `agent-ready` event grants no authority. Duplicate label events must remain idempotent under the existing Issue-derived request ID.
 
