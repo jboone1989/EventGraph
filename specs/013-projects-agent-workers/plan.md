@@ -71,6 +71,10 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
    - add `eventgraph-pi-worker.md` with `engine: pi`, `model: anthropic/glm-5.3`, and the existing GLM API key/base URL;
    - update `eventgraph-dispatcher.md` to allowlist the new profile;
    - update `eventgraph-work-intake.mjs` to select the profile from labels;
+
+   - update `eventgraph-dispatcher.md` to allowlist the new profile;
+   - update `eventgraph-work-intake.mjs` to select the profile from labels;
+   - extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to accept the Pi Worker run name through the same completion handler, with focused tests;
    - add focused intake routing tests;
    - compile all affected GH-AW Markdown sources and lock files together with pinned v1.0.1 in strict mode.
 4. Keep the existing queue Policy at concurrency one while current Work remains unfinished.
