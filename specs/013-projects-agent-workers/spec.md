@@ -141,7 +141,7 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 
 - Replacing the GH-AW native Work Queue or changing its transaction protocol.
 - A custom ProjectOps agent, Project GraphQL client or custom Project status database.
-- Copilot Cloud Agent asynchronous session delegation via `assign-to-agent` or `create-agent-session`.
+- Codex execution through ChatGPT subscription login is not part of this GitHub-hosted rollout; GH-AW's native Codex engine requires an OpenAI API key or Copilot inference.
 - Adding Codex, Claude Cloud Agent or other engines in this first implementation. The Worker-profile boundary must allow future additions without changing the queue protocol.
 - Migrating every checkbox in Issue #176 into a new Issue. Existing #176 remains the parent/backlog record; future independently assigned work should use its own Issue.
 - Any application product feature, production release or VM09 change.
