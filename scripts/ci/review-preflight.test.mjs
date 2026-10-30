@@ -6,7 +6,10 @@ function fixture({status='success',description=`base=develop@${base}; GLM: 0 blo
  const api={rest:{
   actions:{getWorkflowRun:async args=>{assert.equal(args.run_id,1);return ({data:{id:1,name:'Check',event,status:'completed',conclusion,head_sha:sha,head_repository:{full_name:repo},pull_requests:unassociated?[]:[{number:42}]}})}},
   pulls:{get:async args=>{assert.equal(args.pull_number,42);return ({data:{number:42,state:'open',draft,head:{sha:headSha,repo:{full_name:repo}},base:{ref:branch,repo:{full_name:repo}}}})}},
-  repos:{listPullRequestsAssociatedWithCommit:async args=>{assert.equal(args.commit_sha,sha);return {data:Array.from({length:matches},()=>({number:42,state:'open',head:{sha},base:{ref:branch}}))};},getBranch:async()=>({data:{commit:{sha:baseSha}}}),getCombinedStatusForRef:async()=>({data:{statuses:status?[{context:'claude-review',state:status,description,creator:{login:creator}}]:[]}})}
+  repos:{listPullRequestsAssociatedWithCommit:async args=>{assert.equal(args.commit_sha,sha);return {data:Array.from({length:matches},()=>({number:42,state:'open',head:{sha},base:{ref:branch}}))};},getBranch:async()=>({data:{commit:{sha:baseSha}}}),
+   // GitHub's combined endpoint omits creator; the status-list endpoint supplies it.
+   getCombinedStatusForRef:async()=>({data:{statuses:status?[{context:'claude-review',state:status,description}]:[]}}),
+   listCommitStatusesForRef:async args=>{assert.equal(args.ref,sha);assert.equal(args.per_page,100);return {data:status?[{context:'claude-review',state:status,description,creator:creator?{login:creator}:null}]:[]};}}
  }};
  return planReview(api,{owner:'jboone1989',repo:'EventGraph',runId:1});
 }
@@ -17,6 +20,7 @@ test('missing, failed, pending, errored and unattributed review results require 
  for(const status of ['', 'failure','pending','error']) assert.equal((await fixture({status})).required,true);
  assert.equal((await fixture({description:'GLM: 0 blocking'})).required,true);
  assert.equal((await fixture({creator:'another-user'})).required,true);
+ assert.equal((await fixture({creator:''})).required,true);
 });
 test('base advancement and retargeting require review even for the same head',async()=>{
  assert.equal((await fixture({baseSha:'c'.repeat(40)})).required,true);
