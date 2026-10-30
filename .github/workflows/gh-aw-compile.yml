@@ -2,7 +2,7 @@ name: Compile GH-AW Work Queue
 
 on:
   push:
-    branches: [feat/gh-aw-work-queue-main-20261030]
+    branches: [feat/gh-aw-work-queue-main-20261030, feat/013-gh-aw-pi-worker]
     paths:
       - '.github/workflows/eventgraph-*.md'
       - '.github/workflows/aw.json'
@@ -33,7 +33,8 @@ jobs:
         run: |
           set -euo pipefail
           gh aw version
-          gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update
+          gh aw compile eventgraph-worker eventgraph-pi-worker eventgraph-dispatcher --strict --approve --no-check-update
+          test -s .github/workflows/eventgraph-pi-worker.lock.yml
           test -s .github/workflows/eventgraph-worker.lock.yml
           test -s .github/workflows/eventgraph-dispatcher.lock.yml
       - name: Publish compiler-generated lock files as an artifact
@@ -41,6 +42,7 @@ jobs:
         with:
           name: gh-aw-work-queue-locks
           path: |
+            .github/workflows/eventgraph-pi-worker.lock.yml
             .github/workflows/eventgraph-worker.lock.yml
             .github/workflows/eventgraph-dispatcher.lock.yml
           if-no-files-found: error
@@ -48,7 +50,7 @@ jobs:
       - name: Emit generated lock payload for repository API import
         run: |
           set -euo pipefail
-          for name in eventgraph-worker eventgraph-dispatcher; do
+          for name in eventgraph-worker eventgraph-pi-worker eventgraph-dispatcher; do
             printf 'GH_AW_LOCK_BEGIN:%s\n' "$name"
             base64 -w 120 ".github/workflows/$name.lock.yml"
             printf '\nGH_AW_LOCK_END:%s\n' "$name"
