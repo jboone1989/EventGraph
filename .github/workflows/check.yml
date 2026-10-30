@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [develop, main]
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact commit SHA to validate for an explicitly dispatched PR/branch check
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -94,6 +99,27 @@ jobs:
             fi
           fi
 
+      - name: Validate expected SHA and exact live PR
+        if: github.event_name == 'workflow_dispatch' && inputs.expected_sha != ''
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" == "$GITHUB_SHA" ]] || { echo '::error::expected_sha does not match this workflow run SHA'; exit 1; }
+          if [[ "$GITHUB_REF_NAME" == main || "$GITHUB_REF_NAME" == develop ]]; then
+            live_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/$GITHUB_REF_NAME" --jq '.commit.sha')"
+            [[ "$live_sha" == "$EXPECTED_SHA" ]] || { echo '::error::Selected branch moved after dispatch'; exit 1; }
+            exit 0
+          fi
+          prs="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f head="$GITHUB_REPOSITORY_OWNER:$GITHUB_REF_NAME" -f per_page=100)"
+          if [[ "$GITHUB_REF_NAME" == agent/* ]]; then
+            count="$(jq --arg sha "$EXPECTED_SHA" --arg repo "$GITHUB_REPOSITORY" '[.[] | select(.head.sha == $sha and .head.repo.full_name == $repo and .base.ref == "develop" and .draft == false and any(.labels[]; .name == "agent-work"))] | length' <<< "$prs")"
+          else
+            count="$(jq --arg sha "$EXPECTED_SHA" --arg repo "$GITHUB_REPOSITORY" '[.[] | select(.head.sha == $sha and .head.repo.full_name == $repo and (.base.ref == "main" or .base.ref == "develop") and .draft == false)] | length' <<< "$prs")"
+          fi
+          [[ "$count" == 1 ]] || { echo '::error::expected_sha must identify exactly one open same-repository PR at this SHA'; exit 1; }
       - name: Install pinned GH-AW CLI
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
         uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a
