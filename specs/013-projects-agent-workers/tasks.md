@@ -41,6 +41,7 @@
 - [ ] Reject both Worker labels being present; verify that Worker labels alone cannot submit Work.
 - [ ] Add focused standalone tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events and invalid Spec.
 - [ ] Compile all changed GH-AW sources and locks together in strict mode.
+- [ ] Update `.github/workflows/check.yml` to compile `eventgraph-pi-worker` alongside the existing Worker and Dispatcher, and verify its generated lock file is committed.
 
 ## E. Hosted validation and parallelism
 
