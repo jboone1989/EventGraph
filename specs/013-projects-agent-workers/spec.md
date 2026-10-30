@@ -24,8 +24,8 @@ These are complementary responsibilities. They must not become competing task st
 3. **The GH-AW native Work Queue remains the only execution scheduler.** Its Git-backed `work-queue.jsonl` ledger remains authoritative for Work, Claims, retries, dependencies, reservations and Results. No new queue, database, timer, host-side process or scheduling service is introduced.
 4. **Agent Workers are GH-AW worker profiles using different supported engines.** A Work selects an approved `worker_profile`; the native scheduler still selects eligible Work and grants Claims. Every Worker receives the same immutable assignment contract and must return through the same claim-scoped delivery path.
 5. **Keep the existing GLM Worker.** `eventgraph-worker` remains the default profile and continues to use the existing Claude engine with GLM-5.3. Existing accepted Work and its profile binding must not be rewritten.
-6. **Add a GitHub Copilot engine Worker.** Add `eventgraph-copilot-worker` using GH-AW's documented `engine: copilot` and native Work Queue worker role. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker.
-7. **Do not use Copilot Cloud Agent session safe outputs in this rollout.** `assign-to-agent` and `create-agent-session` create separate asynchronous Copilot Cloud Agent sessions. They are not needed here: GH-AW can run Copilot as the engine of a queue Worker directly, preserving the original Claim lifecycle and verified delivery contract. A separate Cloud Agent handoff is a future option only if a later approved Spec establishes a concrete need.
+6. **Add a Pi engine Worker.** Add `eventgraph-pi-worker` using GH-AW's documented `engine: pi` and native Work Queue worker role. Reuse the existing `GLM_API_KEY` and `GLM_BASE_URL` secrets/variables with `model: anthropic/glm-5.3`. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker. This adds a second Agent Harness over the existing GLM model service; it does not add a second model provider.
+7. **Use Pi as a Worker engine, not as a scheduler.** GH-AW runs Pi inside the GitHub-hosted Worker workflow and exposes the native Work Queue and safe-output MCP tools. Do not create a separate Pi dispatcher or session manager. The Pi engine reference says threat detection defaults to Copilot regardless of Pi's model provider; therefore `eventgraph-pi-worker` must explicitly configure `safe-outputs.threat-detection.engine` as the built-in `claude` engine with the same GLM-5.3 Anthropic-compatible endpoint and key. This avoids an implicit Copilot dependency.
 8. **Use native GitHub Project automations.** Configure the Project's built-in Auto-add workflow and built-in status workflows. Do not build ProjectOps or a custom Project synchronizer for simple, rule-based transitions. Existing matching items must be bulk-added once because GitHub's Auto-add workflow only adds items when they are created or updated after the workflow is enabled.
 9. **Do not let Project status replace queue state.** Project Status is for human planning. The Work Queue ledger remains the source of truth for execution state. Project labels expose priority and Worker selection; they do not grant queue authority.
 
@@ -88,11 +88,11 @@ Both Worker profiles must:
 
 The existing central independent GLM review, exact-SHA Check/E2E/Docker gates, branch protection and normal squash merge remain unchanged. A Worker must not review its own PR as the independent approval.
 
-### 4.3 Copilot availability
+### 4.3 Pi + existing GLM provider
 
-The Copilot engine must be verified with a real GitHub-hosted no-write smoke Work before the Copilot route is enabled for ordinary development.
+GH-AW's Pi engine supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. Reuse the existing EventGraph `GLM_API_KEY` and `GLM_BASE_URL` values and select `anthropic/glm-5.3`; no Copilot entitlement or new provider key is required. This is a second Agent Harness using the same GLM model/backend, not a second model provider.
 
-GH-AW documents two authentication modes: `copilot-requests: write` for organization-billed inference, or `COPILOT_GITHUB_TOKEN` for a personal Copilot subscription. Use only the mode actually available to this repository. If Copilot authentication or entitlement is unavailable, leave the Copilot profile disabled and keep GLM as the working default; do not report an unexecuted Copilot Worker as available.
+The Pi engine reference states that threat detection defaults to Copilot regardless of Pi's model provider. The Pi Worker must therefore explicitly set `safe-outputs.threat-detection.engine` to the built-in `claude` engine, with the same GLM-5.3 Anthropic-compatible endpoint and key. Do not leave the default implicit. Validate both Pi inference and the explicit GLM-backed detection engine with real GitHub-hosted no-write smoke Work before enabling ordinary development. If either fails, leave only the Pi profile disabled and retain the existing GLM Worker.
 
 ## 5. Parallel execution
 
@@ -123,19 +123,19 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 - [ ] Existing `eventgraph-worker` remains functional and remains the default profile.
 - [ ] `eventgraph-copilot-worker` is published with the official GH-AW Copilot engine and accepts the same immutable Work Queue assignment contract.
 - [ ] The Dispatcher allowlists both Worker workflows.
-- [ ] Intake tests prove default-to-GLM routing, explicit GLM routing, Copilot routing, owner-only admission, duplicate-event idempotency and rejection of ambiguous Worker labels.
+- [ ] Intake tests prove default-to-GLM routing, explicit GLM routing, Pi routing, owner-only admission, duplicate-event idempotency and rejection of ambiguous Worker labels.
 - [ ] Both profiles compile with the pinned official GH-AW v1.0.1 CLI in strict mode; generated lock files are produced by the CLI and are never hand-edited.
-- [ ] A real no-write Work succeeds on each enabled profile. Copilot remains disabled if its hosted smoke test does not pass.
+- [ ] A real no-write Work succeeds on each enabled profile. Pi remains disabled if its hosted smoke test does not pass.
 - [ ] At least one owner-authorized code Work through each enabled profile produces a PR with the correct Work/run marker and exact Spec reference.
 - [ ] The existing Check, E2E, Docker, independent GLM review, branch-protection and merge gates remain intact.
 - [ ] After quiescent Policy update, two independent Work items are observed executing concurrently without duplicate Claims or cross-profile assignment.
 
 ### Operational constraints
 
-- [ ] No new queue, database, host timer, cron, tmux process, Pi dispatcher or self-hosted Worker is introduced.
+- [ ] No new queue, database, host timer, cron, tmux process, separate Pi dispatcher or self-hosted Worker is introduced.
 - [ ] No code executes on cn-dev, VM13 or VM09 as part of Agent Worker execution.
 - [ ] Existing Work Queue ledger history, active reservations and Claim bindings are preserved.
-- [ ] Missing Copilot entitlement, Project setup or queue quiescence is reported as a concrete blocker; it never becomes a false success.
+- [ ] Missing Pi/GLM provider compatibility, Project setup or queue quiescence is reported as a concrete blocker; it never becomes a false success.
 
 ## 7. Out of scope
 
@@ -149,5 +149,5 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 ## 8. Rollback
 
 - If Project setup is unavailable, continue using the existing Issues and GH-AW queue; Project is not a runtime dependency.
-- If Copilot authentication or smoke validation fails, remove/disable only the Copilot route and retain the existing GLM Worker.
+- If Pi/GLM compatibility or the explicit detection configuration fails smoke validation, disable only the Pi route and retain the existing GLM Worker.
 - If concurrent Policy update cannot be applied safely, keep the existing concurrency-one Policy. Do not reset or rewrite the queue ledger.
