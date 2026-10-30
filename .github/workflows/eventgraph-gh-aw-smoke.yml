@@ -1,0 +1,48 @@
+name: EventGraph GH-AW Native Queue Smoke
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: eventgraph-gh-aw-queue-smoke
+  cancel-in-progress: false
+
+jobs:
+  two-work-smoke:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'push' &&
+           contains(github.event.head_commit.message, 'feat(gh-aw): native Work Queue')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Install pinned official GH-AW Work Queue operator
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Submit two immutable no-write Work items
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/gh-aw-smoke-1.json" <<'JSON'
+          {"task":"Read the EventGraph README, check whether installation steps exist, and report one concise sentence. Do not modify any repository resource.","effect_contract":{"kind":"none"}}
+          JSON
+          cat > "$RUNNER_TEMP/gh-aw-smoke-2.json" <<'JSON'
+          {"task":"Read the EventGraph README, check whether contributor guidance exists, and report one concise sentence. Do not modify any repository resource.","effect_contract":{"kind":"none"}}
+          JSON
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-work \
+            --file "$RUNNER_TEMP/gh-aw-smoke-1.json" --worker-profile eventgraph-worker \
+            --request-id "eventgraph-smoke-20261030-one"
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-work \
+            --file "$RUNNER_TEMP/gh-aw-smoke-2.json" --worker-profile eventgraph-worker \
+            --request-id "eventgraph-smoke-20261030-two"
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" stats --json

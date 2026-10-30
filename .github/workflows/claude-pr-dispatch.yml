@@ -24,3 +24,74 @@ jobs:
       pr_number: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
     secrets:
       GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+
+  merge_gh_aw_agent_work:
+    needs: [official-glm-review]
+    if: >-
+      ${{ needs['official-glm-review'].result == 'success' &&
+          github.event.workflow_run.event == 'workflow_dispatch' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_repository.full_name == github.repository &&
+          startsWith(github.event.workflow_run.head_branch, 'agent/') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+      statuses: read
+    steps:
+      - name: Revalidate exact GH-AW PR and merge through normal GitHub rules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_RUN_ID: ${{ github.event.workflow_run.id }}
+          CHECK_SHA: ${{ github.event.workflow_run.head_sha }}
+          CHECK_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CHECK_BRANCH" == agent/* ]]
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID")"
+          jq -e --arg sha "$CHECK_SHA" --arg branch "$CHECK_BRANCH" --arg repo "$GITHUB_REPOSITORY" '
+            .name == "Check" and .event == "workflow_dispatch" and
+            .status == "completed" and .conclusion == "success" and
+            .head_sha == $sha and .head_branch == $branch and
+            .head_repository.full_name == $repo
+          ' <<< "$run" > /dev/null
+          prs="$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f base=develop -f per_page=100)"
+          matches="$(jq --arg sha "$CHECK_SHA" --arg branch "$CHECK_BRANCH" --arg repo "$GITHUB_REPOSITORY" '
+            [.[] | select(.state == "open" and (.draft|not) and
+              .base.ref == "develop" and .base.repo.full_name == $repo and
+              .head.repo.full_name == $repo and .head.sha == $sha and
+              .head.ref == $branch and
+              any(.labels[]?; .name == "agent-work"))]' <<< "$prs")"
+          [[ "$(jq 'length' <<< "$matches")" == 1 ]] || {
+            echo "::error::Need exactly one live, non-draft, same-repo agent-work PR at Check SHA"; exit 1;
+          }
+          number="$(jq -r '.[0].number' <<< "$matches")"
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID/jobs?per_page=100")"
+          jq -e '
+            ([.jobs[] | select(.name=="check") | .conclusion] == ["success"]) and
+            ([.jobs[] | select(.name=="e2e") | .conclusion] | length == 1) and
+            ([.jobs[] | select(.name=="docker") | .conclusion] | length == 1)
+          ' <<< "$jobs" > /dev/null
+          e2e="$(jq -r '.jobs[] | select(.name=="e2e") | .conclusion' <<< "$jobs")"
+          docker="$(jq -r '.jobs[] | select(.name=="docker") | .conclusion' <<< "$jobs")"
+          if [[ "$e2e" != success || "$docker" != success ]]; then
+            echo "::error::Every agent-work PR requires successful E2E and Docker (including docs-only changes)"; exit 1
+          fi
+          status="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/status")"
+          jq -e '[.statuses[] | select(.context == "claude-review")][0].state == "success"' <<< "$status" >/dev/null || {
+            echo "::error::Independent GLM review is not successful at the exact current SHA"; exit 1;
+          }
+          # Protect against a new push between the review and merge request.
+          current="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number")"
+          jq -e --arg sha "$CHECK_SHA" '.state == "open" and (.draft|not) and .head.sha == $sha' <<< "$current" >/dev/null
+          # GitHub still enforces all branch rules; never use an admin override.
+          merged="$(gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$number/merge" -f merge_method=squash -f sha="$CHECK_SHA")"
+          merge_sha="$(jq -r '.sha' <<< "$merged")"
+          [[ "$merge_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Missing merge SHA"; exit 1; }
+          # GITHUB_TOKEN merges do not normally generate a follow-on push workflow.
+          gh workflow run check.yml --repo "$GITHUB_REPOSITORY" --ref develop -f "expected_sha=$merge_sha"
+          echo "Squash-merged PR #$number at $merge_sha; re-entered develop Check."

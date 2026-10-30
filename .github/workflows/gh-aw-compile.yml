@@ -1,0 +1,55 @@
+name: Compile GH-AW Work Queue
+
+on:
+  push:
+    branches: [feat/gh-aw-work-queue-main-20261030]
+    paths:
+      - '.github/workflows/eventgraph-*.md'
+      - '.github/workflows/aw.json'
+      - '.github/workflows/gh-aw-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-aw-compile-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install official pinned GH-AW CLI
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Strict compile from Markdown source
+        run: |
+          set -euo pipefail
+          gh aw version
+          gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update
+          test -s .github/workflows/eventgraph-worker.lock.yml
+          test -s .github/workflows/eventgraph-dispatcher.lock.yml
+      - name: Publish compiler-generated lock files as an artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gh-aw-work-queue-locks
+          path: |
+            .github/workflows/eventgraph-worker.lock.yml
+            .github/workflows/eventgraph-dispatcher.lock.yml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Emit generated lock payload for repository API import
+        run: |
+          set -euo pipefail
+          for name in eventgraph-worker eventgraph-dispatcher; do
+            printf 'GH_AW_LOCK_BEGIN:%s\n' "$name"
+            base64 -w 120 ".github/workflows/$name.lock.yml"
+            printf '\nGH_AW_LOCK_END:%s\n' "$name"
+          done

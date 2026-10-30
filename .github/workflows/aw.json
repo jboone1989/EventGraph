@@ -1,0 +1,9 @@
+{
+  "work_queue": {
+    "concurrency": 1,
+    "retry": {
+      "max_attempts": 3,
+      "backoff_seconds": 1
+    }
+  }
+}

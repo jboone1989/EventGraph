@@ -1,0 +1,31 @@
+name: EventGraph GH-AW Dispatch Gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: eventgraph-gh-aw-dispatch-gate
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - name: Install pinned official GH-AW CLI
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Request one native Claim only if no code PR is open
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/eventgraph-dispatch-gate.mjs
