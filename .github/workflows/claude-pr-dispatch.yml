@@ -14,21 +14,59 @@ permissions:
   statuses: write
 
 jobs:
+  review_preflight:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      eligible: ${{ steps.plan.outputs.eligible }}
+      required: ${{ steps.plan.outputs.required }}
+      number: ${{ steps.plan.outputs.number }}
+      base_ref: ${{ steps.plan.outputs.baseRef }}
+      base_sha: ${{ steps.plan.outputs.baseSha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        id: plan
+        env:
+          CHECK_RUN_ID: ${{ github.event.workflow_run.id }}
+        with:
+          script: |
+            const { pathToFileURL } = require('node:url');
+            const { planReview } = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci/review-preflight.mjs').href);
+            const plan = await planReview(github, { ...context.repo, runId: Number(process.env.CHECK_RUN_ID) });
+            for (const [key, value] of Object.entries(plan)) core.setOutput(key, String(value));
+            core.info(JSON.stringify(plan));
+
   official-glm-review:
+    needs: review_preflight
+    if: needs.review_preflight.outputs.eligible == 'true' && needs.review_preflight.outputs.required == 'true'
+    concurrency:
+      group: glm-current-pr-${{ needs.review_preflight.outputs.number }}
+      cancel-in-progress: true
     # Every completed Check reaches central preflight. It checks the real source
     # run ID + event + success + exact HEAD before exposing the model secret.
     uses: jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml@main
     with:
       check_sha: ${{ github.event.workflow_run.head_sha }}
       check_run_id: ${{ github.event.workflow_run.id }}
-      pr_number: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
+      pr_number: ${{ needs.review_preflight.outputs.number }}
+      base_ref: ${{ needs.review_preflight.outputs.base_ref }}
+      base_sha: ${{ needs.review_preflight.outputs.base_sha }}
     secrets:
       GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
 
   merge_gh_aw_agent_work:
-    needs: [official-glm-review]
+    needs: [review_preflight, official-glm-review]
     if: >-
-      ${{ needs['official-glm-review'].result == 'success' &&
+      ${{ always() && needs.review_preflight.outputs.eligible == 'true' &&
+          (needs['official-glm-review'].result == 'success' || needs.review_preflight.outputs.required == 'false') &&
           github.event.workflow_run.event == 'workflow_dispatch' &&
           github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.head_repository.full_name == github.repository &&
@@ -47,6 +85,8 @@ jobs:
           CHECK_RUN_ID: ${{ github.event.workflow_run.id }}
           CHECK_SHA: ${{ github.event.workflow_run.head_sha }}
           CHECK_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          REVIEW_BASE_REF: ${{ needs.review_preflight.outputs.base_ref }}
+          REVIEW_BASE_SHA: ${{ needs.review_preflight.outputs.base_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -81,8 +121,11 @@ jobs:
           if [[ "$e2e" != success || "$docker" != success ]]; then
             echo "::error::Every agent-work PR requires successful E2E and Docker (including docs-only changes)"; exit 1
           fi
+          [[ "$REVIEW_BASE_REF" == develop && "$REVIEW_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          live_base="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
+          [[ "$live_base" == "$REVIEW_BASE_SHA" ]] || { echo '::error::Target moved since review'; exit 1; }
           status="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/status")"
-          jq -e '[.statuses[] | select(.context == "claude-review")][0].state == "success"' <<< "$status" >/dev/null || {
+          jq -e --arg prefix "base=$REVIEW_BASE_REF@$REVIEW_BASE_SHA; " '[.statuses[] | select(.context == "claude-review")][0] | .state == "success" and (.description | startswith($prefix))' <<< "$status" >/dev/null || {
             echo "::error::Independent GLM review is not successful at the exact current SHA"; exit 1;
           }
           # Protect against a new push between the review and merge request.
