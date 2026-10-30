@@ -4,16 +4,22 @@
 
 ## A. Owner approval
 
-- [ ] Review and approve `spec.md`; merge the Spec PR to `develop`.
-- [ ] Record the owner approval evidence in the implementation PR; do not treat an unmerged draft as an approved Spec.
+- [ ] Merge the owner-approved Spec PR to `develop` after its exact-HEAD Check and independent GLM review pass.
 
-## B. Spec promotion
+## B. Extend the existing main-branch review gate
+
+- [ ] Create a small tracked task in `jboone1989/livingruntime-remote` with acceptance criteria, following that repository's Spec/Issue policy.
+- [ ] Update the existing reusable `eventgraph-glm-review.yml` to resolve and validate exact-head PRs targeting both `develop` and `main`; retain the same GLM prompt, checklist, schema and independent verification.
+- [ ] Add `claude-review` to the EventGraph `main` ruleset alongside `check` and `docker`; do not remove or weaken existing rules.
+- [ ] Verify a docs-only PR targeting `main` receives `claude-review=success` on its exact HEAD.
+
+## C. Spec promotion
 
 - [ ] Mirror the exact approved Spec files to `main` in a docs-only PR.
 - [ ] Record the exact main Spec commit SHA for the control-plane implementation PR.
 - [ ] Do not merge `develop` wholesale into `main`.
 
-## C. Add the Pi Worker profile
+## D. Add the Pi Worker profile
 
 - [ ] Add `.github/workflows/eventgraph-pi-worker.md` with GH-AW `engine: pi` and `model: anthropic/glm-5.3`.
 - [ ] Require the native `work_queue_assignment` and original Claim handle.
@@ -24,7 +30,7 @@
 - [ ] Configure `safe-outputs.threat-detection.engine` as an object with `id: claude`, `model: glm-5.3`, and explicit `env.ANTHROPIC_BASE_URL` / `env.ANTHROPIC_API_KEY` values; do not rely on Pi's default Copilot detector or cross-engine environment/model-alias inheritance.
 - [ ] Compile and publish the generated lock file using pinned GH-AW v1.0.1; never hand-edit the lock.
 
-## D. Route Work to both Worker profiles
+## E. Route Work to both Worker profiles
 
 - [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-pi-worker`.
 - [ ] Update `eventgraph-work-intake.mjs` to select the profile from `agent-worker:glm` / `agent-worker:pi` labels.
@@ -35,7 +41,7 @@
 - [ ] Add focused intake tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events, invalid Spec and misordered labels; prove a late Pi label cannot reroute an already-admitted GLM Work with the same Issue request ID.
 - [ ] Update `.github/workflows/check.yml` to compile `eventgraph-pi-worker` alongside the existing Worker and Dispatcher with pinned v1.0.1 strict mode; verify the generated lock is committed.
 
-## E. Hosted validation and parallelism
+## F. Hosted validation and parallelism
 
 - [ ] Settle the two existing no-write smoke Works and verify the native queue has no unfinished Work, Claims, reservations or delivery barriers.
 - [ ] Run a real no-write Work through the GLM Worker and inspect the native queue Result.
@@ -45,7 +51,7 @@
 - [ ] Verify code Work remains serialized by the existing dispatch gate; run one low-risk code Work through each enabled profile sequentially, allowing each PR to pass exact-SHA Check/Docker/E2E, independent GLM review and normal squash merge before dispatching the next.
 - [ ] Confirm no Agent Worker code executes on cn-dev, VM13 or VM09 and no separate Pi/timer/host dispatcher is used.
 
-## F. Final acceptance
+## G. Final acceptance
 
 - [ ] Verify Issue #176 remains the only human-maintained backlog and the native GH-AW ledger remains the sole execution authority.
 - [ ] Verify both enabled Worker profiles can receive and finish Claims through the same completion pipeline.

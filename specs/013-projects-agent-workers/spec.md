@@ -53,7 +53,7 @@ Both Worker profiles must:
 - Include the Issue URL, Spec path/SHA, Work ID and Worker run ID marker in the PR body.
 - Finish only the original Claim and never merge, edit Issues, dispatch other workflows or write outside the Work's declared resource scope.
 
-The existing central independent GLM review, exact-SHA Check/E2E/Docker gates, branch protection and normal squash merge remain unchanged. A Worker must not review its own PR as the independent approval.
+Develop PRs continue to use the existing central independent GLM review and exact-SHA Check/E2E/Docker gates. The current reusable reviewer only resolves PRs targeting `develop`, while this control-plane rollout must merge through `main`. Before opening any main PR, extend the existing reusable reviewer in `jboone1989/livingruntime-remote` to resolve and validate both `develop` and `main` PRs, and add `claude-review` to the EventGraph `main` ruleset alongside its existing `check` and `docker` requirements. Reuse the same GLM reviewer, checklist and exact-HEAD validation; do not create a second review pipeline. A main PR must not merge until its exact-head `claude-review`, `check` and `docker` statuses succeed. A Worker must not review its own PR as the independent approval.
 
 The existing `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` completion path must recognize both Worker workflow names (`EventGraph GH-AW Worker` and `EventGraph GH-AW Pi Worker`). Both Worker results must pass through the same marker verification, exact-SHA Check dispatch and queue continuation. Do not create a second completion pipeline.
 
@@ -98,13 +98,14 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 - [ ] Existing `eventgraph-worker` remains functional and remains the default profile.
 - [ ] `eventgraph-pi-worker` is published with the official GH-AW Pi engine and accepts the same immutable Work Queue assignment contract.
 - [ ] The Dispatcher allowlists both Worker workflows.
+- [ ] The central GLM reviewer accepts exact-head PRs targeting `main` as well as `develop`; the EventGraph `main` ruleset requires `claude-review` alongside `check` and `docker.
 
 - [ ] The existing Worker Completion workflow accepts both Worker workflow names and routes both through the same verified PR/Check/queue-continuation path; focused tests cover both identities.
 - [ ] Intake tests prove default-to-GLM routing, explicit GLM routing, Pi routing, owner-only admission, duplicate-event idempotency and rejection of ambiguous Worker labels.
 - [ ] Both profiles compile with the pinned official GH-AW v1.0.1 CLI in strict mode; generated lock files are produced by the CLI and are never hand-edited.
 - [ ] A real no-write Work succeeds on each enabled profile. Pi remains disabled if its hosted smoke test does not pass.
 - [ ] At least one owner-authorized code Work through each enabled profile produces a PR with the correct Work/run marker and exact Spec reference.
-- [ ] The existing Check, E2E, Docker, independent GLM review, branch-protection and merge gates remain intact.
+- [ ] Develop PRs retain Check/E2E/Docker/GLM review; main PRs receive exact-head `claude-review`, Check and Docker, with `claude-review` required by the main ruleset.
 - [ ] After quiescent Policy update, two independent no-write Work items are observed executing concurrently without duplicate Claims or cross-profile assignment, while no `agent-work` PR is open.
 
 ### Operational constraints
