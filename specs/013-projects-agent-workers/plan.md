@@ -32,7 +32,7 @@ Inspected the current EventGraph repository, GH-AW control-plane files and the p
 
 ### Worker profiles
 
-Keep `eventgraph-worker` as the GLM default and add `eventgraph-pi-worker` as a GH-AW Pi engine Worker using the existing GLM-5.3 Anthropic-compatible endpoint. This is harness diversity, not model-provider diversity.
+Keep `eventgraph-worker` as the GLM default and add `eventgraph-worker-pi` as a GH-AW Pi engine Worker using the existing GLM-5.3 Anthropic-compatible endpoint. This is harness diversity, not model-provider diversity.
 
 Both workflows use the same:
 - immutable Work Queue assignment and Claim handle;
@@ -44,7 +44,7 @@ Both workflows use the same:
 
 The deterministic Producer selects the profile from Issue labels:
 - no Worker-selection label or `agent-worker:glm` -> `eventgraph-worker`;
-- `agent-worker:pi` -> `eventgraph-pi-worker`;
+- `agent-worker:pi` -> `eventgraph-worker-pi`;
 - both labels -> reject before Work submission.
 
 The owner-authored `agent-ready` label remains the only admission authorization. Worker labels never grant admission.
@@ -61,13 +61,13 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 2. Extend the existing central GLM reviewer in `jboone1989/livingruntime-remote` to resolve exact-head PRs targeting both `develop` and `main`. Add `claude-review` to the EventGraph `main` ruleset alongside `check` and `docker`, then verify a docs-only PR to `main` receives the exact-head review status. Reuse the existing reviewer and checklist; do not add a second review system.
 3. Mirror the exact approved Spec content to `main` in a docs-only PR. Record the main-specific Spec commit SHA.
 4. Create one main-only control-plane PR pinned to the main Spec SHA:
-   - add `eventgraph-pi-worker.md` with `engine: pi`, `model: anthropic/glm-5.3`, and the existing GLM API key/base URL;
+   - add `eventgraph-worker-pi.md` with `engine: pi`, `model: anthropic/glm-5.3`, and the existing GLM API key/base URL;
    - update `eventgraph-dispatcher.md` to allowlist the new profile;
    - update `eventgraph-work-intake.mjs` to select the profile from labels;
    - extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to accept the Pi Worker run name through the same completion handler, with focused tests;
    - add focused intake routing tests;
    - compile all affected GH-AW Markdown sources and lock files together with pinned v1.0.1 in strict mode;
-   - update `.github/workflows/check.yml` so its pinned v1.0.1 strict compile command includes `eventgraph-pi-worker`, and require the generated Pi lock file to be committed.
+   - update `.github/workflows/check.yml` so its pinned v1.0.1 strict compile command includes `eventgraph-worker-pi`, and require the generated Pi lock file to be committed.
 5. Keep the existing queue Policy at concurrency one while current Work remains unfinished.
 6. Settle the two existing no-write smoke Works, then verify GLM and Pi no-write smoke Work through their actual GitHub-hosted Workers, including the Pi Worker's explicit GLM-backed Claude threat-detection job. Do not use synthetic local-only test output as hosted evidence.
 7. After queue quiescence, apply the concurrency-two Policy epoch and verify two independent no-write Works receive simultaneous Claims while no `agent-work` PR is open. The existing dispatch gate remains unchanged; code Work remains serialized.
