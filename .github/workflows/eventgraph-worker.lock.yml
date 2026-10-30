@@ -379,7 +379,7 @@ jobs:
         env:
           GH_AW_WORK_QUEUE_ENABLED: "true"
           GH_AW_WORK_QUEUE_ROLE: "worker"
-          GH_AW_WORK_QUEUE_CONTRACT: "1ec6ea0cbfd18c29afbbc5a29bcd99a040a184e84aa543f88371bdea1eb42869"
+          GH_AW_WORK_QUEUE_CONTRACT: "cb6301e929b14481c1941e740e8be670149e93669b3f61774ac1e621c1a3a4aa"
         with:
           script: |
             const path = require('path');
@@ -1462,7 +1462,7 @@ jobs:
         env:
           GH_AW_WORK_QUEUE_ENABLED: "true"
           GH_AW_WORK_QUEUE_ROLE: "worker"
-          GH_AW_WORK_QUEUE_CONTRACT: "1ec6ea0cbfd18c29afbbc5a29bcd99a040a184e84aa543f88371bdea1eb42869"
+          GH_AW_WORK_QUEUE_CONTRACT: "cb6301e929b14481c1941e740e8be670149e93669b3f61774ac1e621c1a3a4aa"
         with:
           script: |
             const path = require('path');
@@ -2101,7 +2101,7 @@ jobs:
         env:
           GH_AW_WORK_QUEUE_ENABLED: "true"
           GH_AW_WORK_QUEUE_ROLE: "worker"
-          GH_AW_WORK_QUEUE_CONTRACT: "1ec6ea0cbfd18c29afbbc5a29bcd99a040a184e84aa543f88371bdea1eb42869"
+          GH_AW_WORK_QUEUE_CONTRACT: "cb6301e929b14481c1941e740e8be670149e93669b3f61774ac1e621c1a3a4aa"
           GH_AW_WORK_QUEUE_FINISH_INTENT: /tmp/gh-aw/work-queue.finish.jsonl
         with:
           script: |
@@ -2117,7 +2117,7 @@ jobs:
         env:
           GH_AW_WORK_QUEUE_ENABLED: "true"
           GH_AW_WORK_QUEUE_ROLE: "worker"
-          GH_AW_WORK_QUEUE_CONTRACT: "1ec6ea0cbfd18c29afbbc5a29bcd99a040a184e84aa543f88371bdea1eb42869"
+          GH_AW_WORK_QUEUE_CONTRACT: "cb6301e929b14481c1941e740e8be670149e93669b3f61774ac1e621c1a3a4aa"
           GH_AW_GITHUB_TOKEN_SOURCE: ${{ secrets.GH_AW_GITHUB_TOKEN != '' && 'pat' || 'github_actions' }}
           GH_AW_WORK_QUEUE_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           GH_AW_WORK_QUEUE_INTENTS: /tmp/gh-aw/work-queue.intents.jsonl
