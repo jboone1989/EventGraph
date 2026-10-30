@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import {
-  WORKER_NAME,
+  isWorkerRun,
   dispatchCheck,
   dispatchGate,
   getOpenAgentWorkPrs,
@@ -8,14 +8,17 @@ import {
   verifySuccessfulWorkerRun,
 } from "./eventgraph-work-queue-guards.mjs";
 
-export function handleWorkerCompletion(event) {
+export function handleWorkerCompletion(event, actions = {
+  getOpenAgentWorkPrs, dispatchGate, verifySuccessfulWorkerRun, dispatchCheck,
+}) {
   const run = event?.workflow_run;
-  if (!run || run.name !== WORKER_NAME || run.event !== "workflow_dispatch" || run.status !== "completed") {
+  if (event?.action !== "completed" || !isWorkerRun(run) ||
+      run.event !== "workflow_dispatch" || run.status !== "completed") {
     throw new Error("Unexpected workflow_run event; refusing to advance the queue");
   }
-  const prs = getOpenAgentWorkPrs();
+  const prs = actions.getOpenAgentWorkPrs();
   if (prs.length === 0) {
-    dispatchGate();
+    actions.dispatchGate();
     return "gate-dispatched";
   }
   if (prs.length !== 1) throw new Error(`Expected at most one open agent-work PR; found ${prs.length}`);
@@ -25,8 +28,8 @@ export function handleWorkerCompletion(event) {
     throw new Error(`Open agent-work PR #${pr.number} does not match completed Worker run ${run.id}`);
   }
   if (run.conclusion !== "success") throw new Error(`Worker run ${run.id} did not succeed`);
-  verifySuccessfulWorkerRun(run.id);
-  dispatchCheck(pr);
+  actions.verifySuccessfulWorkerRun(run.id);
+  actions.dispatchCheck(pr);
   return "check-dispatched";
 }
 
