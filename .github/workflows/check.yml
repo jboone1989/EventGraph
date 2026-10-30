@@ -132,7 +132,7 @@ jobs:
         run: gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update
       - name: Verify GH-AW intake and compiled proxy arguments
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
-        run: node --test scripts/ci/eventgraph-work-intake.test.mjs scripts/ci/gh-aw-proxy-path.test.mjs
+        run: node --test scripts/ci/eventgraph-work-intake.test.mjs scripts/ci/gh-aw-proxy-path.test.mjs scripts/ci/agent-merge-checks.test.mjs
       - name: Require generated GH-AW locks to be committed
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
         shell: bash

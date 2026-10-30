@@ -15,6 +15,11 @@ permissions:
 
 jobs:
   review_preflight:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: read
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository &&
@@ -119,7 +124,19 @@ jobs:
           e2e="$(jq -r '.jobs[] | select(.name=="e2e") | .conclusion' <<< "$jobs")"
           docker="$(jq -r '.jobs[] | select(.name=="docker") | .conclusion' <<< "$jobs")"
           if [[ "$e2e" != success || "$docker" != success ]]; then
-            echo "::error::Every agent-work PR requires successful E2E and Docker (including docs-only changes)"; exit 1
+            [[ "$e2e" == skipped && "$docker" == skipped ]] || {
+              echo '::error::E2E and Docker must both succeed or both explicitly skip'; exit 1;
+            }
+            # Match develop's trusted scope-changes.mjs documentation rules.
+            files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$number/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')"
+            while IFS= read -r file; do
+              [[ -n "$file" ]] || continue
+              if [[ ! "$file" =~ ^(AGENTS|CLAUDE|README|CONTRIBUTING)\.md$ &&
+                    ! ( "$file" =~ ^(docs|specs|\.specify|\.agents|\.claude)/ &&
+                        "$file" =~ \.(md|txt|rst|adoc)$ ) ]]; then
+                echo "::error::Skipped heavy tests on non-documentation file: $file"; exit 1;
+              fi
+            done <<< "$files"
           fi
           [[ "$REVIEW_BASE_REF" == develop && "$REVIEW_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           live_base="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
