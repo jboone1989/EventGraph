@@ -11,7 +11,7 @@ engine:
   id: claude
   model: glm-5.3
   env:
-    ANTHROPIC_BASE_URL: ${{ vars.GLM_BASE_URL || 'https://open.bigmodel.cn/api/anthropic' }}
+    ANTHROPIC_BASE_URL: https://open.bigmodel.cn/api/anthropic
     ANTHROPIC_API_KEY: ${{ secrets.GLM_API_KEY }}
 network:
   allowed:
