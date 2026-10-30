@@ -3,6 +3,7 @@ name: EventGraph GH-AW Worker
 on: workflow_dispatch
 checkout:
   ref: develop
+  fetch-depth: 0
 permissions:
   contents: read
   issues: read
@@ -33,8 +34,7 @@ models:
             cache_read: 3.003589289200595e-7
             cache_write: 0
 tools:
-  github:
-    toolsets: [repos, issues, pull_requests]
+  github: false
   work-queue:
     require-assignment: true
     worker: true
@@ -65,6 +65,12 @@ jobs:
 # EventGraph assigned Work Worker
 
 Process only the original Claims in `work_queue_assignment`. The assignment is authoritative; do not choose or invent Work. This Worker receives one Claim at a time.
+
+## Local repository reads
+
+The trusted checkout provides `develop` and full Git history without credentials. Read source files locally and read the pinned Spec with `git show <exact-spec-sha>:<spec-path>`. The Producer already verified the owner authorization, Issue criteria and Spec PR; use the immutable task in the assigned Work rather than retrieving mutable Issue text.
+
+The model-facing GitHub MCP read channel is disabled. This role edits only its local repository and stages its one authorized PR through safe outputs; the trusted GitHub Actions control plane handles API verification, checks, review, merge and continuation. Keep native queue calls and safe-output calls inside their original Claim scope. Do not lower integrity settings, change gateway labels, read/edit the queue ledger branch, or use direct GitHub API writes to work around a tool error. If the pinned Spec is unavailable locally, cancel the original Claim and report the missing source.
 
 For each original Claim, inspect its immutable `effect_contract` first.
 If `effect_contract.kind` is `none`, this is a **read-only queue smoke test**:
