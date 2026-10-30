@@ -91,8 +91,11 @@ ${JSON.stringify(detail?.content ?? null, null, 2)}
   console.log(`  ${r.article_id} ${language} ${res.outcome}${res.outcome === "failed" ? ` (${res.error})` : ""} receipt #${receipt?.id ?? "-"}`);
 }
 
-const out = arg("out") ?? "specs/news-explainer/acceptance-run.md";
-await writeFile(out, `# Item explainer acceptance run — ${new Date().toISOString()}
+// Per-run default filename: the acceptance record is evidence of the failure→fix→retest trail (E-06 §5),
+// so a rerun without --out must never truncate the previous run's counts and failed samples.
+const runAt = new Date();
+const out = arg("out") ?? `specs/news-explainer/acceptance-run-${runAt.toISOString().replace(/[:.]/g, "-")}.md`;
+await writeFile(out, `# Item explainer acceptance run — ${runAt.toISOString()}
 
 Model route \`${model}\`, run against the managed provider. Each sample records its actual
 outcome and receipt if available; halted/skipped attempts are not claimed as paid calls.

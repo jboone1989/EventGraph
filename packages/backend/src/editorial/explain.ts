@@ -8,8 +8,9 @@
 // expires from eligibility (D-02): each run works within its time budget and per-run limit, and old
 // unprocessed reports stay unprocessed, never marked done. A source that says nothing supportable is
 // recorded as insufficient_evidence with its input revision (D-03): it shows nothing and is not asked
-// again until its inputs change. A watchpoint date is kept only when the source itself states the full
-// calendar date and the date is a real calendar day (D-04). An answer of the wrong shape fails the schema,
+// again until its inputs change. A watchpoint date is kept only when the source's own original-language
+// material — the original title and the licensed body — states the full calendar date (never the site's
+// derived copy) and the date is a real calendar day (D-04). An answer of the wrong shape fails the schema,
 // which leaves its receipt failed so a retry pays for a fresh one; a report stops after three failures.
 import { z } from "zod";
 import { sql } from "../db.ts";
@@ -88,10 +89,11 @@ export function fullDatesIn(text: string): Set<string> {
   return dates;
 }
 
-/** D-04: keep a watchpoint's date only when the report's own material — titles, licensed body and the
- *  site's copy of this report — states that full calendar date. The event's title and sibling titles are
- *  context for spotting the increment, never a fact source for this report (spec E-06), and publishedAt
- *  is provenance, not a date the report states as a watchpoint. */
+/** D-04: keep a watchpoint's date only when the report's original-language material — the original
+ *  title and licensed body — states that full calendar date. The site's own derived copy
+ *  (title/summary/reason) is not the 原文 the approved decision grounds dates in. The event's title and
+ *  sibling titles are context for spotting the increment, never a fact source for this report (spec
+ *  E-06), and publishedAt is provenance, not a date the report states as a watchpoint. */
 function groundWatchpoints(data: z.infer<typeof ExplainSchema>, material: string): z.infer<typeof ExplainSchema> {
   const supported = fullDatesIn(material);
   return { ...data, watchpoints: data.watchpoints.map((w) => ({ ...w, date: w.date && supported.has(w.date) ? w.date : null })) };
@@ -195,7 +197,7 @@ export async function explainOne(r: ExplainCandidate): Promise<ExplainOutcome> {
       promptVersion: explainPromptVersion(language), system: promptText(prompt), user: input, schema: language === "en" ? EnglishExplainSchema : ExplainSchema,
       temperature: 0.2, maxTokens: 4096, attemptTag: r.attempts ? `retry-${r.attempts}` : undefined,
     });
-    const data = groundWatchpoints(res.data, [r.original_title, r.text, r.title, r.summary, r.reason].filter(Boolean).join("\n"));
+    const data = groundWatchpoints(res.data, [r.original_title, r.text].filter(Boolean).join("\n"));
     // D-03: an answer with nothing supportable is an explicit, receipted insufficient-evidence record,
     // not a written explanation and not a silent skip.
     const empty = !data.who && !data.what && !data.when && !data.where && !data.why && !data.how && !data.soWhat && data.watchpoints.length === 0;

@@ -44,9 +44,9 @@ test("a date that is not a real calendar day cannot survive the schema (D-04)", 
 });
 
 // The model: a full explanation, except for inputs marked "thin" (nothing supportable), "loose-date"
-// (a watchpoint the source does not date as a calendar date), "full-date" / "invented-date" /
-// "invalid-date" (watchpoint dates the source does, does not, or cannot support) and "malformed"
-// (a field the schema rejects).
+// (a watchpoint the source does not date as a calendar date), "full-date" / "copy-date" /
+// "invented-date" / "invalid-date" (watchpoint dates the original states, only the site's derived copy
+// states, the source does not state, or cannot support) and "malformed" (a field the schema rejects).
 const seenInputs = new Map<string, { originalTitle: string | null; originalText: string | null }>();
 const transientCalls = new Map<string, number>();
 const provider = await stub(async (_hit, req) => {
@@ -64,7 +64,7 @@ const provider = await stub(async (_hit, req) => {
     ? { ...empty, what: "English description with 中文 text", watchpoints: [] }
     : key.includes("thin") ? { ...empty, watchpoints: [] }
     : key.includes("loose-date") ? { ...empty, watchpoints: [{ text: "Consultation closes December 23", date: "December 23" }] }
-      : key.includes("full-date") ? { ...empty, what: "The rule was published.", ...watchpoint("2026-12-23") }
+      : key.includes("full-date") || key.includes("copy-date") ? { ...empty, what: "The rule was published.", ...watchpoint("2026-12-23") }
         : key.includes("invented-date") ? { ...empty, what: "The rule was published.", ...watchpoint("2031-01-01") }
           : key.includes("invalid-date") ? { ...empty, what: "The rule was published.", ...watchpoint("2026-02-30") }
             : key.includes("malformed")
@@ -81,12 +81,12 @@ process.env.DEEPSEEK_API_KEY = "test-key";
 const app = await buildApp();
 
 // Discovered later than anything else in the test database, so a small run takes these reports first.
-async function report(slug: string, minutesAhead: number, opts: { selected?: boolean; post?: boolean; text?: string; language?: string; summary?: string } = {}) {
+async function report(slug: string, minutesAhead: number, opts: { selected?: boolean; post?: boolean; text?: string; language?: string; summary?: string; title?: string } = {}) {
   const url = `https://example.com/explain-${slug}-${T}`;
   const text = `A post (${slug} ${T}).`;
   const { articleId: id } = await upsertMaterial(opts.post
     ? { sourceId: SOURCE, url, title: text, language: "en", via: "fetch", xPost: { tweetId: `1${Date.now()}`, authorName: "EG", handle: "eg", text, media: [] }, discoveredAt: new Date(Date.now() + minutesAhead * 60_000) }
-    : { sourceId: SOURCE, url, title: `Financing update ${slug} ${T}`, language: opts.language ?? "en", bodyText: opts.text ?? `The commitment was disclosed (${slug} ${T}).`, bodyHtml: `<p>The commitment was disclosed.</p>`, bodyStatus: "ok", via: "fetch", publishedAt: new Date(), discoveredAt: new Date(Date.now() + minutesAhead * 60_000) });
+    : { sourceId: SOURCE, url, title: opts.title ?? `Financing update ${slug} ${T}`, language: opts.language ?? "en", bodyText: opts.text ?? `The commitment was disclosed (${slug} ${T}).`, bodyHtml: `<p>The commitment was disclosed.</p>`, bodyStatus: "ok", via: "fetch", publishedAt: new Date(), discoveredAt: new Date(Date.now() + minutesAhead * 60_000) });
   await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, reason_zh, score, selected)
             VALUES (${id}, 1, 'rule', 'pass', 'guide', ${`融资更新-${slug}-${T}`}, ${opts.summary ?? "有一笔融资承诺。"}, '值得关注。', ${opts.selected === false ? 40 : 90}, ${opts.selected !== false})`;
   await publishArticle(id, { releasedAt: new Date(Date.now() - 60_000) });
@@ -269,12 +269,14 @@ test("a source that says little is recorded insufficient_evidence: shown as noth
   assert.equal(recalled[0]!.n, 2, "the changed inputs are explained again");
 });
 
-test("a watchpoint date survives only when the source states the full calendar date (D-04)", async () => {
-  const full = await report("full-date", 710, { summary: `Regulatory filing: the rule takes effect on December 23, 2026 (${T}).` });
+test("a watchpoint date survives only when the original states the full calendar date (D-04)", async () => {
+  const full = await report("full-date", 710, { title: `Financing update: rule effective December 23, 2026 (full-date ${T})` });
+  const copyOnly = await report("copy-date", 713, { summary: `Regulatory filing: the rule takes effect on December 23, 2026 (${T}).` });
   const invented = await report("invented-date", 711, { summary: `No calendar dates in this report (${T}).` });
   const invalid = await report("invalid-date", 712, { summary: `No calendar dates in this report either (${T}).` });
-  for (const id of [full, invented, invalid]) await explainOne((await explanationCandidateFor(id))!);
-  assert.deepEqual((await explanation(full, "original"))?.watchpoints, [{ text: "The rule takes effect", date: "2026-12-23" }], "a full date the source states is kept");
+  for (const id of [full, copyOnly, invented, invalid]) await explainOne((await explanationCandidateFor(id))!);
+  assert.deepEqual((await explanation(full, "original"))?.watchpoints, [{ text: "The rule takes effect", date: "2026-12-23" }], "a full date the original states is kept");
+  assert.deepEqual((await explanation(copyOnly, "original"))?.watchpoints, [{ text: "The rule takes effect", date: null }], "a full date that exists only in the site's own derived copy is dropped");
   assert.deepEqual((await explanation(invented, "original"))?.watchpoints, [{ text: "The rule takes effect", date: null }], "a date the source does not state is dropped");
   assert.deepEqual((await explanation(invalid, "original"))?.watchpoints, [{ text: "The rule takes effect", date: null }], "an impossible calendar date is dropped");
 });
