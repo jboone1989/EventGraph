@@ -79,19 +79,7 @@ jobs:
           e2e="$(jq -r '.jobs[] | select(.name=="e2e") | .conclusion' <<< "$jobs")"
           docker="$(jq -r '.jobs[] | select(.name=="docker") | .conclusion' <<< "$jobs")"
           if [[ "$e2e" != success || "$docker" != success ]]; then
-            [[ "$e2e" == skipped && "$docker" == skipped ]] || {
-              echo "::error::E2E and Docker must both succeed or both explicitly skip"; exit 1;
-            }
-            # A skipped heavy pipeline is accepted only for a truly docs-only diff.
-            files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$number/files?per_page=100" --jq '.[].filename')"
-            while IFS= read -r file; do
-              [[ -n "$file" ]] || continue
-              if [[ "$file" != docs/*.md && "$file" != specs/*.md &&
-                    "$file" != docs/*.mdx && "$file" != specs/*.mdx &&
-                    "$file" != README.md && "$file" != CHANGELOG.md ]]; then
-                echo "::error::Skipped heavy tests on non-doc file: $file"; exit 1;
-              fi
-            done <<< "$files"
+            echo "::error::Every agent-work PR requires successful E2E and Docker (including docs-only changes)"; exit 1
           fi
           status="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/status")"
           jq -e '[.statuses[] | select(.context == "claude-review")][0].state == "success"' <<< "$status" >/dev/null || {
