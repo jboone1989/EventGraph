@@ -18,7 +18,7 @@ The intended change is to add a second supported GitHub-hosted Agent Worker that
 2. **The GH-AW native Work Queue remains the only execution scheduler.** Its Git-backed `work-queue.jsonl` ledger remains authoritative for Work, Claims, retries, dependencies, reservations and Results. No new queue, database, timer, host-side process or scheduling service is introduced.
 3. **Agent Workers are GH-AW worker profiles using different supported engines.** A Work selects an approved `worker_profile`; the native scheduler still selects eligible Work and grants Claims. Every Worker receives the same immutable assignment contract and must return through the same claim-scoped delivery path.
 4. **Keep the existing GLM Worker.** `eventgraph-worker` remains the default profile and continues to use the existing Claude engine with GLM-5.3. Existing accepted Work and its profile binding must not be rewritten.
-5. **Add a Pi engine Worker.** Add `eventgraph-pi-worker` using GH-AW's documented `engine: pi` and native Work Queue worker role. Reuse the existing `GLM_API_KEY` and `GLM_BASE_URL` secrets/variables with `model: anthropic/glm-5.3`. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker. This adds a second Agent Harness over the existing GLM model service; it does not add a second model provider.
+5. **Add a Pi engine Worker.** Add `eventgraph-pi-worker` using GH-AW's documented `engine: pi` and native Work Queue worker role. Reuse the existing `GLM_API_KEY` secret and the owner-approved fixed GH-AW endpoint `https://open.bigmodel.cn/api/anthropic` with `model: anthropic/glm-5.3`. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker. This adds a second Agent Harness over the existing GLM model service; it does not add a second model provider.
 6. **Use Pi as a Worker engine, not as a scheduler.** GH-AW runs Pi inside the GitHub-hosted Worker workflow and exposes the native Work Queue and safe-output MCP tools. Do not create a separate Pi dispatcher or session manager. The Pi engine reference says threat detection defaults to Copilot regardless of Pi's model provider; therefore `eventgraph-pi-worker` must explicitly configure the detector as described in §3.3. This avoids an implicit Copilot dependency.
 
 ## 3. Worker routing and authorization
@@ -59,7 +59,7 @@ The existing `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.
 
 ### 3.3 Pi + existing GLM provider
 
-GH-AW's Pi engine supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. Reuse the existing EventGraph `GLM_API_KEY` and `GLM_BASE_URL` values and select `anthropic/glm-5.3`; no Copilot entitlement or new provider key is required. This is a second Agent Harness using the same GLM model/backend, not a second model provider.
+GH-AW's Pi engine supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. Reuse the existing EventGraph `GLM_API_KEY` secret and the owner-approved fixed GH-AW endpoint `https://open.bigmodel.cn/api/anthropic` and select `anthropic/glm-5.3`; no Copilot entitlement or new provider key is required. This is a second Agent Harness using the same GLM model/backend, not a second model provider.
 
 The Pi engine reference states that threat detection defaults to Copilot regardless of Pi's model provider. The Pi Worker must therefore explicitly use the object form of `safe-outputs.threat-detection.engine`, and must not rely on environment or model-alias inheritance from the Pi workflow. Configure the built-in Claude detector with an explicit GLM model ID and provider environment:
 
@@ -70,7 +70,7 @@ safe-outputs:
       id: claude
       model: glm-5.3
       env:
-        ANTHROPIC_BASE_URL: ${{ vars.GLM_BASE_URL || 'https://open.bigmodel.cn/api/anthropic' }}
+        ANTHROPIC_BASE_URL: https://open.bigmodel.cn/api/anthropic
         ANTHROPIC_API_KEY: ${{ secrets.GLM_API_KEY }}
 ```
 
@@ -128,3 +128,7 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 
 - If Pi/GLM compatibility or the explicit detection configuration fails smoke validation, disable only the Pi route and retain the existing GLM Worker.
 - If concurrent Policy update cannot be applied safely, keep the existing concurrency-one Policy. Do not reset or rewrite the queue ledger.
+
+## Endpoint recovery amendment (2026-10-31)
+
+The owner approved pinning the GH-AW Dispatcher and Worker upstream to the existing Zhipu endpoint to restore the entire pipeline. The same literal must be used by the planned Pi Worker and its explicitly configured detector so they do not copy the compiler-incompatible fallback expression. This leaves engine selection, default Worker profile, model, credentials, strict sandboxing and all delivery gates unchanged. The central independent reviewer continues to use its separate configurable endpoint.
