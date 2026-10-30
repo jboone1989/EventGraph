@@ -88,6 +88,8 @@ Both Worker profiles must:
 
 The existing central independent GLM review, exact-SHA Check/E2E/Docker gates, branch protection and normal squash merge remain unchanged. A Worker must not review its own PR as the independent approval.
 
+The existing `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` completion path must recognize both Worker workflow names (`EventGraph GH-AW Worker` and `EventGraph GH-AW Pi Worker`). Both Worker results must pass through the same marker verification, exact-SHA Check dispatch and queue continuation. Do not create a second completion pipeline.
+
 ### 4.3 Pi + existing GLM provider
 
 GH-AW's Pi engine supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. Reuse the existing EventGraph `GLM_API_KEY` and `GLM_BASE_URL` values and select `anthropic/glm-5.3`; no Copilot entitlement or new provider key is required. This is a second Agent Harness using the same GLM model/backend, not a second model provider.
