@@ -1,12 +1,12 @@
 // Item detail and Markdown export, both behind the same visibility and licence rules.
-import type { OutlineEntry, SiteItemDetail, StoryRef } from "@aihot/contracts/site";
+import type { ItemExplanation, OutlineEntry, SiteItemDetail, StoryRef } from "@aihot/contracts/site";
 import { ITEM_COPY, SITE } from "@aihot/site";
 import { bodyToMarkdown } from "../content/markdown.ts";
 import { sql } from "../db.ts";
 import { stripTagMarkup } from "../lib/text.ts";
 import { proxyBodyImages } from "../media/imgproxy.ts";
 import { textToHtml } from "../content/sanitize.ts";
-import { exportTranslation, isChineseBody, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
+import { exportTranslation, isChineseBody, EXPLAINABLE_PUBLICATION, EXPLAIN_ITEM_INPUTS, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
 import { storyContextFor } from "./stories.ts";
 import { evidenceCondition, listedCondition } from "./scope.ts";
 import { itemUrl, siteUrl } from "./links.ts";
@@ -21,6 +21,7 @@ interface DetailRow extends ItemRow {
   tr_complete: boolean | null;
   topics: string[];
   story_id: number | null;
+  explanation: ItemExplanation | null;
 }
 
 export type DetailResult =
@@ -43,13 +44,23 @@ function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
   return { html: out, outline };
 }
 
-async function loadRow(id: string): Promise<DetailRow | null> {
+async function loadRow(id: string, language: "zh" | "original" = "zh", explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
-      st.id AS story_id, ${topicMembership()} AS topics
+      st.id AS story_id, ${topicMembership()} AS topics, ie.content AS explanation
     ${ITEM_FROM}
+    LEFT JOIN item_explanations ie ON ie.article_id = p.article_id AND ie.outcome = 'written' AND ie.inputs_hash = ${EXPLAIN_ITEM_INPUTS} AND ${EXPLAINABLE_PUBLICATION}
+      AND ie.language = ${explanationLanguage}
     WHERE p.article_id = ${id}`;
   return row ?? null;
+}
+
+/** The explanation the page shows: the one written for this page's language (D-01) whose fields say
+ *  something; an insufficient-evidence record (the source says little) is kept in the table so it is not
+ *  asked again, and shows nothing. */
+function shownExplanation(content: ItemExplanation | null): ItemExplanation | null {
+  if (!content) return null;
+  return content.who || content.what || content.when || content.where || content.why || content.how || content.soWhat || (content.watchpoints?.length ?? 0) > 0 ? content : null;
 }
 
 /**
@@ -80,8 +91,8 @@ function readingBody(
  * lists leave out (low relevance, merged duplicates, no Chinese summary yet) keep a noindex page;
  * withdrawn and hot_signal items are a 404.
  */
-export async function loadItemDetail(id: string, language: "zh" | "original" = "zh", now = new Date()): Promise<DetailResult> {
-  const row = await loadRow(id);
+export async function loadItemDetail(id: string, language: "zh" | "original" = "zh", now = new Date(), explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailResult> {
+  const row = await loadRow(id, language, explanationLanguage);
   if (!row || !hasItemPage({ visibility: row.visibility, sourceMode: row.source_mode })) return { kind: "not_found" };
 
   const summary = toItemSummary(row);
@@ -107,6 +118,7 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
       markdownAvailable: false,
       group: null,
       storyContext: null,
+      explanation: null,
       hasTranslation: false,
       bodyLanguage: "original",
     };
@@ -173,6 +185,7 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     markdownAvailable: markdownAvailable(row),
     group,
     storyContext: row.story_id ? await storyContextFor(row.story_id, now) : null,
+    explanation: shownExplanation(row.explanation),
     hasTranslation: reading.hasTranslation,
     bodyLanguage: reading.bodyLanguage,
   };
