@@ -52,8 +52,8 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Test review preflight
-        run: node --test scripts/ci/review-preflight.test.mjs scripts/ci/eventgraph-worker-complete.test.mjs
+      - name: Test review preflight and native Worker guards
+        run: node --test scripts/ci/review-preflight.test.mjs scripts/ci/eventgraph-worker-complete.test.mjs scripts/ci/gh-aw-local-worker.test.mjs
       - name: Test Spec gate
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: node --test scripts/ci/check-spec.test.mjs
