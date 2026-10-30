@@ -77,6 +77,7 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
    - extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to accept the Pi Worker run name through the same completion handler, with focused tests;
    - add focused intake routing tests;
    - compile all affected GH-AW Markdown sources and lock files together with pinned v1.0.1 in strict mode.
+   - update `.github/workflows/check.yml` so its pinned v1.0.1 strict compile command includes `eventgraph-pi-worker`, and require the generated Pi lock file to be committed;
 4. Keep the existing queue Policy at concurrency one while current Work remains unfinished.
 5. Verify GLM and Pi no-write smoke Work through their actual GitHub-hosted Workers, including the Pi Worker's explicit GLM-backed Claude threat-detection job. Do not use synthetic local-only test output as hosted evidence.
 6. After queue quiescence, apply the concurrency-two Policy epoch and verify two independent Claims execute concurrently.
