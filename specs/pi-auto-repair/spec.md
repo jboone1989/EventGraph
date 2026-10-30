@@ -1,6 +1,8 @@
-# Pi Auto-Repair for EventGraph PRs
+# Historical Pi Auto-Repair for EventGraph PRs
 
-Status: approved implementation contract once this revision is merged. Supersedes the 2026-10-29 runner-only execution assumptions; preserves the same repair gates.
+**Status:** Superseded by `specs/012-github-hosted-agent-queue/spec.md` in PR #235, effective when that PR merges. The owner's 2026-10-30 direction retires the cn-dev/Pi execution path. This document is retained for historical context only and is not an active implementation or execution contract.
+
+> The requirements below describe the retired design. Do not execute them or use them to authorize cn-dev, Pi, VM13, VM09, or host-side repair work. The GH-AW Work Queue Spec is the sole replacement contract after merge.
 
 ## Goal and existing components
 
