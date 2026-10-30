@@ -57,6 +57,11 @@ jobs:
           SCOPE_HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # A GITHUB_TOKEN merge requires explicit develop workflow_dispatch.
+          # Scope that exact release SHA against its first parent, not a missing PR payload.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF_NAME" == develop ]]; then
+            SCOPE_BASE_SHA="$(git rev-parse "$GITHUB_SHA^" 2>/dev/null || true)"
+          fi
           if [[ "$SCOPE_BASE_SHA" =~ ^0+$ ]] || [[ -z "$SCOPE_BASE_SHA" ]]; then
             echo '::notice::No trustworthy change base; running the full pipeline'
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
