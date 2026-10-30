@@ -32,7 +32,7 @@ tools:
 safe-outputs:
   timeout-minutes: 2
   dispatch-workflow:
-    workflows: [eventgraph-worker]
+    workflows: [eventgraph-worker, eventgraph-pi-worker]
     max: 1
 concurrency:
   group: eventgraph-work-queue-dispatcher
@@ -50,4 +50,4 @@ jobs:
 Call `work_queue_dispatch_next` exactly once with:
 `{"pool":"default","max_claims":1,"max_dispatches":1,"max_bytes":49152}`
 
-The native scheduler selects the eligible Work and its approved Worker profile. Do not choose a Work ID, select a Worker, submit Work, call `dispatch_workflow` directly, or request a second dispatch. The only permitted dispatch target is the compiled `eventgraph-worker` workflow.
+The native scheduler selects the eligible Work and its approved Worker profile. Do not choose a Work ID, select a Worker, submit Work, call `dispatch_workflow` directly, or request a second dispatch. The only permitted dispatch targets are the compiled `eventgraph-worker` and `eventgraph-pi-worker` workflows. The native scheduler chooses the approved profile; do not select a Worker manually.

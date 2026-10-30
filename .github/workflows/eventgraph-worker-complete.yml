@@ -2,7 +2,7 @@ name: EventGraph GH-AW Worker Completion
 
 on:
   workflow_run:
-    workflows: [EventGraph GH-AW Worker]
+    workflows: [EventGraph GH-AW Worker, EventGraph GH-AW Pi Worker]
     types: [completed]
 
 permissions:
