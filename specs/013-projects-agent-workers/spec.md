@@ -18,8 +18,8 @@ The intended change is to add a second supported GitHub-hosted Agent Worker that
 2. **The GH-AW native Work Queue remains the only execution scheduler.** Its Git-backed `work-queue.jsonl` ledger remains authoritative for Work, Claims, retries, dependencies, reservations and Results. No new queue, database, timer, host-side process or scheduling service is introduced.
 3. **Agent Workers are GH-AW worker profiles using different supported engines.** A Work selects an approved `worker_profile`; the native scheduler still selects eligible Work and grants Claims. Every Worker receives the same immutable assignment contract and must return through the same claim-scoped delivery path.
 4. **Keep the existing GLM Worker.** `eventgraph-worker` remains the default profile and continues to use the existing Claude engine with GLM-5.3. Existing accepted Work and its profile binding must not be rewritten.
-5. **Add a Pi engine Worker.** Add `eventgraph-pi-worker` using GH-AW's documented `engine: pi` and native Work Queue worker role. Reuse the existing `GLM_API_KEY` and `GLM_BASE_URL` secrets/variables with `model: anthropic/glm-5.3`. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker. This adds a second Agent Harness over the existing GLM model service; it does not add a second model provider.
-6. **Use Pi as a Worker engine, not as a scheduler.** GH-AW runs Pi inside the GitHub-hosted Worker workflow and exposes the native Work Queue and safe-output MCP tools. Do not create a separate Pi dispatcher or session manager. The Pi engine reference says threat detection defaults to Copilot regardless of Pi's model provider; therefore `eventgraph-pi-worker` must explicitly configure the detector as described in §3.3. This avoids an implicit Copilot dependency.
+5. **Add a Pi engine Worker.** Add `eventgraph-worker-pi` using GH-AW's documented `engine: pi` and native Work Queue worker role. Keep the workflow display name `EventGraph GH-AW Pi Worker`; the internal workflow/profile ID deliberately sorts after `eventgraph-worker` because GH-AW v1.0.1 selects the lexicographically smallest registered profile as the pool default. Reuse the existing `GLM_API_KEY` and `GLM_BASE_URL` secrets/variables with `model: anthropic/glm-5.3`. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker. This adds a second Agent Harness over the existing GLM model service; it does not add a second model provider.
+6. **Use Pi as a Worker engine, not as a scheduler.** GH-AW runs Pi inside the GitHub-hosted Worker workflow and exposes the native Work Queue and safe-output MCP tools. Do not create a separate Pi dispatcher or session manager. The Pi engine reference says threat detection defaults to Copilot regardless of Pi's model provider; therefore `eventgraph-worker-pi` must explicitly configure the detector as described in §3.3. This avoids an implicit Copilot dependency.
 
 ## 3. Worker routing and authorization
 
@@ -33,7 +33,7 @@ The intake script chooses the Worker profile from the Issue's labels at the time
 |---|---|
 | `agent-ready` with no Worker label | `eventgraph-worker` (GLM default) |
 | `agent-ready` + `agent-worker:glm` | `eventgraph-worker` |
-| `agent-ready` + `agent-worker:pi` | `eventgraph-pi-worker` |
+| `agent-ready` + `agent-worker:pi` | `eventgraph-worker-pi` |
 | Both Worker labels | Reject as ambiguous; submit no Work |
 
 Apply the Worker-selection label first and add `agent-ready` last. The first owner-authored `agent-ready` event fixes the Worker profile and submits Work under the stable request ID `issue-<number>`. If `agent-ready` arrives before a Worker-selection label, the Work intentionally defaults to GLM; adding a Worker label later or removing and re-adding `agent-ready` will not reroute it because the same request ID is deduplicated. To reroute after a misordered admission, cancel the original Work through the native `gh aw work-queue cancel-work` operator path. If it has a Claim, wait for verified worker quiescence and delivery settlement because cancellation alone does not stop the native run. Then close the original Issue as superseded and create a replacement Issue with a new Issue-derived request ID and the desired Worker label. Never submit a second Work for the same Issue.
@@ -96,7 +96,7 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 ### Agent Workers
 
 - [ ] Existing `eventgraph-worker` remains functional and remains the default profile.
-- [ ] `eventgraph-pi-worker` is published with the official GH-AW Pi engine and accepts the same immutable Work Queue assignment contract.
+- [ ] `eventgraph-worker-pi` is published with the official GH-AW Pi engine and accepts the same immutable Work Queue assignment contract; the compiled Dispatcher lock explicitly resolves `eventgraph-worker` as the default profile while registering both profiles.
 - [ ] The Dispatcher allowlists both Worker workflows.
 - [ ] The central GLM reviewer accepts exact-head PRs targeting `main` as well as `develop`; the EventGraph `main` ruleset requires `claude-review` alongside `check` and `docker`.
 

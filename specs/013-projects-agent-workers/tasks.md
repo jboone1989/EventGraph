@@ -21,7 +21,7 @@
 
 ## D. Add the Pi Worker profile
 
-- [ ] Add `.github/workflows/eventgraph-pi-worker.md` with GH-AW `engine: pi` and `model: anthropic/glm-5.3`.
+- [ ] Add `.github/workflows/eventgraph-worker-pi.md` with GH-AW `engine: pi` and `model: anthropic/glm-5.3`.
 - [ ] Require the native `work_queue_assignment` and original Claim handle.
 - [ ] Reuse the existing immutable Spec, repository resource-scope and one-PR safe-output contract.
 - [ ] Preserve read-only model-job permissions; repository writes remain in GH-AW safe outputs.
@@ -32,14 +32,15 @@
 
 ## E. Route Work to both Worker profiles
 
-- [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-pi-worker`.
+- [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-worker-pi`.
+- [ ] Verify the compiled Dispatcher lock resolves `eventgraph-worker` (not `eventgraph-worker-pi`) as the default pool profile while registering both profiles.
 - [ ] Update `eventgraph-work-intake.mjs` to select the profile from `agent-worker:glm` / `agent-worker:pi` labels.
 - [ ] Preserve owner-only `agent-ready` admission and stable Issue-derived idempotency.
 - [ ] Reject both Worker labels being present; verify that Worker labels alone cannot submit Work.
 - [ ] Extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to recognize `EventGraph GH-AW Pi Worker` alongside the existing GLM Worker and reuse the same exact-SHA Check/queue-continuation path.
 - [ ] Add focused tests proving both Worker run identities are accepted and unrelated workflow runs are rejected.
 - [ ] Add focused intake tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events, invalid Spec and misordered labels; prove a late Pi label cannot reroute an already-admitted GLM Work with the same Issue request ID.
-- [ ] Update `.github/workflows/check.yml` to compile `eventgraph-pi-worker` alongside the existing Worker and Dispatcher with pinned v1.0.1 strict mode; verify the generated lock is committed.
+- [ ] Update `.github/workflows/check.yml` to compile `eventgraph-worker-pi` alongside the existing Worker and Dispatcher with pinned v1.0.1 strict mode; verify the generated lock is committed.
 
 ## F. Hosted validation and parallelism
 
