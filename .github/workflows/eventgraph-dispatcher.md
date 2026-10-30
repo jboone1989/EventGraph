@@ -3,6 +3,8 @@ name: EventGraph GH-AW Dispatcher
 on: workflow_dispatch
 permissions:
   contents: read
+env:
+  GH_AW_SKIP_REFLECT: 'true'
 engine:
   id: claude
   model: glm-5.3
