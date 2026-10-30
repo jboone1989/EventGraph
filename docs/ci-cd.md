@@ -1,9 +1,9 @@
 # EventGraph CI/CD — promote, don't rebuild
 
-A release uses **one** application image: push to `develop` → Check/E2E → immutable GHCR digest → development deployment; promote the exact successful digest to `main` → VM09 production deployment. No production rebuild.
+A release uses **one** application image: push to `develop` (or validated exact-SHA post-merge re-entry on `develop`) → Check/E2E → immutable GHCR digest → development deployment; promote the exact successful digest to `main` → VM09 production deployment. No production rebuild.
 
 - Feature PRs (including promotion PRs targeting `main`) still run the repository's required `check`, `docker` and browser checks.
-- Only a push to `develop` runs builds and publishes `ghcr.io/jboone1989/eventgraph-app@sha256:...`.
+- A push to `develop` or a validated exact-SHA post-merge `workflow_dispatch` on `develop` builds and publishes `ghcr.io/jboone1989/eventgraph-app@sha256:...`; documentation-only changes do not publish.
 - A push to `main` runs `promote` only. Its `.github/production-image.env` pins both the successful develop SOURCE_SHA and digest; promotion requires successful `check`, `e2e`, `publish` results for that SHA, unchanged application inputs, and an existing digest. The main push never builds a second image.
 - The `deploy_production` job runs only if `EVENTGRAPH_PROD_AUTO_DEPLOY=true` is configured. It invokes the existing VM09 `scripts/deploy-prod.sh`. With no configured production SSH, run that script on VM09 through an authorized operator; **merging to main by itself does not deploy**.
 
@@ -52,8 +52,9 @@ Configure the production GitHub environment and `EVENTGRAPH_PROD_HOST`, `EVENTGR
 
 ## Development (cn-dev worker + VM13 Web/API)
 
-A push to `develop` publishes one immutable digest and then deploys it in two
-independent jobs — neither gates the other:
+A push to `develop` (or validated exact-SHA post-merge `workflow_dispatch`)
+publishes one immutable digest and then, only when `EVENTGRAPH_DEV_AUTO_DEPLOY=true`,
+deploys it in two independent jobs — neither gates the other:
 
 - `deploy_vm13_preview` SSHes to VM13 and runs `scripts/ci/deploy-vm13-preview.sh`
   for the Web and API containers, which reach the cn-dev development database
