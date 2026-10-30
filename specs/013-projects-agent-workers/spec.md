@@ -19,11 +19,11 @@ The intended change is to add a second supported GitHub-hosted Agent Worker that
 3. **Agent Workers are GH-AW worker profiles using different supported engines.** A Work selects an approved `worker_profile`; the native scheduler still selects eligible Work and grants Claims. Every Worker receives the same immutable assignment contract and must return through the same claim-scoped delivery path.
 4. **Keep the existing GLM Worker.** `eventgraph-worker` remains the default profile and continues to use the existing Claude engine with GLM-5.3. Existing accepted Work and its profile binding must not be rewritten.
 5. **Add a Pi engine Worker.** Add `eventgraph-pi-worker` using GH-AW's documented `engine: pi` and native Work Queue worker role. Reuse the existing `GLM_API_KEY` and `GLM_BASE_URL` secrets/variables with `model: anthropic/glm-5.3`. It must use the same Spec validation, repository resource scope, one-PR safe output and independent review/merge gates as the GLM Worker. This adds a second Agent Harness over the existing GLM model service; it does not add a second model provider.
-6. **Use Pi as a Worker engine, not as a scheduler.** GH-AW runs Pi inside the GitHub-hosted Worker workflow and exposes the native Work Queue and safe-output MCP tools. Do not create a separate Pi dispatcher or session manager. The Pi engine reference says threat detection defaults to Copilot regardless of Pi's model provider; therefore `eventgraph-pi-worker` must explicitly configure the detector as described in §4.3. This avoids an implicit Copilot dependency.
+6. **Use Pi as a Worker engine, not as a scheduler.** GH-AW runs Pi inside the GitHub-hosted Worker workflow and exposes the native Work Queue and safe-output MCP tools. Do not create a separate Pi dispatcher or session manager. The Pi engine reference says threat detection defaults to Copilot regardless of Pi's model provider; therefore `eventgraph-pi-worker` must explicitly configure the detector as described in §3.3. This avoids an implicit Copilot dependency.
 
 ## 3. Worker routing and authorization
 
-### 4.1 Intake labels
+### 3.1 Intake labels
 
 The existing owner-authorized `agent-ready` label remains the only admission trigger. Only an event authored by `jboone1989` may admit Work.
 
@@ -40,7 +40,7 @@ Apply the Worker-selection label first and add `agent-ready` last. This ensures 
 
 A Worker-selection label without the owner-authored `agent-ready` event grants no authority. Duplicate label events must remain idempotent under the existing Issue-derived request ID.
 
-### 4.2 Worker contract
+### 3.2 Worker contract
 
 Both Worker profiles must:
 
@@ -91,15 +91,6 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 
 ## 6. Acceptance criteria
 
-### GitHub Projects
-
-- [ ] One user-owned `EventGraph Delivery` Project exists.
-- [ ] Issue #176 and the existing open EventGraph Issues/PRs are present exactly once.
-- [ ] The Board and Table views expose Status and Labels.
-- [ ] The built-in Auto-add workflow adds newly created or updated open EventGraph Issues and PRs after activation.
-- [ ] Closing an Issue/PR and merging a PR update its Project Status to Done through GitHub's built-in workflows.
-- [ ] No custom Project database, ProjectOps workflow, project-specific token or second task tracker is introduced.
-
 ### Agent Workers
 
 - [ ] Existing `eventgraph-worker` remains functional and remains the default profile.
@@ -119,7 +110,7 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 - [ ] No new queue, database, host timer, cron, tmux process, separate Pi dispatcher or self-hosted Worker is introduced.
 - [ ] No code executes on cn-dev, VM13 or VM09 as part of Agent Worker execution.
 - [ ] Existing Work Queue ledger history, active reservations and Claim bindings are preserved.
-- [ ] Missing Pi/GLM provider compatibility, Project setup or queue quiescence is reported as a concrete blocker; it never becomes a false success.
+- [ ] Pi/GLM provider compatibility or queue quiescence is reported as a concrete blocker; it never becomes a false success.
 
 ## 6. Out of scope
 
@@ -132,6 +123,5 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 
 ## 7. Rollback
 
-- If Project setup is unavailable, continue using the existing Issues and GH-AW queue; Project is not a runtime dependency.
 - If Pi/GLM compatibility or the explicit detection configuration fails smoke validation, disable only the Pi route and retain the existing GLM Worker.
 - If concurrent Policy update cannot be applied safely, keep the existing concurrency-one Policy. Do not reset or rewrite the queue ledger.
