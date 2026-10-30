@@ -63,25 +63,86 @@ archive="$work_dir/current.tar"
 # Write as this user via a shell redirect; docker itself requires sudo.
 sudo -n docker save "$image_id" > "$archive"
 local_sha="$(sha256sum "$archive" | awk '{print $1}')"
+# On VM13, high-loss outbound TCP collapses CUBIC's congestion window.
+# BBR is available in the dev kernel; enable it before starting new SSH flows.
+sudo -n modprobe tcp_bbr
+sudo -n sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null
 ssh $ssh_opts ubuntu@"$cn_dev_host" "mkdir -p '$remote_dir'"
+# A killed reassembly can leave an incomplete full-size copy; it is never resumable.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "rm -f -- '$remote_archive.ready'"
 
-# --inplace keeps partial data between attempts; --no-whole-file forces delta
-# matching even when the destination is on a remote host. zstd compresses only
-# the changed blocks, including the first cold transfer. The remote archive is
-# not executable and is never docker-loaded until its complete SHA256 matches.
-# A later release can reuse unchanged tar layer blocks from the prior archive.
-if ! timeout -k 5 30m rsync --archive --inplace --partial --no-whole-file \
-     --compress --compress-choice=zstd --compress-level=3 --timeout=600 \
-     --rsh="ssh $ssh_opts" \
-     "$archive" "ubuntu@$cn_dev_host:$remote_archive"; then
-  echo "Resumable VM13→cn-dev image transfer incomplete; staged bytes retained for retry" >&2
+# Credit existing resumable chunks: they already occupy disk and will be
+# overwritten in-place. Never credit more than the new archive's total size.
+archive_bytes="$(stat -c %s "$archive")"
+needed_bytes="$((archive_bytes * 2 + 268435456))"
+remote_parts="$remote_dir/parts"
+free_bytes="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "df -B1 --output=avail '$remote_dir' | tail -n 1 | tr -d ' '")"
+staged_bytes="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "if [ -d '$remote_parts' ]; then du -s -B1 '$remote_parts' | cut -f1; else printf 0; fi")"
+[ "$staged_bytes" -le "$archive_bytes" ] || staged_bytes="$archive_bytes"
+available_bytes="$((free_bytes + staged_bytes))"
+if [ "$available_bytes" -lt "$needed_bytes" ]; then
+  echo "cn-dev free space $free_bytes (+ $staged_bytes staged) is below safe transport requirement $needed_bytes" >&2
   exit 1
 fi
-remote_sha="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "sha256sum '$remote_archive' | cut -d ' ' -f1")"
+
+# Public VM13→cn-dev TCP shows ~1.47 MB retransmitted of 5.2 MB and cwnd=2.
+# Eight bounded SSH streams move changed blocks concurrently, without any
+# new service or port. The previous verified archive seeds stable chunk files.
+parts_dir="$work_dir/parts"
+mkdir -p "$parts_dir"
+split -b 8m -d -a 3 "$archive" "$parts_dir/part."
+ssh $ssh_opts ubuntu@"$cn_dev_host" "mkdir -p '$remote_parts'; if [ -f '$remote_archive' ] && [ ! -e '$remote_parts/part.000' ]; then split -b 8m -d -a 3 '$remote_archive' '$remote_parts/part.'; fi"
+cat > "$work_dir/transfer-parts.sh" <<'TRANSFER'
+#!/bin/sh
+set -eu
+parts=$1
+remote_parts=$2
+cn_dev_host=$3
+ssh_opts=$4
+pids=
+active=0
+failed=0
+for part in "$parts"/part.*; do
+  (
+    rsync --archive --inplace --partial --no-whole-file --ignore-times \
+      --compress --compress-choice=zstd --compress-level=3 --timeout=600 \
+      --rsh="ssh $ssh_opts" "$part" "ubuntu@$cn_dev_host:$remote_parts/${part##*/}"
+  ) &
+  pids="$pids $!"
+  active=$((active + 1))
+  if [ "$active" -ge 8 ]; then
+    for pid in $pids; do wait "$pid" || failed=1; done
+    pids=
+    active=0
+  fi
+done
+for pid in $pids; do wait "$pid" || failed=1; done
+[ "$failed" -eq 0 ]
+TRANSFER
+
+if ! timeout -k 5 30m sh "$work_dir/transfer-parts.sh" "$parts_dir" "$remote_parts" "$cn_dev_host" "$ssh_opts"; then
+  echo "Resumable parallel VM13→cn-dev image transfer incomplete; staged bytes retained for retry" >&2
+  exit 1
+fi
+
+# Rebuild into a separate path; never load or overwrite an unverified archive.
+rebuild='set -eu; cat'
+for part in "$parts_dir"/part.*; do
+  rebuild="$rebuild '$remote_parts/${part##*/}'"
+done
+rebuild="$rebuild > '$remote_archive.ready'; sha256sum '$remote_archive.ready' | cut -d ' ' -f1"
+remote_sha="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "$rebuild")"
 [ "$remote_sha" = "$local_sha" ] || {
   echo "cn-dev archive checksum mismatch; refusing to load image" >&2
+  # Preserve the last verified archive and resumable parts, but free the
+  # full-size failed reassembly or the next run can fail its disk preflight.
+  ssh $ssh_opts ubuntu@"$cn_dev_host" "rm -f -- '$remote_archive.ready'"
   exit 1
 }
+ssh $ssh_opts ubuntu@"$cn_dev_host" "mv '$remote_archive.ready' '$remote_archive'"
+# The verified current.tar can seed every later retry; release the staging
+# parts before Docker unpacks layers to avoid a third archive-sized footprint.
+ssh $ssh_opts ubuntu@"$cn_dev_host" "rm -rf -- '$remote_parts'"
 
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker load -i '$remote_archive' >/dev/null"
 remote_id="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --format '{{.Id}}' '$image_id'")"
@@ -96,6 +157,9 @@ remote_revision="$(ssh $ssh_opts ubuntu@"$cn_dev_host" "docker image inspect --f
 }
 # Preserve deploy-image.sh's existing content-addressed tag and digest pairing.
 ssh $ssh_opts ubuntu@"$cn_dev_host" "docker tag '$image_id' 'eventgraph-dev:${image_id#sha256:}' && printf '%s\n%s\n' 'eventgraph-dev:${image_id#sha256:}' '$EVENTGRAPH_IMAGE' > /home/ubuntu/.eventgraph-last-delivered-image.tmp && mv /home/ubuntu/.eventgraph-last-delivered-image.tmp /home/ubuntu/.eventgraph-last-delivered-image"
+
+# Failed transfers retain resumable parts; successful checksum verification
+# removes them before Docker load. Keep only the verified current.tar.
 
 # This only runs after the exact verified image has arrived; the retired
 # transport-only registry and its scratch volume have no rollback role.
