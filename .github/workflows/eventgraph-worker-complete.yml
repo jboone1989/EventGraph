@@ -1,0 +1,29 @@
+name: EventGraph GH-AW Worker Completion
+
+on:
+  workflow_run:
+    workflows: [EventGraph GH-AW Worker]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: eventgraph-gh-aw-worker-completion
+  cancel-in-progress: false
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+      - name: Route verified worker result to Check or next dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/eventgraph-worker-complete.mjs

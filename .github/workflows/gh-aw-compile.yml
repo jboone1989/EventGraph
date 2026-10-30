@@ -45,3 +45,11 @@ jobs:
             .github/workflows/eventgraph-dispatcher.lock.yml
           if-no-files-found: error
           retention-days: 7
+      - name: Emit generated lock payload for repository API import
+        run: |
+          set -euo pipefail
+          for name in eventgraph-worker eventgraph-dispatcher; do
+            printf 'GH_AW_LOCK_BEGIN:%s\n' "$name"
+            base64 -w 120 ".github/workflows/$name.lock.yml"
+            printf '\nGH_AW_LOCK_END:%s\n' "$name"
+          done
