@@ -7,6 +7,9 @@ export const REPOSITORY = "jboone1989/EventGraph";
 export const OWNER = "jboone1989";
 export const SPEC_REPOSITORY_ID = "1416699488";
 
+// Keep the owner-authorized admission idempotent even if Worker labels change later.
+export function workRequestId(issueNumber) { return `issue-${issueNumber}`; }
+
 export function selectWorkerProfile(labels = []) {
   const names = labels.map((label) => label.name);
   const glm = names.includes("agent-worker:glm");
@@ -110,7 +113,7 @@ function submitWork(payload, issueNumber, workerProfile) {
   if (Buffer.byteLength(serialized, "utf8") > 16_384) throw new Error("Work payload exceeds GH-AW's 16 KiB limit");
   writeFileSync(workPath, serialized, { mode: 0o600 });
   gh(["aw", "work-queue", "--repo", REPOSITORY, "submit-work", "--file", workPath,
-    "--worker-profile", workerProfile, "--request-id", `issue-${issueNumber}`]);
+    "--worker-profile", workerProfile, "--request-id", workRequestId(issueNumber)]);
 }
 
 function dispatchGate() {
