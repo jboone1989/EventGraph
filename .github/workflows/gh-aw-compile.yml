@@ -1,0 +1,52 @@
+name: Compile GH-AW Work Queue
+
+on:
+  push:
+    branches: [feat/gh-aw-work-queue-main-20261030]
+    paths:
+      - '.github/workflows/eventgraph-*.md'
+      - '.github/workflows/aw.json'
+      - '.github/workflows/gh-aw-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-aw-compile-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install official pinned GH-AW CLI
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Strict compile from Markdown source
+        run: |
+          set -euo pipefail
+          gh aw version
+          gh aw compile eventgraph-worker eventgraph-dispatcher eventgraph-producer --strict --no-check-update
+          test -s .github/workflows/eventgraph-worker.lock.yml
+          test -s .github/workflows/eventgraph-dispatcher.lock.yml
+          test -s .github/workflows/eventgraph-producer.lock.yml
+      - name: Commit generated locks to this feature branch
+        if: github.ref_name == 'feat/gh-aw-work-queue-main-20261030'
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/eventgraph-worker.lock.yml .github/workflows/eventgraph-dispatcher.lock.yml .github/workflows/eventgraph-producer.lock.yml
+          if git diff --cached --quiet; then
+            echo 'Compiled lock files already match their Markdown sources.'
+            exit 0
+          fi
+          git commit -m 'ci(gh-aw): commit compiled native Work Queue locks'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
