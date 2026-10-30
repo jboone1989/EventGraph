@@ -87,6 +87,7 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 - GH-AW v1.0.1 Pi engine: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/engines/pi.md
 - GH-AW v1.0.1 Pi provider and threat-detection reference: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/reference/engines/pi.md
 - GH-AW v1.0.1 Work Queue reference: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/reference/work-queue.md
+- GH-AW v1.0.1 Dispatcher profile selection: https://github.com/github/gh-aw/blob/v1.0.1/pkg/workflow/work_queue_repo_config.go#L114 (`DefaultProfile = slices.Min(...)`, so the lexicographically smallest registered profile becomes the pool default).
 - Existing central GLM reviewer to extend for main PRs: https://github.com/jboone1989/livingruntime-remote/blob/main/.github/workflows/eventgraph-glm-review.yml
 - GH-AW v1.0.1 Codex authentication (ChatGPT subscription login is not supported): https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/engines/codex.md
 - GitHub Spec Kit and EventGraph's mandatory approval policy: `docs/spec-review.md`, `AGENTS.md`.
