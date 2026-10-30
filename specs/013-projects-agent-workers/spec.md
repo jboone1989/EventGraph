@@ -92,7 +92,20 @@ The existing central independent GLM review, exact-SHA Check/E2E/Docker gates, b
 
 GH-AW's Pi engine supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. Reuse the existing EventGraph `GLM_API_KEY` and `GLM_BASE_URL` values and select `anthropic/glm-5.3`; no Copilot entitlement or new provider key is required. This is a second Agent Harness using the same GLM model/backend, not a second model provider.
 
-The Pi engine reference states that threat detection defaults to Copilot regardless of Pi's model provider. The Pi Worker must therefore explicitly set `safe-outputs.threat-detection.engine` to the built-in `claude` engine, with the same GLM-5.3 Anthropic-compatible endpoint and key. Do not leave the default implicit. Validate both Pi inference and the explicit GLM-backed detection engine with real GitHub-hosted no-write smoke Work before enabling ordinary development. If either fails, leave only the Pi profile disabled and retain the existing GLM Worker.
+The Pi engine reference states that threat detection defaults to Copilot regardless of Pi's model provider. The Pi Worker must therefore explicitly use the object form of `safe-outputs.threat-detection.engine`, and must not rely on environment or model-alias inheritance from the Pi workflow. Configure the built-in Claude detector with an explicit GLM model ID and provider environment:
+
+```yaml
+safe-outputs:
+  threat-detection:
+    engine:
+      id: claude
+      model: glm-5.3
+      env:
+        ANTHROPIC_BASE_URL: ${{ vars.GLM_BASE_URL || 'https://open.bigmodel.cn/api/anthropic' }}
+        ANTHROPIC_API_KEY: ${{ secrets.GLM_API_KEY }}
+```
+
+This is required because GH-AW does not inherit the main Pi engine's `env`, API target or custom model aliases when the detection engine differs. Validate both Pi inference and this separately configured GLM-backed detector with real GitHub-hosted no-write smoke Work before enabling ordinary development. If either fails, leave only the Pi profile disabled and retain the existing GLM Worker.
 
 ## 5. Parallel execution
 
