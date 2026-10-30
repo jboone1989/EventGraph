@@ -18,35 +18,35 @@
 - [ ] Record the exact main Spec commit SHA for the control-plane implementation PR.
 - [ ] Do not merge `develop` wholesale into `main`.
 
-## C. Add the Copilot Worker profile
+## C. Add the Pi Worker profile
 
-- [ ] Add `.github/workflows/eventgraph-copilot-worker.md` with GH-AW `engine: copilot`.
+- [ ] Add `.github/workflows/eventgraph-pi-worker.md` with GH-AW `engine: pi` and `model: anthropic/glm-5.3`.
 - [ ] Require the native `work_queue_assignment` and original Claim handle.
 - [ ] Reuse the existing immutable Spec, repository resource-scope and one-PR safe-output contract.
 - [ ] Preserve read-only model-job permissions; repository writes remain in GH-AW safe outputs.
 - [ ] Include the same exact Work ID/Worker run ID marker in the PR body.
-- [ ] Configure only the documented Copilot authentication mode available to this account.
-- [ ] Compile and publish the generated lock file using pinned GH-AW v1.0.1; never hand-edit the lock.
+- [ ] Reuse `GLM_API_KEY` and `GLM_BASE_URL` from the existing Worker; do not add Copilot or OpenAI API credentials.
+- [ ] Explicitly configure `safe-outputs.threat-detection.engine` as `claude` with the same GLM endpoint/key because Pi's documented default detection engine is Copilot. Compile and publish the generated lock file using pinned GH-AW v1.0.1; never hand-edit the lock.
 
 ## D. Route Work to a Worker profile
 
-- [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-copilot-worker`.
-- [ ] Update `eventgraph-work-intake.mjs` to select the profile from `agent-worker:glm` / `agent-worker:copilot` labels.
+- [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-pi-worker`.
+- [ ] Update `eventgraph-work-intake.mjs` to select the profile from `agent-worker:glm` / `agent-worker:pi` labels.
 - [ ] Preserve owner-only `agent-ready` admission and stable Issue-derived idempotency.
 - [ ] Reject both Worker labels being present; verify that Worker labels alone cannot submit Work.
-- [ ] Add focused standalone tests for default GLM, explicit GLM, Copilot, ambiguous labels, unauthorized actor, duplicate events and invalid Spec.
+- [ ] Add focused standalone tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events and invalid Spec.
 - [ ] Compile all changed GH-AW sources and locks together in strict mode.
 
 ## E. Hosted validation and parallelism
 
 - [ ] Run a real no-write Work through the GLM Worker and inspect the native queue Result.
-- [ ] Run a real no-write Work through the Copilot Worker; if authentication or entitlement fails, disable the Copilot route and retain GLM.
+- [ ] Run a real no-write Work through the Pi Worker, including its explicit GLM-backed Claude threat-detection job; if either fails, disable the Pi route and retain GLM.
 - [ ] Confirm current queue Work, Claims, reservations and delivery barriers are settled before Policy change.
 - [ ] Set `aw.json` concurrency to two and apply the official administrator-authorized Policy epoch update only while the queue is quiescent.
 - [ ] Submit two independent authorized Work items and verify two simultaneous Claims with the correct Worker profile on each.
 - [ ] Run one low-risk owner-authorized code Work through each enabled profile.
 - [ ] Verify exact PR markers, pinned Spec, current-head Check/Docker/E2E, independent GLM review, normal squash merge and post-merge queue continuation.
-- [ ] Confirm no Agent Worker code executes on cn-dev, VM13 or VM09 and no Pi/timer/host dispatcher is used.
+- [ ] Confirm no Agent Worker code executes on cn-dev, VM13 or VM09 and no separate Pi/timer/host dispatcher is used.
 
 ## F. Final acceptance
 
