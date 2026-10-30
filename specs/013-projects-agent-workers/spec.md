@@ -121,7 +121,7 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 ### Agent Workers
 
 - [ ] Existing `eventgraph-worker` remains functional and remains the default profile.
-- [ ] `eventgraph-pi-worker` is published with the official GH-AW Copilot engine and accepts the same immutable Work Queue assignment contract.
+- [ ] `eventgraph-pi-worker` is published with the official GH-AW Pi engine and accepts the same immutable Work Queue assignment contract.
 - [ ] The Dispatcher allowlists both Worker workflows.
 - [ ] Intake tests prove default-to-GLM routing, explicit GLM routing, Pi routing, owner-only admission, duplicate-event idempotency and rejection of ambiguous Worker labels.
 - [ ] Both profiles compile with the pinned official GH-AW v1.0.1 CLI in strict mode; generated lock files are produced by the CLI and are never hand-edited.
