@@ -1,4 +1,4 @@
-# Implementation plan: GitHub Projects and Multi-Engine GH-AW Workers
+# Implementation plan: Multi-Engine GH-AW Workers
 
 **Status:** Draft; implementation starts only after the Spec PR is approved and merged.
 
@@ -21,22 +21,14 @@ Inspected the current EventGraph repository, GH-AW control-plane files and the p
 - The pinned GH-AW v1.0.1 Pi engine documentation supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. EventGraph's existing Worker already uses the GLM Anthropic-compatible endpoint (`GLM_BASE_URL`, default `https://open.bigmodel.cn/api/anthropic`) and `GLM_API_KEY`; the Pi profile can reuse those exact values with `model: anthropic/glm-5.3`.
 - GH-AW v1.0.1 supports multiple registered Worker workflows. The Dispatcher declares the allowed worker workflow names, while the immutable Work selects an approved `worker_profile`. The native scheduler still chooses eligible Work and creates Claims.
 - GH-AW v1.0.1 Pi supports native MCP and Work Queue tools. The Pi engine reference states threat detection defaults to Copilot regardless of Pi's model provider. Configure `safe-outputs.threat-detection.engine` as an object with `id: claude`, `model: glm-5.3`, and explicit `env.ANTHROPIC_BASE_URL` / `env.ANTHROPIC_API_KEY` pointing to the existing GLM endpoint and secret. The threat-detection reference explicitly says different engines do not inherit main-engine environment, API targets or custom model aliases. This avoids any Copilot entitlement dependency.
-- GitHub Projects provides built-in Auto-add and status workflows. Auto-add supports filters such as `is:open`, `is:issue` and `is:pr`, but does not backfill existing items when first enabled. GitHub's default built-in workflows set closed Issues/PRs and merged PRs to Done.
-- GH-AW ProjectOps is not needed for this initial requirement. Its own documentation recommends built-in Project workflows for simple rule-based transitions. Avoid a Project API integration, PAT secrets and custom synchronizer until there is a real context-aware requirement.
 
 ## 2. Chosen minimal design
 
-### Project
+### Backlog and execution
 
-Create one personal Project named `EventGraph Delivery` under `jboone1989`.
-
-- Seed Issue #176 and existing open Issues/PRs once through GitHub's bulk-add UI.
-- Enable the built-in Auto-add workflow for new open items from `jboone1989/EventGraph` using `is:open`.
-- Use the built-in Status field and labels. Labels encode priority and selected Worker profile.
-- Enable the existing built-in closed/merged-to-Done workflows.
-- Keep Issue #176 as the existing parent/backlog record; do not create a duplicate Issue for each checkbox.
-
-No ProjectOps workflow or custom Project API integration is added.
+- Issue #176 remains the only human-maintained backlog, consistent with its explicit queue rules.
+- The GH-AW native Work Queue remains the only execution scheduler and authoritative record of Claims, retries, reservations and Results.
+- Do not create a GitHub Projects board, duplicate task tracker or status synchronizer.
 
 ### Worker profiles
 
@@ -82,7 +74,7 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 5. Verify GLM and Pi no-write smoke Work through their actual GitHub-hosted Workers, including the Pi Worker's explicit GLM-backed Claude threat-detection job. Do not use synthetic local-only test output as hosted evidence.
 6. After queue quiescence, apply the concurrency-two Policy epoch and verify two independent Claims execute concurrently.
 7. Run one low-risk, owner-authorized code Work through each enabled profile. Verify exact PR markers, current-HEAD CI, independent GLM review, normal merge and post-merge queue continuation.
-8. Create/configure the Project in GitHub UI, bulk-add existing items, enable Auto-add and built-in status workflows. Verify a new Issue/PR is added automatically and a merged PR is marked Done.
+
 
 ## 4. Branch and delivery constraints
 
@@ -107,7 +99,7 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 
 | Alternative | Decision |
 |---|---|
-| Custom ProjectOps workflow for simple status transitions | Rejected; GitHub Projects built-in workflows already cover Auto-add and closed/merged-to-Done. |
+| GitHub Projects board or second task tracker | Rejected; Issue #176 is the only human-maintained backlog and the native Work Queue is the only execution scheduler. |
 | New project-management database or task queue | Rejected; duplicates Projects and the GH-AW native queue. |
 | GH-AW Codex with ChatGPT subscription login | Not usable on GitHub-hosted GH-AW: the official Codex engine requires `CODEX_API_KEY`/`OPENAI_API_KEY` or Copilot inference; ChatGPT subscription login is explicitly unsupported. |
 | Increase concurrency immediately | Rejected; the installed Policy has unfinished smoke Work and must be changed only when quiescent. |
