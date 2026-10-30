@@ -18,9 +18,9 @@ Inspected the current EventGraph repository, GH-AW control-plane files and the p
 
 ### Official GH-AW v1.0.1 capabilities reused
 
-- The pinned GH-AW v1.0.1 WorkQueueOps example documents a Copilot engine Worker using `engine: copilot`, `permissions: copilot-requests: write`, `tools.work-queue.require-assignment: true` and `worker: true`. This is a direct queue Worker, not a second dispatcher.
+- The pinned GH-AW v1.0.1 Pi engine documentation supports the `anthropic/` provider through `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL`. EventGraph's existing Worker already uses the GLM Anthropic-compatible endpoint (`GLM_BASE_URL`, default `https://open.bigmodel.cn/api/anthropic`) and `GLM_API_KEY`; the Pi profile can reuse those exact values with `model: anthropic/glm-5.3`.
 - GH-AW v1.0.1 supports multiple registered Worker workflows. The Dispatcher declares the allowed worker workflow names, while the immutable Work selects an approved `worker_profile`. The native scheduler still chooses eligible Work and creates Claims.
-- GH-AW v1.0.1 includes Copilot Cloud Agent safe outputs (`assign-to-agent` and `create-agent-session`), but those start separate asynchronous Cloud Agent sessions. They are unnecessary for this queue integration; use the Copilot engine directly as a Worker.
+- GH-AW v1.0.1 Pi supports native MCP and Work Queue tools. The Pi engine reference states threat detection defaults to Copilot regardless of Pi's model provider, so the Pi Worker must explicitly configure `safe-outputs.threat-detection.engine: claude` with the existing GLM endpoint/key. This avoids any Copilot entitlement dependency.
 - GitHub Projects provides built-in Auto-add and status workflows. Auto-add supports filters such as `is:open`, `is:issue` and `is:pr`, but does not backfill existing items when first enabled. GitHub's default built-in workflows set closed Issues/PRs and merged PRs to Done.
 - GH-AW ProjectOps is not needed for this initial requirement. Its own documentation recommends built-in Project workflows for simple rule-based transitions. Avoid a Project API integration, PAT secrets and custom synchronizer until there is a real context-aware requirement.
 
@@ -40,7 +40,7 @@ No ProjectOps workflow or custom Project API integration is added.
 
 ### Worker profiles
 
-Keep `eventgraph-worker` as the GLM default and add `eventgraph-copilot-worker` as an optional GH-AW Copilot engine Worker.
+Keep `eventgraph-worker` as the GLM default and add `eventgraph-pi-worker` as a GH-AW Pi engine Worker using the existing GLM-5.3 Anthropic-compatible endpoint. This is harness diversity, not model-provider diversity.
 
 Both workflows use the same:
 - immutable Work Queue assignment and Claim handle;
@@ -52,7 +52,7 @@ Both workflows use the same:
 
 The deterministic Producer selects the profile from Issue labels:
 - no Worker-selection label or `agent-worker:glm` -> `eventgraph-worker`;
-- `agent-worker:copilot` -> `eventgraph-copilot-worker`;
+- `agent-worker:pi` -> `eventgraph-pi-worker`;
 - both labels -> reject before Work submission.
 
 The owner-authored `agent-ready` label remains the only admission authorization. Worker labels never grant admission.
@@ -61,14 +61,14 @@ The owner-authored `agent-ready` label remains the only admission authorization.
 
 Do not change the existing installed Policy while the two current smoke Work items or any other unfinished Work/reservations remain.
 
-After the queue is quiescent and both profiles pass their hosted no-write smoke tests, change `aw.json` to concurrency two and apply the official quiescent Policy epoch update. Verify two concurrent Claims. If Copilot is unavailable, retain GLM as the only enabled profile and do not claim multi-engine acceptance.
+After the queue is quiescent and both profiles pass their hosted no-write smoke tests, change `aw.json` to concurrency two and apply the official quiescent Policy epoch update. Verify two concurrent Claims. If Pi/GLM endpoint or explicit detection smoke validation fails, retain GLM as the only enabled profile and do not claim Pi acceptance.
 
 ## 3. Implementation sequence
 
 1. Obtain approval for this immutable Spec and merge its Spec PR to `develop`.
 2. Mirror the exact approved Spec content to `main` in a docs-only PR. Record the main-specific Spec commit SHA.
 3. Create one main-only control-plane PR pinned to the main Spec SHA:
-   - add `eventgraph-copilot-worker.md`;
+   - add `eventgraph-pi-worker.md` with `engine: pi`, `model: anthropic/glm-5.3`, and the existing GLM API key/base URL;
    - update `eventgraph-dispatcher.md` to allowlist the new profile;
    - update `eventgraph-work-intake.mjs` to select the profile from labels;
    - add focused intake routing tests;
@@ -85,13 +85,15 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 - Because `main` and `develop` are divergent, use a docs-only Spec mirror followed by an isolated main-only implementation PR. Do not merge all of `develop` into `main`.
 - The main implementation PR must reference the exact approved main Spec commit in its body. The Spec gate and central independent review must pass on its exact HEAD.
 - Preserve all current branch protection, Check, Docker, E2E, central GLM review and normal squash-merge rules.
-- Do not touch production VM09 or use Pi, cn-dev, VM13 or other user-managed hosts for Worker execution.
+- Do not touch production VM09 or execute Workers on cn-dev, VM13 or other user-managed hosts. The GH-AW Pi engine runs inside GitHub-hosted Actions; it is not a separate Pi server.
 
 ## 5. Research sources
 
 - GH-AW v1.0.1 WorkQueueOps: https://github.github.io/gh-aw/guides/deploy-work-queue/
-- GH-AW v1.0.1 Copilot engine: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/engines/copilot.md
-- GH-AW v1.0.1 Copilot Cloud Agent reference (distinguishes asynchronous Cloud Agent safe outputs from a Copilot engine Worker): https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/reference/copilot-cloud-agent.mdx
+- GH-AW v1.0.1 Pi engine: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/engines/pi.md
+- GH-AW v1.0.1 Pi provider and threat-detection reference: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/reference/engines/pi.md
+- GH-AW v1.0.1 Work Queue reference: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/reference/work-queue.md
+- GH-AW v1.0.1 Codex authentication (ChatGPT subscription login is not supported): https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/engines/codex.md
 - GitHub Projects built-in automations: https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-built-in-automations
 - GitHub Projects Auto-add: https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/adding-items-automatically
 - GitHub Spec Kit and EventGraph's mandatory approval policy: `docs/spec-review.md`, `AGENTS.md`.
@@ -102,6 +104,6 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 |---|---|
 | Custom ProjectOps workflow for simple status transitions | Rejected; GitHub Projects built-in workflows already cover Auto-add and closed/merged-to-Done. |
 | New project-management database or task queue | Rejected; duplicates Projects and the GH-AW native queue. |
-| Copilot Cloud Agent `assign-to-agent` / `create-agent-session` as a second scheduler | Rejected for this rollout; direct `engine: copilot` Worker preserves the existing Work Queue Claim lifecycle. |
+| GH-AW Codex with ChatGPT subscription login | Not usable on GitHub-hosted GH-AW: the official Codex engine requires `CODEX_API_KEY`/`OPENAI_API_KEY` or Copilot inference; ChatGPT subscription login is explicitly unsupported. |
 | Increase concurrency immediately | Rejected; the installed Policy has unfinished smoke Work and must be changed only when quiescent. |
 | Merge develop wholesale into main | Rejected; branch histories are intentionally divergent and the GH-AW control plane is installed through isolated main PRs. |
