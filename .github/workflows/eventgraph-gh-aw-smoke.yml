@@ -18,7 +18,8 @@ jobs:
     if: >-
       ${{ github.event_name == 'workflow_dispatch' ||
           (github.event_name == 'push' &&
-           contains(github.event.head_commit.message, 'feat(gh-aw): native Work Queue')) }}
+           contains(github.event.head_commit.message, 'feat(gh-aw): native Work Queue') ||
+           contains(github.event.head_commit.message, 'fix(gh-aw): use user PAT for queue operations')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -28,10 +29,11 @@ jobs:
           version: v1.0.1
       - name: Submit two immutable no-write Work items
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::Set repository secret GH_AW_GITHUB_TOKEN to a fine-grained user PAT before running native Work Queue smoke'; exit 1; }
           cat > "$RUNNER_TEMP/gh-aw-smoke-1.json" <<'JSON'
           {"task":"Read the EventGraph README, check whether installation steps exist, and report one concise sentence. Do not modify any repository resource.","effect_contract":{"kind":"none"}}
           JSON

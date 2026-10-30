@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   submit:
-    if: github.event.label.name == 'agent-ready' && github.actor == 'jboone1989'
+    if: github.event.label.name == 'agent-ready' && github.actor == 'jboone1989' && vars.EVENTGRAPH_GH_AW_QUEUE_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -28,8 +28,9 @@ jobs:
           version: v1.0.1
       - name: Validate intake contract and submit native Work
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::Set repository secret GH_AW_GITHUB_TOKEN to a fine-grained user PAT before enabling intake'; exit 1; }
           node --test scripts/ci/eventgraph-work-intake.test.mjs
           node scripts/ci/eventgraph-work-intake.mjs
