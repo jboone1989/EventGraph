@@ -13,8 +13,105 @@ permissions:
   issues: write
   statuses: write
 
+# Serialize reviews for the same immutable HEAD. GitHub keeps at most one
+# pending run per group; the pending run rechecks the final status below.
+concurrency:
+  group: eventgraph-glm-review-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
 jobs:
+  review-preflight:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_repository.full_name == github.repository &&
+          ((github.event.workflow_run.event == 'pull_request' &&
+            github.event.workflow_run.pull_requests[0].number != '') ||
+           (github.event.workflow_run.event == 'workflow_dispatch' &&
+            startsWith(github.event.workflow_run.head_branch, 'agent/'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      run_review: ${{ steps.dedupe.outputs.run_review }}
+      review_state: ${{ steps.dedupe.outputs.review_state }}
+    steps:
+      - name: Validate exact Check, current PR and prior GLM status
+        id: dedupe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_RUN_ID: ${{ github.event.workflow_run.id }}
+          CHECK_SHA: ${{ github.event.workflow_run.head_sha }}
+          CHECK_EVENT: ${{ github.event.workflow_run.event }}
+          CHECK_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHECK_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$CHECK_SHA" =~ ^[0-9a-f]{40}$ ]]
+          check="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID")"
+          jq -e --arg sha "$CHECK_SHA" --arg repo "$GITHUB_REPOSITORY" --arg event "$CHECK_EVENT" --arg branch "$CHECK_BRANCH" '
+            .name == "Check" and .status == "completed" and .conclusion == "success" and
+            .head_sha == $sha and .head_repository.full_name == $repo and
+            .event == $event and
+            ($event == "pull_request" or ($event == "workflow_dispatch" and ($branch | startswith("agent/"))))
+          ' <<< "$check" >/dev/null
+
+          pr_number="$PR_NUMBER"
+          if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
+            prs="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/pulls?per_page=100")"
+            pr_number="$(jq -r --arg sha "$CHECK_SHA" --arg repo "$GITHUB_REPOSITORY" '
+              [.[] | select(.state == "open" and (.draft|not) and
+                (.base.ref == "main" or .base.ref == "develop") and
+                .head.sha == $sha and .head.repo.full_name == $repo and
+                .base.repo.full_name == $repo)] |
+              if length == 1 then .[0].number else empty end
+            ' <<< "$prs")"
+          fi
+          if [[ ! "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
+            echo "No unique open same-repository PR at this exact SHA; skip GLM."
+            echo "review_state=not_reviewed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number")"
+          if ! jq -e --arg sha "$CHECK_SHA" --arg repo "$GITHUB_REPOSITORY" '
+            .state == "open" and (.draft|not) and .head.sha == $sha and
+            .head.repo.full_name == $repo and .base.repo.full_name == $repo and
+            (.base.ref == "main" or .base.ref == "develop")
+          ' <<< "$pr" >/dev/null; then
+            echo "PR is no longer open at this exact SHA; skip GLM."
+            echo "review_state=not_reviewed" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          statuses="$(gh api "repos/$GITHUB_REPOSITORY/commits/$CHECK_SHA/status")"
+          prior="$(jq -r '[.statuses[] | select(.context == "claude-review" and
+            (.state == "success" or .state == "failure" or .state == "error"))][0].state // empty' <<< "$statuses")"
+          if [[ -n "$prior" ]]; then
+            echo "Exact SHA already has a final GLM review status: $prior; skip duplicate model calls."
+            echo "review_state=$prior" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "review_state=not_reviewed" >> "$GITHUB_OUTPUT"
+          echo "run_review=true" >> "$GITHUB_OUTPUT"
+
   official-glm-review:
+    needs: [review-preflight]
+    if: needs.review-preflight.outputs.run_review == 'true'
+    uses: jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml@main
+    with:
+      check_sha: ${{ github.event.workflow_run.head_sha }}
+      check_run_id: ${{ github.event.workflow_run.id }}
+      pr_number: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
+    secrets:
+      GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+
+  merge_gh_aw_agent_work:
     # Every completed Check reaches central preflight. It checks the real source
     # run ID + event + success + exact HEAD before exposing the model secret.
     uses: jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml@main
@@ -26,9 +123,9 @@ jobs:
       GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
 
   merge_gh_aw_agent_work:
-    needs: [official-glm-review]
+    needs: [review-preflight, official-glm-review]
     if: >-
-      ${{ needs['official-glm-review'].result == 'success' &&
+      ${{ (needs['official-glm-review'].result == 'success' || needs['review-preflight'].outputs.review_state == 'success') &&
           github.event.workflow_run.event == 'workflow_dispatch' &&
           github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.head_repository.full_name == github.repository &&
