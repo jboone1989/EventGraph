@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const REPOSITORY = "jboone1989/EventGraph";
@@ -121,7 +121,7 @@ export function main() {
   process.stdout.write(`Submitted idempotent Work for Issue #${admission.issue.number} and requested one dispatch-gate run.\n`);
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   try { main(); } catch (error) {
     process.stderr.write(`EventGraph Work intake failed: ${error.message}\n`);
     process.exitCode = 1;
