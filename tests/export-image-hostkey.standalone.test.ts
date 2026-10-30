@@ -144,6 +144,8 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
   sb.env.STUB_BAD_ID = opts.badId ? "1" : "";
   sb.env.STUB_BAD_REVISION = opts.badRevision ? "1" : "";
   sb.env.STUB_RSYNC_FAIL = opts.transferFailure ? "1" : "";
+  sb.env.STUB_RSYNC_QUICKCHECK = "";
+  sb.env.STUB_IMAGE_VARIANT = "";
   sb.env.STUB_LOW_DISK = opts.lowDisk ? "1" : "";
   sb.env.STUB_FREE_BASE = "";
   sb.env.STUB_BBR_CALLS = path.join(sb.dir, "bbr-calls.log");
@@ -161,7 +163,7 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
     "      *'.Id'* ) printf '%s\\n' \"$STUB_IMAGE_ID\" ;;",
     "      *'org.opencontainers.image.revision'* ) printf '%s\\n' \"$STUB_REVISION\" ;;",
     "    esac ;;",
-    "  'save '* ) if [ \"$STUB_LARGE_ARCHIVE\" = 1 ]; then head -c 67109888 /dev/zero; else printf '%s\\n' 'fixture image archive contents - unchanged layers'; fi ;;",
+    "  'save '* ) if [ \"$STUB_LARGE_ARCHIVE\" = 1 ]; then head -c 67109888 /dev/zero; elif [ \"$STUB_IMAGE_VARIANT\" = 1 ]; then printf '%s\\n' 'fixture image archive contents - changed   layers'; else printf '%s\\n' 'fixture image archive contents - unchanged layers'; fi ;;",
     "  * ) echo \"unexpected docker: $*\" >&2; exit 1 ;;",
     "esac",
     ""
@@ -206,6 +208,14 @@ function rsyncSandbox(opts: { pinEcdsa?: boolean; badHash?: boolean; badId?: boo
     "mkdir -p \"$STUB_PARTS\"",
     "dest=\"$STUB_PARTS/${second_last##*/}\"",
     "if [ \"$STUB_RSYNC_FAIL\" = 1 ]; then head -c 12 \"$second_last\" > \"$dest\"; exit 23; fi",
+    "if [ \"$STUB_RSYNC_QUICKCHECK\" = 1 ] && [ -f \"$dest\" ]; then",
+    "  touch -r \"$second_last\" \"$dest\"",
+    "  case \" $* \" in",
+    "    *' --ignore-times '*) : ;;",
+    "    *) if [ \"$(stat -c %s \"$second_last\")\" = \"$(stat -c %s \"$dest\")\" ] &&",
+    "         [ \"$(stat -c %Y \"$second_last\")\" = \"$(stat -c %Y \"$dest\")\" ]; then exit 0; fi ;;",
+    "  esac",
+    "fi",
     "if [ \"$STUB_LARGE_ARCHIVE\" = 1 ]; then",
     "  exec 9>\"$STUB_LOCK\"",
     "  flock -x 9",
@@ -284,6 +294,19 @@ test("rsync transports a digest-verified archive, preserving the existing image 
   assert.match(content(sb.env.STUB_BBR_CALLS!), /sysctl -w net.ipv4.tcp_congestion_control=bbr/);
   assert.equal(readFileSync(path.join(sb.dir, "remote-current.tar"), "utf8"),
     "fixture image archive contents - unchanged layers\n");
+});
+
+test("seeded same-size and same-second stale parts still transfer changed blocks", () => {
+  const sb = rsyncSandbox();
+  assert.equal(run(sb.env).status, 0);
+  sb.env.STUB_IMAGE_VARIANT = "1";
+  sb.env.STUB_RSYNC_QUICKCHECK = "1"; // Simulate rsync quick check matching seconds and sizes.
+  const result = run(sb.env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(sb.env.STUB_STAGE!, "utf8"),
+    "fixture image archive contents - changed   layers\n");
+  assert.match(content(sb.env.STUB_RSYNC_CALLS!), /--ignore-times/,
+    "a seeded old chunk must never be accepted solely on matching mtime and size");
 });
 
 test("parallel transfer enforces eight-stream cap across nine actual parts", () => {

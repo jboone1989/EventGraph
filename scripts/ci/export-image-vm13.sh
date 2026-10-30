@@ -104,7 +104,7 @@ active=0
 failed=0
 for part in "$parts"/part.*; do
   (
-    rsync --archive --inplace --partial --no-whole-file \
+    rsync --archive --inplace --partial --no-whole-file --ignore-times \
       --compress --compress-choice=zstd --compress-level=3 --timeout=600 \
       --rsh="ssh $ssh_opts" "$part" "ubuntu@$cn_dev_host:$remote_parts/${part##*/}"
   ) &
