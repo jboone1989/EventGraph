@@ -32,7 +32,7 @@
 - [ ] Reject both Worker labels being present; verify that Worker labels alone cannot submit Work.
 - [ ] Extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to recognize `EventGraph GH-AW Pi Worker` alongside the existing GLM Worker and reuse the same exact-SHA Check/queue-continuation path.
 - [ ] Add focused tests proving both Worker run identities are accepted and unrelated workflow runs are rejected.
-- [ ] Add focused intake tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events and invalid Spec.
+- [ ] Add focused intake tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events, invalid Spec and misordered labels; prove a late Pi label cannot reroute an already-admitted GLM Work with the same Issue request ID.
 - [ ] Update `.github/workflows/check.yml` to compile `eventgraph-pi-worker` alongside the existing Worker and Dispatcher with pinned v1.0.1 strict mode; verify the generated lock is committed.
 
 ## E. Hosted validation and parallelism
@@ -41,9 +41,8 @@
 - [ ] Run a real no-write Work through the GLM Worker and inspect the native queue Result.
 - [ ] Run a real no-write Work through the Pi Worker, including its explicit GLM-backed Claude threat-detection job; if either Pi path fails, disable only the Pi route and retain GLM.
 - [ ] Only after queue quiescence, set `aw.json` concurrency to two and apply the official administrator-authorized Policy epoch update.
-- [ ] Submit two independent authorized Work items and verify two simultaneous Claims with the correct Worker profile on each.
-- [ ] Run one low-risk owner-authorized code Work through each enabled profile.
-- [ ] Verify exact PR markers, pinned Spec, current-head Check/Docker/E2E, independent GLM review, normal squash merge and post-merge queue continuation.
+- [ ] Submit two independent no-write Work items before dispatching either, with no open `agent-work` PR, and verify simultaneous Claims with the correct Worker profile on each.
+- [ ] Verify code Work remains serialized by the existing dispatch gate; run one low-risk code Work through each enabled profile sequentially, allowing each PR to pass exact-SHA Check/Docker/E2E, independent GLM review and normal squash merge before dispatching the next.
 - [ ] Confirm no Agent Worker code executes on cn-dev, VM13 or VM09 and no separate Pi/timer/host dispatcher is used.
 
 ## F. Final acceptance

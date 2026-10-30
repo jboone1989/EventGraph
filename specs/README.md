@@ -22,6 +22,9 @@ For a small fix, an Issue with concrete acceptance criteria is sufficient. Eithe
 - [Minimal reuse/implementation plan](eventgraph-explorer/plan.md)
 - [Agent-sized tasks and acceptance](eventgraph-explorer/tasks.md)
 - [Agent handoff guide](eventgraph-explorer/handoff.md)
+## Agent operations specifications
+
+- [GitHub-hosted autonomous development queue (012) — Draft](012-github-hosted-agent-queue/spec.md)
 - [Multi-engine GH-AW Workers (013) — Owner-approved 2026-10-30; pending merge](013-projects-agent-workers/spec.md)
 
-The Explorer + Story documents remain **DRAFT** until explicitly approved. Spec 013 is owner-approved on 2026-10-30; implementation must pin its exact merged revision.
+The Explorer + Story documents and Spec 012 remain **DRAFT** until explicitly approved. Spec 013 is owner-approved on 2026-10-30; implementation must pin its exact merged revision.

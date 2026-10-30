@@ -36,7 +36,7 @@ The intake script chooses the Worker profile from the Issue's labels at the time
 | `agent-ready` + `agent-worker:pi` | `eventgraph-pi-worker` |
 | Both Worker labels | Reject as ambiguous; submit no Work |
 
-Apply the Worker-selection label first and add `agent-ready` last. This ensures the owner-authorized admission event sees the intended route. Changing labels after admission does not mutate the immutable Work or its selected Worker profile.
+Apply the Worker-selection label first and add `agent-ready` last. The first owner-authored `agent-ready` event fixes the Worker profile and submits Work under the stable request ID `issue-<number>`. If `agent-ready` arrives before a Worker-selection label, the Work intentionally defaults to GLM; adding a Worker label later or removing and re-adding `agent-ready` will not reroute it because the same request ID is deduplicated. To reroute after a misordered admission, cancel the original Work through the native `gh aw work-queue cancel-work` operator path. If it has a Claim, wait for verified worker quiescence and delivery settlement because cancellation alone does not stop the native run. Then close the original Issue as superseded and create a replacement Issue with a new Issue-derived request ID and the desired Worker label. Never submit a second Work for the same Issue.
 
 A Worker-selection label without the owner-authored `agent-ready` event grants no authority. Duplicate label events must remain idempotent under the existing Issue-derived request ID.
 
@@ -84,8 +84,10 @@ After the existing smoke Work is settled and the queue is quiescent:
 
 1. Set the default pool concurrency to two in `.github/workflows/aw.json`.
 2. Apply the corresponding administrator-authorized native Policy epoch using the official GH-AW operator command.
-3. Verify that two independent Claims can run concurrently and that each is routed to its selected Worker profile.
+3. Submit two independent **no-write** Works before dispatching either one. With no open `agent-work` PR, use the existing dispatch gate to dispatch them and verify that both Worker runs hold concurrent Claims, one per selected profile. These no-write Works create no PRs and therefore do not bypass or conflict with the dispatch gate.
 4. Keep each profile's per-assignment Claim limit at one. Do not increase concurrency beyond two in this rollout.
+
+Code Work remains serialized by the existing `eventgraph-dispatch-gate`, which refuses another dispatch while an `agent-work` PR to `develop` is open. This rollout does not attempt concurrent code PRs. Validate code delivery through the two profiles sequentially, allowing each PR to pass its normal independent review and merge before dispatching the next.
 
 If the queue cannot be proven quiescent, retain concurrency one. A config-file edit alone does not change an already installed Policy.
 
@@ -103,7 +105,7 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 - [ ] A real no-write Work succeeds on each enabled profile. Pi remains disabled if its hosted smoke test does not pass.
 - [ ] At least one owner-authorized code Work through each enabled profile produces a PR with the correct Work/run marker and exact Spec reference.
 - [ ] The existing Check, E2E, Docker, independent GLM review, branch-protection and merge gates remain intact.
-- [ ] After quiescent Policy update, two independent Work items are observed executing concurrently without duplicate Claims or cross-profile assignment.
+- [ ] After quiescent Policy update, two independent no-write Work items are observed executing concurrently without duplicate Claims or cross-profile assignment, while no `agent-work` PR is open.
 
 ### Operational constraints
 
