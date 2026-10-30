@@ -32,6 +32,10 @@
 ## D. Route Work to a Worker profile
 
 - [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-pi-worker`.
+
+- [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-pi-worker`.
+- [ ] Extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to recognize `EventGraph GH-AW Pi Worker` alongside the existing GLM Worker and reuse the same exact-SHA Check/queue continuation path.
+- [ ] Add focused tests proving both Worker run identities are accepted and unrelated workflow runs are rejected.
 - [ ] Update `eventgraph-work-intake.mjs` to select the profile from `agent-worker:glm` / `agent-worker:pi` labels.
 - [ ] Preserve owner-only `agent-ready` admission and stable Issue-derived idempotency.
 - [ ] Reject both Worker labels being present; verify that Worker labels alone cannot submit Work.
