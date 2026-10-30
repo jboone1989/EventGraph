@@ -98,7 +98,7 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 - [ ] Existing `eventgraph-worker` remains functional and remains the default profile.
 - [ ] `eventgraph-pi-worker` is published with the official GH-AW Pi engine and accepts the same immutable Work Queue assignment contract.
 - [ ] The Dispatcher allowlists both Worker workflows.
-- [ ] The central GLM reviewer accepts exact-head PRs targeting `main` as well as `develop`; the EventGraph `main` ruleset requires `claude-review` alongside `check` and `docker.
+- [ ] The central GLM reviewer accepts exact-head PRs targeting `main` as well as `develop`; the EventGraph `main` ruleset requires `claude-review` alongside `check` and `docker`.
 
 - [ ] The existing Worker Completion workflow accepts both Worker workflow names and routes both through the same verified PR/Check/queue-continuation path; focused tests cover both identities.
 - [ ] Intake tests prove default-to-GLM routing, explicit GLM routing, Pi routing, owner-only admission, duplicate-event idempotency and rejection of ambiguous Worker labels.
