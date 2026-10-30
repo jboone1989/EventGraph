@@ -25,7 +25,7 @@
 - [ ] Reuse the existing immutable Spec, repository resource-scope and one-PR safe-output contract.
 - [ ] Preserve read-only model-job permissions; repository writes remain in GH-AW safe outputs.
 - [ ] Include the same exact Work ID/Worker run ID marker in the PR body.
-- [ ] Reuse `GLM_API_KEY` and `GLM_BASE_URL` from the existing Worker; do not add Copilot or OpenAI API credentials.
+- [ ] Reuse `GLM_API_KEY` and `GLM_BASE_URL` from the existing Worker; retain the existing `models.providers.anthropic.models.glm-5.3` model metadata and do not add Copilot or OpenAI API credentials.
 - [ ] Explicitly configure `safe-outputs.threat-detection.engine` as `claude` with the same GLM endpoint/key because Pi's documented default detection engine is Copilot. Compile and publish the generated lock file using pinned GH-AW v1.0.1; never hand-edit the lock.
 
 ## D. Route Work to a Worker profile
