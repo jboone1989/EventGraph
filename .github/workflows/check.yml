@@ -794,7 +794,7 @@ jobs:
   resume_gh_aw_queue:
     needs: [changes, check, e2e, publish]
     if: >-
-      ${{ always() && vars.EVENTGRAPH_GH_AW_QUEUE_ENABLED == 'true' &&
+      ${{ always() && (vars.EVENTGRAPH_GH_AW_QUEUE_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
           github.ref_name == 'develop' &&
           needs.check.result == 'success' &&
