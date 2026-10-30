@@ -127,7 +127,7 @@ jobs:
           version: v1.0.1
       - name: Compile GH-AW workflows in strict mode
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
-        run: gh aw compile eventgraph-producer eventgraph-dispatcher eventgraph-worker --strict
+        run: gh aw compile eventgraph-dispatcher eventgraph-worker --strict --approve --no-check-update
       - name: Require generated GH-AW locks to be committed
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
         shell: bash
