@@ -1,6 +1,6 @@
 # GitHub-hosted autonomous development queue
 
-**Status:** Owner-approved direction; final implementation-contract amendment pending independent review  
+**Status:** Implementation contract for the owner-approved direction; PR review and merge state are tracked by GitHub.  
 **Date:** 2026-10-30  
 **Target repository:** `jboone1989/EventGraph`  
 **Target development branch:** `develop`
