@@ -100,7 +100,10 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/items/:id/original", siteHandler(async (req, reply) => {
     const id = (req.params as { id: string }).id;
     if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id)) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "item not found" });
-    const result = await loadItemDetail(id, "original");
+    // The original body is shared by the English edition and the Chinese original-text tab.
+    // Only the English edition may display the English explanation (D-01).
+    const edition = looseQuery(req).edition === "zh" ? "zh" : "en";
+    const result = await loadItemDetail(id, "original", new Date(), edition);
     if (result.kind === "not_found") return sendProblem(req, reply, { status: 404, code: "not_found", detail: "item not found", cacheControl: "public, max-age=60" });
     return sendJsonWithEtag(req, reply, result.item, { etagPrefix: "item-original", cacheControl: "public, max-age=60, s-maxage=60" });
   }));

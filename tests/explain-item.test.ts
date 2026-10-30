@@ -118,6 +118,9 @@ test("a selected report gets an explanation in its own language, on that languag
   assert.ok(String(shown?.what).includes("40 billion"), JSON.stringify(shown));
   assert.equal(shown?.who, `SpaceX and an Apollo-managed entity ${T}`);
   assert.equal(await explanation(id), null, "an English report's explanation never appears on the Chinese page (D-01)");
+  const chineseOriginal = await app.inject({ method: "GET", url: `/api/site/items/${id}/original?edition=zh` });
+  assert.equal(chineseOriginal.statusCode, 200);
+  assert.equal(JSON.parse(chineseOriginal.body).explanation, null, "the Chinese original-text tab must not show an English explanation");
   const input = [...seenInputs.values()].find((v) => v.originalTitle?.includes(`Financing update ok ${T}`));
   assert.equal(input?.originalText, null, "summary-only source body must not be sent to the model");
   assert.deepEqual(shown?.watchpoints, [{ text: "The deal is expected to close by year-end", date: null }]);
@@ -156,6 +159,8 @@ test("a Chinese-language report is explained in Chinese, on the Chinese page onl
   await explainOne((await explanationCandidateFor(id))!);
   assert.ok(String((await explanation(id))?.what).includes("40 billion"), "the Chinese report's explanation is on the Chinese page");
   assert.equal(await explanation(id, "original"), null, "and never on the English page");
+  const chineseOriginal = await app.inject({ method: "GET", url: `/api/site/items/${id}/original?edition=zh` });
+  assert.equal(JSON.parse(chineseOriginal.body).explanation?.what?.includes("40 billion"), true, "the Chinese original-text tab retains a Chinese explanation");
   const [row] = await sql<{ language: string }[]>`SELECT language FROM item_explanations WHERE article_id = ${id}`;
   assert.equal(row?.language, "zh");
 });
@@ -237,6 +242,10 @@ test("a source rename requeues an old explanation without touching its publicati
   await sql`UPDATE item_explanations SET updated_at = now() - interval '180 days' WHERE article_id = ${id}`;
   await sql`UPDATE sources SET updated_at = now() - interval '180 days' WHERE id = ${SOURCE}`;
   try {
+    // Polling changes updated_at routinely, but does not change the model's source name.
+    await sql`UPDATE sources SET updated_at = now() WHERE id = ${SOURCE}`;
+    assert.ok(!(await explanationsPending({ limit: 500 })).some((r) => r.article_id === id),
+      "a routine source poll must not rehash an old explanation");
     await sql`UPDATE sources SET name = ${`Renamed source ${T}`}, updated_at = now() WHERE id = ${SOURCE}`;
     assert.equal(await explanation(id, "original"), null, "old source attribution cannot remain visible");
     const queue = await explanationsPending({ limit: 500 });
@@ -322,6 +331,28 @@ test("a provider 503 stops the run without consuming shape retries, then recover
   assert.equal(row?.attempts ?? 0, 0, "transport errors must not exhaust the article");
   await writeExplanationsPending({ limit: 1 });
   assert.ok((await explanation(id, "original"))?.what, "a later healthy call should recover");
+});
+
+test("a sticky unknown receipt skips only its report, not the rest of the explanation queue", async () => {
+  const stuck = await report("sticky-unknown", 970);
+  const healthy = await report("after-sticky", 965);
+  const first = await explainOne((await explanationCandidateFor(stuck))!);
+  assert.equal(first.outcome, "written");
+  const [receipt] = await sql<{ id: number }[]>`SELECT receipt_id AS id FROM item_explanations WHERE article_id = ${stuck}`;
+  await sql`UPDATE receipts SET status = 'unknown' WHERE id = ${receipt!.id}`;
+  await sql`DELETE FROM item_explanations WHERE article_id = ${stuck}`;
+  try {
+    const result = await writeExplanationsPending({ limit: 2 });
+    assert.equal(result.stopped, false, "one ambiguous receipt must not halt the run");
+    assert.ok((await explanation(healthy, "original"))?.what, "the next pending report still gets processed");
+    const [state] = await sql<{ status: string }[]>`SELECT status FROM receipts WHERE id = ${receipt!.id}`;
+    assert.equal(state?.status, "unknown", "never auto-release or re-send an ambiguous paid receipt");
+    const [row] = await sql`SELECT attempts FROM item_explanations WHERE article_id = ${stuck}`;
+    assert.equal(row, undefined, "skipping a sticky receipt must not consume malformed-answer retries");
+  } finally {
+    await sql`UPDATE receipts SET status = 'received' WHERE id = ${receipt!.id}`;
+    await explainOne((await explanationCandidateFor(stuck))!);
+  }
 });
 
 test("only released, publicly listed siblings enter another report's model context", async () => {

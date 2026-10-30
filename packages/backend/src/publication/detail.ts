@@ -44,13 +44,13 @@ function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
   return { html: out, outline };
 }
 
-async function loadRow(id: string, language: "zh" | "original" = "zh"): Promise<DetailRow | null> {
+async function loadRow(id: string, language: "zh" | "original" = "zh", explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
       st.id AS story_id, ${topicMembership()} AS topics, ie.content AS explanation
     ${ITEM_FROM}
     LEFT JOIN item_explanations ie ON ie.article_id = p.article_id AND ie.outcome = 'written' AND ie.inputs_hash = ${EXPLAIN_ITEM_INPUTS} AND ${EXPLAINABLE_PUBLICATION}
-      AND ie.language = ${language === "original" ? "en" : "zh"}
+      AND ie.language = ${explanationLanguage}
     WHERE p.article_id = ${id}`;
   return row ?? null;
 }
@@ -91,8 +91,8 @@ function readingBody(
  * lists leave out (low relevance, merged duplicates, no Chinese summary yet) keep a noindex page;
  * withdrawn and hot_signal items are a 404.
  */
-export async function loadItemDetail(id: string, language: "zh" | "original" = "zh", now = new Date()): Promise<DetailResult> {
-  const row = await loadRow(id, language);
+export async function loadItemDetail(id: string, language: "zh" | "original" = "zh", now = new Date(), explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailResult> {
+  const row = await loadRow(id, language, explanationLanguage);
   if (!row || !hasItemPage({ visibility: row.visibility, sourceMode: row.source_mode })) return { kind: "not_found" };
 
   const summary = toItemSummary(row);

@@ -15,7 +15,7 @@
 import { z } from "zod";
 import { sql } from "../db.ts";
 import { chatJson, ModelOutputError } from "../providers/llm.ts";
-import { completeReceipt } from "../providers/receipts.ts";
+import { completeReceipt, ReceiptBusyError, ReceiptUnknownError } from "../providers/receipts.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
 import { EXPLAINABLE_PUBLICATION, EXPLAIN_ITEM_INPUTS, SIBLING_REPORT_TITLES } from "../publication/items.ts";
 import { modelFor } from "./models.ts";
@@ -128,8 +128,8 @@ const candidateColumns = sql`p.article_id, p.url, ${EXPLAIN_ITEM_INPUTS} AS hash
   CASE WHEN p.body_mode = 'full' THEN coalesce(a.body_text, a.excerpt) END AS text, p.published_at, st.title AS story_title,
   ${SIBLING_REPORT_TITLES} AS other_reports`;
 
-// Re-check stored hashes only for recently touched reports, source metadata, or stories.
-// Story/source edits may change an old report's model context without updating its own rows.
+// Re-check stored hashes only for recently touched reports/stories or a changed source name.
+// Routine source fetches bump sources.updated_at; they must not rehash the entire history.
 // Never put an age cutoff on the *unexplained* backlog (D-02).
 /** Select cheap candidate IDs first, then build full, licence-gated inputs for at most the run limit.
  * The MATERIALIZED limit barrier is intentional: a full-body md5 and correlated sibling lookup
@@ -150,7 +150,7 @@ export async function explanationsPending(opts: { limit?: number } = {}): Promis
                    OR a.updated_at > now() - interval '90 days'
                    OR ie.updated_at > now() - interval '90 days'
                    OR (st.updated_at > now() - interval '90 days' AND st.updated_at > ie.updated_at)
-                   OR (s.updated_at > now() - interval '90 days' AND s.updated_at > ie.updated_at)
+                   OR ie.source_name IS DISTINCT FROM s.name
                THEN ie.inputs_hash <> ${EXPLAIN_ITEM_INPUTS}
                ELSE false END)
       ORDER BY p.discovered_at DESC, p.article_id LIMIT ${opts.limit ?? 10}
@@ -204,9 +204,9 @@ export async function explainOne(r: ExplainCandidate): Promise<ExplainOutcome> {
     const outcome = empty ? "insufficient_evidence" : "written";
     await sql.begin(async (tx) => {
       await tx`
-        INSERT INTO item_explanations (article_id, inputs_hash, language, outcome, attempts, content, error, receipt_id, updated_at)
-        VALUES (${r.article_id}, ${r.hash}, ${language}, ${outcome}, 1, ${empty ? null : tx.json(data as never)}, ${empty ? "no field supported by the source: 5W1H, so-what and watchpoints all empty" : null}, ${res.receiptId}, now())
-        ON CONFLICT (article_id) DO UPDATE SET inputs_hash = EXCLUDED.inputs_hash, language = EXCLUDED.language, outcome = EXCLUDED.outcome, attempts = 1,
+        INSERT INTO item_explanations (article_id, inputs_hash, language, source_name, outcome, attempts, content, error, receipt_id, updated_at)
+        VALUES (${r.article_id}, ${r.hash}, ${language}, ${r.source_name}, ${outcome}, 1, ${empty ? null : tx.json(data as never)}, ${empty ? "no field supported by the source: 5W1H, so-what and watchpoints all empty" : null}, ${res.receiptId}, now())
+        ON CONFLICT (article_id) DO UPDATE SET inputs_hash = EXCLUDED.inputs_hash, language = EXCLUDED.language, source_name = EXCLUDED.source_name, outcome = EXCLUDED.outcome, attempts = 1,
           content = EXCLUDED.content, error = EXCLUDED.error, receipt_id = EXCLUDED.receipt_id, updated_at = now()`;
       await completeReceipt(tx, res.receiptId);
     });
@@ -214,8 +214,12 @@ export async function explainOne(r: ExplainCandidate): Promise<ExplainOutcome> {
   } catch (error) {
     // Only a malformed model answer consumes one of the three shape retries.
     // Provider outages, rate limits and unknown receipt outcomes must not exhaust an article.
+    // An ambiguous paid receipt is sticky for this report, not a reason to starve older reports.
+    // Keep its receipt for operator verification; never re-send or count a shape failure.
+    if (error instanceof ReceiptUnknownError || error instanceof ReceiptBusyError)
+      return { outcome: "skipped", error: String(error.message) };
     if (!(error instanceof ModelOutputError)) return { outcome: "halted", error: String((error as Error).message ?? error) };
-    await recordFailure(r.article_id, r.hash, language, error);
+    await recordFailure(r.article_id, r.hash, language, r.source_name, error);
     return { outcome: "failed", error: String((error as Error).message ?? error).slice(0, 300), receiptId: null };
   }
 }
@@ -236,11 +240,11 @@ export async function writeExplanationsPending(opts: { limit?: number; budgetMs?
 }
 
 /** A failed attempt; a written explanation of the same input stays as it is, a different input starts counting again. */
-async function recordFailure(id: string, hash: string, language: "zh" | "en", error: unknown) {
+async function recordFailure(id: string, hash: string, language: "zh" | "en", sourceName: string, error: unknown) {
   const message = String((error as Error).message ?? error).slice(0, 300);
   await sql`
-    INSERT INTO item_explanations (article_id, inputs_hash, language, outcome, attempts, content, error, updated_at) VALUES (${id}, ${hash}, ${language}, 'failed', 1, NULL, ${message}, now())
+    INSERT INTO item_explanations (article_id, inputs_hash, language, source_name, outcome, attempts, content, error, updated_at) VALUES (${id}, ${hash}, ${language}, ${sourceName}, 'failed', 1, NULL, ${message}, now())
     ON CONFLICT (article_id) DO UPDATE SET
       attempts = CASE WHEN item_explanations.inputs_hash = EXCLUDED.inputs_hash AND item_explanations.outcome = 'failed' THEN item_explanations.attempts + 1 ELSE 1 END,
-      outcome = 'failed', inputs_hash = EXCLUDED.inputs_hash, content = NULL, error = EXCLUDED.error, updated_at = now()`;
+      outcome = 'failed', inputs_hash = EXCLUDED.inputs_hash, source_name = EXCLUDED.source_name, content = NULL, error = EXCLUDED.error, updated_at = now()`;
 }
