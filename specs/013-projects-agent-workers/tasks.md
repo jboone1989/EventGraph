@@ -1,16 +1,11 @@
-# Tasks: GitHub Projects and Multi-Engine GH-AW Workers
+# Tasks: Multi-Engine GH-AW Workers
 
-**Status:** Draft; do not start implementation until the Spec is approved and merged.
+**Status:** Draft; implementation starts only after the Spec is approved and merged.
 
-## A. Owner approval and Project setup
+## A. Owner approval
 
 - [ ] Review and approve `spec.md`; merge the Spec PR to `develop`.
-- [ ] Create a personal GitHub Project named **EventGraph Delivery** under `jboone1989`.
-- [ ] Create a Board view grouped by Status and a Table view exposing Status, Assignees, Labels, Repository and linked PRs.
-- [ ] Bulk-add Issue #176 and all existing open EventGraph Issues/PRs. Auto-add does not backfill existing items.
-- [ ] Enable the built-in Auto-add workflow for repository `jboone1989/EventGraph` with filter `is:open`.
-- [ ] Verify the built-in workflows set closed Issues/PRs and merged PRs to Done.
-- [ ] Keep priority and Worker selection visible through repository labels; do not create custom fields or an API synchronizer unless later evidence requires them.
+- [ ] Record the owner approval evidence in the implementation PR; do not treat an unmerged draft as an approved Spec.
 
 ## B. Spec promotion
 
@@ -25,30 +20,27 @@
 - [ ] Reuse the existing immutable Spec, repository resource-scope and one-PR safe-output contract.
 - [ ] Preserve read-only model-job permissions; repository writes remain in GH-AW safe outputs.
 - [ ] Include the same exact Work ID/Worker run ID marker in the PR body.
-- [ ] Reuse `GLM_API_KEY` and `GLM_BASE_URL` from the existing Worker; retain the existing `models.providers.anthropic.models.glm-5.3` model metadata and do not add Copilot or OpenAI API credentials.
+- [ ] Reuse `GLM_API_KEY` and `GLM_BASE_URL` from the existing Worker; retain the existing `models.providers.anthropic.models.glm-5.3` metadata and do not add Copilot or OpenAI API credentials.
 - [ ] Configure `safe-outputs.threat-detection.engine` as an object with `id: claude`, `model: glm-5.3`, and explicit `env.ANTHROPIC_BASE_URL` / `env.ANTHROPIC_API_KEY` values; do not rely on Pi's default Copilot detector or cross-engine environment/model-alias inheritance.
 - [ ] Compile and publish the generated lock file using pinned GH-AW v1.0.1; never hand-edit the lock.
 
-## D. Route Work to a Worker profile
+## D. Route Work to both Worker profiles
 
 - [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-pi-worker`.
-
-- [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-pi-worker`.
-- [ ] Extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to recognize `EventGraph GH-AW Pi Worker` alongside the existing GLM Worker and reuse the same exact-SHA Check/queue continuation path.
-- [ ] Add focused tests proving both Worker run identities are accepted and unrelated workflow runs are rejected.
 - [ ] Update `eventgraph-work-intake.mjs` to select the profile from `agent-worker:glm` / `agent-worker:pi` labels.
 - [ ] Preserve owner-only `agent-ready` admission and stable Issue-derived idempotency.
 - [ ] Reject both Worker labels being present; verify that Worker labels alone cannot submit Work.
-- [ ] Add focused standalone tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events and invalid Spec.
-- [ ] Compile all changed GH-AW sources and locks together in strict mode.
-- [ ] Update `.github/workflows/check.yml` to compile `eventgraph-pi-worker` alongside the existing Worker and Dispatcher, and verify its generated lock file is committed.
+- [ ] Extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to recognize `EventGraph GH-AW Pi Worker` alongside the existing GLM Worker and reuse the same exact-SHA Check/queue-continuation path.
+- [ ] Add focused tests proving both Worker run identities are accepted and unrelated workflow runs are rejected.
+- [ ] Add focused intake tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events and invalid Spec.
+- [ ] Update `.github/workflows/check.yml` to compile `eventgraph-pi-worker` alongside the existing Worker and Dispatcher with pinned v1.0.1 strict mode; verify the generated lock is committed.
 
 ## E. Hosted validation and parallelism
 
+- [ ] Settle the two existing no-write smoke Works and verify the native queue has no unfinished Work, Claims, reservations or delivery barriers.
 - [ ] Run a real no-write Work through the GLM Worker and inspect the native queue Result.
-- [ ] Run a real no-write Work through the Pi Worker, including its explicit GLM-backed Claude threat-detection job; if either fails, disable the Pi route and retain GLM.
-- [ ] Confirm current queue Work, Claims, reservations and delivery barriers are settled before Policy change.
-- [ ] Set `aw.json` concurrency to two and apply the official administrator-authorized Policy epoch update only while the queue is quiescent.
+- [ ] Run a real no-write Work through the Pi Worker, including its explicit GLM-backed Claude threat-detection job; if either Pi path fails, disable only the Pi route and retain GLM.
+- [ ] Only after queue quiescence, set `aw.json` concurrency to two and apply the official administrator-authorized Policy epoch update.
 - [ ] Submit two independent authorized Work items and verify two simultaneous Claims with the correct Worker profile on each.
 - [ ] Run one low-risk owner-authorized code Work through each enabled profile.
 - [ ] Verify exact PR markers, pinned Spec, current-head Check/Docker/E2E, independent GLM review, normal squash merge and post-merge queue continuation.
@@ -56,7 +48,6 @@
 
 ## F. Final acceptance
 
-- [ ] Verify the Project Auto-add workflow adds a newly created open Issue and PR after activation.
-- [ ] Verify a merged PR is marked Done by the Project's built-in workflow.
-- [ ] Verify Projects is only the planning view and the native GH-AW ledger remains the sole execution authority.
-- [ ] Record the exact Project URL, approved Spec SHA, PRs, commits, workflow runs and queue Result evidence in Issue #176.
+- [ ] Verify Issue #176 remains the only human-maintained backlog and the native GH-AW ledger remains the sole execution authority.
+- [ ] Verify both enabled Worker profiles can receive and finish Claims through the same completion pipeline.
+- [ ] Record the exact approved Spec SHA, implementation PRs, commits, workflow runs and queue Result evidence in Issue #176.
