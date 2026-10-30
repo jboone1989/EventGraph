@@ -546,6 +546,7 @@ jobs:
       checks: read
     outputs:
       image_ref: ${{ steps.pin.outputs.image_ref }}
+      source_sha: ${{ steps.pin.outputs.source_sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -572,6 +573,7 @@ jobs:
             grep -Fxq "$check" "$RUNNER_TEMP/develop-checks" || { echo "::error::Missing successful develop $check"; exit 1; }
           done
           echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR (read only)
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -581,7 +583,14 @@ jobs:
       - name: Confirm immutable digest exists (no rebuild)
         env:
           IMAGE_REF: ${{ steps.pin.outputs.image_ref }}
-        run: docker buildx imagetools inspect "$IMAGE_REF"
+          SOURCE_SHA: ${{ steps.pin.outputs.source_sha }}
+        run: |
+          docker buildx imagetools inspect "$IMAGE_REF"
+          # The sha-<sha> tag only ever points at the digest publish built from that commit,
+          # so the pin must resolve to it: any other image in the repository must not promote.
+          PUBLISHED="$(docker buildx imagetools inspect "ghcr.io/jboone1989/eventgraph-app:sha-$SOURCE_SHA" | sed -n 's/^Digest:[[:space:]]*//p')"
+          [[ "$PUBLISHED" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${IMAGE_REF#*@}" == "$PUBLISHED" ]]
 
   # VM09 production deployment is opt-in until host SSH credentials are configured.
   deploy_production:
