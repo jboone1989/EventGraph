@@ -42,7 +42,7 @@ Create one user-owned GitHub Project:
   - `priority:P0`, `priority:P1`, `priority:P2`, `priority:P3`
   - `agent-ready`
   - `agent-worker:glm`
-  - `agent-worker:copilot`
+  - `agent-worker:pi`
   - `blocked`
 
 Configure the built-in Project workflows:
@@ -66,7 +66,7 @@ The intake script chooses the Worker profile from the Issue's labels at the time
 |---|---|
 | `agent-ready` with no Worker label | `eventgraph-worker` (GLM default) |
 | `agent-ready` + `agent-worker:glm` | `eventgraph-worker` |
-| `agent-ready` + `agent-worker:copilot` | `eventgraph-copilot-worker` |
+| `agent-ready` + `agent-worker:pi` | `eventgraph-pi-worker` |
 | Both Worker labels | Reject as ambiguous; submit no Work |
 
 Apply the Worker-selection label first and add `agent-ready` last. This ensures the owner-authorized admission event sees the intended route. Changing labels after admission does not mutate the immutable Work or its selected Worker profile.
@@ -121,7 +121,7 @@ If the queue cannot be proven quiescent, retain concurrency one. A config-file e
 ### Agent Workers
 
 - [ ] Existing `eventgraph-worker` remains functional and remains the default profile.
-- [ ] `eventgraph-copilot-worker` is published with the official GH-AW Copilot engine and accepts the same immutable Work Queue assignment contract.
+- [ ] `eventgraph-pi-worker` is published with the official GH-AW Copilot engine and accepts the same immutable Work Queue assignment contract.
 - [ ] The Dispatcher allowlists both Worker workflows.
 - [ ] Intake tests prove default-to-GLM routing, explicit GLM routing, Pi routing, owner-only admission, duplicate-event idempotency and rejection of ambiguous Worker labels.
 - [ ] Both profiles compile with the pinned official GH-AW v1.0.1 CLI in strict mode; generated lock files are produced by the CLI and are never hand-edited.
