@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import {
-  WORKER_NAME,
+  isWorkerWorkflowName,
   dispatchCheck,
   dispatchGate,
   getOpenAgentWorkPrs,
@@ -10,7 +10,7 @@ import {
 
 export function handleWorkerCompletion(event) {
   const run = event?.workflow_run;
-  if (!run || run.name !== WORKER_NAME || run.event !== "workflow_dispatch" || run.status !== "completed") {
+  if (!run || !isWorkerWorkflowName(run.name) || run.event !== "workflow_dispatch" || run.status !== "completed") {
     throw new Error("Unexpected workflow_run event; refusing to advance the queue");
   }
   const prs = getOpenAgentWorkPrs();

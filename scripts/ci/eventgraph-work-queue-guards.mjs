@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 
 export const REPOSITORY = "jboone1989/EventGraph";
-export const WORKER_NAME = "EventGraph GH-AW Worker";
+export const WORKER_NAMES = new Set(["EventGraph GH-AW Worker", "EventGraph GH-AW Pi Worker"]);
+export function isWorkerWorkflowName(name) { return WORKER_NAMES.has(name); }
 
 export function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }).trim();
@@ -37,7 +38,7 @@ export function getOpenAgentWorkPrs() {
 
 export function verifySuccessfulWorkerRun(runId) {
   const run = ghJson(["api", `repos/${REPOSITORY}/actions/runs/${runId}`]);
-  if (String(run.id) !== String(runId) || run.name !== WORKER_NAME ||
+  if (String(run.id) !== String(runId) || !isWorkerWorkflowName(run.name) ||
       run.event !== "workflow_dispatch" || run.status !== "completed" || run.conclusion !== "success" ||
       run.repository?.full_name !== REPOSITORY || run.head_repository?.full_name !== REPOSITORY) {
     throw new Error(`Worker run ${runId} is not a completed successful EventGraph GH-AW Worker run`);

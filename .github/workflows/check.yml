@@ -120,6 +120,10 @@ jobs:
             count="$(jq --arg sha "$EXPECTED_SHA" --arg repo "$GITHUB_REPOSITORY" '[.[] | select(.head.sha == $sha and .head.repo.full_name == $repo and (.base.ref == "main" or .base.ref == "develop") and .draft == false)] | length' <<< "$prs")"
           fi
           [[ "$count" == 1 ]] || { echo '::error::expected_sha must identify exactly one open same-repository PR at this SHA'; exit 1; }
+      - name: Test GH-AW queue Worker routing and completion guards
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        run: node --test scripts/ci/eventgraph-work-intake.test.mjs scripts/ci/eventgraph-work-queue-guards.test.mjs
+
       - name: Install pinned GH-AW CLI
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
         uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a
@@ -127,7 +131,7 @@ jobs:
           version: v1.0.1
       - name: Compile GH-AW workflows in strict mode
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
-        run: gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update
+        run: gh aw compile eventgraph-worker eventgraph-pi-worker eventgraph-dispatcher --strict --approve --no-check-update
       - name: Require generated GH-AW locks to be committed
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
         shell: bash

@@ -7,6 +7,17 @@ export const REPOSITORY = "jboone1989/EventGraph";
 export const OWNER = "jboone1989";
 export const SPEC_REPOSITORY_ID = "1416699488";
 
+// Keep the owner-authorized admission idempotent even if Worker labels change later.
+export function workRequestId(issueNumber) { return `issue-${issueNumber}`; }
+
+export function selectWorkerProfile(labels = []) {
+  const names = labels.map((label) => label.name);
+  const glm = names.includes("agent-worker:glm");
+  const pi = names.includes("agent-worker:pi");
+  if (glm && pi) throw new Error("Conflicting Worker profiles: both GLM and Pi labels");
+  return pi ? "eventgraph-pi-worker" : "eventgraph-worker";
+}
+
 function gh(args) {
   return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }).trim();
 }
@@ -42,6 +53,7 @@ export function parseAdmission(event) {
   return {
     issue,
     task,
+    workerProfile: selectWorkerProfile(issue.labels),
     acceptanceCriteria: checks.join("\n"),
     specPath: specMatch[1],
     specSha: specMatch[2],
@@ -95,13 +107,13 @@ export function buildWorkPayload(admission) {
   };
 }
 
-function submitWork(payload, issueNumber) {
+function submitWork(payload, issueNumber, workerProfile) {
   const workPath = join(process.env.RUNNER_TEMP || "/tmp", `eventgraph-work-${issueNumber}.json`);
   const serialized = JSON.stringify(payload);
   if (Buffer.byteLength(serialized, "utf8") > 16_384) throw new Error("Work payload exceeds GH-AW's 16 KiB limit");
   writeFileSync(workPath, serialized, { mode: 0o600 });
   gh(["aw", "work-queue", "--repo", REPOSITORY, "submit-work", "--file", workPath,
-    "--worker-profile", "eventgraph-worker", "--request-id", `issue-${issueNumber}`]);
+    "--worker-profile", workerProfile, "--request-id", workRequestId(issueNumber)]);
 }
 
 function dispatchGate() {
@@ -116,7 +128,7 @@ export function main() {
     return;
   }
   verifySpec(admission);
-  submitWork(buildWorkPayload(admission), admission.issue.number);
+  submitWork(buildWorkPayload(admission), admission.issue.number, admission.workerProfile);
   dispatchGate();
   process.stdout.write(`Submitted idempotent Work for Issue #${admission.issue.number} and requested one dispatch-gate run.\n`);
 }
