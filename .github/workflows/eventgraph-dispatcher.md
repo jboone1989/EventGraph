@@ -3,13 +3,14 @@ name: EventGraph GH-AW Dispatcher
 on: workflow_dispatch
 permissions:
   contents: read
+env:
+  GH_AW_SKIP_REFLECT: 'true'
 engine:
   id: claude
   model: glm-5.3
   env:
     ANTHROPIC_BASE_URL: ${{ vars.GLM_BASE_URL || 'https://open.bigmodel.cn/api/anthropic' }}
     ANTHROPIC_API_KEY: ${{ secrets.GLM_API_KEY }}
-    GH_AW_SKIP_REFLECT: 'true'
 network:
   allowed:
     - github.com
