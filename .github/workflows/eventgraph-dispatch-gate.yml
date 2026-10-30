@@ -27,5 +27,8 @@ jobs:
           version: v1.0.1
       - name: Request one native Claim only if no code PR is open
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci/eventgraph-dispatch-gate.mjs
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::Set repository secret GH_AW_GITHUB_TOKEN to a fine-grained user PAT for the native GH-AW queue'; exit 1; }
+          node scripts/ci/eventgraph-dispatch-gate.mjs
