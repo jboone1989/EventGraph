@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWorkPayload, parseAdmission } from "./eventgraph-work-intake.mjs";
+import { buildWorkPayload, parseAdmission, selectWorkerProfile } from "./eventgraph-work-intake.mjs";
 
 const specSha = "e90f7e4343e122b4985abd1e530ac848199bc323";
 const body = `## Task
@@ -67,4 +67,33 @@ test("builds a closed PR-only effect contract and exact repository resource scop
   });
   assert.match(payload.task, /Spec: specs\/012-github-hosted-agent-queue\/spec\.md@/);
   assert.match(payload.task, /Issue URL: https:\/\/github\.com\/jboone1989\/EventGraph\/issues\/42/);
+});
+
+test("routes default and explicit GLM labels to the existing Worker", () => {
+  assert.equal(selectWorkerProfile([]), "eventgraph-worker");
+  assert.equal(selectWorkerProfile([{ name: "agent-worker:glm" }]), "eventgraph-worker");
+  assert.equal(parseAdmission(event()).workerProfile, "eventgraph-worker");
+});
+
+test("routes the Pi label to the Pi Worker", () => {
+  assert.equal(selectWorkerProfile([{ name: "agent-worker:pi" }]), "eventgraph-pi-worker");
+  assert.equal(parseAdmission(event({ issue: { labels: [{ name: "agent-worker:pi" }] } })).workerProfile, "eventgraph-pi-worker");
+});
+
+test("rejects mutually exclusive Worker labels", () => {
+  const labels = [{ name: "agent-worker:glm" }, { name: "agent-worker:pi" }];
+  assert.throws(() => selectWorkerProfile(labels), /Conflicting Worker profiles/);
+  assert.throws(() => parseAdmission(event({ issue: { labels } })), /Conflicting Worker profiles/);
+});
+
+test("a Worker selection label by itself cannot admit Work", () => {
+  assert.equal(parseAdmission(event({ label: { name: "agent-worker:pi" } })), null);
+  assert.equal(parseAdmission(event({ label: { name: "agent-worker:glm" } })), null);
+});
+
+test("route is captured at admission, not changed by a later label", () => {
+  const admission = parseAdmission(event());
+  assert.equal(admission.workerProfile, "eventgraph-worker");
+  admission.issue.labels = [{ name: "agent-worker:pi" }];
+  assert.equal(admission.workerProfile, "eventgraph-worker");
 });
