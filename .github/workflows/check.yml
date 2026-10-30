@@ -94,6 +94,31 @@ jobs:
             fi
           fi
 
+      - name: Install pinned GH-AW CLI
+        if: hashFiles('.github/workflows/eventgraph-*.md') != ''
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a
+        with:
+          version: v1.0.1
+      - name: Compile GH-AW workflows in strict mode
+        if: hashFiles('.github/workflows/eventgraph-*.md') != ''
+        run: gh aw compile eventgraph-producer eventgraph-dispatcher eventgraph-worker --strict
+      - name: Require generated GH-AW locks to be committed
+        if: hashFiles('.github/workflows/eventgraph-*.md') != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$(git status --porcelain -- .github/workflows/eventgraph-*.lock.yml)" ]]; then
+            echo '::error::GH-AW compiled lock files are missing or stale; download the gh-aw-compiled-locks artifact and commit the generated files.'
+            exit 1
+          fi
+      - name: Upload generated GH-AW lock files
+        if: always() && hashFiles('.github/workflows/eventgraph-*.md') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gh-aw-compiled-locks
+          path: .github/workflows/eventgraph-*.lock.yml
+          if-no-files-found: warn
+          retention-days: 7
       - name: Install
         run: npm ci --no-audit --no-fund
       - name: Online migration safety
