@@ -19,8 +19,8 @@ function event(overrides = {}) {
     action: "labeled",
     label: { name: "agent-ready" },
     sender: { login: "jboone1989" },
-    issue: { number: 42, title: "Implement the approved task", body, ...overrides.issue },
     ...overrides,
+    issue: { number: 42, title: "Implement the approved task", body, ...overrides.issue },
   };
 }
 
