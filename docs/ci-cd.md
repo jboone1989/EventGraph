@@ -61,23 +61,33 @@ independent jobs — neither gates the other:
 - `deploy_dev_worker` SSHes to VM13, where `scripts/ci/export-image-vm13.sh`
   obtains the immutable digest (VM13 reaches GHCR reliably). It uses the
   existing **pinned VM13→cn-dev SSH connection** and `rsync` to deliver a
-  verified Docker archive into cn-dev's fixed `~/.eventgraph-transfer/current.tar`
-  staging path. `--inplace --partial --no-whole-file` plus zstd compression
-  transfers changed blocks and retains incomplete bytes across attempts and
-  subsequent releases. No direct cn-dev GHCR pull, registry proxy, new daemon
+  immutable Docker archive as 8 MiB parts to cn-dev's stable
+  `~/.eventgraph-transfer/parts/part.NNN` scratch files. Up to 8 independently
+  bounded SSH streams run concurrently with VM13's BBR TCP congestion control
+  enabled for the lossy cross-region path. `--inplace --partial --no-whole-file`
+  with zstd compression retains changed blocks across failed attempts and
+  later releases. The last verified `current.tar` seeds the parts on first use,
+  and the parts are reassembled into a separate `current.tar.ready` file. No direct cn-dev GHCR pull, registry proxy, new daemon
   or public port is required. This replaces the old temporary registry
   transport: its unfinished large HTTP blob uploads were not resumable and
   repeatedly exhausted 16/28-minute timeouts while consuming scratch space.
   The 30-minute bounded transfer is within the 34-minute SSH command limit
   and 50-minute Worker job. A truly cold transfer may need another run;
   completed blocks remain staged, **not** interpreted as a successful delivery.
-  VM13 verifies the staged archive's full SHA256 before executing `docker load`
+  VM13 verifies the complete reassembled archive SHA256 before atomically
+  replacing `current.tar` and executing `docker load`
   on cn-dev, then verifies the exact image ID and release revision label.
   Only then does it record the existing content-addressed local image tag
   (`eventgraph-dev:<image ID hex>`) and published digest pairing, and remove
-  the retired temporary registry/volume. The single ~700 MB staging archive
-  remains to permit future rsync block deltas; no accumulating per-release
-  archives are kept. The existing `scripts/ci/deploy-image.sh` then deploys
+  the retired temporary registry/volume. After the verified archive replaces
+  `current.tar`, temporary parts (including obsolete tail chunks) are removed
+  **before** Docker layer unpacking. Only that verified archive remains in steady
+  state to seed later transfers. During transfer, parts plus `current.tar.ready`
+  can temporarily use two additional archive-sized copies. The preflight requires
+  twice the new archive size plus 256 MiB free on a cold transfer; on resumption
+  it credits already-staged chunks (capped at one new archive size), and first
+  removes any abandoned `current.tar.ready`. Incomplete transfers retain parts
+  for the next attempt; no per-release archive accumulates. The existing `scripts/ci/deploy-image.sh` then deploys
   only cn-dev's Worker, runs idempotent setup, checks the running revision and
   fresh heartbeat, and rolls back to the previous local image on failure.
   No Web/API containers run on cn-dev, and superseded images are pruned to
