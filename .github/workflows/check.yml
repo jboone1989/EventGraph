@@ -164,6 +164,11 @@ jobs:
           SCOPE_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
           SCOPE_HEAD_SHA: ${{ github.sha }}
         run: |
+          # Explicit develop re-entry has no push/PR payload; use the validated
+          # release commit's first parent as the same scope base as changes.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF_NAME" == develop ]]; then
+            SCOPE_BASE_SHA="$(git rev-parse "$GITHUB_SHA^" 2>/dev/null || true)"
+          fi
           if [[ "$SCOPE_BASE_SHA" =~ ^0+$ ]] || [[ -z "$SCOPE_BASE_SHA" ]]; then
             echo '::error::Cannot validate documentation without a trusted base commit' >&2
             exit 1
@@ -619,7 +624,8 @@ jobs:
   deploy_vm13_preview:
     needs: publish
     if: >-
-      ${{ github.event_name == 'push' &&
+      ${{ (github.event_name == 'push' ||
+           (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
           github.ref_name == 'develop' &&
           needs.publish.outputs.image_ref != '' &&
           vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
@@ -720,7 +726,8 @@ jobs:
   deploy_dev_worker:
     needs: publish
     if: >-
-      ${{ github.event_name == 'push' &&
+      ${{ (github.event_name == 'push' ||
+           (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
           github.ref_name == 'develop' &&
           needs.publish.outputs.image_ref != '' &&
           vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
