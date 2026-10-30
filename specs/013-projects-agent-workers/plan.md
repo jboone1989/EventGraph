@@ -91,8 +91,6 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 - GH-AW v1.0.1 Pi provider and threat-detection reference: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/reference/engines/pi.md
 - GH-AW v1.0.1 Work Queue reference: https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/reference/work-queue.md
 - GH-AW v1.0.1 Codex authentication (ChatGPT subscription login is not supported): https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/engines/codex.md
-- GitHub Projects built-in automations: https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-built-in-automations
-- GitHub Projects Auto-add: https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/adding-items-automatically
 - GitHub Spec Kit and EventGraph's mandatory approval policy: `docs/spec-review.md`, `AGENTS.md`.
 
 ## 6. Rejected alternatives
@@ -100,7 +98,7 @@ After the queue is quiescent and both profiles pass their hosted no-write smoke 
 | Alternative | Decision |
 |---|---|
 | GitHub Projects board or second task tracker | Rejected; Issue #176 is the only human-maintained backlog and the native Work Queue is the only execution scheduler. |
-| New project-management database or task queue | Rejected; duplicates Projects and the GH-AW native queue. |
+| New task database or second queue | Rejected; duplicates Issue #176 and the GH-AW native Work Queue. |
 | GH-AW Codex with ChatGPT subscription login | Not usable on GitHub-hosted GH-AW: the official Codex engine requires `CODEX_API_KEY`/`OPENAI_API_KEY` or Copilot inference; ChatGPT subscription login is explicitly unsupported. |
 | Increase concurrency immediately | Rejected; the installed Policy has unfinished smoke Work and must be changed only when quiescent. |
 | Merge develop wholesale into main | Rejected; branch histories are intentionally divergent and the GH-AW control plane is installed through isolated main PRs. |
