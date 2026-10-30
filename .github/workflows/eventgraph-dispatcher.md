@@ -13,6 +13,10 @@ network:
   allowed:
     - github.com
     - open.bigmodel.cn
+# Preserve the custom GLM model and avoid proxy-side token rewriting.
+sandbox:
+  agent:
+    token-steering: false
 models:
   providers:
     anthropic:
