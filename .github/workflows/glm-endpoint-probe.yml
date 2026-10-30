@@ -1,0 +1,47 @@
+name: Temporary GLM Anthropic Endpoint Probe
+
+on:
+  push:
+    branches: [diag/glm-anthropic-endpoint]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Test the configured GLM Anthropic-compatible endpoint
+        env:
+          GLM_BASE_URL: ${{ vars.GLM_BASE_URL || 'https://open.bigmodel.cn/api/anthropic' }}
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GLM_API_KEY:-}" ]] || { echo 'GLM_API_KEY secret is missing'; exit 1; }
+          base="${GLM_BASE_URL%/}"
+          printf 'GLM endpoint base: %s\n' "$base"
+          body="$RUNNER_TEMP/glm-probe-response.json"
+          set +e
+          status="$(curl --silent --show-error --connect-timeout 10 --max-time 45 \
+            -o "$body" -w '%{http_code}' \
+            -H "x-api-key: $GLM_API_KEY" \
+            -H 'anthropic-version: 2023-06-01' \
+            -H 'content-type: application/json' \
+            --data '{"model":"glm-5.3","max_tokens":1,"messages":[{"role":"user","content":"Reply OK."}]}' \
+            "$base/v1/messages")"
+          result=$?
+          set -e
+          echo "curl_exit=$result http_status=$status"
+          if [[ "$result" -ne 0 ]]; then
+            echo 'GLM connectivity probe failed before receiving an HTTP response'
+            exit "$result"
+          fi
+          if [[ "$status" =~ ^2 ]]; then
+            echo 'GLM Anthropic-compatible inference endpoint is reachable and authenticated'
+            exit 0
+          fi
+          kind="$(jq -r '.error.type // .type // "unknown"' "$body" 2>/dev/null || echo unknown)"
+          echo "GLM endpoint returned HTTP $status (error_type=$kind); response body intentionally suppressed"
+          exit 1
