@@ -1,6 +1,6 @@
-# 质量债 #152：E2E 静默跳过与非 2xx 静默退化（DRAFT，待 Owner 批准）
+# 质量债 #152：E2E 静默跳过与非 2xx 静默退化（APPROVED）
 
-Status: **DRAFT**（2026-10-27 提交，未获批准；本文档只定需求与验收，不含实现）。
+Status: **APPROVED**（Owner 于 2026-10-31 批准。需求与验收文本自 PR #186（commit `87a4c4c23ce854955db5d9e7670f71b7917ec1f0`，2026-10-28）引入后未改动，该 commit 仅作未漂移依据；实施 PR 须以本批准版本合入 develop 的提交（本批准 PR 合并后的 merge commit SHA）钉扎。批准附注：FR-1/FR-2 图谱 E2E 验收以本文档为唯一依据；`specs/t14-real-graph-e2e` 草案须并入或收窄，不得对同一范围做第二套验收）。
 来源：[Issue #152](https://github.com/jboone1989/EventGraph/issues/152)（2026-10-26 在 develop 复核）、#176 T14。
 基线：develop `1ce1c3f71919ed762de1a8f5f84defd68b33b2d2`（2026-10-27，PR #183 之后）。逐项核验证据见同目录 `validation.md`。
 
