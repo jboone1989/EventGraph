@@ -1,0 +1,139 @@
+{
+  "story": {
+    "publicId": "7ded12e9-4276-4224-8397-d3f80cc1da34",
+    "title": "IBM、甲骨文、英特尔等反对OKXICE代币化股票"
+  },
+  "generatedAt": "2026-10-31T16:48:22.188Z",
+  "publicRouteUntruncated": true,
+  "diagnosticOnly": true,
+  "decision": "human_source_review_required",
+  "limits": {
+    "stationLimit": 24,
+    "reportLimit": 6,
+    "truncated": false
+  },
+  "facts": [
+    {
+      "factId": "fraS1258sTPw",
+      "title": "IBM、Oracle、英特尔等反对OKXICE代币化股票计划",
+      "frame": {
+        "subject": "IBM、Oracle、Intel、IonQ",
+        "action": "对OKXICE代币化股票计划提出异议",
+        "object": "OKXICE的区块链代币化股票发行计划"
+      },
+      "occurredAt": "2026-10-25T16:00:00.000Z",
+      "firstRecordedAt": "2026-10-27T18:51:01.654Z",
+      "sourceCount": 2,
+      "flags": {
+        "occurrenceTimeMissing": false,
+        "singleSource": false,
+        "routeTruncated": false
+      },
+      "reports": [
+        {
+          "articleId": "as9i9ukdi1apduaoqe4gdwm7f",
+          "url": "https://www.coindesk.com/business/2026/10/27/intel-oracle-ibm-join-growing-list-of-firms-objecting-to-okx-ice-tokenized-stock-plans",
+          "source": "CoinDesk",
+          "revision": 2,
+          "publishedAt": "2026-10-27T18:13:02.000Z",
+          "discoveredAt": "2026-10-27T18:51:01.654Z",
+          "role": "report",
+          "manual": false,
+          "factManual": false,
+          "membershipEvidence": "IBM, Oracle, Intel and IonQ have objected to OKXICE offering blockchain-based versions of their shares, raising the total number of issuer objections to 26.\nThe objections highlight issuer caution over the SEC’s five-year Innovation Exemption, which permits round-the-clock blockchain trading but gives companies 30 days to block their inclusion.\nUnder the framework, venues must notify issuers and give them 30 days to object before offering tokenized versions of their shares.",
+          "sourceRecord": {
+            "tier": "T2",
+            "bodyMode": "summary",
+            "attribution": "recorded_other",
+            "originalSourceVerified": false
+          },
+          "alsoInFactIds": [],
+          "mentionedInFactIds": [],
+          "groupingHistory": [
+            {
+              "id": 1211,
+              "articleId": "as9i9ukdi1apduaoqe4gdwm7f",
+              "verdict": "new-story",
+              "candidates": [
+                {
+                  "id": 653,
+                  "score": 0.333,
+                  "relation": "SAME_STORY",
+                  "confidence": 0.9
+                }
+              ],
+              "factId": 985,
+              "storyId": 937,
+              "receiptId": 19599,
+              "createdAt": "2026-10-27T19:49:34.447Z"
+            }
+          ],
+          "candidateRouteRelations": [
+            {
+              "decisionId": 1211,
+              "visibleCandidates": []
+            }
+          ]
+        },
+        {
+          "articleId": "wwmeq7o0278b4tyh2g9zgxhku",
+          "url": "https://decrypt.co/381998/intel-oracle-ibm-join-objections-okx-ice-tokenized-stock-total-26",
+          "source": "Decrypt",
+          "revision": 2,
+          "publishedAt": "2026-10-27T18:46:02.000Z",
+          "discoveredAt": "2026-10-27T19:09:43.968Z",
+          "role": "report",
+          "manual": false,
+          "factManual": false,
+          "membershipEvidence": "Intel, Oracle, IBM, and quantum computing firm IonQ are the latest companies to object to having their shares traded on OKXICE TSV, according to an updated public notice from the venue dated Monday.\nThe venue is set to operate under the SEC’s innovation exemption, which the agency unveiled in September after the Clarity Act stalled in the Senate.\nUsers must pass identity and sanctions checks and hold a nontransferable “soulbound” token to trade.\nThe notice also says trades must be fully funded, with no margin or borrowing.\nit’s uncertain whether tokenized shares in a self-custodied wallet would count as customer property or be covered by the Securities Investor Protection Corporation",
+          "sourceRecord": {
+            "tier": "T2",
+            "bodyMode": "summary",
+            "attribution": "recorded_other",
+            "originalSourceVerified": false
+          },
+          "alsoInFactIds": [],
+          "mentionedInFactIds": [],
+          "groupingHistory": [
+            {
+              "id": 1220,
+              "articleId": "wwmeq7o0278b4tyh2g9zgxhku",
+              "verdict": "same-fact",
+              "candidates": [
+                {
+                  "id": 653,
+                  "score": 0.362,
+                  "relation": "SAME_STORY",
+                  "confidence": 0.95
+                },
+                {
+                  "id": 985,
+                  "score": 0.286,
+                  "relation": "SAME_OCCURRENCE",
+                  "confidence": 0.97
+                }
+              ],
+              "factId": 985,
+              "storyId": 937,
+              "receiptId": 19704,
+              "createdAt": "2026-10-27T20:19:59.817Z"
+            }
+          ],
+          "candidateRouteRelations": [
+            {
+              "decisionId": 1220,
+              "visibleCandidates": [
+                {
+                  "factId": "fraS1258sTPw",
+                  "relation": "SAME_OCCURRENCE",
+                  "score": 0.286,
+                  "confidence": 0.97
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

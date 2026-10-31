@@ -1,0 +1,74 @@
+{
+  "story": {
+    "publicId": "67552dbd-c132-449a-9a1d-f1c564d80b72",
+    "title": "富国银行等六家公司反对OKX-ICE代币化股票上市"
+  },
+  "generatedAt": "2026-10-31T16:48:24.047Z",
+  "publicRouteUntruncated": true,
+  "diagnosticOnly": true,
+  "decision": "human_source_review_required",
+  "limits": {
+    "stationLimit": 24,
+    "reportLimit": 6,
+    "truncated": false
+  },
+  "facts": [
+    {
+      "factId": "fQst0oJzyA_Y",
+      "title": "富国银行等六家公司反对OKX-ICE代币化股票上市",
+      "frame": {
+        "subject": "Wells Fargo 等六家公司",
+        "action": "对 OKX 与 ICE 合作推出的代币化股票上市提出异议",
+        "object": "OKX-ICE 代币化股票上市计划"
+      },
+      "occurredAt": null,
+      "firstRecordedAt": "2026-10-23T21:59:07.821Z",
+      "sourceCount": 1,
+      "flags": {
+        "occurrenceTimeMissing": true,
+        "singleSource": true,
+        "routeTruncated": false
+      },
+      "reports": [
+        {
+          "articleId": "o4smmpxsxwvtflioyclyv0sec",
+          "url": "https://cointelegraph.com/news/nasdaq-companies-object-tokenized-stock-listings-okx-ice?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound",
+          "source": "Cointelegraph",
+          "revision": 2,
+          "publishedAt": "2026-10-23T21:32:16.000Z",
+          "discoveredAt": "2026-10-23T21:59:07.821Z",
+          "role": "report",
+          "manual": false,
+          "factManual": false,
+          "membershipEvidence": null,
+          "sourceRecord": {
+            "tier": "T2",
+            "bodyMode": "summary",
+            "attribution": "recorded_other",
+            "originalSourceVerified": false
+          },
+          "alsoInFactIds": [],
+          "mentionedInFactIds": [],
+          "groupingHistory": [
+            {
+              "id": 681,
+              "articleId": "o4smmpxsxwvtflioyclyv0sec",
+              "verdict": "new-story",
+              "candidates": [],
+              "factId": 567,
+              "storyId": 534,
+              "receiptId": null,
+              "createdAt": "2026-10-25T04:47:42.093Z"
+            }
+          ],
+          "candidateRouteRelations": [
+            {
+              "decisionId": 681,
+              "visibleCandidates": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
