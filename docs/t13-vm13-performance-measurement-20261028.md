@@ -114,8 +114,10 @@ node .data/t13r4/hop.mjs
 | PV（page_view，7 天） | 430 |
 | UV（distinct session） | 239 |
 | navigation_complete p50 / p75 / p95（n=115） | 92 ms / 1153 ms / 2849 ms |
-| story_open（新闻→Story 二跳） | 37（CTR ≈ 8.6%） |
-| item_open（站内新闻详情二跳） | 7（CTR ≈ 1.6%） |
+| story_open（/story 页打开；埋点不含入口路径，直接访问、榜单、搜索进入均计入） | 37（≈全部 PV 的 8.6%） |
+| item_open（/items 页打开；同样不含入口路径） | 7（≈全部 PV 的 1.6%） |
+
+- 注意：`story_open`/`item_open` 是页面打开事件，不带来源路径，**不能**据此得出"新闻→Story 二跳率"；真正的入口级跳转率须按 2026-10-28 报告 §3 的链接级方法测。上表两条仅反映页面打开占比。
 
 - 事件面完整分布：page_view 723、navigation_complete 244、graph_node_select 211、story_open 69、item_open 8、source_open 1、agent_access_open 2（10-16 → 10-31 全期）。
 - §5 缺口 2（Task E 生产对照）、缺口 3（VM13 docker stats 根因）、缺口 4（真机 LCP）仍需 Owner 动作/生产发布时机，与 2026-10-28 报告一致。
