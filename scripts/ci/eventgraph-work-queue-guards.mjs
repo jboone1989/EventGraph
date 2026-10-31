@@ -4,6 +4,7 @@ export const REPOSITORY = "jboone1989/EventGraph";
 // Registered workflow identity; run.name is the native queue's dynamic run-name.
 export const WORKER_ID = 401548383;
 export const WORKER_PATH = ".github/workflows/eventgraph-worker.lock.yml";
+export const WORKER_WORKFLOW_ID = "eventgraph-worker";
 
 export function isWorkerRun(run) {
   return run?.workflow_id === WORKER_ID && run.path === WORKER_PATH &&
@@ -18,9 +19,31 @@ export function ghJson(args) {
   return JSON.parse(gh(args));
 }
 
-export function parseWorkerMarker(body) {
+function parseLegacyWorkerMarker(body) {
   const match = String(body ?? "").match(/<!-- eventgraph-work-id:([^\s<>]+) worker-run-id:(\d+) -->/);
   return match ? { workId: match[1], runId: match[2] } : null;
+}
+
+function parseTrustedGhAwFooter(body) {
+  const text = String(body ?? "");
+  if (!text.match(new RegExp(`<!--\\s*gh-aw-workflow-id:\\s*${WORKER_WORKFLOW_ID}\\s*-->`))) return null;
+
+  const work = text.match(/^>\s*Work \`([^\`\s]+)\`\s*·\s*Claim \`[^\`\s]+\`\s*$/m);
+  const runUrl = text.match(/https:\/\/github\.com\/jboone1989\/EventGraph\/actions\/runs\/(\d+)/);
+  if (!work || !runUrl) return null;
+
+  const execution = text.match(/<!--\s*gh-aw-execution:\s*(\{[^\n]*\})\s*-->/);
+  if (execution) {
+    let parsed;
+    try { parsed = JSON.parse(execution[1]); } catch { return null; }
+    if (parsed.repository !== REPOSITORY || parsed.aw_workflow_id !== WORKER_WORKFLOW_ID ||
+        String(parsed.run_id) !== runUrl[1]) return null;
+  }
+  return { workId: work[1], runId: runUrl[1] };
+}
+
+export function parseWorkerMarker(body) {
+  return parseLegacyWorkerMarker(body) ?? parseTrustedGhAwFooter(body);
 }
 
 export function validateAgentWorkPr(pr) {
