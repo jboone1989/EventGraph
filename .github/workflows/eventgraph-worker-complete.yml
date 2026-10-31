@@ -4,6 +4,11 @@ on:
   workflow_run:
     workflows: [EventGraph GH-AW Worker]
     types: [completed]
+  # Backfill the freed in-flight slot when an agent-work PR closes. Fires only
+  # when the PR's base branch carries this workflow (develop PRs are backfilled
+  # by the merge job in claude-pr-dispatch.yml instead).
+  pull_request:
+    types: [closed]
 
 permissions:
   actions: write
@@ -16,6 +21,7 @@ concurrency:
 
 jobs:
   route:
+    if: github.event_name == 'workflow_run' || contains(github.event.pull_request.labels.*.name, 'agent-work')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

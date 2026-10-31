@@ -2,13 +2,14 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dispatchProjectOps } from "./eventgraph-work-queue-guards.mjs";
 
 export const REPOSITORY = "jboone1989/EventGraph";
 export const OWNER = "jboone1989";
 export const SPEC_REPOSITORY_ID = "1416699488";
 
-function gh(args) {
-  return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }).trim();
+function gh(args, { env = process.env } = {}) {
+  return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], env }).trim();
 }
 
 function section(body, heading) {
@@ -108,17 +109,41 @@ function dispatchGate() {
   gh(["workflow", "run", "eventgraph-dispatch-gate.yml", "--repo", REPOSITORY, "--ref", "main"]);
 }
 
-export function main() {
-  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+// Label the source Issue only after its Work exists, so native Project
+// Auto-add never sees an Issue that failed to enter the queue.
+// `gh issue edit --add-label` is idempotent: adding an existing label is a no-op.
+export function agentWorkLabelArgs(issueNumber) {
+  return ["issue", "edit", String(issueNumber), "--repo", REPOSITORY, "--add-label", "agent-work"];
+}
+
+function issueLabelEnv() {
+  const token = process.env.EVENTGRAPH_ISSUE_TOKEN;
+  return token ? { ...process.env, GH_TOKEN: token } : process.env;
+}
+
+export function labelIssue(issueNumber) {
+  gh(agentWorkLabelArgs(issueNumber), { env: issueLabelEnv() });
+}
+
+export function runIntake(event, overrides = {}) {
+  const steps = { verifySpec, submitWork, labelIssue, dispatchGate, dispatchProjectOps, ...overrides };
   const admission = parseAdmission(event);
   if (!admission) {
     process.stdout.write("Ignored: this is not an owner-authored agent-ready Issue event.\n");
-    return;
+    return "ignored";
   }
-  verifySpec(admission);
-  submitWork(buildWorkPayload(admission), admission.issue.number);
-  dispatchGate();
-  process.stdout.write(`Submitted idempotent Work for Issue #${admission.issue.number} and requested one dispatch-gate run.\n`);
+  steps.verifySpec(admission);
+  steps.submitWork(buildWorkPayload(admission), admission.issue.number);
+  steps.labelIssue(admission.issue.number);
+  steps.dispatchGate();
+  steps.dispatchProjectOps();
+  process.stdout.write(`Submitted idempotent Work for Issue #${admission.issue.number}, labeled it agent-work, and requested a dispatch-gate run.\n`);
+  return "submitted";
+}
+
+export function main() {
+  const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+  runIntake(event);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

@@ -7,7 +7,7 @@ on:
 permissions:
   contents: write
   actions: write
-  issues: read
+  issues: write
   pull-requests: read
 
 concurrency:
@@ -29,6 +29,9 @@ jobs:
       - name: Validate intake contract and submit native Work
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          # The queue PAT's issue scope is unknown; label the Issue with the
+          # workflow's own token, whose issues: write permission is declared above.
+          EVENTGRAPH_ISSUE_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::Set repository secret GH_AW_GITHUB_TOKEN to a fine-grained user PAT before enabling intake'; exit 1; }

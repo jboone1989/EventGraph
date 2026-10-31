@@ -33,9 +33,10 @@ jobs:
         run: |
           set -euo pipefail
           gh aw version
-          gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update
+          gh aw compile eventgraph-worker eventgraph-dispatcher eventgraph-project-ops --strict --approve --no-check-update
           test -s .github/workflows/eventgraph-worker.lock.yml
           test -s .github/workflows/eventgraph-dispatcher.lock.yml
+          test -s .github/workflows/eventgraph-project-ops.lock.yml
       - name: Publish compiler-generated lock files as an artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -43,12 +44,13 @@ jobs:
           path: |
             .github/workflows/eventgraph-worker.lock.yml
             .github/workflows/eventgraph-dispatcher.lock.yml
+            .github/workflows/eventgraph-project-ops.lock.yml
           if-no-files-found: error
           retention-days: 7
       - name: Emit generated lock payload for repository API import
         run: |
           set -euo pipefail
-          for name in eventgraph-worker eventgraph-dispatcher; do
+          for name in eventgraph-worker eventgraph-dispatcher eventgraph-project-ops; do
             printf 'GH_AW_LOCK_BEGIN:%s\n' "$name"
             base64 -w 120 ".github/workflows/$name.lock.yml"
             printf '\nGH_AW_LOCK_END:%s\n' "$name"
