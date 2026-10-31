@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dispatchProjectOps } from "./eventgraph-work-queue-guards.mjs";
 
 export const REPOSITORY = "jboone1989/EventGraph";
 export const OWNER = "jboone1989";
@@ -122,10 +123,6 @@ function issueLabelEnv() {
 
 export function labelIssue(issueNumber) {
   gh(agentWorkLabelArgs(issueNumber), { env: issueLabelEnv() });
-}
-
-function dispatchProjectOps() {
-  gh(["workflow", "run", "eventgraph-project-ops.lock.yml", "--repo", REPOSITORY, "--ref", "main"]);
 }
 
 export function runIntake(event, overrides = {}) {

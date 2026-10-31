@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { runGate } from "./eventgraph-dispatch-gate.mjs";
-import { countInFlight, IN_FLIGHT_CAP, parseWorkerMarker, verifyPrRunState } from "./eventgraph-work-queue-guards.mjs";
+import { countInFlight, getActiveWorkerRuns, IN_FLIGHT_CAP, parseWorkerMarker, verifyPrRunState } from "./eventgraph-work-queue-guards.mjs";
 
 const repository = "jboone1989/EventGraph";
 
@@ -153,4 +153,28 @@ test("two Worker runs map to two distinct PR identities without double counting"
   const { result, calls } = gate({ prs: [prA, prB] });
   assert.equal(result, "paused");
   assert.deepEqual(calls, []);
+});
+
+test("the gate snapshots active runs before open PRs to close the staging race", () => {
+  const order = [];
+  runGate({
+    getActiveWorkerRuns: () => { order.push("runs"); return []; },
+    getOpenAgentWorkPrs: () => { order.push("prs"); return []; },
+    dispatchNext: () => order.push("dispatch"),
+  });
+  // A Work stages its PR before its run ends, so only this order keeps a
+  // mid-staging Work visible to at least one of the two snapshots.
+  assert.deepEqual(order, ["runs", "prs", "dispatch"]);
+});
+
+test("active Worker runs are listed with an explicit GET", () => {
+  // gh api defaults to POST once -f fields are present, and the workflow-runs
+  // endpoint rejects anything but GET.
+  const calls = [];
+  getActiveWorkerRuns((args) => { calls.push(args); return { workflow_runs: [] }; });
+  assert.deepEqual(calls, [[
+    "api", "--method", "GET",
+    "repos/jboone1989/EventGraph/actions/workflows/401548383/runs",
+    "-f", "per_page=100",
+  ]]);
 });

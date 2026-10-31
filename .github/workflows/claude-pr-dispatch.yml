@@ -96,6 +96,7 @@ jobs:
     permissions:
       actions: write
       contents: write
+      issues: write
       pull-requests: write
       statuses: read
     steps:
@@ -159,4 +160,10 @@ jobs:
           gh workflow run check.yml --repo "$GITHUB_REPOSITORY" --ref develop -f "expected_sha=$merge_sha"
           # The merged PR freed one in-flight slot; let the gate backfill it.
           gh workflow run eventgraph-dispatch-gate.yml --repo "$GITHUB_REPOSITORY" --ref main
-          echo "Squash-merged PR #$number at $merge_sha; re-entered develop Check and requested gate backfill."
+          # Closing keywords only auto-close Issues on the default branch, and
+          # agent PRs merge into develop, so the control plane closes the source
+          # Issue itself; the Worker's body marker is the provenance for which.
+          issue_number="$(jq -r '.body' <<< "$current" | grep -ioE 'closes? #[0-9]+' | head -1 | grep -oE '[0-9]+' || true)"
+          [[ "$issue_number" =~ ^[0-9]+$ ]] || { echo "::error::PR body lacks the 'Closes #<issue-number>' marker; close the source Issue manually"; exit 1; }
+          gh issue close "$issue_number" --repo "$GITHUB_REPOSITORY"
+          echo "Squash-merged PR #$number at $merge_sha; re-entered develop Check, requested gate backfill, and closed Issue #$issue_number."

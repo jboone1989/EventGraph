@@ -92,7 +92,8 @@ export function verifyPrRunState(runId, read = ghJson) {
 }
 
 export function getActiveWorkerRuns(read = ghJson) {
-  const payload = read(["api", `repos/${REPOSITORY}/actions/workflows/${WORKER_ID}/runs`, "-f", "per_page=100"]);
+  // gh api defaults to POST once -f fields are present; the runs endpoint is GET-only.
+  const payload = read(["api", "--method", "GET", `repos/${REPOSITORY}/actions/workflows/${WORKER_ID}/runs`, "-f", "per_page=100"]);
   return (payload.workflow_runs ?? []).filter((run) =>
     isWorkerRun(run) && run.event === "workflow_dispatch" && run.status !== "completed");
 }

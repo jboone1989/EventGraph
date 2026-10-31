@@ -13,13 +13,16 @@ export function runGate(overrides = {}) {
     getOpenAgentWorkPrs, validateAgentWorkPr, verifyPrRunState, getActiveWorkerRuns,
     countInFlight, dispatchNext, ...overrides,
   };
+  // Snapshot active runs first and open PRs second: a Work stages its PR before
+  // its run ends, so the later PR snapshot catches anything the earlier run
+  // snapshot could have missed mid-staging, never the other way around.
+  const active = deps.getActiveWorkerRuns();
   const prs = deps.getOpenAgentWorkPrs();
   const entries = prs.map((pr) => {
     const marker = deps.validateAgentWorkPr(pr);
     deps.verifyPrRunState(marker.runId);
     return { ...marker, prNumber: pr.number };
   });
-  const active = deps.getActiveWorkerRuns();
   const { count, groups } = deps.countInFlight(active, entries);
   const summary = JSON.stringify(groups);
   if (count > IN_FLIGHT_CAP) {
