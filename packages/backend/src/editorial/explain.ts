@@ -85,17 +85,23 @@ function groundWatchpoints(data: z.infer<typeof ExplainSchema>, material: string
   return { ...data, watchpoints: data.watchpoints.map((w) => ({ ...w, date: w.date && supported.has(w.date) ? w.date : null })) };
 }
 
+/** The publication time the model input carries: the +08:00 local rendering for zh (scoreInputTime),
+ *  the UTC instant otherwise, null without a time. The acceptance ledger prints this same transform. */
+export function explainPublishedAt(at: Date | null, language: "zh" | "en"): string | null {
+  if (!at) return null;
+  return language === "zh" ? scoreInputTime(at) : at.toISOString();
+}
+
 export function buildExplainInput(r: {
   source_name: string; original_title: string | null; title: string; summary: string | null; reason: string | null;
   text: string | null; published_at: Date | null; story_title: string | null; other_reports: string[] | null;
   language: "zh" | "en";
 }) {
-  // Chinese pages state times without a zone; the site reads them at +08:00 (docs/selection.md). The
-  // input carries the already-converted local time so the model cannot quote a UTC calendar day as the
-  // page date (the 2026-10-28 acceptance audit caught exactly that on a PBC report).
-  const publishedAt = r.published_at
-    ? (r.language === "zh" ? scoreInputTime(r.published_at) : r.published_at.toISOString())
-    : null;
+  // Zone-less times are read at each source's publishedAtUtcOffset (default +08:00, docs/sources.md);
+  // zh inputs render at that default via scoreInputTime, so the model cannot quote a UTC calendar day
+  // as the page date (the 2026-10-28 acceptance audit caught exactly that on a PBC report). A zh
+  // source configured with another offset can still shift the rendered day.
+  const publishedAt = explainPublishedAt(r.published_at, r.language);
   return JSON.stringify({
     source: r.source_name,
     originalTitle: r.original_title,

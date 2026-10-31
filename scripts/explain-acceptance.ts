@@ -3,9 +3,8 @@
 // Default: six distinct sources per language or fail before spending. Explicit IDs are retests.
 import { writeFile } from "node:fs/promises";
 import { sql, closeDb } from "@aihot/backend/db";
-import { explanationCandidateFor, explanationsPending, explainLanguage, explainOne, explainPromptVersion, type ExplainCandidate } from "@aihot/backend/editorial/explain";
+import { explanationCandidateFor, explanationsPending, explainLanguage, explainOne, explainPromptVersion, explainPublishedAt, type ExplainCandidate } from "@aihot/backend/editorial/explain";
 import { modelFor } from "@aihot/backend/editorial/models";
-import { scoreInputTime } from "@aihot/backend/editorial/analyze";
 
 const arg = (name: string) => { const at = process.argv.indexOf(`--${name}`); return at > 0 ? process.argv[at + 1] : undefined; };
 
@@ -73,7 +72,7 @@ for (const r of rows) {
 - 原文：${r.url}
 - 原文可访问性（运行时实测）：${access}
 - 来源语言：${r.language ?? "(unmarked)"} → 解释语言：${language}（prompt \`${language === "zh" ? "news-explainer" : "news-explainer-en"}\` v${explainPromptVersion(language!).slice(0, 8)}，正文模式：${r.text ? "licensed full" : "summary-only"}）
-- 发布时间：模型收到 ${r.published_at ? (language === "zh" ? scoreInputTime(r.published_at) : r.published_at.toISOString()) : "(none)"}（原始值 ${r.published_at?.toISOString() ?? "(none)"}）；输入版本：\`${r.hash}\`；本次运行：${started.toISOString()}
+- 发布时间：模型收到 ${explainPublishedAt(r.published_at, language!) ?? "(none)"}（原始值 ${r.published_at?.toISOString() ?? "(none)"}）；输入版本：\`${r.hash}\`；本次运行：${started.toISOString()}
 - 回执 #${receipt?.id ?? "-"}：status=${receipt?.status ?? "-"} · model=${receipt?.model ?? model} · usage=${JSON.stringify(receipt?.usage ?? null)}
 - 存档：outcome=${stored?.outcome ?? "-"}${stored?.error ? ` · error=${JSON.stringify(stored.error)}` : ""}
 
