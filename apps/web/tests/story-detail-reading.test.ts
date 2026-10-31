@@ -12,7 +12,7 @@ test("Story begins with its overview, not the research workbench", () => {
 });
 
 test("The full report list keeps internal and original-source links", () => {
-  assert.match(story, /<TimelineRow key=\{r\.id\} r=\{r\} \/>/);
+  assert.match(story, /<TimelineRow key=\{r\.id\} r=\{r\} provenance=\{evidence\.get\(r\.id\)\} \/>/);
   assert.match(story, /<IntentLink viewTransition to=\{lang === "en"/);
   assert.match(story, /href=\{r\.originalUrl\}[^\n]*target="_blank"/);
   assert.doesNotMatch(story, /完整来源索引（截至目前）/);
@@ -27,4 +27,24 @@ test("Route uncertainty remains accessible without a second expanded timeline", 
   assert.match(story, /s\.uncertainty\.occurredAtMissing/);
   assert.match(story, /s\.uncertainty\.revised/);
   assert.match(story, /<details className="order-3/);
+});
+
+test("The canonical report timeline retains fact-linked uncertainties without another full article list", () => {
+  assert.match(story, /reportProvenance\(route\)/);
+  assert.match(story, /provenance\?\.singleSourceFact/);
+  assert.match(story, /provenance\?\.reportTimeOnly/);
+  assert.match(story, /provenance\?\.revised/);
+  assert.equal((story.match(/<TimelineRow key=/g) ?? []).length, 1);
+});
+
+test("Empty first-party or selected categories are not offered as dead-end filters", () => {
+  // An old saved filter can be restored when navigating to a Story with no
+  // reports in that category; the timeline must recover to all reports.
+  assert.match(story, /const activeFilter: Filter = counts\[filter\] > 0 \? filter : "all"/);
+  assert.match(story, /active=\{activeFilter\}/);
+  assert.match(story, /activeFilter === "official"/);
+  assert.match(story, /activeFilter === "selected"/);
+  assert.match(story, /\.\.\.\(counts\.official \? \[/);
+  assert.match(story, /\.\.\.\(counts\.selected \? \[/);
+  assert.doesNotMatch(story, /active=\{filter\}/);
 });
