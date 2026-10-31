@@ -98,6 +98,22 @@ export interface ItemStoryContext {
   latest: { id: string; title: string; englishTitle?: string | null } | null;
 }
 
+/** The item explainer (specs/news-explainer Phase 1): what the report's own source supports of 5W1H,
+ *  why it matters and what to watch next. Every field is optional — a source that does not say stays
+ *  empty instead of templated — and watchpoints carry the original's own date when it has one. */
+export interface ItemExplanation {
+  who: string | null;
+  what: string | null;
+  when: string | null;
+  where: string | null;
+  /** The cause as the source states or attributes it ("X 称…"), never an inferred motive. */
+  why: string | null;
+  how: string | null;
+  soWhat: string | null;
+  /** At most three verifiable watchpoints the report itself names, with its date when it names one. */
+  watchpoints: Array<{ text: string; date: string | null }>;
+}
+
 export interface GroupInfo {
   factId: string;
   /** Other public sources reporting this same news fact, under the current filters. */
@@ -185,6 +201,8 @@ export interface SiteItemDetail extends ItemSummary {
   group: GroupInfo | null;
   /** Absent in answers cached before the explainer shipped; null when the report has no event context. */
   storyContext?: ItemStoryContext | null;
+  /** Absent in answers cached before the explainer shipped; null while no explanation matches the current copy. */
+  explanation?: ItemExplanation | null;
   hasTranslation: boolean;
   bodyLanguage: "zh" | "original";
 }
