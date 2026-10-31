@@ -1,6 +1,6 @@
 # T10 D-1 归组诊断报告（2026-11-01）
 
-> **状态说明**：本报告是 [spec v0.2](./spec.md) §4/§5 D-1 要求的归组诊断产出。标注者是 T10 **实施代理，不是独立人工审阅者**；结论应按「实施代理标注」对待，不构成最终验收。数据 = cn-dev 生产库 2026-11-01 dump 恢复的本地副本（`aihot_p1`，25112 publications / 1074 stories / 1130 facts）；工具 = PR #229 `scripts/story-fact-diagnose.ts`（只读，复用公开读取边界）；原始诊断 JSON 已入库 [d1-evidence-20261101/](./d1-evidence-20261101/)（6 份，可复现）。成对复核回执与 Fact 根归属均已在 `aihot_p1` 上核实（见汇总）。**未预设目标站数，未修改任何库数据或归组。**
+> **状态说明**：本报告是 [spec v0.2](./spec.md) §4/§5 D-1 要求的归组诊断产出。标注者是 T10 **实施代理，不是独立人工审阅者**；结论应按「实施代理标注」对待，不构成最终验收。数据 = cn-dev 生产库 2026-11-01 dump 恢复的本地副本（`aihot_p1`，25112 publications / 1074 stories / 1130 facts）；工具 = PR #229 `scripts/story-fact-diagnose.ts`（只读，复用公开读取边界，复现：`node scripts/story-fact-diagnose.ts --story <public-uuid>`）。原始诊断 JSON 未入库（中央评审管线当前无法处理含大 JSON 的 diff）——由实施会话留存；本报告表格已含逐报道原文链接与 articleId，配合工具+命令可复现。成对复核回执与 Fact 根归属均已在 `aihot_p1` 上核实（见汇总）。**未预设目标站数，未修改任何库数据或归组。**
 
 ## 案例一：Anthropic S-1（`5137a381`，AI 公司资本运作域，6 Facts / 11 reports）
 
