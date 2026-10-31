@@ -33,7 +33,7 @@
 - [ ] Verify run success + markers; dispatch exact-SHA Check only for the matched PR.
 - [ ] Add the `pull_request` closed trigger (merged and unmerged); after merge/close, trigger the gate to backfill.
 - [ ] Failed Worker run with no PR → settle/release the slot and trigger the gate.
-- [ ] Focused tests: two open PRs matched by run ID; no matching PR → fail closed; closed-PR trigger; failed-run path.
+- [ ] Focused tests: two open PRs matched by run ID; no matching PR on success → no Check + warning + queue continuation; closed-PR trigger; failed-run path.
 
 ## F. Worker prompt / PR body
 
