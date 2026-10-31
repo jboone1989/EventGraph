@@ -104,3 +104,18 @@ node .data/t13r4/hop.mjs
 - DNT 置位时 AnalyticsTracker 在客户端整体静默（连信标都不发）；要捕获信标本体须去掉 DNT 并用路由层拦截代替（本文方法，零写库）。
 - `networkidle` 在重载 VM 上不可靠（hop 首跑超时），改 `domcontentloaded` + 6s 沉降后稳定。
 - 本轮不勾选 #176 T13：§5 两项 BLOCKED 未变；除此之外的测量面（生产基线、VM13 行为与二跳、流量可见面）经四轮合计已闭环。
+
+## 增补（2026-11-01）：§5 缺口 1 以本地 dump 关闭——7 天流量聚合实测
+
+方法：cn-dev 2026-11-01 03:00Z 前后的 `pg_dump` 恢复到本地一次性库，直接对 `product_analytics_events` 聚合（与 `/api/admin/analytics` 读同一张表，无需 admin 凭据）。窗口 = dump 内最后一个完整 7 天（2026-10-24 17:01Z → 2026-10-31 17:01Z）。**数据是 dev 站（cn-dev）流量，非生产 VM09；样本小（navigation_complete n=115），结论只作量级参考。**
+
+| 指标 | 实测值 |
+| --- | --- |
+| PV（page_view，7 天） | 430 |
+| UV（distinct session） | 239 |
+| navigation_complete p50 / p75 / p95（n=115） | 92 ms / 1153 ms / 2849 ms |
+| story_open（新闻→Story 二跳） | 37（CTR ≈ 8.6%） |
+| item_open（站内新闻详情二跳） | 7（CTR ≈ 1.6%） |
+
+- 事件面完整分布：page_view 723、navigation_complete 244、graph_node_select 211、story_open 69、item_open 8、source_open 1、agent_access_open 2（10-16 → 10-31 全期）。
+- §5 缺口 2（Task E 生产对照）、缺口 3（VM13 docker stats 根因）、缺口 4（真机 LCP）仍需 Owner 动作/生产发布时机，与 2026-10-28 报告一致。

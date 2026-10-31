@@ -81,3 +81,10 @@
 ## 全球政治、军事、制裁、海运与突发事件（2026-10-25）
 
 第一批机器可读信源和下一批官方机构待验清单，详见 [global-risk-source-inventory.md](global-risk-source-inventory.md)。该文件区分仓库配置、真实 preview、开发入库、生产启用，不以 RSS 存在替代采集成功证明。中国及亚洲信源清单保持独立；两个清单共同作为后续工作覆盖矩阵。
+
+## 实测状态更新（2026-11-01，本地 aihot_p1 = cn-dev 2026-11-01 dump，只读核实）
+
+- **信源生命周期（specs/007）真实进展**：`source_candidates` 共 3 条——`t03-cnbc-topnews`（CNBC Top News）与 `t03-skynews-world`（Sky News World）于 2026-10-27 进入试运行、2026-10-30 决定 keep 且 `attached_source_id` 非空（已挂载真实信源）；`t03-dup-openai` 预检失败（重复防护生效）。**发现→试运行→决定→挂载的完整生命周期已被两个真实信源走通**。自动发现（DeepSeek daily discovery）仍为零产出：`runDailyDiscovery` 2026-10-26/27 两次 skipped（budget/credential），后续无新候选记录；需 cn-dev Worker 受管 `DEEPSEEK_API_KEY` 与 `deepseek_web` 预算后真实跑一轮才能关闭。
+- **中文源"已归组"阶段部分打通**：`中国新闻网·财经` 339 篇入库、113 篇进入 Fact；`中国新闻网·国际` 168 篇、25 篇进入 Fact。其余新源（IT之家、HN·AI、PANews 快讯、TASS、Arab News、Al Jazeera、Yonhap、Guardian、GDACS、中国新闻网·时政）有入库但 0 篇进入 Fact——多数应为相关性过滤（非 AI 行业内容），需逐源确认是"正确过滤"还是"漏判"后才能在五阶段表打勾。
+- **归组信号链路**：`story_signals` 1226 行（嵌入复用修复 #194 后真实流入），但 `max(observed_at)=2026-10-29 08:45Z`——**10-29 之后无新信号**。
+- **运营异常（需 Owner 处理）**：worker 日志显示 `daily 2026-10-31: nothing judged in its window`（compose.ts:125），即采集/判定流水线 10-29/30 后停摆：热榜 48h 窗口为空、日刊无法组稿。可能的根因（模型阶段路由/预算/出网）需在 cn-dev 上排查；2026-10-31 16:48Z 的 #229 部署滚动正常（deploy_vm13_preview/deploy_dev_worker/e2e_vm13_preview 全绿）。
