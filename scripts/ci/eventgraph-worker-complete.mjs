@@ -3,33 +3,60 @@ import {
   isWorkerRun,
   dispatchCheck,
   dispatchGate,
+  dispatchProjectOps,
   getOpenAgentWorkPrs,
+  parseWorkerMarker,
   validateAgentWorkPr,
   verifySuccessfulWorkerRun,
 } from "./eventgraph-work-queue-guards.mjs";
 
-export function handleWorkerCompletion(event, actions = {
-  getOpenAgentWorkPrs, dispatchGate, verifySuccessfulWorkerRun, dispatchCheck,
-}) {
+function handlePrClosed(event, actions) {
+  const labels = (event.pull_request.labels ?? []).map((label) => label.name);
+  if (!labels.includes("agent-work")) return "ignored-non-agent-close";
+  actions.dispatchGate();
+  actions.dispatchProjectOps();
+  return "gate-dispatched";
+}
+
+export function handleWorkerCompletion(event, overrides = {}) {
+  const actions = {
+    getOpenAgentWorkPrs, dispatchGate, dispatchProjectOps, dispatchCheck,
+    verifySuccessfulWorkerRun, parseWorkerMarker, validateAgentWorkPr, ...overrides,
+  };
+  if (event?.action === "closed" && event.pull_request) return handlePrClosed(event, actions);
   const run = event?.workflow_run;
   if (event?.action !== "completed" || !isWorkerRun(run) ||
       run.event !== "workflow_dispatch" || run.status !== "completed") {
     throw new Error("Unexpected workflow_run event; refusing to advance the queue");
   }
+  // Two Works may be in flight: match PRs for this exact run only.
   const prs = actions.getOpenAgentWorkPrs();
-  if (prs.length === 0) {
+  const matching = prs.filter((pr) => actions.parseWorkerMarker(pr.body)?.runId === String(run.id));
+  if (run.conclusion !== "success") {
+    if (matching.length > 0) {
+      throw new Error(`Failed Worker run ${run.id} still has open agent-work PR #${matching[0].number}`);
+    }
     actions.dispatchGate();
+    actions.dispatchProjectOps();
     return "gate-dispatched";
   }
-  if (prs.length !== 1) throw new Error(`Expected at most one open agent-work PR; found ${prs.length}`);
-  const pr = prs[0];
-  const marker = validateAgentWorkPr(pr);
-  if (marker.runId !== String(run.id)) {
-    throw new Error(`Open agent-work PR #${pr.number} does not match completed Worker run ${run.id}`);
+  if (matching.length > 1) {
+    throw new Error(`Worker run ${run.id} matches ${matching.length} open agent-work PRs`);
   }
-  if (run.conclusion !== "success") throw new Error(`Worker run ${run.id} did not succeed`);
+  if (matching.length === 0) {
+    // Check is never dispatched against an unmatched PR (fail closed for the
+    // Check). The queue still continues: no-write Works legitimately finish
+    // without a PR, and a code Work whose PR vanished surfaces here loudly.
+    process.stdout.write(`Warning: successful Worker run ${run.id} has no matching open agent-work PR; continuing the queue.\n`);
+    actions.dispatchGate();
+    actions.dispatchProjectOps();
+    return "gate-dispatched";
+  }
+  const pr = matching[0];
+  actions.validateAgentWorkPr(pr);
   actions.verifySuccessfulWorkerRun(run.id);
   actions.dispatchCheck(pr);
+  actions.dispatchProjectOps();
   return "check-dispatched";
 }
 

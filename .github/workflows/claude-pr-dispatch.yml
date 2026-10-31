@@ -157,4 +157,6 @@ jobs:
           [[ "$merge_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Missing merge SHA"; exit 1; }
           # GITHUB_TOKEN merges do not normally generate a follow-on push workflow.
           gh workflow run check.yml --repo "$GITHUB_REPOSITORY" --ref develop -f "expected_sha=$merge_sha"
-          echo "Squash-merged PR #$number at $merge_sha; re-entered develop Check."
+          # The merged PR freed one in-flight slot; let the gate backfill it.
+          gh workflow run eventgraph-dispatch-gate.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Squash-merged PR #$number at $merge_sha; re-entered develop Check and requested gate backfill."

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWorkPayload, parseAdmission } from "./eventgraph-work-intake.mjs";
+import { agentWorkLabelArgs, buildWorkPayload, parseAdmission, runIntake } from "./eventgraph-work-intake.mjs";
 
 const specSha = "e90f7e4343e122b4985abd1e530ac848199bc323";
 const body = `## Task
@@ -67,4 +67,53 @@ test("builds a closed PR-only effect contract and exact repository resource scop
   });
   assert.match(payload.task, /Spec: specs\/012-github-hosted-agent-queue\/spec\.md@/);
   assert.match(payload.task, /Issue URL: https:\/\/github\.com\/jboone1989\/EventGraph\/issues\/42/);
+});
+
+test("labels the Issue agent-work only after the Work submit succeeds, then triggers the gate", () => {
+  const calls = [];
+  const result = runIntake(event(), {
+    verifySpec: () => calls.push(["verify"]),
+    submitWork: (payload, issueNumber) => calls.push(["submit", issueNumber]),
+    labelIssue: issueNumber => calls.push(["label", issueNumber]),
+    dispatchGate: () => calls.push(["gate"]),
+    dispatchProjectOps: () => calls.push(["project-ops"]),
+  });
+  assert.equal(result, "submitted");
+  assert.deepEqual(calls, [
+    ["verify"], ["submit", 42], ["label", 42], ["gate"], ["project-ops"],
+  ]);
+});
+
+test("a failed Work submit leaves the Issue unlabeled and dispatches nothing", () => {
+  const calls = [];
+  assert.throws(() => runIntake(event(), {
+    verifySpec: () => calls.push(["verify"]),
+    submitWork: () => { throw new Error("queue rejected the Work"); },
+    labelIssue: () => calls.push(["label"]),
+    dispatchGate: () => calls.push(["gate"]),
+    dispatchProjectOps: () => calls.push(["project-ops"]),
+  }), /queue rejected the Work/);
+  assert.deepEqual(calls, [["verify"]]);
+});
+
+test("non-admission events run no steps", () => {
+  const calls = [];
+  const result = runIntake(event({ label: { name: "agent-work" } }), {
+    verifySpec: () => calls.push("verify"),
+    submitWork: () => calls.push("submit"),
+    labelIssue: () => calls.push("label"),
+    dispatchGate: () => calls.push("gate"),
+    dispatchProjectOps: () => calls.push("project-ops"),
+  });
+  assert.equal(result, "ignored");
+  assert.deepEqual(calls, []);
+});
+
+test("the agent-work label command is idempotent and repo-pinned", () => {
+  assert.deepEqual(agentWorkLabelArgs(42), [
+    "issue", "edit", "42", "--repo", "jboone1989/EventGraph", "--add-label", "agent-work",
+  ]);
+  // Duplicate intake re-runs issue the exact same command; GitHub treats
+  // adding an existing label as a no-op, so reruns stay idempotent.
+  assert.deepEqual(agentWorkLabelArgs(42), agentWorkLabelArgs(42));
 });

@@ -53,7 +53,7 @@ jobs:
           package-manager-cache: false
 
       - name: Test review preflight and native Worker guards
-        run: node --test scripts/ci/review-preflight.test.mjs scripts/ci/eventgraph-worker-complete.test.mjs scripts/ci/gh-aw-local-worker.test.mjs scripts/ci/promotion-source-equivalence.test.mjs
+        run: node --test scripts/ci/review-preflight.test.mjs scripts/ci/eventgraph-worker-complete.test.mjs scripts/ci/eventgraph-dispatch-gate.test.mjs scripts/ci/gh-aw-local-worker.test.mjs scripts/ci/promotion-source-equivalence.test.mjs
       - name: Test Spec gate
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: node --test scripts/ci/check-spec.test.mjs
@@ -129,7 +129,7 @@ jobs:
           version: v1.0.1
       - name: Compile GH-AW workflows in strict mode
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
-        run: gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update
+        run: gh aw compile eventgraph-worker eventgraph-dispatcher eventgraph-project-ops --strict --approve --no-check-update
       - name: Verify GH-AW intake and compiled proxy arguments
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
         run: node --test scripts/ci/eventgraph-work-intake.test.mjs scripts/ci/gh-aw-proxy-path.test.mjs
