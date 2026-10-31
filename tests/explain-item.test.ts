@@ -37,10 +37,10 @@ test("a date that is not a real calendar day cannot survive the schema (D-04)", 
 });
 
 // Stub variants exercise empty, invalid shape, unsupported and grounded watchpoint dates.
-const seenInputs = new Map<string, { originalTitle: string | null; originalText: string | null }>();
+const seenInputs = new Map<string, { originalTitle: string | null; originalText: string | null; publishedAt: string | null }>();
 const transientCalls = new Map<string, number>();
 const provider = await stub(async (_hit, req) => {
-  const input = JSON.parse(JSON.parse(req.body).messages[1].content as string) as { originalTitle: string | null; originalText: string | null };
+  const input = JSON.parse(JSON.parse(req.body).messages[1].content as string) as { originalTitle: string | null; originalText: string | null; publishedAt: string | null };
   const key = input.originalTitle ?? "";
   seenInputs.set(key, input);
   if (key.includes("transient")) {
@@ -71,12 +71,12 @@ process.env.DEEPSEEK_API_KEY = "test-key";
 const app = await buildApp();
 
 // Discovered later than anything else in the test database, so a small run takes these reports first.
-async function report(slug: string, minutesAhead: number, opts: { selected?: boolean; post?: boolean; text?: string; language?: string; summary?: string; title?: string } = {}) {
+async function report(slug: string, minutesAhead: number, opts: { selected?: boolean; post?: boolean; text?: string; language?: string; summary?: string; title?: string; publishedAt?: Date } = {}) {
   const url = `https://example.com/explain-${slug}-${T}`;
   const text = `A post (${slug} ${T}).`;
   const { articleId: id } = await upsertMaterial(opts.post
     ? { sourceId: SOURCE, url, title: text, language: "en", via: "fetch", xPost: { tweetId: `1${Date.now()}`, authorName: "EG", handle: "eg", text, media: [] }, discoveredAt: new Date(Date.now() + minutesAhead * 60_000) }
-    : { sourceId: SOURCE, url, title: opts.title ?? `Financing update ${slug} ${T}`, language: opts.language ?? "en", bodyText: opts.text ?? `The commitment was disclosed (${slug} ${T}).`, bodyHtml: `<p>The commitment was disclosed.</p>`, bodyStatus: "ok", via: "fetch", publishedAt: new Date(), discoveredAt: new Date(Date.now() + minutesAhead * 60_000) });
+    : { sourceId: SOURCE, url, title: opts.title ?? `Financing update ${slug} ${T}`, language: opts.language ?? "en", bodyText: opts.text ?? `The commitment was disclosed (${slug} ${T}).`, bodyHtml: `<p>The commitment was disclosed.</p>`, bodyStatus: "ok", via: "fetch", publishedAt: opts.publishedAt ?? new Date(), discoveredAt: new Date(Date.now() + minutesAhead * 60_000) });
   await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, reason_zh, score, selected)
             VALUES (${id}, 1, 'rule', 'pass', 'guide', ${`融资更新-${slug}-${T}`}, ${opts.summary ?? "有一笔融资承诺。"}, '值得关注。', ${opts.selected === false ? 40 : 90}, ${opts.selected !== false})`;
   await publishArticle(id, { releasedAt: new Date(Date.now() - 60_000) });
@@ -153,6 +153,17 @@ test("a Chinese-language report is explained in Chinese, on the Chinese page onl
   assert.equal(JSON.parse(chineseOriginal.body).explanation?.what?.includes("40 billion"), true, "the Chinese original-text tab retains a Chinese explanation");
   const [row] = await sql<{ language: string }[]>`SELECT language FROM item_explanations WHERE article_id = ${id}`;
   assert.equal(row?.language, "zh");
+});
+
+test("a Chinese report's model input carries the +08:00 publication date; English keeps the UTC instant", async () => {
+  const zhId = await report("zh-date", 616, { language: "zh", publishedAt: new Date("2026-10-27T16:00:00.000Z") });
+  await explainOne((await explanationCandidateFor(zhId))!);
+  const zhInput = [...seenInputs.values()].find((v) => v.originalTitle?.includes(`zh-date ${T}`));
+  assert.equal(zhInput?.publishedAt, "2026-10-28T00:00:00+08:00", "the zh input must show the Beijing-local date, not the UTC calendar day");
+  const enId = await report("en-date", 617, { publishedAt: new Date("2026-10-27T16:00:00.000Z") });
+  await explainOne((await explanationCandidateFor(enId))!);
+  const enInput = [...seenInputs.values()].find((v) => v.originalTitle?.includes(`en-date ${T}`));
+  assert.equal(enInput?.publishedAt, "2026-10-27T16:00:00.000Z");
 });
 
 test("English mixed-language model output fails visibly and consumes shape retries only", async () => {

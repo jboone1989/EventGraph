@@ -84,15 +84,24 @@ function groundWatchpoints(data: z.infer<typeof ExplainSchema>, material: string
   return { ...data, watchpoints: data.watchpoints.map((w) => ({ ...w, date: w.date && supported.has(w.date) ? w.date : null })) };
 }
 
+// Chinese pages state times without a zone; the site reads them at +08:00 (docs/selection.md). The input
+// carries the already-converted local time so the model cannot quote a UTC calendar day as the page date
+// (the 2026-10-28 acceptance audit caught exactly that on a PBC report).
+const beijingIso = (d: Date) => {
+  const t = new Date(d.getTime() + 8 * 3_600_000);
+  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}T${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}:${pad(t.getUTCSeconds())}+08:00`;
+};
+
 export function buildExplainInput(r: {
   source_name: string; original_title: string | null; title: string; summary: string | null; reason: string | null;
   text: string | null; published_at: Date | null; story_title: string | null; other_reports: string[] | null;
+  language: "zh" | "en";
 }) {
   return JSON.stringify({
     source: r.source_name,
     originalTitle: r.original_title,
     originalText: r.text ? r.text.replace(/\s+/g, " ").trim().slice(0, EXCERPT_CHARS) : null,
-    publishedAt: r.published_at?.toISOString() ?? null,
+    publishedAt: r.published_at ? (r.language === "zh" ? beijingIso(r.published_at) : r.published_at.toISOString()) : null,
     chineseTitle: r.title,
     chineseSummary: r.summary,
     chineseReason: r.reason,
@@ -175,7 +184,7 @@ export async function explainOne(r: ExplainCandidate): Promise<ExplainOutcome> {
   const language = explainLanguage(r);
   if (!language) return { outcome: "skipped", error: `report language ${r.language ?? "unknown"} is not explained in this phase` };
   const prompt = promptFor(language);
-  const input = buildExplainInput(r);
+  const input = buildExplainInput({ ...r, language });
   try {
     const res = await chatJson({
       model: await modelFor("explain"), purpose: "explain_item", subject: `article:${r.article_id}#${r.hash.slice(0, 8)}`,
