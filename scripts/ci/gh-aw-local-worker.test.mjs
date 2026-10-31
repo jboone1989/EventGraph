@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 
 const lock = readFileSync(".github/workflows/eventgraph-worker.lock.yml", "utf8").replaceAll("\r\n", "\n");
+const source = readFileSync(".github/workflows/eventgraph-worker.md", "utf8").replaceAll("\r\n", "\n");
 const manifest = JSON.parse(lock.split("\n").find(line => line.startsWith("# gh-aw-manifest: ")).slice("# gh-aw-manifest: ".length));
 
 test("the local Worker exposes only native Claim and safe-output MCP channels", () => {
@@ -15,6 +16,13 @@ test("the local Worker exposes only native Claim and safe-output MCP channels", 
   assert.ok(manifest.mcp_servers.find(server => server.name === "safeoutputs").tools.includes("create_pull_request"));
   const metadata = JSON.parse(lock.split("\n")[0].slice("# gh-aw-metadata: ".length));
   assert.equal(metadata.strict, true);
+});
+
+test("the compiled Worker uses claim-scoped unsigned delivery while GH-AW v1.0.1 signed-ref verification is broken", () => {
+  assert.match(source, /create-pull-request:[\s\S]*?signed-commits:\s*false/);
+  assert.match(lock, /\\\"signed_commits\\\":false/);
+  assert.doesNotMatch(source, /EVENTGRAPH_WORKER_RUN_ID|eventgraph-work-id|worker-run-id/);
+  assert.match(source, /generated safe-output footer is the authoritative machine-readable provenance/);
 });
 
 test("the compiled full develop checkout can read an older immutable Spec without credentials", () => {
