@@ -36,7 +36,7 @@ function trip(window: "minute" | "day", now: number): { ok: false; reason: strin
   if (tripped !== window) {
     tripped = window;
     void sql`INSERT INTO settings (key, value, updated_by) VALUES ('egress.imgproxy', ${sql.json({ window, reason, at: new Date(now).toISOString(), dayBytes: day.bytes })}, 'api')
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`.catch(() => {});
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`.catch((error: unknown) => console.error("imgproxy_egress_record_failed", error));
   }
   return { ok: false, reason };
 }
