@@ -94,7 +94,7 @@ export async function submitFeedback(input: FeedbackInput): Promise<{ id: number
     INSERT INTO feedback (content, email, page_url, screenshot_key, source_hash, forward_error)
     VALUES (${content}, ${email}, ${pageUrl}, ${screenshotKey}, ${source}, 'pending') RETURNING id`;
   const id = row!.id;
-  void forwardFeedbackToFeishu(id).catch(() => {});
+  void forwardFeedbackToFeishu(id).catch((error: unknown) => console.error("feedback_forward_failed", id, error));
   return { id };
 }
 
@@ -122,8 +122,9 @@ export async function forwardPendingFeedback(): Promise<{ sent: number; failed: 
   for (const r of rows) {
     try {
       if ((await forwardFeedbackToFeishu(r.id)) === "sent") sent += 1;
-    } catch {
+    } catch (error) {
       failed += 1;
+      console.error("feedback_forward_retry_failed", r.id, error);
     }
   }
   return { sent, failed };
