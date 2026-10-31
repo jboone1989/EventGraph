@@ -77,11 +77,14 @@ export const EXPLAINABLE_PUBLICATION = sql`p.channel = 'news' AND p.visibility =
 
 /** What an item explanation is written from (editorial/explain.ts): every field buildExplainInput reads —
  *  the site's copy, the licence-gated body, the source, the published time and the event context — so a
- *  correction, a licence change or a new sibling report makes the stored explanation stale (E-03/D-03). */
+ *  correction, a licence change or a new sibling report makes the stored explanation stale (E-03/D-03).
+ *  The trailing version segment invalidates rows explained from an older input shape (2026-11-01: zh
+ *  publication times switched from the UTC instant to the +08:00 local rendering). */
 export const EXPLAIN_ITEM_INPUTS = sql`md5(concat_ws(chr(31), s.name, p.title, p.original_title, p.summary, p.reason, p.body_mode,
   CASE WHEN p.body_mode = 'full' THEN coalesce(a.body_text, a.excerpt, '') ELSE '' END,
   coalesce(p.published_at, p.discovered_at)::text, coalesce(st.title, ''),
-  coalesce((SELECT string_agg(t, chr(31) ORDER BY t) FROM unnest(${SIBLING_REPORT_TITLES}::text[]) AS t), '')))`;
+  coalesce((SELECT string_agg(t, chr(31) ORDER BY t) FROM unnest(${SIBLING_REPORT_TITLES}::text[]) AS t), ''),
+  'explain-input-2'))`;
 
 /** Columns every item listing selects. Internal judgement details never leave this layer. */
 export const ITEM_COLUMNS = sql`

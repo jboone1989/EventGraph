@@ -7,6 +7,7 @@ import { chatJson, ModelOutputError } from "../providers/llm.ts";
 import { completeReceipt, ReceiptBusyError, ReceiptUnknownError } from "../providers/receipts.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
 import { EXPLAINABLE_PUBLICATION, EXPLAIN_ITEM_INPUTS, SIBLING_REPORT_TITLES } from "../publication/items.ts";
+import { scoreInputTime } from "./analyze.ts";
 import { modelFor } from "./models.ts";
 import { promptText, promptVersion } from "./prompts.ts";
 
@@ -84,24 +85,22 @@ function groundWatchpoints(data: z.infer<typeof ExplainSchema>, material: string
   return { ...data, watchpoints: data.watchpoints.map((w) => ({ ...w, date: w.date && supported.has(w.date) ? w.date : null })) };
 }
 
-// Chinese pages state times without a zone; the site reads them at +08:00 (docs/selection.md). The input
-// carries the already-converted local time so the model cannot quote a UTC calendar day as the page date
-// (the 2026-10-28 acceptance audit caught exactly that on a PBC report).
-const beijingIso = (d: Date) => {
-  const t = new Date(d.getTime() + 8 * 3_600_000);
-  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}T${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}:${pad(t.getUTCSeconds())}+08:00`;
-};
-
 export function buildExplainInput(r: {
   source_name: string; original_title: string | null; title: string; summary: string | null; reason: string | null;
   text: string | null; published_at: Date | null; story_title: string | null; other_reports: string[] | null;
   language: "zh" | "en";
 }) {
+  // Chinese pages state times without a zone; the site reads them at +08:00 (docs/selection.md). The
+  // input carries the already-converted local time so the model cannot quote a UTC calendar day as the
+  // page date (the 2026-10-28 acceptance audit caught exactly that on a PBC report).
+  const publishedAt = r.published_at
+    ? (r.language === "zh" ? scoreInputTime(r.published_at) : r.published_at.toISOString())
+    : null;
   return JSON.stringify({
     source: r.source_name,
     originalTitle: r.original_title,
     originalText: r.text ? r.text.replace(/\s+/g, " ").trim().slice(0, EXCERPT_CHARS) : null,
-    publishedAt: r.published_at ? (r.language === "zh" ? beijingIso(r.published_at) : r.published_at.toISOString()) : null,
+    publishedAt,
     chineseTitle: r.title,
     chineseSummary: r.summary,
     chineseReason: r.reason,
