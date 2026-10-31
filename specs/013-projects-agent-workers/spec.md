@@ -50,7 +50,8 @@ The intended change is horizontal parallelism of up to two concurrent Works on t
 ## 5. Completion
 
 - Triggers: existing Worker `workflow_run` completion, plus a new `pull_request` closed trigger (merged or not).
-- The completion path matches the PR for the exact current `workflow_run.id` via the run-ID marker in PR bodies. It must not assume there is only one open `agent-work` PR; two PRs may be open at once, and Check dispatch targets only the matched PR.
+- The completion path matches the PR for the exact current `workflow_run.id` via the run-ID marker in PR bodies. It must not assume there is only one open `agent-work` PR; two PRs may be open at once, and Check dispatch targets only the matched PR (fail closed for the Check: an unmatched or ambiguous PR never receives one).
+- A successful run with zero matching PRs continues the queue under a loud warning instead of failing the pipeline: no-write Works legitimately finish without a PR, and a code Work whose PR is missing surfaces through that warning plus queue state. A failed run with an open matching PR, or two PRs claiming one run, fails closed.
 - If the Worker run failed and produced no PR, the slot is released (Work settled per the queue contract) and the gate is triggered to backfill.
 - After a PR merges or closes, the gate is triggered to backfill the freed slot.
 
@@ -78,7 +79,7 @@ The intended change is horizontal parallelism of up to two concurrent Works on t
 ### Completion
 
 - [ ] Exact `workflow_run.id` → PR matching works with two open `agent-work` PRs; Check dispatch targets only the matched PR.
-- [ ] No matching PR for a successful run → fail closed with diagnostics.
+- [ ] No matching PR for a successful run → no Check dispatched, loud warning, queue continuation (no-write Works finish without PRs); duplicate or failed-run matches still fail closed.
 - [ ] Failed Worker run with no PR → slot released, gate triggered; PR merged/closed → gate triggered to backfill; `pull_request` closed trigger present and tested.
 
 ### Parallelism / Worker
