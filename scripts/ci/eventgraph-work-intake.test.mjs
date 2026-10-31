@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { agentWorkLabelArgs, buildWorkPayload, parseAdmission, runIntake } from "./eventgraph-work-intake.mjs";
+import { agentWorkLabelArgs, buildWorkPayload, parseAdmission, runIntake, verifySpec } from "./eventgraph-work-intake.mjs";
 
 const specSha = "e90f7e4343e122b4985abd1e530ac848199bc323";
 const body = `## Task
@@ -67,6 +67,31 @@ test("builds a closed PR-only effect contract and exact repository resource scop
   });
   assert.match(payload.task, /Spec: specs\/012-github-hosted-agent-queue\/spec\.md@/);
   assert.match(payload.task, /Issue URL: https:\/\/github\.com\/jboone1989\/EventGraph\/issues\/42/);
+});
+
+test("verifySpec reads only scalars from potentially huge API payloads", () => {
+  // A Spec pinned a week back makes the compare payload exceed execFileSync's
+  // stdout buffer (run 41234220882 died on ENOBUFS); --jq keeps the pipe small.
+  const calls = [];
+  const ghApi = (args) => {
+    calls.push(args.join(" "));
+    if (args.some((arg) => arg.includes("compare"))) return "ahead";
+    if (args.some((arg) => arg.includes("/contents/"))) return "a".repeat(40);
+    return JSON.stringify({
+      merged_at: "2026-10-24T16:22:27Z", base: { ref: "develop", repo: { full_name: "jboone1989/EventGraph" } },
+      head: { repo: { full_name: "jboone1989/EventGraph" } }, merged_by: { login: "jboone1989" },
+    });
+  };
+  verifySpec(parseAdmission(event()), ghApi);
+  assert.match(calls.find((call) => call.includes("compare")), /--jq \.status$/);
+  assert.ok(calls.filter((call) => call.includes("contents/")).every((call) => call.endsWith("--jq .sha")));
+
+  for (const [label, stub] of [
+    ["diverged", (args) => (args.some((arg) => arg.includes("compare")) ? "diverged" : ghApi(args))],
+    ["rebased Spec content", (args) => (args.some((arg) => arg.endsWith("?ref=develop")) ? "b".repeat(40) : ghApi(args))],
+  ]) {
+    assert.throws(() => verifySpec(parseAdmission(event()), stub), label === "diverged" ? /ancestor/ : /content has changed/);
+  }
 });
 
 test("labels the Issue agent-work only after the Work submit succeeds, then triggers the gate", () => {
