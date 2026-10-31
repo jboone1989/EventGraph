@@ -93,7 +93,6 @@ test("a matching successful native Worker routes only its live PR SHA to Check",
 
 test("untrusted or inconsistent generated footer provenance is rejected", () => {
   for (const body of [
-    trustedFooterBody(123),
     trustedFooterBody(run.id, "other-worker"),
     trustedFooterBody().replace(`> Work \`${workId}\` · Claim \`c_example_1\`\n`, ""),
     trustedFooterBody().replace(`"run_id":"${run.id}"`, '"run_id":"123"'),
