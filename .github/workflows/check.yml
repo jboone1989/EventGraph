@@ -53,7 +53,7 @@ jobs:
           package-manager-cache: false
 
       - name: Test review preflight and native Worker guards
-        run: node --test scripts/ci/review-preflight.test.mjs scripts/ci/eventgraph-worker-complete.test.mjs scripts/ci/gh-aw-local-worker.test.mjs
+        run: node --test scripts/ci/review-preflight.test.mjs scripts/ci/eventgraph-worker-complete.test.mjs scripts/ci/gh-aw-local-worker.test.mjs scripts/ci/promotion-source-equivalence.test.mjs
       - name: Test Spec gate
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: node --test scripts/ci/check-spec.test.mjs
@@ -485,10 +485,8 @@ jobs:
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$IMAGE_REF" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]]
           git fetch origin "$SOURCE_SHA"
-          # Source equivalence except automation and host-only deployment files.
-          git diff --quiet "$SOURCE_SHA" HEAD -- . \
-            ':(exclude).github/**' ':(exclude)scripts/deploy-prod.sh' \
-            ':(exclude)docs/ci-cd.md' ':(exclude)docs/production-deployment.md'
+          # Runtime equivalence: reviewed repository control/governance files are not image source.
+          node scripts/ci/promotion-source-equivalence.mjs "$SOURCE_SHA" HEAD
           gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100" \
             --jq '.check_runs[] | select(.conclusion == "success") | .name' > "$RUNNER_TEMP/develop-checks"
           for check in check e2e publish; do
