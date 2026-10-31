@@ -14,6 +14,11 @@ on:
     branches: [develop, main]
     types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact immutable commit SHA for GH-AW PR or develop release re-entry"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -37,6 +42,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Enforce exact GH-AW dispatch SHA
+        if: ${{ github.event_name == 'workflow_dispatch' && (github.ref_name == 'develop' || startsWith(github.ref_name, 'agent/')) }}
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Missing immutable expected_sha'; exit 1; }
+          [[ "$EXPECTED_SHA" == "$GITHUB_SHA" ]] || { echo '::error::Dispatch ref moved'; exit 1; }
       - name: Detect documentation-only changes
         id: scope
         env:
@@ -44,6 +57,11 @@ jobs:
           SCOPE_HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          # A GITHUB_TOKEN merge requires explicit develop workflow_dispatch.
+          # Scope that exact release SHA against its first parent, not a missing PR payload.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF_NAME" == develop ]]; then
+            SCOPE_BASE_SHA="$(git rev-parse "$GITHUB_SHA^" 2>/dev/null || true)"
+          fi
           if [[ "$SCOPE_BASE_SHA" =~ ^0+$ ]] || [[ -z "$SCOPE_BASE_SHA" ]]; then
             echo '::notice::No trustworthy change base; running the full pipeline'
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
@@ -146,6 +164,11 @@ jobs:
           SCOPE_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
           SCOPE_HEAD_SHA: ${{ github.sha }}
         run: |
+          # Explicit develop re-entry has no push/PR payload; use the validated
+          # release commit's first parent as the same scope base as changes.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF_NAME" == develop ]]; then
+            SCOPE_BASE_SHA="$(git rev-parse "$GITHUB_SHA^" 2>/dev/null || true)"
+          fi
           if [[ "$SCOPE_BASE_SHA" =~ ^0+$ ]] || [[ -z "$SCOPE_BASE_SHA" ]]; then
             echo '::error::Cannot validate documentation without a trusted base commit' >&2
             exit 1
@@ -319,7 +342,7 @@ jobs:
     # Bot-created upstream PRs explicitly dispatch Check; include Docker on those runs.
     if: >-
       ${{ (github.event_name == 'pull_request' ||
-           (github.event_name == 'workflow_dispatch' && startsWith(github.ref_name, 'chore/aihot-upstream-'))) &&
+           (github.event_name == 'workflow_dispatch' && (startsWith(github.ref_name, 'chore/aihot-upstream-') || startsWith(github.ref_name, 'agent/')))) &&
           needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -358,7 +381,7 @@ jobs:
   publish:
     needs: [changes, check, e2e]
     if: >-
-      ${{ github.event_name == 'push' && github.ref_name == 'develop' &&
+      ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) && github.ref_name == 'develop' &&
           needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -601,7 +624,8 @@ jobs:
   deploy_vm13_preview:
     needs: publish
     if: >-
-      ${{ github.event_name == 'push' &&
+      ${{ (github.event_name == 'push' ||
+           (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
           github.ref_name == 'develop' &&
           needs.publish.outputs.image_ref != '' &&
           vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
@@ -702,7 +726,8 @@ jobs:
   deploy_dev_worker:
     needs: publish
     if: >-
-      ${{ github.event_name == 'push' &&
+      ${{ (github.event_name == 'push' ||
+           (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
           github.ref_name == 'develop' &&
           needs.publish.outputs.image_ref != '' &&
           vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
@@ -710,7 +735,7 @@ jobs:
       group: eventgraph-dev-worker
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     environment: development
     permissions:
       contents: read
@@ -758,7 +783,7 @@ jobs:
           key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
           fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
           envs: EVENTGRAPH_IMAGE,EVENTGRAPH_RELEASE_SHA,EVENTGRAPH_DEV_SSH_FINGERPRINT
-          command_timeout: 20m
+          command_timeout: 34m
           version: '1.8.2'
           script_path: scripts/ci/export-image-vm13.sh
       - name: Deploy the development worker on cn-dev
@@ -777,3 +802,30 @@ jobs:
           command_timeout: 13m
           version: '1.8.2'
           script_path: scripts/ci/deploy-image.sh
+
+  resume_gh_aw_queue:
+    needs: [changes, check, e2e, publish]
+    if: >-
+      ${{ always() && (vars.EVENTGRAPH_GH_AW_QUEUE_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+          github.ref_name == 'develop' &&
+          needs.check.result == 'success' &&
+          ((needs.changes.outputs.docs_only == 'true' &&
+            needs.e2e.result == 'skipped' && needs.publish.result == 'skipped') ||
+           (needs.changes.outputs.docs_only != 'true' &&
+            needs.e2e.result == 'success' && needs.publish.result == 'success')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Verify current develop head and request next GH-AW dispatch gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
+          [[ "$current" == "$SOURCE_SHA" ]] || { echo 'Develop advanced; no queue continuation'; exit 0; }
+          gh workflow run eventgraph-dispatch-gate.yml --repo "$GITHUB_REPOSITORY" --ref main

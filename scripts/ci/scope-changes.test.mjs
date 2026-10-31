@@ -38,6 +38,17 @@ function classify(cwd, base, head, extraEnv = {}) {
   });
   return { status: p.status, output: p.stdout.trim() };
 }
+// Each table case gets its own repository and always removes it: a shared
+// fixture would keep the first executable change inside every later diff
+// against the same base, so a broken rule for a later file could pass on the
+// strength of an earlier case instead of its own classification.
+function eachCase(changes, expected) {
+  const { cwd, base } = fixture();
+  try {
+    const head = commit(cwd, changes);
+    assert.equal(classify(cwd, base, head).output, expected, JSON.stringify(Object.keys(changes)));
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+}
 
 test("documentation-only changes classify docs_only=true", () => {
   const { cwd, base } = fixture();
@@ -53,35 +64,43 @@ test("documentation-only changes classify docs_only=true", () => {
 });
 
 test("any code, workflow or CI-script change forces the full pipeline", () => {
-  const { cwd, base } = fixture();
-  try {
-    for (const changes of [
-      { "apps/web/app.ts": "export const value = 1;\n" },
-      { ".github/workflows/check.yml": "name: Check\n" },
-      { "scripts/ci/scope-changes.mjs": "// modified\n" },
-      { "Dockerfile": "FROM node:24\n" },
-      { "package.json": "{}\n" },
-      { "industry/sources.json": "{}\n" },
-      { "docs/guide.md": "# Guide\n", "apps/web/app.ts": "export const value = 1;\n" },
-    ]) {
-      const head = commit(cwd, changes);
-      assert.equal(classify(cwd, base, head).output, "docs_only=false", JSON.stringify(Object.keys(changes)));
-    }
-  } finally { rmSync(cwd, { recursive: true, force: true }); }
+  for (const changes of [
+    { "apps/web/app.ts": "export const value = 1;\n" },
+    { ".github/workflows/check.yml": "name: Check\n" },
+    { "scripts/ci/scope-changes.mjs": "// modified\n" },
+    { "Dockerfile": "FROM node:24\n" },
+    { "package.json": "{}\n" },
+    { "industry/sources.json": "{}\n" },
+    { "docs/guide.md": "# Guide\n", "apps/web/app.ts": "export const value = 1;\n" },
+  ]) {
+    eachCase(changes, "docs_only=false");
+  }
 });
 
 test("non-prose or outside-governance files are implementation, not docs", () => {
-  const { cwd, base } = fixture();
-  try {
-    for (const changes of [
-      { "docs/diagram.png": "png\n" },
-      { "industry/prompts/writer.md": "# prompt\n" },
-      { "docs/nested/data.json": "{}\n" },
-    ]) {
-      const head = commit(cwd, changes);
-      assert.equal(classify(cwd, base, head).output, "docs_only=false", JSON.stringify(Object.keys(changes)));
-    }
-  } finally { rmSync(cwd, { recursive: true, force: true }); }
+  for (const changes of [
+    { "docs/diagram.png": "png\n" },
+    { "industry/prompts/writer.md": "# prompt\n" },
+    { "docs/nested/data.json": "{}\n" },
+  ]) {
+    eachCase(changes, "docs_only=false");
+  }
+});
+
+// GH-AW workflow sources (specs/012) are executable control-plane prompts even
+// though they are Markdown: changing only the Worker or Dispatcher input must
+// run the full pipeline, while ordinary CI documentation stays docs-only.
+test("GH-AW workflow prompt Markdown is executable, not documentation", () => {
+  for (const changes of [
+    { ".github/workflows/eventgraph-worker.md": "# Worker prompt\n" },
+    { ".github/workflows/eventgraph-dispatcher.md": "# Dispatcher prompt\n" },
+  ]) {
+    eachCase(changes, "docs_only=false");
+  }
+});
+
+test("a docs/ci-cd.md-only change stays documentation", () => {
+  eachCase({ "docs/ci-cd.md": "# CI/CD\n" }, "docs_only=true");
 });
 
 test("agent and spec-kit prose is documentation", () => {
