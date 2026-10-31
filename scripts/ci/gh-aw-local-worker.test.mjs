@@ -18,7 +18,7 @@ test("the local Worker exposes only native Claim and safe-output MCP channels", 
   assert.equal(metadata.strict, true);
 });
 
-test("the compiled Worker uses claim-scoped unsigned delivery while GH-AW v1.0.1 signed-ref verification is broken", () => {
+test("the Worker source selects claim-scoped unsigned delivery while GH-AW v1.0.1 signed-ref verification is broken", () => {
   assert.match(source, /create-pull-request:[\s\S]*?signed-commits:\s*false/);
   assert.match(lock, /\\\"signed_commits\\\":false/);
   assert.doesNotMatch(source, /EVENTGRAPH_WORKER_RUN_ID|eventgraph-work-id|worker-run-id/);
