@@ -1,58 +1,66 @@
-# Tasks: Multi-Engine GH-AW Workers
+# Tasks: GitHub Projects + Parallel Single-Profile Workers
 
-**Status:** Owner-approved; implementation starts after this Spec PR merges to develop.
+**Status:** Owner-directed revision 2026-11-01; implementation starts after the Spec PR merges to `main`.
 
-## A. Owner approval
+## A. Spec approval
 
-- [ ] Merge the owner-approved Spec PR to `develop` after its exact-HEAD Check and independent GLM review pass.
+- [ ] Merge the Spec PR to `main` after its exact-HEAD Check, Docker and independent review pass.
+- [ ] Record the merged Spec commit SHA for the implementation PR.
 
-## B. Extend the existing main-branch review gate
+## B. Producer labeling
 
-- [ ] Create a small tracked task in `jboone1989/livingruntime-remote` with acceptance criteria, following that repository's Spec/Issue policy.
-- [ ] Update the existing reusable `eventgraph-glm-review.yml` to resolve and validate exact-head PRs targeting both `develop` and `main`; retain the same GLM prompt, checklist, schema and independent verification.
-- [ ] Add `claude-review` to the EventGraph `main` ruleset alongside `check` and `docker`; do not remove or weaken existing rules.
-- [ ] Verify a docs-only PR targeting `main` receives `claude-review=success` on its exact HEAD.
+- [ ] Add `issues: write` to `eventgraph-producer.yml` (no other permission growth).
+- [ ] After successful Work submit, run idempotent `gh issue edit <n> --add-label agent-work` in `eventgraph-work-intake.mjs`.
+- [ ] Prove ordering: no label before submit success; submit failure leaves the Issue unlabeled; duplicate intake runs stay idempotent (no error, no duplicate label).
 
-## C. Spec promotion
+## C. Parallelism
 
-- [ ] Mirror the exact approved Spec files to `main` in a docs-only PR.
-- [ ] Record the exact main Spec commit SHA for the control-plane implementation PR.
-- [ ] Do not merge `develop` wholesale into `main`.
+- [ ] Set `.github/workflows/aw.json` Work Queue concurrency to 2.
+- [ ] Keep the Dispatcher serial (one Claim at a time); per-Work Claim limit stays one.
+- [ ] Apply the official administrator-authorized Policy epoch while the queue is quiescent; record the operator evidence in the implementation PR.
 
-## D. Add the Pi Worker profile
+## D. Dispatch gate rework
 
-- [ ] Add `.github/workflows/eventgraph-pi-worker.md` with GH-AW `engine: pi` and `model: anthropic/glm-5.3`.
-- [ ] Require the native `work_queue_assignment` and original Claim handle.
-- [ ] Reuse the existing immutable Spec, repository resource-scope and one-PR safe-output contract.
-- [ ] Preserve read-only model-job permissions; repository writes remain in GH-AW safe outputs.
-- [ ] Include the same exact Work ID/Worker run ID marker in the PR body.
-- [ ] Reuse `GLM_API_KEY` and the owner-approved fixed endpoint literal `https://open.bigmodel.cn/api/anthropic` from the amended Spec; retain the existing `models.providers.anthropic.models.glm-5.3` metadata and do not add Copilot or OpenAI API credentials.
-- [ ] Configure `safe-outputs.threat-detection.engine` as an object with `id: claude`, `model: glm-5.3`, and explicit `env.ANTHROPIC_BASE_URL` / `env.ANTHROPIC_API_KEY` values; do not rely on Pi's default Copilot detector or cross-engine environment/model-alias inheritance.
-- [ ] Compile and publish the generated lock file using pinned GH-AW v1.0.1; never hand-edit the lock.
+- [ ] Build the unique Work-identity set from active/queued Worker workflow runs ∪ open `agent-work` PRs, deduped by Work ID / Worker run ID markers (a Work with run + PR counts once).
+- [ ] Boundaries: `|set|` 0 or 1 → dispatch one Claim; 2 → block; ≥3 → fail closed with report.
+- [ ] Fail closed on missing/invalid markers or unmatchable PR↔run identity.
+- [ ] Keep the gate workflow serial; at most one Claim per gate run; no longer blocks merely because an `agent-work` PR is open.
+- [ ] Focused tests: 0/1/2/3 boundaries; two runs ↔ two PRs; run+PR same Work counted once; invalid marker fail-closed.
 
-## E. Route Work to both Worker profiles
+## E. Completion rework
 
-- [ ] Update the Dispatcher allowlist to include `eventgraph-worker` and `eventgraph-pi-worker`.
-- [ ] Update `eventgraph-work-intake.mjs` to select the profile from `agent-worker:glm` / `agent-worker:pi` labels.
-- [ ] Preserve owner-only `agent-ready` admission and stable Issue-derived idempotency.
-- [ ] Reject both Worker labels being present; verify that Worker labels alone cannot submit Work.
-- [ ] Extend `eventgraph-worker-complete.yml` and `eventgraph-work-queue-guards.mjs` to recognize `EventGraph GH-AW Pi Worker` alongside the existing GLM Worker and reuse the same exact-SHA Check/queue-continuation path.
-- [ ] Add focused tests proving both Worker run identities are accepted and unrelated workflow runs are rejected.
-- [ ] Add focused intake tests for default GLM, explicit GLM, Pi, ambiguous labels, unauthorized actor, duplicate events, invalid Spec and misordered labels; prove a late Pi label cannot reroute an already-admitted GLM Work with the same Issue request ID.
-- [ ] Update `.github/workflows/check.yml` to compile `eventgraph-pi-worker` alongside the existing Worker and Dispatcher with pinned v1.0.1 strict mode; verify the generated lock is committed.
+- [ ] Match the PR for the exact current `workflow_run.id` via PR-body run-ID markers; never assume a single open `agent-work` PR.
+- [ ] Verify run success + markers; dispatch exact-SHA Check only for the matched PR.
+- [ ] Add the `pull_request` closed trigger (merged and unmerged); after merge/close, trigger the gate to backfill.
+- [ ] Failed Worker run with no PR → settle/release the slot and trigger the gate.
+- [ ] Focused tests: two open PRs matched by run ID; no matching PR on success → no Check + warning + queue continuation; closed-PR trigger; failed-run path.
 
-## F. Hosted validation and parallelism
+## F. Worker prompt / PR body
 
-- [ ] Settle the two existing no-write smoke Works and verify the native queue has no unfinished Work, Claims, reservations or delivery barriers.
-- [ ] Run a real no-write Work through the GLM Worker and inspect the native queue Result.
-- [ ] Run a real no-write Work through the Pi Worker, including its explicit GLM-backed Claude threat-detection job; if either Pi path fails, disable only the Pi route and retain GLM.
-- [ ] Only after queue quiescence, set `aw.json` concurrency to two and apply the official administrator-authorized Policy epoch update.
-- [ ] Submit two independent no-write Work items before dispatching either, with no open `agent-work` PR, and verify simultaneous Claims with the correct Worker profile on each.
-- [ ] Verify code Work remains serialized by the existing dispatch gate; run one low-risk code Work through each enabled profile sequentially, allowing each PR to pass exact-SHA Check/Docker/E2E, independent GLM review and normal squash merge before dispatching the next.
-- [ ] Confirm no Agent Worker code executes on cn-dev, VM13 or VM09 and no separate Pi/timer/host dispatcher is used.
+- [ ] Pass the original Issue number and URL into the Worker assignment.
+- [ ] Require PR body to contain `Closes #<Issue number>` + Work ID + Worker Run ID marker; one PR per Work.
 
-## G. Final acceptance
+## G. ProjectOps workflow
 
-- [ ] Verify Issue #176 remains the only human-maintained backlog and the native GH-AW ledger remains the sole execution authority.
-- [ ] Verify both enabled Worker profiles can receive and finish Claims through the same completion pipeline.
-- [ ] Record the exact approved Spec SHA, implementation PRs, commits, workflow runs and queue Result evidence in Issue #176.
+- [ ] Add `.github/workflows/eventgraph-project-ops.md` using `tools.github` toolsets `[default, projects]` and `safe-outputs.update-project`/`create-project`; no custom GraphQL, no custom board.
+- [ ] Read real Project fields/options before writing Ready / In Progress / In Review / Done / Blocked.
+- [ ] Probe Projects permission safely from GitHub-hosted Actions; on missing scope, skip/fail explicitly naming the single required secret/permission; never output token values; other pipelines unaffected.
+- [ ] Native Auto-add (Issues + PRs with `agent-work`) and closed/merged→Done automations: configured automatically when possible, otherwise deliver exact one-time owner UI steps; never claim configured without evidence.
+
+## H. Tests, compile, locks
+
+- [ ] Focused node tests for every changed script (label idempotency, boundaries, run↔PR matching, fail-closed paths).
+- [ ] Strict pinned GH-AW v1.0.1 compile for all affected sources; regenerate lock files with the CLI only; never hand-edit locks.
+- [ ] Update `.github/workflows/check.yml` compile inputs for any new GH-AW source.
+
+## I. Implementation PR
+
+- [ ] Open the implementation PR to `main` referencing the merged Spec SHA.
+- [ ] Merge only after exact-head Check / Docker / independent GLM review; normal squash merge.
+
+## J. Real end-to-end acceptance
+
+- [ ] Submit one real Work each for story-detail-dedup P-4 and FR-011 through the existing Producer; no duplicate Work IDs/PRs; no smoke-Work substitutes.
+- [ ] Verify the two real Worker runs overlap in time and produce two independent PRs with correctly matched `Closes #N` + Work ID + Worker Run ID markers.
+- [ ] Verify both Issues/PRs join the same EventGraph Project with trackable status; report the exact single owner step if token/Project setup is pending — never claim done without evidence.
+- [ ] Record run URLs, PR numbers, queue Results and Project evidence in the tracking Issue.
