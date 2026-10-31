@@ -94,6 +94,10 @@ docker compose run --rm setup && docker compose up -d
 
 下面按时间从新到旧列出每次更新要注意的事。
 
+#### EventGraph：新闻解读全量重写一批（2026 年 11 月 1 日）
+
+提示词与模型输入两处修订（中文发布时间按 +08:00 本地渲染；when/watchpoints 的事实来源收紧到原文标题、正文；watchpoint 日期口径见 [specs/news-explainer](../specs/news-explainer/spec.md)）。输入哈希加了 `explain-input-2` 版本段，**部署后所有已写解读会一次性失效**：详情页的解读板块在 worker 重写前不显示，重写走既有队列（每 15 分钟最多 10 篇、 Newest-first、逐条付费回执，约 ≤960 篇/天）；**超过 90 天未更新的长尾不会自动重排**，需要时对选中文章逐篇执行 `DATABASE_URL=… node scripts/explain-acceptance.ts --ids <articleId,...>` 补写。英文解读同样重写（英文提示词同时收紧了事件标题外溢）。当前 cn-dev 库 `item_explanations` 为 0 行，不受影响。
+
 #### EventGraph：编辑手记入库（2026 年 10 月 24 日）
 
 一个新迁移 `0112_editor_notes.sql`（新表 `editor_notes`，不动已有数据）。按既有顺序更新：备份、停止旧 API 和 worker、`scripts/migrate.ts`、`scripts/seed.ts`、启动——种子会把 `site/editor-notes.ts` 里已写日期的手记插入一次（`ON CONFLICT DO NOTHING`，不覆盖后台编辑），此后手记全部在后台「内容 → 编辑手记」维护。镜像部署脚本的迁移一致性检查会拒绝带着未执行迁移的镜像，属预期保护：先在目标库跑迁移再部署新镜像。
