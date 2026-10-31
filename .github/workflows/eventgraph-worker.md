@@ -38,9 +38,6 @@ tools:
   work-queue:
     require-assignment: true
     worker: true
-pre-agent-steps:
-  - name: Export immutable Worker run identity
-    run: echo "EVENTGRAPH_WORKER_RUN_ID=$GITHUB_RUN_ID" >> "$GITHUB_ENV"
 safe-outputs:
   timeout-minutes: 10
   noop:
@@ -54,6 +51,10 @@ safe-outputs:
     draft: false
     fallback-as-issue: false
     auto-close-issue: false
+    # GH-AW v1.0.1 cannot independently verify its initial REST git_ref
+    # effect when signed replay creates a new PR branch. Direct safe-output
+    # push remains Claim-scoped and repository rules do not require signatures.
+    signed-commits: false
 max-turns: 40
 max-ai-credits: 50
 timeout-minutes: 30
@@ -85,8 +86,7 @@ For write-capable code Work only, proceed as follows:
 3. Implement only the task and acceptance criteria. Reuse existing code and official capabilities. Do not add unrelated refactors, fallback layers, or new infrastructure.
 4. Run focused tests and the relevant repository checks. Do not claim success for checks that were not run.
 5. Create exactly one non-draft pull request to `develop` through the `create-pull-request` safe output. Use a source branch beginning `agent/`, apply the `agent-work` label, and include the Issue URL and exact Spec path/SHA in the PR body.
-6. Include this exact machine-readable marker in the PR body, replacing both placeholders with the real values from this Claim and this run:
-   `<!-- eventgraph-work-id:<work_id> worker-run-id:<EVENTGRAPH_WORKER_RUN_ID> -->`
+6. Do not invent or hand-write Work/Claim/run provenance in the PR body. GH-AW's generated safe-output footer is the authoritative machine-readable provenance; the deterministic completion bridge verifies that footer against the successful Worker run.
 7. Only after the PR safe output has been staged, call `work_queue_claim_finish` with this Claim's original `claim_handle` and outcome `completed`.
 
-For code Work, the only permitted external effect is the single repository-scoped `create_pull_request` declared by the Work's effect contract. Do not push branches directly, merge PRs, edit Issues, add labels manually, dispatch workflows, or write to any other resource. If the task cannot be completed, do not fabricate a PR or marker; finish the original Claim as `cancelled` with a concise reason.
+For code Work, the only permitted external effect is the single repository-scoped `create_pull_request` declared by the Work's effect contract. Do not push branches directly, merge PRs, edit Issues, add labels manually, dispatch workflows, or write to any other resource. If the task cannot be completed, do not fabricate a PR or provenance; finish the original Claim as `cancelled` with a concise reason.
