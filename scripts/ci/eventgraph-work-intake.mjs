@@ -51,19 +51,24 @@ export function parseAdmission(event) {
   };
 }
 
-function verifySpec(admission) {
-  const pr = JSON.parse(gh(["api", `repos/${REPOSITORY}/pulls/${admission.specPrNumber}`]));
+// Large API payloads (a compare behind by a week of merges, base64 file
+// contents) must never cross the child stdout pipe: filter to the one scalar
+// each check needs with --jq, or execFileSync dies on ENOBUFS.
+export function verifySpec(admission, ghApi = gh) {
+  const pr = JSON.parse(ghApi(["api", `repos/${REPOSITORY}/pulls/${admission.specPrNumber}`]));
   if (!pr.merged_at || pr.base?.ref !== "develop" || pr.base?.repo?.full_name !== REPOSITORY ||
       pr.head?.repo?.full_name !== REPOSITORY || pr.merged_by?.login !== OWNER) {
     throw new Error("Spec PR must be merged by the repository owner into develop from this repository");
   }
-  const comparison = JSON.parse(gh(["api", `repos/${REPOSITORY}/compare/${admission.specSha}...develop`]));
-  if (!["ahead", "identical"].includes(comparison.status)) {
+  const comparison = ghApi(["api", `repos/${REPOSITORY}/compare/${admission.specSha}...develop`, "--jq", ".status"]);
+  if (!["ahead", "identical"].includes(comparison)) {
     throw new Error("Pinned Spec commit is not an ancestor of current develop");
   }
-  const pinned = JSON.parse(gh(["api", `repos/${REPOSITORY}/contents/${admission.specPath}?ref=${admission.specSha}`]));
-  const current = JSON.parse(gh(["api", `repos/${REPOSITORY}/contents/${admission.specPath}?ref=develop`]));
-  if (!pinned.sha || pinned.sha !== current.sha) throw new Error("Pinned Spec content has changed on develop");
+  const pinned = ghApi(["api", `repos/${REPOSITORY}/contents/${admission.specPath}?ref=${admission.specSha}`, "--jq", ".sha"]);
+  const current = ghApi(["api", `repos/${REPOSITORY}/contents/${admission.specPath}?ref=develop`, "--jq", ".sha"]);
+  if (!/^[0-9a-f]{40}$/.test(pinned) || pinned !== current) {
+    throw new Error("Pinned Spec content has changed on develop");
+  }
 }
 
 export function buildWorkPayload(admission) {
