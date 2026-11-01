@@ -1,6 +1,6 @@
 # Implementation plan: GitHub Projects + Parallel Single-Profile Workers
 
-**Status:** Owner-directed revision 2026-11-01; implementation starts after the Spec PR merges to `main`.
+**Status:** Owner-approved v3 2026-11-02; ProjectOps retirement is implemented only after this revised Spec merges to `main`.
 
 ## 1. Verified repository findings
 
@@ -15,12 +15,12 @@
 
 ## 2. Chosen minimal design
 
-- **Human view:** one EventGraph Project + native Auto-add on the `agent-work` label + native Done automations. No custom board, no queue→Project state synchronizer beyond ProjectOps status writes.
+- **Human view:** one EventGraph Project + native Auto-add on the `agent-work` label + native Done automations. No custom board, GH-AW/GLM ProjectOps, or queue→Project status synchronizer.
 - **Execution:** unchanged native Work Queue; the only scheduler change is pool concurrency 1 → 2 (config + administrator-authorized Policy epoch).
 - **Admission:** Producer labels the Issue `agent-work` only after successful Work submit (idempotent `gh issue edit`), so Auto-add picks up exactly the Issues that actually entered the queue.
 - **Concurrency control:** gate computes a unique Work-identity set from active/queued Worker runs ∪ open `agent-work` PRs (deduped by Work ID / Worker run ID markers), allows one Claim when `|set| < 2`, fails closed on unprovable state, stays serial itself.
 - **Completion:** exact `workflow_run.id` → PR marker matching (no single-PR assumption), per-PR Check dispatch, slot release/backfill on failed-run-no-PR and on PR close/merge (new `pull_request` closed trigger).
-- **ProjectOps:** new GH-AW workflow using native Project tools only; reads fields/options before writing Status; safe permission probe from GitHub-hosted Actions; explicit skip + single required secret/permission named when scope is missing; never prints token values.
+- **Native Projects only (v3):** verified owner Project #2, Auto-add `agent-work` Issues/PRs, initial Todo and closed/merged→Done automations; GH-AW ledger/PRs remain the only source for execution and review detail. ProjectOps run #41325563981 failed without any updates after 10.264106 AIC; delete its GH-AW source/lock, its dispatch call sites and compiler/check references; retire `EVENTGRAPH_PROJECTS_PAT` only after removal.
 
 ## 3. Implementation sequence
 
@@ -30,7 +30,7 @@
 4. Gate rework: unique-identity set across Worker runs + open `agent-work` PRs; boundary behavior 0/1/2/3; fail-closed on invalid markers; one Claim per gate run; focused tests for 0/1/2/3 boundaries, run↔PR dedup (two runs ↔ two PRs), unmatchable-marker fail-closed.
 5. Completion rework: exact `workflow_run.id` marker matching with two open PRs; `pull_request` closed trigger; per-PR Check dispatch; failed-run-no-PR → settle + trigger gate; PR merged/closed → trigger gate; focused tests including no-matching-PR fail-closed.
 6. Worker prompt/PR body: pass original Issue number/URL; require `Closes #N` + Work ID + Worker Run ID in the PR body; keep one-PR-per-Work.
-7. ProjectOps: add `.github/workflows/eventgraph-project-ops.md` per the official GH-AW v1.0.1 ProjectOps pattern — `tools.github` toolsets `[default, projects]`, `safe-outputs.update-project`/`create-project`; probe Projects permission safely from GitHub-hosted Actions; on missing scope, skip/fail with the single required secret/permission named; provide exact one-time owner UI steps for native Auto-add + closed/merged automations when they cannot be configured automatically; no token output.
+7. Native Projects v3: retain already configured Project #2 and GitHub's Auto-add, Item closed and Pull request merged rules. Remove `.github/workflows/eventgraph-project-ops.md` and generated `.lock.yml`, `dispatchProjectOps`, caller invocations and compile/CI references. Do not replace with another model, script, job or GraphQL synchronizer. Preserve `agent-work` labeling. Cleanup unused `EVENTGRAPH_PROJECTS_PAT` secret after retirement.
 8. Tests + GH-AW compile: focused node tests for all changed scripts; strict pinned-v1.0.1 compile regenerates all affected lock files via the CLI (never hand-edited); update `check.yml` compile inputs if new GH-AW sources were added.
 9. Implementation PR to `main` referencing the merged Spec SHA; merge only after exact-head Check / Docker / independent GLM review; normal squash merge.
 10. Real E2E acceptance (§4).
@@ -52,8 +52,14 @@
 | Alternative | Decision |
 |---|---|
 | Pi second engine (v1 plan) | Superseded by owner decision 2026-11-01; single profile + horizontal concurrency instead. |
-| Custom Project board / hand-written GraphQL | Rejected; native Auto-add + automations and GH-AW native Project tools cover the need. |
+| Custom Project board / hand-written GraphQL | Rejected; native Auto-add + Done automations cover the reduced Project view. |
 | Mirror full queue state into Project fields | Rejected; Project is a view, the Work Queue ledger is the only execution authority. |
 | Gate dispatching multiple Claims per run | Rejected; gate stays serial, one Claim per invocation — parallelism comes from the pool and repeated gate runs. |
 | Assume `GH_AW_GITHUB_TOKEN` has Projects scope | Rejected; probe safely and fail/skip explicitly with the single required permission named. |
 | Merge `develop` into `main` to ship control-plane changes | Rejected; branches are intentionally divergent; isolated `main` PRs only. |
+
+## 7. Owner-approved v3 change (2026-11-02)
+
+- **Source:** owner confirmation in the ChatGPT EventGraph ProjectOps conversation following the failed [run #41325563981](https://github.com/jboone1989/EventGraph/actions/runs/41325563981) (assistant transcription; not a GitHub-authored owner approval). The v3 decision is to remove paid ProjectOps and use the existing native GitHub Project workflows.
+- **Sequence:** this document/Spec PR merges first; then implementation [#285](https://github.com/jboone1989/EventGraph/pull/285) updates to the new approved SHA and passes fresh CI/review before normal merge.
+- **Non-goals:** queue grant changes, paid Worker retries, production deployment, manual mass status edits, and any custom Project synchronizer.\n
