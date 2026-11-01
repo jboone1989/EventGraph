@@ -37,11 +37,8 @@ safe-outputs:
   timeout-minutes: 5
   update-project:
     max: 20
-    # GH-AW pins update-project to exactly one literal project URL. The owner
-    # replaces <EVENTGRAPH_PROJECT_NUMBER> with the real number once (the
-    # placeholder can never silently target the wrong project); until then the
-    # trusted project job fails explicitly.
-    project: https://github.com/users/jboone1989/projects/<EVENTGRAPH_PROJECT_NUMBER>
+    # Owner-approved EventGraph Project #2; GH-AW pins update-project to this literal URL.
+    project: https://github.com/users/jboone1989/projects/2
     github-token: ${{ secrets.EVENTGRAPH_PROJECTS_PAT }}
 max-turns: 15
 max-ai-credits: 10
