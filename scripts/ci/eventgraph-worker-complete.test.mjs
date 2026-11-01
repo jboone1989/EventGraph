@@ -48,10 +48,9 @@ test("a native Worker with a dynamic run-name advances the no-PR queue", () => {
   const result = handleWorkerCompletion({ action: "completed", workflow_run: run }, {
     getOpenAgentWorkPrs: () => [],
     dispatchGate: () => calls.push("gate"),
-    dispatchProjectOps: () => calls.push("project-ops"),
   });
   assert.equal(result, "gate-dispatched");
-  assert.deepEqual(calls, ["gate", "project-ops"]);
+  assert.deepEqual(calls, ["gate"]);
 });
 
 test("a successful run whose PR is missing never gets Check, but the queue continues", () => {
@@ -63,9 +62,8 @@ test("a successful run whose PR is missing never gets Check, but the queue conti
     verifySuccessfulWorkerRun: () => assert.fail("An unmatched run must not be API-verified for Check"),
     dispatchCheck: () => calls.push("check"),
     dispatchGate: () => calls.push("gate"),
-    dispatchProjectOps: () => calls.push("project-ops"),
   }), "gate-dispatched");
-  assert.deepEqual(calls, ["gate", "project-ops"]);
+  assert.deepEqual(calls, ["gate"]);
 });
 
 test("wrong workflow, repository, event and lifecycle identities cannot advance", () => {
@@ -103,9 +101,8 @@ test("with two open PRs only the PR matching this exact run receives Check", () 
     },
     dispatchCheck: current => calls.push(["check", current.number, current.head.sha]),
     dispatchGate: () => assert.fail("A matched live PR must not trigger the gate"),
-    dispatchProjectOps: () => calls.push(["project-ops"]),
   }), "check-dispatched");
-  assert.deepEqual(calls, [["verify", run.id], ["check", 42, mine.head.sha], ["project-ops"]]);
+  assert.deepEqual(calls, [["verify", run.id], ["check", 42, mine.head.sha]]);
 });
 
 test("two PRs claiming one run, marker-less PRs and draft PRs cannot dispatch Check", () => {
@@ -119,7 +116,6 @@ test("two PRs claiming one run, marker-less PRs and draft PRs cannot dispatch Ch
       verifySuccessfulWorkerRun: () => calls.push("verify"),
       dispatchCheck: () => calls.push("check"),
       dispatchGate: () => calls.push("gate"),
-      dispatchProjectOps: () => calls.push("project-ops"),
     }), /matches 2 open|violates|no valid/);
     assert.deepEqual(calls, []);
   }
@@ -147,9 +143,8 @@ test("a failed Worker run with an open PR fails closed; without a PR it requests
   assert.equal(handleWorkerCompletion({ action: "completed", workflow_run: failure }, {
     getOpenAgentWorkPrs: () => [],
     dispatchGate: () => calls.push("gate"),
-    dispatchProjectOps: () => calls.push("project-ops"),
   }), "gate-dispatched");
-  assert.deepEqual(calls, ["gate", "project-ops"]);
+  assert.deepEqual(calls, ["gate"]);
 });
 
 test("closing an agent-work PR frees its slot through the gate; other closes are ignored", () => {
@@ -157,14 +152,13 @@ test("closing an agent-work PR frees its slot through the gate; other closes are
   const closedEvent = { action: "closed", pull_request: { number: 42, labels: [{ name: "agent-work" }] } };
   assert.equal(handleWorkerCompletion(closedEvent, {
     dispatchGate: () => calls.push("gate"),
-    dispatchProjectOps: () => calls.push("project-ops"),
   }), "gate-dispatched");
-  assert.deepEqual(calls, ["gate", "project-ops"]);
+  assert.deepEqual(calls, ["gate"]);
   assert.equal(handleWorkerCompletion(
     { action: "closed", pull_request: { number: 7, labels: [{ name: "bug" }] } },
     { dispatchGate: () => calls.push("gate") },
   ), "ignored-non-agent-close");
-  assert.deepEqual(calls, ["gate", "project-ops"]);
+  assert.deepEqual(calls, ["gate"]);
 });
 
 test("API verification accepts dynamic names but rejects wrong IDs and unsuccessful runs", () => {
