@@ -56,7 +56,7 @@ safe-outputs:
     # push remains Claim-scoped and repository rules do not require signatures.
     signed-commits: false
 max-turns: 40
-max-ai-credits: 50
+max-ai-credits: 60
 timeout-minutes: 30
 jobs:
   agent:
