@@ -1,6 +1,6 @@
 # Tasks: GitHub Projects + Parallel Single-Profile Workers
 
-**Status:** Owner-directed revision 2026-11-01; implementation starts after the Spec PR merges to `main`.
+**Status:** Owner-approved v3 2026-11-02; the retired ProjectOps work is replaced with GitHub-native automation.
 
 ## A. Spec approval
 
@@ -40,12 +40,13 @@
 - [ ] Pass the original Issue number and URL into the Worker assignment.
 - [ ] Require PR body to contain `Closes #<Issue number>` + Work ID + Worker Run ID marker; one PR per Work.
 
-## G. ProjectOps workflow
+## G. Native Projects v3 / ProjectOps retirement
 
-- [ ] Add `.github/workflows/eventgraph-project-ops.md` using `tools.github` toolsets `[default, projects]` and `safe-outputs.update-project`/`create-project`; no custom GraphQL, no custom board.
-- [ ] Read real Project fields/options before writing Ready / In Progress / In Review / Done / Blocked.
-- [ ] Probe Projects permission safely from GitHub-hosted Actions; on missing scope, skip/fail explicitly naming the single required secret/permission; never output token values; other pipelines unaffected.
-- [ ] Native Auto-add (Issues + PRs with `agent-work`) and closed/merged→Done automations: configured automatically when possible, otherwise deliver exact one-time owner UI steps; never claim configured without evidence.
+- [x] GitHub Project #2 exists, is linked to EventGraph, with native Auto-add and closed/merged→Done enabled; #276/#277 are visible as Todo (2026-11-01 evidence).
+- [ ] Remove the failed paid ProjectOps Markdown/lock, its helper and all workflow-dispatch call sites; no model or custom status synchronizer replaces it.
+- [ ] Keep source Issue `agent-work` labeling and PR labels; preserve the existing Worker/Queue behavior and focused tests.
+- [ ] Remove ProjectOps from GH-AW strict compile/lock validation; validate one implementation PR with Check, Docker, E2E and independent GLM review; only then normal squash merge.
+- [ ] Retire now-unused `EVENTGRAPH_PROJECTS_PAT` secret after ProjectOps removal (no token exposure).
 
 ## H. Tests, compile, locks
 
@@ -64,3 +65,9 @@
 - [ ] Verify the two real Worker runs overlap in time and produce two independent PRs with correctly matched `Closes #N` + Work ID + Worker Run ID markers.
 - [ ] Verify both Issues/PRs join the same EventGraph Project with trackable status; report the exact single owner step if token/Project setup is pending — never claim done without evidence.
 - [ ] Record run URLs, PR numbers, queue Results and Project evidence in the tracking Issue.
+
+## K. v3 owner-approved retirement sequence (2026-11-02)
+
+- [ ] Merge the v3 Spec, Plan and Tasks revision into `main` under the regular PR gates; it supersedes v2 ProjectOps acceptance without changing Worker parallelism policy.
+- [ ] Update existing implementation PR #285 to reference the merged v3 Spec commit and current `main`; re-run its normal checks and independent review once.
+- [ ] Verify ProjectOps source/lock/callers are absent, Project #2 native workflows remain enabled, and Issue #276/#277 remain unchanged; do not unpause Work Queue grants.\n

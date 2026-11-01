@@ -1,7 +1,7 @@
 # GitHub Projects + Parallel Single-Profile Workers
 
-**Status:** Owner-directed revision 2026-11-01 — supersedes the 2026-10-30 Pi dual-engine plan before its implementation; pending the normal `main` gates (Check / Docker / exact-head independent review)  
-**Date:** 2026-11-01  
+**Status:** Owner-approved v3 revision 2026-11-02 — native GitHub Projects replaces the failed paid ProjectOps status agent; all native Worker and queue rules otherwise remain unchanged.  
+**Date:** 2026-11-02  
 **Repository:** `jboone1989/EventGraph`  
 **Control-plane branch:** `main`  
 **Development branch:** `develop`
@@ -19,7 +19,7 @@ The intended change is horizontal parallelism of up to two concurrent Works on t
 3. **One Worker profile, horizontal concurrency.** `eventgraph-worker` is reused unchanged (Claude engine, GLM-5.3, pinned Zhipu endpoint, `work_queue_assignment`, one-PR safe output). Parallelism comes from two simultaneous Worker workflow *runs* on two independent Works — not from a second profile. Pool concurrency becomes 2; each Work still holds exactly one Claim and may produce at most one PR.
 4. **No Pi.** The 2026-10-30 decision to add `eventgraph-pi-worker` is superseded and dropped. Do not add Pi, Copilot, Codex or any second engine in this rollout. The existing `agent-worker:*` intake routing labels are not introduced (single profile makes them moot).
 5. **Unified `agent-work` label.** After the Producer successfully submits an owner-approved Work, it idempotently adds `agent-work` to the source Issue. Worker PRs also carry `agent-work`. The label drives native Project Auto-add for both records; it never grants admission or execution authority (admission remains the owner-authored `agent-ready` event; execution remains the queue's).
-6. **ProjectOps uses GH-AW native Project tooling only.** A new ProjectOps workflow uses `tools.github` with toolsets `[default, projects]` and `safe-outputs.update-project` / `create-project`. It must read the real Project's fields and options before writing a status (Ready / In Progress / In Review / Done / Blocked); it never assumes field or option IDs. No hand-written GraphQL, no custom board API calls, no scraping. If the available token lacks Projects permission, the workflow explicitly skips or fails with a message naming the single required secret/permission, and never prints token values. ProjectOps failure must not block intake, dispatch, Worker execution or completion.
+6. **GitHub-native Project automation replaces ProjectOps.** Project #2 (`https://github.com/users/jboone1989/projects/2`) is already created and linked to EventGraph, with native Auto-add for `agent-work` Issues/PRs and native closed/merged→Done workflows enabled. Retire the optional paid GH-AW ProjectOps workflow (source + compiled lock), all its dispatch calls, and its strict-compile references; do **not** replace it with a custom Action, script, API synchronizer, or LLM. Newly added items start at Todo. Exact queued/running/review distinctions remain authoritative only in the native GH-AW Work Queue and PR metadata, not Project Status. Existing Project items are retained. Its formerly required `EVENTGRAPH_PROJECTS_PAT` secret becomes unused and is retired after the workflow is removed; never expose its value.
 7. **In-flight concurrency cap 2, counted without double counting.** Active and queued Worker workflow runs plus open `agent-work` PRs are unioned into one set keyed by unique Work identity (Work ID / Worker run ID markers). A Work that has both a live run and an open PR counts once. The dispatch gate dispatches at most one Claim per gate run and the gate itself stays serial (existing concurrency group), so two in-flight Works are reached through two separate gate invocations, never one gate run claiming twice.
 
 ## 3. Admission, label and Project flow
@@ -38,7 +38,7 @@ The intended change is horizontal parallelism of up to two concurrent Works on t
 ### 3.3 One-time Project setup (native)
 
 - One EventGraph Project with: native Auto-add for open Issues with label `agent-work`; native Auto-add for PRs with label `agent-work`; native automations setting Status to Done when an Issue closes or a PR merges/closes.
-- Either configured automatically by ProjectOps when token permissions allow, or through accurate one-time UI steps delivered to the owner. Configuration must never be claimed complete without real evidence; if it requires owner UI action, say exactly that.
+- Verified on 2026-11-01: the owner-created Project #2 and native Auto-add, Item closed, Pull request merged workflows are enabled; issues #276 and #277 already appear as Todo. Native Auto-add does not backfill old items. A PR merged into `develop` does not automatically close its Issue via `Closes #N` (the GitHub default-branch rule); do not claim issue Done until GitHub actually closes the Issue.
 
 ## 4. Dispatch gate (concurrency control)
 
@@ -62,12 +62,12 @@ The intended change is horizontal parallelism of up to two concurrent Works on t
 - [ ] `agent-work` is added to the Issue only after Work submit succeeds; re-running intake on an already-labeled Issue is idempotent (no error, no duplicate label); a Work submit failure leaves the Issue unlabeled.
 - [ ] The Producer workflow declares `issues: write`; no other permission grows.
 
-### ProjectOps
+### Native Projects (v3, replaces ProjectOps)
 
-- [ ] Implemented as a GH-AW workflow using `tools.github` toolsets `[default, projects]` and `safe-outputs.update-project`/`create-project` only; no custom GraphQL.
-- [ ] It reads the real Project fields/options before writing Ready / In Progress / In Review / Done / Blocked.
-- [ ] With missing Projects permission it skips/fails explicitly, naming the single required secret/permission; it never outputs token values; all other pipelines still complete.
-- [ ] Native Auto-add and closed/merged automations are either verified configured or accompanied by exact one-time owner UI steps; never falsely claimed done.
+- [x] Project #2 is linked to `jboone1989/EventGraph`; native Auto-add and closed/merged→Done workflows are enabled and Issues #276/#277 already appear on the Project.
+- [ ] Eliminate the failed paid GH-AW ProjectOps source/lock and all of its intake/completion dispatch and compiler/check references; prove no such workflow is invoked after this change.
+- [ ] Preserve Producer's successful-submit-then-label ordering, Worker completion gate/Check behavior, existing Work Queue budget pause and all relevant focused tests.
+- [ ] Use only native Project states (Todo on add, Done on actual close/merge); do not infer or write per-Work running/review statuses. Remove the now-unused `EVENTGRAPH_PROJECTS_PAT` repository secret after deactivation.
 
 ### Gate
 
@@ -111,7 +111,7 @@ The intended change is horizontal parallelism of up to two concurrent Works on t
 ## 8. Rollback
 
 - If parallel runs misbehave: revert `aw.json` to concurrency 1 and re-apply the Policy epoch; the serial gate boundary (cap 1) is the previously proven state.
-- ProjectOps is a view layer: disabling it or removing its workflow breaks no execution path; `agent-work` labeling can stop without touching the queue.
+- ProjectOps was an optional view-layer overlay and is now retired. Keep native `agent-work` labeling, Project #2 items, Auto-add and Done automations; the queue/ledger continues independently.
 - No queue ledger reset under any rollback.
 
 ## Decision history
@@ -119,3 +119,5 @@ The intended change is horizontal parallelism of up to two concurrent Works on t
 - **2026-10-30** (v1, superseded): Pi + GLM dual-engine approved; implementation never started.
 - **2026-10-31** (v1 amendment): Zhipu endpoint pinning for Dispatcher/Worker — still applies to the single retained Worker profile.
 - **2026-11-01** (v2, this revision): Owner replaces the dual-engine plan — no Pi; one Claude/GLM-5.3 Worker profile with horizontal concurrency 2; GitHub Projects (native only) as the human visualization layer; unified `agent-work` label; precise per-run completion matching. The 2026-10-30 Pi decision is superseded, not silently deleted.
+
+- **2026-11-02** (v3, owner-approved in ChatGPT conversation): after [ProjectOps run #41325563981](https://github.com/jboone1989/EventGraph/actions/runs/41325563981) failed at 10.264106 AIC without applying any `update_project`, the owner explicitly approved removing per-run GLM ProjectOps and relying on native GitHub Projects automation. Preserve the two-stage Spec-first flow: merge this documented revision before applying the [implementation PR #285](https://github.com/jboone1989/EventGraph/pull/285). This is a replacement of v2 §2.6 / ProjectOps acceptance, not permission to resume the paid Worker queue.\n
