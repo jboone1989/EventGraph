@@ -30,25 +30,10 @@ on either host, and no new cloud security-group rule is used.
 
 1. `check` + `e2e` + published-digest Compose smoke gate `publish`, which builds
    one immutable GHCR digest (`ghcr.io/jboone1989/eventgraph-app@sha256:…`).
-2. `deploy_dev_worker` (independent of the VM13 job below; neither gates the
-   other) ships the digest to cn-dev **without cn-dev contacting GHCR**:
-   `scripts/ci/export-image-vm13.sh` runs on VM13, pulls the digest there and
-   delivers it with up to eight pinned-SSH rsync/zstd streams (VM13 BBR enabled)
-   to `~/.eventgraph-transfer/parts/`. Failed transfers retain partial chunks;
-   all chunks are reassembled into a new archive and checked against the
-   complete source SHA256 before replacing `current.tar`. A disk-space preflight
-   reserves two additional archive copies plus 256 MiB, and successful delivery
-   removes the temporary parts; failed attempts retain them for resume. The exact
-   loaded Docker image ID and source revision are then verified
-   before a content-addressed local tag is recorded (see `docs/ci-cd.md`);
-   then
-   `scripts/ci/deploy-image.sh` runs on
-   cn-dev, asserts the local tag's image ID and
-   `org.opencontainers.image.revision` label, stages
-   `docker-compose.dev-db.yml` from the exact release SHA, applies the loopback
-   DB binding, and recreates only `worker` with digest and heartbeat
-   assertions plus rollback to the last good local image. No Web/API containers
-   are created on cn-dev.
+2. ~~`deploy_dev_worker`~~ 移除（2026-11-02）：开发环境不再运行自己的 Worker 与
+   数据库，VM13 预览的 Web/API 直读生产数据库（经加固的 SSH 隧道）。原
+   export/rsync 交付机制连同其脚本与测试一并删除；原开发库全量备份保留在
+   cn-dev 的 `~/aihot-dev-final-20261101.dump`。
 3. `deploy_vm13_preview` SSHes to VM13 and runs
    `scripts/ci/deploy-vm13-preview.sh`: stages the Compose file from the SHA,
    asserts the image label, refreshes the SSH tunnel unit, recreates

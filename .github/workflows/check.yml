@@ -205,9 +205,7 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: |
           bash -n scripts/deploy-prod.sh
-          sh -n scripts/ci/deploy-image.sh
           sh -n scripts/ci/deploy-vm13-preview.sh
-          sh -n scripts/ci/export-image-vm13.sh
           sh -n scripts/ci/smoke-vm13.sh
           python3 -m py_compile scripts/production-env-check.py
           python3 - <<'PY'

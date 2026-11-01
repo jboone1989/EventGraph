@@ -50,67 +50,24 @@ bash scripts/deploy-prod.sh
 
 Configure the production GitHub environment and `EVENTGRAPH_PROD_HOST`, `EVENTGRAPH_PROD_USER`, `EVENTGRAPH_PROD_SSH_KEY`, `EVENTGRAPH_PROD_SSH_FINGERPRINT` before opting into automatic VM09 deployment. An authorized operator is required when those credentials are absent or an external execution policy blocks the script. Do not use the development `deploy-image.sh` on production.
 
-## Development (cn-dev worker + VM13 Web/API)
+## Development (VM13 preview on 185.154)
 
 A push to `develop` (or validated exact-SHA post-merge `workflow_dispatch`)
 publishes one immutable digest and then, only when `EVENTGRAPH_DEV_AUTO_DEPLOY=true`,
-deploys it in two independent jobs — neither gates the other:
+`deploy_vm13_preview` SSHes to VM13 and runs `scripts/ci/deploy-vm13-preview.sh`
+for the Web and API containers, which read the production database directly
+through the hardened SSH tunnel (details in `docs/vm13-preview.md`).
 
-- `deploy_vm13_preview` SSHes to VM13 and runs `scripts/ci/deploy-vm13-preview.sh`
-  for the Web and API containers, which reach the cn-dev development database
-  through the private SSH tunnel (details in `docs/vm13-preview.md`).
-- `deploy_dev_worker` SSHes to VM13, where `scripts/ci/export-image-vm13.sh`
-  obtains the immutable digest (VM13 reaches GHCR reliably). It uses the
-  existing **pinned VM13→cn-dev SSH connection** and `rsync` to deliver a
-  immutable Docker archive as 8 MiB parts to cn-dev's stable
-  `~/.eventgraph-transfer/parts/part.NNN` scratch files. Up to 8 independently
-  bounded SSH streams run concurrently with VM13's BBR TCP congestion control
-  enabled for the lossy cross-region path. `--inplace --partial --no-whole-file`
-  with zstd compression retains changed blocks across failed attempts and
-  later releases. The last verified `current.tar` seeds the parts on first use,
-  and the parts are reassembled into a separate `current.tar.ready` file. No direct cn-dev GHCR pull, registry proxy, new daemon
-  or public port is required. This replaces the old temporary registry
-  transport: its unfinished large HTTP blob uploads were not resumable and
-  repeatedly exhausted 16/28-minute timeouts while consuming scratch space.
-  The 30-minute bounded transfer is within the 34-minute SSH command limit
-  and 50-minute Worker job. A truly cold transfer may need another run;
-  completed blocks remain staged, **not** interpreted as a successful delivery.
-  VM13 verifies the complete reassembled archive SHA256 before atomically
-  replacing `current.tar` and executing `docker load`
-  on cn-dev, then verifies the exact image ID and release revision label.
-  Only then does it record the existing content-addressed local image tag
-  (`eventgraph-dev:<image ID hex>`) and published digest pairing, and remove
-  the retired temporary registry/volume. After the verified archive replaces
-  `current.tar`, temporary parts (including obsolete tail chunks) are removed
-  **before** Docker layer unpacking. Only that verified archive remains in steady
-  state to seed later transfers. During transfer, parts plus `current.tar.ready`
-  can temporarily use two additional archive-sized copies. The preflight requires
-  twice the new archive size plus 256 MiB free on a cold transfer; on resumption
-  it credits already-staged chunks (capped at one new archive size), and first
-  removes any abandoned `current.tar.ready`. Incomplete transfers retain parts
-  for the next attempt; no per-release archive accumulates. The existing `scripts/ci/deploy-image.sh` then deploys
-  only cn-dev's Worker, runs idempotent setup, checks the running revision and
-  fresh heartbeat, and rolls back to the previous local image on failure.
-  No Web/API containers run on cn-dev, and superseded images are pruned to
-  keep the host's disk bounded.
-
-A failed worker delivery or deploy never blocks the VM13 preview, and the VM13
-job never waits for cn-dev. Both deployments use the pre-existing
-`EVENTGRAPH_DEV_*` variables and credentials. The runner pins cn-dev's host key
-fingerprint (`secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT`) on its own SSH hops, and
-the same pin authorizes the VM13→cn-dev legs: `export-image-vm13.sh` and the
-database-tunnel bootstrap in `deploy-vm13-preview.sh` scan both host-key
-algorithms sshd offers (ed25519 and ECDSA — the pin may be for either, like the
-pinned VM13 key in the workflow) and accept only the scanned key whose
-fingerprint matches, writing it to a dedicated `known_hosts.cndev` that is
-rewritten on every run and pinning that algorithm for the connection.
-
+The former `deploy_dev_worker` path (export/rsync delivery of the Worker image
+to cn-dev) was removed on 2026-11-02 when the development environment stopped
+running its own worker and database; the full dump backup of the former
+development database lives on cn-dev at `~/aihot-dev-final-20261101.dump`.
 
 ### Documentation-only commits and release ordering
 
 Push Check runs use per-commit SHA concurrency groups so later docs commits
-cannot replace a pending code build. The publish and both development deploy
-gates consider a newer docs-only HEAD non-superseding, but reject any later
+cannot replace a pending code build. The publish and the development deploy
+gate considers a newer docs-only HEAD non-superseding, but reject any later
 executable change. Because checkout defaults to shallow Git history, those
 gates fetch complete ancestry on a changed tip before testing git ancestry.
 This avoids silently dropping the most recent code release without extending
