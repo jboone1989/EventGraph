@@ -1,6 +1,7 @@
 // What the checks share: the site's pages, sample pages found through the site's own API, and the
 // failures every page is checked for.
 import { expect, type Page, type TestInfo } from "@playwright/test";
+import { readSiteJSON, requireSamples } from "./data.ts";
 
 /** Pages every site has, data or not. */
 export const PAGES = [
@@ -20,17 +21,19 @@ export interface Samples {
 
 /** One of each kind of content page the site has now, read from the same API the pages read. */
 export async function samples(baseURL: string): Promise<Samples> {
-  const get = (path: string) => fetch(baseURL + path, { signal: AbortSignal.timeout(20_000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const get = (path: string) => readSiteJSON(baseURL, path);
   const [timeline, hot, daily, topics, graph] = await Promise.all([
     get("/api/site/timeline"), get("/api/site/hot"), get("/api/site/reports/daily/latest-page"), get("/api/site/topics"), get("/api/site/knowledge/overview"),
   ]);
-  return {
+  const result = {
     item: timeline?.cards?.[0]?.item?.id,
     story: hot?.entries?.[0]?.story?.publicId,
     daily: daily?.report?.key,
     topic: topics?.topics?.[0]?.slug,
     entity: graph?.edges?.[0]?.subject?.key,
   };
+  requireSamples(result);
+  return result;
 }
 
 /** The content pages of `s`, Chinese and English. */
