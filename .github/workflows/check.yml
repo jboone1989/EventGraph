@@ -129,7 +129,7 @@ jobs:
           version: v1.0.1
       - name: Compile GH-AW workflows in strict mode
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
-        run: gh aw compile eventgraph-worker eventgraph-dispatcher eventgraph-project-ops --strict --approve --no-check-update
+        run: gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update
       - name: Verify GH-AW intake and compiled proxy arguments
         if: hashFiles('.github/workflows/eventgraph-*.md') != ''
         run: node --test scripts/ci/eventgraph-work-intake.test.mjs scripts/ci/gh-aw-proxy-path.test.mjs
