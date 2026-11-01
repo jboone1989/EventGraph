@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dispatchProjectOps } from "./eventgraph-work-queue-guards.mjs";
 
 export const REPOSITORY = "jboone1989/EventGraph";
 export const OWNER = "jboone1989";
@@ -131,7 +130,7 @@ export function labelIssue(issueNumber) {
 }
 
 export function runIntake(event, overrides = {}) {
-  const steps = { verifySpec, submitWork, labelIssue, dispatchGate, dispatchProjectOps, ...overrides };
+  const steps = { verifySpec, submitWork, labelIssue, dispatchGate, ...overrides };
   const admission = parseAdmission(event);
   if (!admission) {
     process.stdout.write("Ignored: this is not an owner-authored agent-ready Issue event.\n");
@@ -141,7 +140,6 @@ export function runIntake(event, overrides = {}) {
   steps.submitWork(buildWorkPayload(admission), admission.issue.number);
   steps.labelIssue(admission.issue.number);
   steps.dispatchGate();
-  steps.dispatchProjectOps();
   process.stdout.write(`Submitted idempotent Work for Issue #${admission.issue.number}, labeled it agent-work, and requested a dispatch-gate run.\n`);
   return "submitted";
 }
