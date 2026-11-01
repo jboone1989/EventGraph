@@ -18,6 +18,7 @@ function handlePrClosed(event, actions) {
 
 export function handleWorkerCompletion(event, overrides = {}) {
   const actions = {
+    getOpenAgentWorkPrs, dispatchGate, dispatchCheck,
     verifySuccessfulWorkerRun, parseWorkerMarker, validateAgentWorkPr, ...overrides,
   };
   if (event?.action === "closed" && event.pull_request) return handlePrClosed(event, actions);
