@@ -77,9 +77,9 @@ test("representative runtime changes request a release", () => {
     ["apps/web/app.ts", "export const value = 2;\n"],
     ["packages/backend/index.ts", "export const backend = 2;\n"],
     ["Dockerfile", "FROM node:25\n"],
-    ["package.json", "{\\"changed\\":true}\n"],
+    ["package.json", JSON.stringify({ changed: true }) + "\n"],
     ["database/001.sql", "select 2;\n"],
-    ["docker-compose.yml", "services:\\n  web: {}\\n"],
+    ["docker-compose.yml", ["services:", "  web: {}"].join("\n") + "\n"],
   ]) {
     const f = fixture();
     try {
