@@ -139,16 +139,6 @@ export function dispatchGate() {
   gh(["workflow", "run", "eventgraph-dispatch-gate.yml", "--repo", REPOSITORY, "--ref", "main"]);
 }
 
-export function dispatchProjectOps() {
-  // The Project view is best effort by design: until it is configured (or if
-  // it is disabled), its absence must never fail the completion pipeline.
-  try {
-    gh(["workflow", "run", "eventgraph-project-ops.lock.yml", "--repo", REPOSITORY, "--ref", "main"]);
-  } catch (error) {
-    process.stderr.write(`ProjectOps dispatch skipped: ${error.message}\n`);
-  }
-}
-
 export function dispatchNext() {
   gh(["aw", "work-queue", "--repo", REPOSITORY, "dispatch", "eventgraph-dispatcher", "--wait"]);
 }

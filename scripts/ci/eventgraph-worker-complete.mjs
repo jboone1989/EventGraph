@@ -3,7 +3,6 @@ import {
   isWorkerRun,
   dispatchCheck,
   dispatchGate,
-  dispatchProjectOps,
   getOpenAgentWorkPrs,
   parseWorkerMarker,
   validateAgentWorkPr,
@@ -14,13 +13,12 @@ function handlePrClosed(event, actions) {
   const labels = (event.pull_request.labels ?? []).map((label) => label.name);
   if (!labels.includes("agent-work")) return "ignored-non-agent-close";
   actions.dispatchGate();
-  actions.dispatchProjectOps();
   return "gate-dispatched";
 }
 
 export function handleWorkerCompletion(event, overrides = {}) {
   const actions = {
-    getOpenAgentWorkPrs, dispatchGate, dispatchProjectOps, dispatchCheck,
+    getOpenAgentWorkPrs, dispatchGate, dispatchCheck,
     verifySuccessfulWorkerRun, parseWorkerMarker, validateAgentWorkPr, ...overrides,
   };
   if (event?.action === "closed" && event.pull_request) return handlePrClosed(event, actions);
@@ -37,7 +35,6 @@ export function handleWorkerCompletion(event, overrides = {}) {
       throw new Error(`Failed Worker run ${run.id} still has open agent-work PR #${matching[0].number}`);
     }
     actions.dispatchGate();
-    actions.dispatchProjectOps();
     return "gate-dispatched";
   }
   if (matching.length > 1) {
@@ -49,14 +46,12 @@ export function handleWorkerCompletion(event, overrides = {}) {
     // without a PR, and a code Work whose PR vanished surfaces here loudly.
     process.stdout.write(`Warning: successful Worker run ${run.id} has no matching open agent-work PR; continuing the queue.\n`);
     actions.dispatchGate();
-    actions.dispatchProjectOps();
     return "gate-dispatched";
   }
   const pr = matching[0];
   actions.validateAgentWorkPr(pr);
   actions.verifySuccessfulWorkerRun(run.id);
   actions.dispatchCheck(pr);
-  actions.dispatchProjectOps();
   return "check-dispatched";
 }
 

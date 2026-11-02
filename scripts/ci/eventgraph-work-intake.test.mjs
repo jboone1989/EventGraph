@@ -101,11 +101,10 @@ test("labels the Issue agent-work only after the Work submit succeeds, then trig
     submitWork: (payload, issueNumber) => calls.push(["submit", issueNumber]),
     labelIssue: issueNumber => calls.push(["label", issueNumber]),
     dispatchGate: () => calls.push(["gate"]),
-    dispatchProjectOps: () => calls.push(["project-ops"]),
   });
   assert.equal(result, "submitted");
   assert.deepEqual(calls, [
-    ["verify"], ["submit", 42], ["label", 42], ["gate"], ["project-ops"],
+    ["verify"], ["submit", 42], ["label", 42], ["gate"],
   ]);
 });
 
@@ -116,7 +115,6 @@ test("a failed Work submit leaves the Issue unlabeled and dispatches nothing", (
     submitWork: () => { throw new Error("queue rejected the Work"); },
     labelIssue: () => calls.push(["label"]),
     dispatchGate: () => calls.push(["gate"]),
-    dispatchProjectOps: () => calls.push(["project-ops"]),
   }), /queue rejected the Work/);
   assert.deepEqual(calls, [["verify"]]);
 });
@@ -128,7 +126,6 @@ test("non-admission events run no steps", () => {
     submitWork: () => calls.push("submit"),
     labelIssue: () => calls.push("label"),
     dispatchGate: () => calls.push("gate"),
-    dispatchProjectOps: () => calls.push("project-ops"),
   });
   assert.equal(result, "ignored");
   assert.deepEqual(calls, []);
