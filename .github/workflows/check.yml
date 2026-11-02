@@ -715,29 +715,3 @@ jobs:
           command_timeout: 8m
           version: '1.8.2'
           script_path: scripts/ci/smoke-vm13.sh
-  resume_gh_aw_queue:
-    needs: [changes, check, e2e, publish]
-    if: >-
-      ${{ always() && (vars.EVENTGRAPH_GH_AW_QUEUE_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-          github.ref_name == 'develop' &&
-          needs.check.result == 'success' &&
-          ((needs.changes.outputs.docs_only == 'true' &&
-            needs.e2e.result == 'skipped' && needs.publish.result == 'skipped') ||
-           (needs.changes.outputs.docs_only != 'true' &&
-            needs.e2e.result == 'success' && needs.publish.result == 'success')) }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: write
-    steps:
-      - name: Verify current develop head and request next GH-AW dispatch gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
-          [[ "$current" == "$SOURCE_SHA" ]] || { echo 'Develop advanced; no queue continuation'; exit 0; }
-          gh workflow run eventgraph-dispatch-gate.yml --repo "$GITHUB_REPOSITORY" --ref main
