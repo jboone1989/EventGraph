@@ -37,3 +37,20 @@
 
 - Deterministic tests cover both allowed control-plane differences and rejected runtime differences.
 - The real `main` post-merge workflow is the acceptance run for AC-5.
+
+## Amendment v2 · 2026-11-02: do not interpret control-only pushes as production releases
+
+**Evidence:** The 2026-11-02 `main` [Check run 41373293288](https://github.com/jboone1989/EventGraph/actions/runs/41373293288) failed in the `promote` job after merging control-plane-only PR #285. The pinned image SOURCE_SHA remains `f21d603b95efc7290fb2be12eadf6318eda3bd1e`, while current `main` genuinely differs at runtime paths (e.g. `apps/web/app/components/KnowledgeAtlasCanvas.tsx`, `apps/web/app/features/story/EventExplorer.tsx` and `apps/web/app/features/story/EventTimeMachine.tsx`). The existing equivalence guard correctly blocks releasing that older image as if it represented the newer runtime tree. The trigger is the problem: an unrelated `main` governance push was treated as a new release request.
+
+**Owner direction:** In the EventGraph conversation on 2026-11-02, the owner asked to finish the remaining pipeline work rather than stop at a merged PR. This amendment records the minimal, fail-closed control-only push separation; it does not authorize production deployment or weaken runtime-image equivalence.
+
+### Additional required behavior
+
+1. On a `main` push, classify the full pushed range from GitHub's `push.before` commit through current HEAD (not only the last commit). A push is a **release candidate** if it modifies any path outside the existing explicit `isPromotionControlPath` set, **or** modifies `.github/production-image.env`. Any missing/invalid `before` commit or invalid Git information fails closed.
+2. For a **control/governance-only push** (without a pin change), let the `promote` job complete successfully with an explicit **no release requested** message; skip pin validation, GHCR image checks and all production deployment steps; publish no `image_ref`. The PR's regular Check, Docker, E2E and independent reviewer remain unchanged.
+3. For an actual release candidate, execute the **existing unchanged** pinned SHA runtime-equivalence check, verified develop check/e2e/publish gate and immutable GHCR digest inspection. Runtime or pin drift never silently becomes a pass.
+4. `deploy_production` still requires a non-empty validated `image_ref` **and** the existing opt-in `EVENTGRAPH_PROD_AUTO_DEPLOY == true`; never enable it through this change.
+5. Add focused deterministic tests for control-only changes, pin changes, representative runtime changes, multi-commit ranges, and invalid commit SHAs. Keep all current promotion equivalence regression tests.
+6. No production host, GH-AW Work Queue policy, worker grants, provider/model or runtime image pin is changed.
+
+**Distinction from v1 AC-5:** That acceptance assumed only authorized control-file differences remained. As real runtime drift is now confirmed, no control-only push should attempt a release at all; explicit later release candidates must still either satisfy equivalence or fail. Do not claim the existing pinned image was newly promoted merely because a control-only push succeeded.
