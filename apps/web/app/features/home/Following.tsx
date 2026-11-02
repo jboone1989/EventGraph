@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { FeedItemSummary } from "@aihot/contracts/site";
-import { useFollows, type LocalFollow } from "../../lib/local-state";
+import { beginFeedVisit, useFollows, type LocalFollow } from "../../lib/local-state";
 import { DayList } from "../feed/DayList";
 import { EmptyState } from "../../components/ui/Page";
 import { enTopic } from "../../lib/english";
@@ -22,6 +22,8 @@ export function FollowingFeed() {
   const lang = useUiLanguage();
   const [data, setData] = useState<FollowingResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const [previousVisit, setPreviousVisit] = useState<string | null>(null);
+  useEffect(() => { setPreviousVisit(beginFeedVisit()); }, []);
   const query = new URLSearchParams({
     topics: follows.filter((f) => f.kind === "topic").map((f) => f.key).join(","),
     entities: follows.filter((f) => f.kind === "entity").map((f) => f.key).join(","),
@@ -71,7 +73,7 @@ export function FollowingFeed() {
       ) : data.items.length === 0 ? (
         <div className="lg:card"><EmptyState title={t("关注的主题和实体最近没有新报道", "Nothing new from what you follow")} /></div>
       ) : (
-        <DayList items={data.items} />
+        <DayList items={data.items} previousVisit={previousVisit} />
       )}
     </div>
   );
