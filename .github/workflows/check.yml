@@ -715,3 +715,5 @@ jobs:
           command_timeout: 8m
           version: '1.8.2'
           script_path: scripts/ci/smoke-vm13.sh
+
+# GH-AW Work Queue submit/dispatch uses the native CLI; this application workflow does not resume or dispatch queued Work.

@@ -1,4 +1,5 @@
 # EventGraph forwards only a successful Check's exact PR HEAD to the central reviewer.
+# GitHub branch protection and native PR actions own merge decisions; this workflow does not auto-merge.
 name: Forward PR to central GLM review
 
 on:
