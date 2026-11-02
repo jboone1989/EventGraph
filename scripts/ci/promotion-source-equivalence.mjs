@@ -14,22 +14,40 @@ export function isPromotionControlPath(path) {
     path === "docs/production-deployment.md";
 }
 
-export function runtimeDifferences(sourceSha, head = "HEAD", cwd = process.cwd()) {
-  if (!SHA.test(sourceSha)) throw new Error("SOURCE_SHA must be a 40-character lowercase commit SHA");
+function diffPaths(before, after, cwd) {
   const git = (...args) => execFileSync("git", args, {
     cwd,
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
   });
-  git("cat-file", "-e", `${sourceSha}^{commit}`);
-  git("cat-file", "-e", `${head}^{commit}`);
-  return git("diff", "--no-renames", "--name-only", "-z", sourceSha, head, "--")
+  git("cat-file", "-e", `${before}^{commit}`);
+  git("cat-file", "-e", `${after}^{commit}`);
+  return git("diff", "--no-renames", "--name-only", "-z", before, after, "--")
     .split("\0")
-    .filter(Boolean)
-    .filter(path => !isPromotionControlPath(path));
+    .filter(Boolean);
+}
+
+export function runtimeDifferences(sourceSha, head = "HEAD", cwd = process.cwd()) {
+  if (!SHA.test(sourceSha)) throw new Error("SOURCE_SHA must be a 40-character lowercase commit SHA");
+  return diffPaths(sourceSha, head, cwd).filter(path => !isPromotionControlPath(path));
+}
+
+export function releaseInputDifferences(beforeSha, head = "HEAD", cwd = process.cwd()) {
+  if (!SHA.test(beforeSha) || /^0+$/.test(beforeSha)) {
+    throw new Error("BEFORE_SHA must identify an existing 40-character lowercase commit SHA");
+  }
+  // A forced or unrelated history is not a safe basis for declaring 'no release'.
+  execFileSync("git", ["merge-base", "--is-ancestor", beforeSha, head], { cwd, stdio: "ignore" });
+  return diffPaths(beforeSha, head, cwd)
+    .filter(path => path === ".github/production-image.env" || !isPromotionControlPath(path));
 }
 
 function main() {
+  if (process.argv[2] === "--classify-push") {
+    const [beforeSha, head = "HEAD"] = process.argv.slice(3);
+    console.log(releaseInputDifferences(beforeSha, head).length ? "true" : "false");
+    return;
+  }
   const [sourceSha, head = "HEAD"] = process.argv.slice(2);
   const differences = runtimeDifferences(sourceSha, head);
   if (differences.length) {
