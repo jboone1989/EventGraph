@@ -23,11 +23,11 @@ export function classifyPromotionPush(beforeSha, head = "HEAD", cwd = process.cw
     throw new Error("HEAD must be HEAD or a 40-character lowercase commit SHA");
   }
 
-  git(cwd, "cat-file", "-e", `${beforeSha}^{commit}`);
-  git(cwd, "cat-file", "-e", `${head}^{commit}`);
+  git(cwd, "cat-file", "-e", \`\${beforeSha}^{commit}\`);
+  git(cwd, "cat-file", "-e", \`\${head}^{commit}\`);
 
   const changedPaths = git(cwd, "diff", "--no-renames", "--name-only", "-z", beforeSha, head, "--")
-    .split("\\0")
+    .split("\0")
     .filter(Boolean);
   const pinChanged = changedPaths.includes(PIN_PATH);
   const releasePaths = changedPaths.filter(path => path === PIN_PATH || !isPromotionControlPath(path));
@@ -43,10 +43,10 @@ export function classifyPromotionPush(beforeSha, head = "HEAD", cwd = process.cw
 function main() {
   const [beforeSha, head = "HEAD"] = process.argv.slice(2);
   const result = classifyPromotionPush(beforeSha, head);
-  console.log(`release_candidate=${result.releaseCandidate}`);
-  console.log(`pin_changed=${result.pinChanged}`);
+  console.log(\`release_candidate=\${result.releaseCandidate}\`);
+  console.log(\`pin_changed=\${result.pinChanged}\`);
   if (result.releaseCandidate) {
-    console.log(`release_reason=${result.pinChanged ? "production-pin-changed" : "runtime-source-changed"}`);
+    console.log(\`release_reason=\${result.pinChanged ? "production-pin-changed" : "runtime-source-changed"}\`);
   } else {
     console.log("release_reason=control-only-update");
     console.log("::notice::Control/governance-only main update; no production release requested.");
