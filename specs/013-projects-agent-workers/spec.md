@@ -90,9 +90,9 @@ The intended change is horizontal parallelism of up to two concurrent Works on t
 
 ### Real end-to-end acceptance
 
-- [ ] Two real owner-authorized Works — story-detail-dedup P-4 (empty-clue card still shown, unimplemented) and FR-011 ("new since last visit", unimplemented) — are each submitted once through the existing Producer; no duplicate Work IDs or PRs; no smoke Work stands in for acceptance.
-- [ ] The two real Worker runs' time windows overlap, each producing an independent PR whose body markers match its own Work/Issue.
-- [ ] Both Issues/PRs appear in the same Project with trackable status; if token/Project setup needs owner action, the exact single step is reported, not claimed done.
+- [x] The original owner-authorized #276 (P-4) and #277 (FR-011) native Works were each submitted once through Producer under their stable request IDs. Both are now terminally cancelled in the native Work Queue ledger: #276 `attempts_exhausted`, #277 `budget_exhausted`. These failed attempts **did not** deliver native code PRs, so the original overlapping-run/PR acceptance criterion is superseded, **not passed**; do not replay their idempotent Work IDs.
+- [ ] Prove **new, independently owner-authorized real code Work** through the native Producer → GH-AW Claim → Worker → new `agent-work` PR with matching Issue/Work/Run markers → exact-head Check/Docker/E2E/independent GLM → normal merge into `develop` → event-driven queue continuation. One no-write smoke is not acceptable evidence, nor is direct recovery code. Verify concurrency 2 only when at least two separate authorized real Works exist; do not spend on artificial overlap tests.
+- [ ] Confirm original issues and delivery PRs have truthful Project status: #276 recovered directly by merged PR #295; #277 direct recovery PR #296 may be open until its actual merge. Native Project closed/merged automations may complete only on actual events. Do not count either direct PR toward autonomous delivery acceptance.
 
 ### Operational constraints (retained)
 
