@@ -715,11 +715,16 @@ jobs:
           command_timeout: 8m
           version: '1.8.2'
           script_path: scripts/ci/smoke-vm13.sh
-  resume_gh_aw_queue:
+
+  # Re-enter the official GH-AW queue only after this exact develop SHA has
+  # passed the existing application checks. No custom Work selection or gate.
+  resume_native_queue:
     needs: [changes, check, e2e, publish]
     if: >-
-      ${{ always() && (vars.EVENTGRAPH_GH_AW_QUEUE_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      ${{ always() && vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
+          (github.event_name == 'push' ||
+           (github.event_name == 'workflow_dispatch' &&
+            inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
           github.ref_name == 'develop' &&
           needs.check.result == 'success' &&
           ((needs.changes.outputs.docs_only == 'true' &&
@@ -727,17 +732,37 @@ jobs:
            (needs.changes.outputs.docs_only != 'true' &&
             needs.e2e.result == 'success' && needs.publish.result == 'success')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: write
+    timeout-minutes: 10
     steps:
-      - name: Verify current develop head and request next GH-AW dispatch gate
+      - name: Install official GH-AW Work Queue CLI
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Dispatch next native Work if still eligible
+        shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          EXPECTED_HEAD: ${{ github.sha }}
         run: |
           set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
           current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
-          [[ "$current" == "$SOURCE_SHA" ]] || { echo 'Develop advanced; no queue continuation'; exit 0; }
-          gh workflow run eventgraph-dispatch-gate.yml --repo "$GITHUB_REPOSITORY" --ref main
+          [[ "$current" == "$EXPECTED_HEAD" ]] || { echo 'Develop advanced; no dispatch'; exit 0; }
+          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq 'length')"
+          [[ "$open" == 0 ]] || { echo 'Open agent-work PR; serialization blocks dispatch'; exit 0; }
+          snapshot="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" stats --json 2>&1)"
+          jq -e '
+            (.grants_paused | type == "boolean") and
+            (.pools | type == "array") and
+            all(.pools[]; (.pool | type == "string") and (.scheduling_eligible | type == "number"))
+          ' <<< "$snapshot" >/dev/null || {
+            echo '::error::Native queue stats missing or malformed'; exit 1;
+          }
+          if ! jq -e '
+            .grants_paused == false and
+            ([.pools[] | select(.pool == "default") | .scheduling_eligible] | add // 0) > 0
+          ' <<< "$snapshot" >/dev/null; then
+            echo 'Queue paused or no eligible Work; no dispatch'
+            exit 0
+          fi
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
