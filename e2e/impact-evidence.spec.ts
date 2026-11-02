@@ -22,13 +22,19 @@ for (const edition of [{ lang: "en", path: "/en/explore?story=", impactTab: "Imp
       }
       const workbench = page.locator('[data-testid="impact-evidence"]');
       await expect(workbench).toBeVisible();
-      await expect(workbench.locator("[data-impact-area]")).toHaveCount(4);
+      const areaCards = workbench.locator("[data-impact-area]");
+      await expect(workbench.getByText(/^0 (?:条线索|leads)$/)).toHaveCount(0);
+      if (await areaCards.count() === 0) {
+        await expect(workbench).toContainText(edition.lang === "en"
+          ? "No verifiable impact leads or comparable market snapshots at this time"
+          : "当前时点没有可核查的影响线索或完整可比的市场快照");
+      }
       if (edition.lang === "en") {
         await expect(workbench).toContainText("not proof of a policy action");
-        await expect(workbench).toContainText("cannot verify company exposure");
+        await expect(workbench).not.toContainText("cannot verify company exposure");
         await expect(workbench).toContainText("bounded");
       } else {
-        await expect(workbench).toContainText("当前数据无法核实企业暴露或供应依赖");
+        await expect(workbench).not.toContainText("当前数据无法核实企业暴露或供应依赖");
       }
 
       // The typed fact-station list: layer badge, honest empty state, expandable source drawer.

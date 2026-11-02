@@ -7,13 +7,10 @@ import { IMPACT_AREAS, impactLeadsAt, marketObservationAt, type ImpactArea, type
 import { EvidenceRow } from "./StationEvidence";
 import { isRevisedRevision } from "./impact-layers";
 
-const COPY: Record<ImpactArea, [string, string, string, string]> = {
-  policy: ["政策报道线索", "Policy reporting", "没有可核查的政策报道线索，不能据此断言没有政策变化。",
-    "No policy reporting lead found; this does not prove there was no policy change."],
-  logistics: ["航运与供应链", "Logistics & supply", "没有可核查的航运或供应链线索；不推断供应中断。",
-    "No shipping or supply-chain lead found; disruption is not inferred."],
-  companies: ["企业影响线索", "Company-impact reporting", "没有可核查的企业影响线索；公司被提及不等于受到损失。当前数据无法核实企业暴露或供应依赖。",
-    "No company exposure lead found; a mention alone does not establish impact. Current data cannot verify company exposure or supply dependence."],
+const COPY: Record<ImpactArea, [string, string]> = {
+  policy: ["政策报道线索", "Policy reporting"],
+  logistics: ["航运与供应链", "Logistics & supply"],
+  companies: ["企业影响线索", "Company-impact reporting"],
 };
 const price = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n >= 100 ? 1 : 4 });
 
@@ -50,6 +47,8 @@ export function ImpactEvidence({ story, route, market, asOf, clock }: {
   const t = useText(), lang = useUiLanguage();
   const leads = impactLeadsAt(route, story.timeline, asOf, clock);
   const observed = marketObservationAt(market, asOf);
+  const visibleAreas = IMPACT_AREAS.filter(area => leads[area].length > 0);
+  const showMarket = !!observed?.assets.length;
   const sourceName = (name: string, url: string) => {
     if (lang !== "en" || !hasHan(name)) return name;
     try { return new URL(url).hostname.replace(/^www\./, ""); }
@@ -69,15 +68,16 @@ export function ImpactEvidence({ story, route, market, asOf, clock }: {
         {clock === "known" ? t("当时已收录", "Seen by cutoff") : t("当时已发布", "Published by cutoff")}
       </span>
     </header>
-    <div className="mt-4 grid gap-3 md:grid-cols-2">
-      {IMPACT_AREAS.map(area => {
+    {visibleAreas.length > 0 || showMarket ? (
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+      {visibleAreas.map(area => {
         const rows = leads[area].slice(0, 4), copy = COPY[area];
         return <section key={area} data-impact-area={area} className="min-w-0 rounded-panel border border-line-soft bg-bg-sunk/30 p-3.5">
           <h4 className="flex items-baseline justify-between gap-2 text-[13.5px] font-semibold text-ink">
             <span>{lang === "zh" ? copy[0] : copy[1]}</span>
             <span className="num text-[11px] font-normal text-ink-4">{leads[area].length} {t("条线索","leads")}</span>
           </h4>
-          {rows.length ? <ul className="mt-2 divide-y divide-line-soft">
+          <ul className="mt-2 divide-y divide-line-soft">
             {rows.map(row => {
               const heading = lang === "zh" ? row.title :
                 englishText(row.englishTitle) ?? englishText(row.title) ?? "Original-language report";
@@ -93,21 +93,21 @@ export function ImpactEvidence({ story, route, market, asOf, clock }: {
                 <LeadEvidenceDrawer lead={row} clock={clock} />
               </li>;
             })}
-          </ul> : <p className="mt-2 text-[12.5px] leading-relaxed text-ink-4">{lang === "zh" ? copy[2] : copy[3]}</p>}
+          </ul>
           {leads[area].length > rows.length && <p className="mt-2 text-[11.5px] text-ink-4">
             {t("仅展示前四条线索。", "Showing first four leads.")}
           </p>}
         </section>;
       })}
-      <section data-impact-area="markets" className="min-w-0 rounded-panel border border-line-soft bg-bg-sunk/30 p-3.5">
+      {showMarket && <section data-impact-area="markets" className="min-w-0 rounded-panel border border-line-soft bg-bg-sunk/30 p-3.5">
         <h4 className="text-[13.5px] font-semibold text-ink">{t("市场观测","Market observations")}</h4>
-        {observed?.assets.length ? <>
+        <>
           <p className="mt-1 text-[11.5px] leading-relaxed text-ink-4">
             {t("所选时点已记录的交易所现货快照，不是跨市场归因研究。",
               "Exchange spot snapshots recorded by this cutoff, not an attribution analysis.")}
           </p>
           <ul className="mt-2 divide-y divide-line-soft">
-            {observed.assets.map(row => <li key={row.asset} className="py-2 text-[12.5px]">
+            {observed?.assets.map(row => <li key={row.asset} className="py-2 text-[12.5px]">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="font-mono font-semibold text-ink">{row.asset} / USDT</span>
                 <span className="font-mono text-ink-2">{row.changePercent > 0 ? "+" : ""}{row.changePercent.toFixed(2)}%</span>
@@ -116,12 +116,15 @@ export function ImpactEvidence({ story, route, market, asOf, clock }: {
               <p className="mt-0.5 text-[11px] text-ink-4">{localizedMonthDayTime(row.before.at,lang)} → {localizedMonthDayTime(row.after.at,lang)}</p>
             </li>)}
           </ul>
-        </> : <p className="mt-2 text-[12.5px] leading-relaxed text-ink-4">
-          {t("该时点没有完整可比的市场快照。油气、运价及股票尚未覆盖。",
-            "No complete comparable snapshots at this cutoff. Oil, freight and equities are not yet covered.")}
-        </p>}
-      </section>
-    </div>
+        </>
+      </section>}
+      </div>
+    ) : (
+      <p role="status" className="mt-4 text-[12.5px] leading-relaxed text-ink-4">
+        {t("当前时点没有可核查的影响线索或完整可比的市场快照；资料不足，不能据此判断不存在影响或官方立场。",
+          "No verifiable impact leads or comparable market snapshots at this time; missing evidence does not establish no impact or official position.")}
+      </p>
+    )}
     <p className="mt-3 text-[11.5px] leading-relaxed text-ink-4">
       {t("当前公开事件内的关键词线索，不是已核验的政策状态或企业供应链关系。报道文字可能被事后修订，双时间视图是有界重建。",
         "Keyword leads from currently public reports, not verified policy states or supplier relationships. Copy may have been revised later; time replay is bounded.")}
