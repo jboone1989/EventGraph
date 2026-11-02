@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -161,5 +162,24 @@ test("missing, all-zero and non-ancestor push commits fail closed", () => {
     assert.throws(() => releaseInputDifferences(f.head, f.base, f.cwd));
   } finally {
     rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("production --classify-push CLI emits exact release intent for runtime, pin and control changes", () => {
+  const executable = fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url));
+  for (const [changes, expected] of [
+    [{ "apps/web/app.ts": "export const value = 2;\\n" }, "true"],
+    [{ ".github/production-image.env": "SOURCE_SHA=updated\\n" }, "true"],
+    [{ ".github/workflows/check.yml": "name: Control-only\\n" }, "false"],
+  ]) {
+    const f = fixture(changes);
+    try {
+      const result = spawnSync(process.execPath,
+        [executable, "--classify-push", f.base, f.head], { cwd: f.cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), expected);
+    } finally {
+      rmSync(f.cwd, { recursive: true, force: true });
+    }
   }
 });
