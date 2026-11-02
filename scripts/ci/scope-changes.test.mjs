@@ -194,9 +194,10 @@ test("push runs use per-commit concurrency so a docs commit cannot evict queued 
   assert.ok(wf.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"));
 });
 
-test("all three release gates restore shallow ancestry on later docs tips", () => {
+test("every remaining release gate restores shallow ancestry on later docs tips", () => {
   const wf = readFileSync(resolve(".github/workflows/check.yml"), "utf8");
-  assert.equal((wf.match(/git fetch --unshallow origin "\$current"/g) ?? []).length, 3);
+  // One occurrence per release-gate deploy job (dev-worker deploy removed 2026-11-02).
+  assert.equal((wf.match(/git fetch --unshallow origin "\$current"/g) ?? []).length, 2);
 });
 
 test("shallow checkout needs complete history to recognize a docs-only successor", () => {

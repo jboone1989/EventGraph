@@ -33,6 +33,8 @@
 | AC-6 | Code PRs and code pushes run full CI, without skipped required app tests | a real code PR and subsequent develop push; latest SHA Check/Docker/E2E/Claude and VM13/Worker verification |
 | AC-7 | Race: code commit A followed by docs-only B before A publishes does **not** lose the deploy: A still publishes/deploys; A followed by any later code commit C is superseded | real CI run or deterministic workflow simulation with A→B and A→C (also A→B→C) plus A code running → B code queued → C docs pushed; verify B's run is not replaced and B builds/deploys, check both publish and the two independently gated deployment jobs |
 
+> 2026-11-02 注记：开发环境退役，`deploy_dev_worker` 作业已删除；AC-5/AC-7 中涉及该作业的部分随之失效，`publish`、`deploy_vm13_preview` 与 `e2e_vm13_preview` 行为不变。
+
 ## Validation
 
 - Unit: `node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs` runs in CI for every PR, documentation-only included.

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Deploy a tested develop digest to VM13 as development Web + API. The API reaches
-# the isolated cn-dev development PostgreSQL through an on-host SSH tunnel; it never
-# contacts production. cn-dev keeps the worker and collection workloads.
+# the production PostgreSQL and knowledge service through an on-host SSH tunnel to
+# the production host. The development environment runs no worker or database of
+# its own: collection and judging happen only in the production stack.
 set -eu
 : "${EVENTGRAPH_IMAGE:?immutable GHCR digest required}"
 : "${EVENTGRAPH_PREVIEW_RELEASE:?release SHA required}"
@@ -18,9 +19,10 @@ mkdir -p deploy
 
 compose_file=docker-compose.vm13-preview.yml
 env_file=vm13.env
-tunnel_unit=eventgraph-dev-db-tunnel
-cn_dev_host=43.142.127.40
+tunnel_unit=eventgraph-prod-db-tunnel
+prod_host=43.133.181.149
 tunnel_port=15432
+knowledge_port=15434
 [ -f "$env_file" ] || { echo "Missing $env_file (docs/vm13-preview.md)" >&2; exit 1; }
 grep -q '^DATABASE_URL=.*@devdb:'"$tunnel_port"'/' "$env_file" \
   || { echo "$env_file DATABASE_URL must target devdb:$tunnel_port" >&2; exit 1; }
@@ -44,39 +46,48 @@ revision="$(sudo -n docker image inspect --format '{{index .Config.Labels "org.o
   || { echo "Image revision $revision does not match release $EVENTGRAPH_PREVIEW_RELEASE" >&2; exit 1; }
 image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")"
 
-# The tunnel is the only network path to the development database: SSH from VM13 to
-# cn-dev (existing key), forwarding a port bound to loopback and the docker bridge
-# gateway. No database port is opened to the internet on either host.
+# The tunnel is the only network path to the production database and knowledge
+# service: SSH from VM13 to the production host (existing key), forwarding ports
+# bound to loopback and the docker bridge gateway to the two containers'
+# compose-network addresses. No database port is opened to the internet on
+# either host. The container IPs change only if those containers are recreated;
+# a stale address fails the deploy visibly instead of misrouting data.
 bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-# Pin cn-dev's host key for the tunnel: the runner verifies this fingerprint
-# (secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the same pin
-# must authorize the VM13→cn-dev tunnel before the unit below connects. The
-# pin is for whichever host-key algorithm the runner's client verifies (the
-# pinned VM13 key in check.yml is ECDSA, not ed25519), so both algorithms
-# sshd offers are scanned and only the scanned key whose fingerprint matches
-# the pin is trusted — in a dedicated file rewritten on every run — and the
-# connection is pinned to that algorithm so StrictHostKeyChecking matches the
-# single entry.
-: "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned cn-dev host key fingerprint (SHA256:...) required}"
+db_ip="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "ubuntu@$prod_host" \
+  'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')"
+knowledge_ip="$(ssh -o BatchMode=yes ubuntu@$prod_host \
+  'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')"
+[ -n "$db_ip" ] && [ -n "$knowledge_ip" ] \
+  || { echo "Could not read production container addresses from $prod_host" >&2; exit 1; }
+# Pin the production host key for the tunnel: the runner verifies this
+# fingerprint (secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the
+# same pin must authorize the VM13→production tunnel before the unit below
+# connects. The pin is for whichever host-key algorithm the runner's client
+# verifies (the pinned VM13 key in check.yml is ECDSA, not ed25519), so both
+# algorithms sshd offers are scanned and only the scanned key whose fingerprint
+# matches the pin is trusted — in a dedicated file rewritten on every run — and
+# the connection is pinned to that algorithm so StrictHostKeyChecking matches
+# the single entry.
+: "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned production host key fingerprint (SHA256:...) required}"
 mkdir -p "${HOME}/.ssh"
-CNDEV_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.cndev"
-cndev_scan="$(mktemp "${CNDEV_KNOWN_HOSTS}.XXXXXX")"
-ssh-keyscan -T 10 -t ed25519,ecdsa "$cn_dev_host" 2>/dev/null | awk -v h="$cn_dev_host" '$1 == h' > "$cndev_scan"
-[ -s "$cndev_scan" ] || { echo "ssh-keyscan failed for $cn_dev_host" >&2; rm -f "$cndev_scan"; exit 1; }
-cndev_hit="$(ssh-keygen -lf "$cndev_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { print NR; exit }')"
-[ -n "$cndev_hit" ] || { echo "cn-dev host key does not match the pinned fingerprint; refusing" >&2; rm -f "$cndev_scan"; exit 1; }
-awk -v n="$cndev_hit" 'NR == n' "$cndev_scan" > "${cndev_scan}.ok" && mv "${cndev_scan}.ok" "$CNDEV_KNOWN_HOSTS"
-rm -f "$cndev_scan"
-cndev_algo="$(awk '{print $2; exit}' "$CNDEV_KNOWN_HOSTS")"
+PROD_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.prod"
+prod_scan="$(mktemp "${PROD_KNOWN_HOSTS}.XXXXXX")"
+ssh-keyscan -T 10 -t ed25519,ecdsa "$prod_host" 2>/dev/null | awk -v h="$prod_host" '$1 == h' > "$prod_scan"
+[ -s "$prod_scan" ] || { echo "ssh-keyscan failed for $prod_host" >&2; rm -f "$prod_scan"; exit 1; }
+prod_hit="$(ssh-keygen -lf "$prod_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { print NR; exit }')"
+[ -n "$prod_hit" ] || { echo "production host key does not match the pinned fingerprint; refusing" >&2; rm -f "$prod_scan"; exit 1; }
+awk -v n="$prod_hit" 'NR == n' "$prod_scan" > "${prod_scan}.ok" && mv "${prod_scan}.ok" "$PROD_KNOWN_HOSTS"
+rm -f "$prod_scan"
+prod_algo="$(awk '{print $2; exit}' "$PROD_KNOWN_HOSTS")"
 sudo -n tee "/etc/systemd/system/$tunnel_unit.service" >/dev/null <<UNIT
 [Unit]
-Description=EventGraph development database SSH tunnel to cn-dev
+Description=EventGraph production database and knowledge SSH tunnel for the VM13 preview
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 User=ubuntu
-ExecStart=/usr/bin/ssh -N -T -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts.cndev -o HostKeyAlgorithms=$cndev_algo -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519 -L 127.0.0.1:$tunnel_port:127.0.0.1:5432 -L $bridge_gw:$tunnel_port:127.0.0.1:5432 ubuntu@$cn_dev_host
+ExecStart=/usr/bin/ssh -N -T -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/home/ubuntu/.ssh/known_hosts.prod -o HostKeyAlgorithms=$prod_algo -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i /home/ubuntu/.ssh/id_ed25519 -L 127.0.0.1:$tunnel_port:$db_ip:5432 -L $bridge_gw:$tunnel_port:$db_ip:5432 -L 127.0.0.1:$knowledge_port:$knowledge_ip:8000 -L $bridge_gw:$knowledge_port:$knowledge_ip:8000 ubuntu@$prod_host
 Restart=always
 RestartSec=5
 
@@ -93,21 +104,6 @@ compose() {
     EVENTGRAPH_PREVIEW_RELEASE="$EVENTGRAPH_PREVIEW_RELEASE" \
     docker compose -f "$compose_file" "$@"
 }
-restore() {
-  echo "VM13 preview failed; restoring previous Compose and services" >&2
-  cp "$backup_compose" "$compose_file"
-  if [ -n "$previous_image" ]; then
-    EVENTGRAPH_APP_IMAGE="$previous_image"
-    export EVENTGRAPH_APP_IMAGE
-    compose up -d --no-build --pull never --force-recreate --remove-orphans api web || true
-  fi
-  exit 1
-}
-cp "$staged_compose" "$compose_file"
-compose config --quiet || restore
-
-# The API healthcheck is a real database round trip through the tunnel; wait for
-# the forwarded port on the docker bridge gateway before recreating the services.
 wait_for_db() {
   i=0
   while [ "$i" -lt 30 ]; do
@@ -121,9 +117,9 @@ wait_for_db() {
 }
 wait_for_db || { echo "Database tunnel did not become ready" >&2; restore; }
 
-# The development database remains on cn-dev, but the pinned image is already on
-# VM13. Run idempotent migrations and missing-source seed through the private DB
-# tunnel here; removing cn-dev's image deployment must not also remove setup.
+# The preview reads the production database through this tunnel. Run idempotent
+# migrations and missing-source seed here — the same steps a production deploy
+# runs — so the schema always matches the containers being started.
 compose run --rm --no-deps -T --entrypoint sh api -c 'node scripts/migrate.ts && node scripts/seed.ts' || restore
 
 compose up -d --no-build --pull never --force-recreate --remove-orphans api web || restore

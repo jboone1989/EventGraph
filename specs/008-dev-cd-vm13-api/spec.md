@@ -42,4 +42,4 @@
 
 ## 2026-10-27 superseding operator decision
 
-VM13 alone runs the development Web/API, while cn-dev remains the private database and Worker host. The former cn-dev `deploy_development` dependency contradicted this design and made VM13 CD dependent on unreliable image pulls. This revision supersedes AC-4 and the former dual-host application deployment; source seeding migrates to VM13 over the private database tunnel. Worker-only delivery remains a separate acceptance item, not silently treated as successful when only VM13 updated.
+VM13 alone runs the development Web/API, while cn-dev remains the private database and Worker host. The former cn-dev `deploy_development` dependency contradicted this design and made VM13 CD dependent on unreliable image pulls. This revision supersedes AC-4 and the former dual-host application deployment; source seeding migrates to VM13 over the private database tunnel. Worker-only delivery remains a separate acceptance item, not silently treated as successful when only VM13 updated. 2026-11-02 补充：开发环境已不再运行自己的 Worker 与数据库（开发站点经隧道直读生产库），Worker-only delivery 随 `deploy_dev_worker` 作业一并移除。
