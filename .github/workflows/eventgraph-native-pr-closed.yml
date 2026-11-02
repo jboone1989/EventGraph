@@ -15,6 +15,7 @@ jobs:
   resume:
     if: >-
       ${{ github.event.action == 'closed' &&
+          github.event.pull_request.merged == false &&
           vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
           github.event.pull_request.base.ref == 'develop' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
@@ -48,11 +49,14 @@ jobs:
             echo 'Native queue paused or no eligible Work; nothing to dispatch'
             exit 0
           fi
+          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq 'length')"
+          [[ "$open" == 0 ]] || { echo 'Open agent-work PR; no concurrent dispatch'; exit 0; }
           gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
 
   enable_native_auto_merge:
     if: >-
-      ${{ (github.event.action == 'opened' || github.event.action == 'labeled') &&
+      ${{ vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
+          (github.event.action == 'opened' || github.event.action == 'labeled') &&
           github.event.pull_request.base.ref == 'develop' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
           startsWith(github.event.pull_request.head.ref, 'agent/') &&
@@ -69,4 +73,14 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          # Verify GitHub's live develop Ruleset, not an unverified
+          # assumption that Check alone protects independent review.
+          gh api "repos/$GITHUB_REPOSITORY/rulesets/25775731" | jq -e '
+            .enforcement == "active" and
+            (.conditions.ref_name.include | index("refs/heads/develop") != null) and
+            any(.rules[]; .type == "required_status_checks" and
+              any(.parameters.required_status_checks[]; .context == "claude-review"))
+          ' >/dev/null || {
+            echo '::error::Develop branch must require independent claude-review'; exit 1;
+          }
           gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash
