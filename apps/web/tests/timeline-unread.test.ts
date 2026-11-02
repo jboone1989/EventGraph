@@ -62,6 +62,13 @@ const api = createServer((req, res) => {
     if (tag === "group") {
       return res.end(JSON.stringify({ filters: { channel: "all", category: null, tag: "group" }, cards: [groupCard, readGroupCard], nextCursor: null, hot: null, dayCounts: { "2026-10-04": 2 } }));
     }
+    if (tag === "since") {
+      return res.end(JSON.stringify({ filters: { channel: "all", category: null, tag }, cards: [
+        card("c1", "第一页文章甲"), card("c2", "第一页文章乙"),
+        card("older", "访问前报道", "2026-10-02T08:00:00.000Z"),
+        card("at-baseline", "访问当时报道", "2026-10-03T08:00:00.000Z"),
+      ], nextCursor: null, hot: null, dayCounts: { "2026-10-04": 2, "2026-10-03": 1, "2026-10-02": 1 } }));
+    }
     if (tag === "read") {
       return res.end(JSON.stringify({ filters: { channel: "all", category: null, tag: "read" }, cards: [card("c1", "第一页文章甲")], nextCursor: null, hot: null, dayCounts: { "2026-10-04": 1 } }));
     }
@@ -213,14 +220,21 @@ test("a returning reader sees only newly published unread reports; unread-only r
   });
   const page = await context.newPage();
   try {
-    await page.goto(origin + "/");
+    await page.goto(origin + "/?tag=since");
     const first = page.locator('[data-item-id="c1"]');
     const second = page.locator('[data-item-id="c2"]');
+    const older = page.locator('[data-item-id="older"]');
+    const atBaseline = page.locator('[data-item-id="at-baseline"]');
     await expect(first).toBeVisible();
     await expect(second.getByTestId("new-since-visit")).toBeVisible();
     await expect(first.getByTestId("new-since-visit")).toHaveCount(0);
+    await expect(older).toBeVisible();
+    await expect(atBaseline).toBeVisible();
+    await expect(older.getByTestId("new-since-visit")).toHaveCount(0);
+    await expect(atBaseline.getByTestId("new-since-visit")).toHaveCount(0);
     await page.getByRole("button", { name: "只看未读" }).click();
     await expect(second).toBeVisible();
+    await expect(second.getByTestId("new-since-visit")).toBeVisible();
     await expect(first).toHaveCount(0);
     assert.match(await page.evaluate(() => localStorage.getItem("eventgraph-feed-last-visit")) ?? "", /^20\d\d-/);
   } finally { await context.close(); }
