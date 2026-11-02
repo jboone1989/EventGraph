@@ -10,7 +10,7 @@ export async function loader({request}:Route.LoaderArgs){
 }
 export const meta:Route.MetaFunction=()=>[{title:"Provider 管理 · "+SITE.name+" 后台"}];
 export default function ModelsAdmin({loaderData}:Route.ComponentProps){
- return <AdminPage title="Provider 管理" subtitle="管理厂商连接、凭据和模型；支持手动添加、发现导入及独立能力测试。"
+ return <AdminPage title="Provider 管理" subtitle="管理厂商连接与模型；「工作流路由」视图查看各阶段实际选择与可用状态。"
   >
   <ProviderConnectionsAdmin data={loaderData}/>
  </AdminPage>;

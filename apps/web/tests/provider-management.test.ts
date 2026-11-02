@@ -52,3 +52,34 @@ test('provider UI supports generic connection creation, field errors and mobile 
   await page.screenshot({path:'/tmp/eventgraph-provider-mobile.png',fullPage:true});
  } catch(error){console.error(error);throw error;} finally {await browser?.close();await web.stop();}
 });
+
+test('provider routing view lists workflow stages as a paginated table',async()=>{
+ const providerId='11111111-1111-4111-a111-111111111111',modelId='22222222-2222-4222-a222-222222222222';
+ const data:ProviderManagement={protocols:['openai-compatible'],
+  providers:[{id:providerId,name:'Free trial',vendor:'nvidia',protocol:'openai-compatible',baseUrl:'https://integrate.api.nvidia.example/v1',timeoutMs:60000,enabled:true,policy:'nvidia-free-trial',credential:{configured:true},version:1,updatedAt:new Date().toISOString()}],
+  models:[{id:modelId,providerId,modelId:'z-ai/glm-5.3-flash',adapter:'chat',endpointOverride:null,timeoutOverrideMs:null,capabilities:['text'],
+   requestDefaults:{},probeSpec:{capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'},stream:false,complexity:'light',
+   documentationUrl:null,notes:null,enabled:true,routeEnabled:true,upstreamMetadata:{},routing:{eligibleCapabilities:[],reasons:['缺少当前有效的文本能力测试']},version:1,updatedAt:new Date().toISOString(),checks:[]}],
+  workflows:[{key:'prefilter',label:'预筛',model:'model:'+modelId,source:'admin'}]};
+ const api=createServer(async(req,res)=>{
+  const path=new URL(req.url!,'http://api.local').pathname;res.setHeader('content-type','application/json');
+  if(path==='/api/admin/me')return res.end(JSON.stringify({name:'Provider test',csrf:'fixture',dev:true}));
+  if(path==='/api/admin/nav-counts')return res.end('{}');
+  if(path==='/api/site/meta')return res.end(JSON.stringify({changelogVersion:null}));
+  if(path==='/api/admin/providers')return res.end(JSON.stringify(data));
+  res.statusCode=404;res.end('{}');
+ });
+ const web=await startWebServer(api);let browser:Awaited<ReturnType<typeof chromium.launch>>|undefined;
+ try {
+  browser=await chromium.launch({channel:'chromium'});
+  const page=await browser.newPage();await page.goto(web.origin+'/admin/models');
+  await page.getByRole('button',{name:'工作流路由',exact:true}).click();
+  await expect(page.getByText('预筛',{exact:true})).toBeVisible();
+  await expect(page.getByText('不可路由',{exact:true})).toBeVisible();
+  await expect(page.getByText('缺少当前有效的文本能力测试')).toBeVisible();
+  await expect(page.getByRole('button',{name:'选择模型',exact:true})).toBeVisible();
+  await expect(page.getByText('z-ai/glm-5.3-flash').first()).toBeVisible();
+  await page.getByRole('button',{name:'模型管理',exact:true}).click();
+  await expect(page.getByRole('button',{name:'添加连接',exact:true})).toBeVisible();
+ } catch(error){console.error(error);throw error;} finally {await browser?.close();await web.stop();}
+});
