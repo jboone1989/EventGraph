@@ -54,4 +54,7 @@ jobs:
             echo 'Native queue paused or no eligible Work; nothing to dispatch'
             exit 0
           fi
+          # Preserve the approved single-code-PR serialization invariant.
+          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq 'length')"
+          [[ "$open" == 0 ]] || { echo 'Open agent-work PR; skip dispatch'; exit 0; }
           gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
