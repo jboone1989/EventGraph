@@ -23,6 +23,9 @@ test("the Worker source selects claim-scoped unsigned delivery while GH-AW v1.0.
   assert.match(lock, /\\\"signed_commits\\\":false/);
   assert.doesNotMatch(source, /EVENTGRAPH_WORKER_RUN_ID|eventgraph-work-id|worker-run-id/);
   assert.match(source, /generated safe-output footer is the authoritative machine-readable provenance/);
+  assert.match(source, /There is no custom Producer or issue-label intake/);
+  assert.match(source, /owner dispatches the native Dispatcher explicitly/);
+  assert.doesNotMatch(source, /Producer already verified|deterministic completion bridge/);
 });
 
 test("the compiled full develop checkout can read an older immutable Spec without credentials", () => {
