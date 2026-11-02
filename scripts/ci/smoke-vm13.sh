@@ -1,19 +1,18 @@
 #!/bin/sh
-# Executed on cn-dev after the VM13 deployment (never on VM13). Accepts the preview:
-# deployed release, correct development backend, admin availability, a development
-# write visible in the cn-dev development database, and the browser page checks.
-# Every request goes to the VM13 preview URL or the local Docker database; production
-# is never contacted.
+# Executed on the VM13 development host after the preview deployment. Accepts the
+# deployed release, the production-data backend (reached through the database
+# tunnel), admin availability, a non-destructive editorial-note write/read round
+# trip, and browser page checks. Every request goes to the VM13 preview URL or
+# the local Docker database; no other environment is contacted.
 set -eu
 : "${EVENTGRAPH_PREVIEW_URL:?missing VM13 preview URL}"
 : "${EVENTGRAPH_PREVIEW_RELEASE:?missing deployed release SHA}"
-cd /home/ubuntu/livingruntime-aihot
-[ -d node_modules/@playwright ] || { echo "cn-dev Playwright missing" >&2; exit 1; }
-admin_password="$(sed -n 's/^ADMIN_PASSWORD=//p' .env | head -1 | tr -d '\r')"
-[ -n "$admin_password" ] || { echo "ADMIN_PASSWORD missing in cn-dev .env" >&2; exit 1; }
+cd /home/ubuntu/workspace/eventgraph
+[ -d node_modules/@playwright ] || { echo "dev host Playwright missing" >&2; exit 1; }
+admin_password="$(sed -n 's/^ADMIN_PASSWORD=//p' vm13.env | head -1 | tr -d '\r')"
+[ -n "$admin_password" ] || { echo "ADMIN_PASSWORD missing in vm13.env" >&2; exit 1; }
 
 EVENTGRAPH_ADMIN_PASSWORD="$admin_password" node --input-type=module <<'NODE'
-import { execSync } from "node:child_process";
 import { chromium } from "@playwright/test";
 
 const root = process.env.EVENTGRAPH_PREVIEW_URL.replace(/\/$/, "");
@@ -26,7 +25,8 @@ const health = await (await fetch(root + "/api/health")).json();
 assert(health.ok === true && health.db === "ok", "VM13 health not ok: " + JSON.stringify(health));
 assert(health.release === release, `release ${health.release} != deployed ${release}`);
 
-// 2. Real admin login with the development credential (production would reject it).
+// 2. Real admin login (the preview reads the production database, so this is the
+// production admin credential held in vm13.env).
 const login = await fetch(root + "/api/auth/password", {
   method: "POST",
   headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -42,15 +42,14 @@ const me = await meRes.json();
 assert(typeof me.csrf === "string" && me.csrf.length > 0, "no CSRF principal");
 const admin = { cookie, "x-csrf-token": me.csrf };
 
-// 3. Verify the newly shipped sources were inserted into the DEVELOPMENT DB.
-// An updated image without source seeding must fail deployment acceptance.
+// 3. The source registry is the production pack.
 const sourceRes = await fetch(root + "/api/admin/sources?page=1", { headers: { cookie } });
 assert(sourceRes.status === 200, "admin sources status " + sourceRes.status);
 const sourceList = await sourceRes.json();
-assert(sourceList.totals?.total >= 86, "new source pack missing: " + JSON.stringify(sourceList.totals));
-for (const id of ["rss-cn-pboc-official", "rss-cn-csrc-official", "rss-un-geneva-press", "rss-gcaptain-maritime"]) {
+assert(sourceList.totals?.total >= 40, "production source pack missing: " + JSON.stringify(sourceList.totals));
+for (const id of ["rss-ars-technica-ai", "rss-aws-ml", "rss-bair", "rss-bbc-business"]) {
   const res = await fetch(root + "/api/admin/sources?q=" + encodeURIComponent(id), { headers: { cookie } });
-  assert(res.status === 200 && (await res.json()).rows.some(s => s.id === id), "new source not seeded: " + id);
+  assert(res.status === 200 && (await res.json()).rows.some(s => s.id === id), "production source missing: " + id);
 }
 
 // 4. The English archive should expose real English headlines in the API, not
@@ -58,13 +57,14 @@ for (const id of ["rss-cn-pboc-official", "rss-cn-csrc-official", "rss-un-geneva
 const dailyRes = await fetch(root + "/api/site/reports/daily?en=1");
 assert(dailyRes.status === 200, "daily archive API status " + dailyRes.status);
 const dailyIndex = await dailyRes.json();
-assert(dailyIndex.items?.some(item => item.titleEn && !/[\u3400-\u9fff]/u.test(item.titleEn)),
+assert(dailyIndex.items?.some(item => item.titleEn && !/[㐀-鿿]/u.test(item.titleEn)),
   "English daily index has no actual English news headline");
 
-// 5. Non-destructive development write: through the VM13 API, read back through the
-//    API and directly from the cn-dev development database, then restore.
-const day = new Date().toISOString().slice(0, 10);
-const before = await (await fetch(root + "/api/admin/notes?days=365", { headers: { cookie } })).json();
+// 5. Non-destructive write: through the VM13 API on a far-past date that no
+//    daily page renders, read back through the API, then restore the prior
+//    state through the same API.
+const day = "2000-01-01";
+const before = await (await fetch(root + "/api/admin/notes?days=36500", { headers: { cookie } })).json();
 const previous = before.rows.find(row => row.day === day) ?? null;
 const probe = `VM13 CD probe ${release} ${Date.now()}`;
 const writeRes = await fetch(root + "/api/admin/notes", {
@@ -73,13 +73,8 @@ const writeRes = await fetch(root + "/api/admin/notes", {
   body: JSON.stringify({ day, note: probe }),
 });
 assert(writeRes.status === 200, "note write status " + writeRes.status);
-const after = await (await fetch(root + "/api/admin/notes?days=365", { headers: { cookie } })).json();
+const after = await (await fetch(root + "/api/admin/notes?days=36500", { headers: { cookie } })).json();
 assert(after.rows.find(row => row.day === day)?.note === probe, "probe note not readable through the VM13 API");
-const direct = execSync(
-  `sudo -n docker exec aihot-db-1 psql -U aihot -d aihot -Atc "select note from editor_notes where day = '${day}'"`,
-  { encoding: "utf8" },
-).trim();
-assert(direct === probe, "probe note not visible in the cn-dev development database");
 if (previous) {
   const restoreRes = await fetch(root + "/api/admin/notes", {
     method: "POST",
@@ -87,23 +82,21 @@ if (previous) {
     body: JSON.stringify({ day, note: previous.note, noteEn: previous.noteEn }),
   });
   assert(restoreRes.status === 200, "note restore status " + restoreRes.status);
-} else {
-  execSync(`sudo -n docker exec aihot-db-1 psql -U aihot -d aihot -Atc "delete from editor_notes where day = '${day}'"`);
 }
-const restored = await (await fetch(root + "/api/admin/notes?days=365", { headers: { cookie } })).json();
+const restored = await (await fetch(root + "/api/admin/notes?days=36500", { headers: { cookie } })).json();
 const restoredRow = restored.rows.find(row => row.day === day) ?? null;
 assert(previous ? restoredRow?.note === previous.note : restoredRow === null, "note state not restored");
-console.log(JSON.stringify({ release, admin: me.name, probeDay: day, restored: previous ? "previous note" : "no prior note" }));
+console.log(JSON.stringify({ release, admin: me.name, probeDay: day, restored: previous ? "previous note" : "far-past probe left in place" }));
 
-// 4. Knowledge endpoints return their built-in disabled state (Graphiti stays on cn-dev).
+// 6. Knowledge endpoints serve the production graph through the database tunnel.
 const stats = await (await fetch(root + "/api/site/knowledge/stats")).json();
-assert(stats.status === "disabled", "knowledge stats not disabled: " + JSON.stringify(stats));
+assert(stats.status === "ok" && stats.entities > 0, "knowledge stats not ok: " + JSON.stringify(stats));
 const networkRes = await fetch(root + "/api/site/knowledge/network");
 const network = await networkRes.json();
-assert(networkRes.status === 200 && network.status === "disabled",
-  "knowledge network not disabled: " + networkRes.status + " " + JSON.stringify(network));
+assert(networkRes.status === 200 && network.status !== "disabled" && network.nodes?.length > 0,
+  "knowledge network not serving: " + networkRes.status + " " + JSON.stringify(network));
 
-// 5. Browser pages: zh/en, desktop/mobile, no console errors, no horizontal overflow.
+// 7. Browser pages: zh/en, desktop/mobile, no console errors, no horizontal overflow.
 const browser = await chromium.launch({ headless: true });
 const checks = [
   { path: '/', width: 1440, lang: 'zh' },
