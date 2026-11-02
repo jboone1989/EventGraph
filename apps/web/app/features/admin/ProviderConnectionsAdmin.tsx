@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import {useRevalidator} from 'react-router';
 import type {ProviderManagement,ProviderConnection,RegisteredModel,ConnectionInput,ModelInput,ModelCapability} from '@aihot/contracts/providers';
-import {Button,Input,Select,Textarea,Card,Badge,Time} from './ui';
+import {Button,Input,Select,Textarea,Card,Badge,DataTable,Time} from './ui';
 import {workflowStageStatus} from './workflow-status';
 import {useAdminAction} from './action';
 
@@ -9,15 +9,16 @@ type Problem={detail:string;fieldErrors?:Record<string,string>;dependencies?:Arr
 type Editor={kind:'connection';value:ProviderConnection|null;readOnly?:boolean}|{kind:'model';value:RegisteredModel|null;providerId:string;readOnly?:boolean};
 const caps:ModelCapability[]=['text','reasoning','vision','embedding','embedding_vision','document','safety','translation','coding','video','reward'];
 const defaultProbe={capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'};
+const PAGE_SIZE=20;
 
 export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  const {run,busy:actionBusy}=useAdminAction();
  const revalidator=useRevalidator();
+ const [view,setView]=useState<'manage'|'routing'>('manage');
  const [bulkTesting,setBulkTesting]=useState(false);
- const [batchResults,setBatchResults]=useState<Array<{model:string;status:string;detail:string}>>([]);
  const busy=actionBusy||bulkTesting;
  const [editor,setEditor]=useState<Editor|null>(null),[problem,setProblem]=useState<Problem|null>(null);
- const [provider,setProvider]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1);
+ const [provider,setProvider]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1),[routePage,setRoutePage]=useState(1);
  const [notice,setNotice]=useState(''),[reason,setReason]=useState('');
  const [deleting,setDeleting]=useState<{kind:'connection'|'model';id:string;version:number;name:string}|null>(null);
  const [discovery,setDiscovery]=useState<{id:string;models:Array<{modelId:string;status:string}>}|null>(null);
@@ -28,31 +29,28 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  };
  const open=(e:Editor)=>{setProblem(null);setEditor(e)};
  const models=data.models.filter(m=>(!provider||m.providerId===provider)&&(!search||[m.modelId,data.providers.find(c=>c.id===m.providerId)?.name??'',...m.capabilities].join(' ').toLowerCase().includes(search.toLowerCase())));
- const pages=Math.max(1,Math.ceil(models.length/20)),current=Math.min(page,pages);
- const visibleModels=models.slice((current-1)*20,current*20);
+ const pages=Math.max(1,Math.ceil(models.length/PAGE_SIZE)),current=Math.min(page,pages);
+ const visibleModels=models.slice((current-1)*PAGE_SIZE,current*PAGE_SIZE);
  const testableModels=models.filter(m=>m.enabled&&m.probeSpec);
+ const routePages=Math.max(1,Math.ceil(data.workflows.length/PAGE_SIZE)),routeCurrent=Math.min(routePage,routePages);
+ const visibleStages=data.workflows.slice((routeCurrent-1)*PAGE_SIZE,routeCurrent*PAGE_SIZE);
+ const stageStatuses=data.workflows.map(w=>workflowStageStatus(w,data));
  async function testPage() {
   if(bulkTesting||!testableModels.length)return;
   setBulkTesting(true);
-  setBatchResults([]);
   try {
-   // Existing authenticated API performs the capability probe and saves the result.
-   // These are independent requests, not a new testing worker or an invented shared timeout.
-   const results=await Promise.all(testableModels.map(async m=>{
-    let failure='网络请求失败';
+   let passed=0;
+   await Promise.all(testableModels.map(async m=>{
     const response=await run<{status:string;elapsedMs:number;detail:string}>(
-      'POST','/api/admin/provider-models/'+m.id+'/test',
-      {capability:m.probeSpec!.capability},
-      {label:'batch-probe-'+m.id,revalidate:false,quietError:true,onError:p=>{failure=p.detail}});
-    return {model:m.modelId,status:response?.status??'failed',
-      detail:response?response.elapsedMs+' ms · '+response.detail:failure};
+     'POST','/api/admin/provider-models/'+m.id+'/test',
+     {capability:m.probeSpec!.capability},
+     {label:'batch-probe-'+m.id,revalidate:false,quietError:true,onError:()=>{}});
+    if(response?.status==='verified')passed++;
    }));
-   setBatchResults(results);
-   setNotice('已完成 '+results.length+' 项独立能力测试；逐项结果见下方。');
+   setNotice('并发测试完成：通过 '+passed+' / '+testableModels.length+'；刷新后看工作流路由视图的最近测试时间。');
    revalidator.revalidate();
   } finally {setBulkTesting(false);}
  }
-
  async function discover(c:ProviderConnection) {
   const result=await command<{models:Array<{modelId:string;status:string}>}>('POST','/api/admin/providers/'+c.id+'/discover');
   if(result){setSelected([]);setReason('');setDiscovery({id:c.id,models:result.models})}
@@ -61,101 +59,74 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  return <div className="space-y-5">
   {notice&&<p role="status" className="text-sm">{notice}</p>}
   {!editor&&!deleting&&!discovery&&!workflow&&errors}
-  <Card title="工作流路由 · 当前实际选择" right={<span className="text-xs text-ink-3">绑定 ≠ 可用 · 按阶段独立验证</span>}>
-   <p className="mb-3 text-[12px] leading-relaxed text-ink-3">
-    模型已添加、已启用、允许路由及完成有效能力测试是不同状态。点击“测试”会实际调用该 Provider；
-    选择模型前先看不可路由原因，不会自动替你切换到其他服务商。
-   </p>
-   <div className="mb-3 flex flex-wrap gap-3 text-[12px] text-ink-3">
-    <span>阶段 {data.workflows.length}</span>
-    <span className="text-ok">可用 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='ready').length}</span>
-    <span className="text-hot">需处理 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='problem').length}</span>
-    <span>待核验 {data.workflows.filter(w=>workflowStageStatus(w,data).kind==='unverified').length}</span>
-   </div>
-   <div className="divide-y divide-line-soft">
-    {data.workflows.map(w=>{
-     const health=workflowStageStatus(w,data);
-     const model=health.model;
-     const provider=health.provider;
-     return <div key={w.key} className="grid gap-2 py-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-center">
-      <div className="min-w-0 space-y-1">
-       <p className="text-[13.5px] font-semibold text-ink">{w.label}</p>
-       <p className="text-[11.5px] text-ink-4">{w.source==='admin'?'后台绑定':w.source==='env'?'环境变量':'默认配置'} · {w.key}</p>
-      </div>
-      <div className="min-w-0 space-y-1.5">
-       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={health.kind==='ready'?'ok':health.kind==='problem'?'bad':'warn'}>
-         {health.kind==='ready'?'可路由':health.kind==='problem'?'不可路由':'待核验'}
-        </Badge>
-        <span className="break-all font-mono text-[12px] text-ink-2">{model?.modelId ?? w.model ?? '未分配'}</span>
-       </div>
-       <p className="break-words text-[12px] text-ink-3">{provider?provider.name+' · '+provider.vendor+' · ':''}{health.reason}</p>
-       {health.check&&<p className="text-[11px] text-ink-4">
-        文本测试 {health.check.status} · <Time at={health.check.verifiedAt}/> {health.check.latencyMs!=null?' · '+health.check.latencyMs+' ms':''}
-       </p>}
-      </div>
-      <div className="flex flex-wrap items-center gap-2 md:justify-end">
-       {model&&<Button size="sm" disabled={busy||!health.canTest} title={!health.canTest?'此模型未配置文本测试或连接不可用':undefined} onClick={async()=>{
-        const r=await command<{status:string;elapsedMs:number;detail:string}>('POST','/api/admin/provider-models/'+model.id+'/test',{capability:'text'});
-        if(r)setNotice(model.modelId+'：'+r.status+' · '+r.elapsedMs+' ms · '+r.detail);
-       }}>测试</Button>}
-       <Button size="sm" tone={health.kind==='problem'?'primary':'secondary'} disabled={busy}
-        onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>选择模型</Button>
-      </div>
-     </div>;
-    })}
-   </div>
-  </Card>
-  <Card title="厂商连接" right={<Button disabled={busy} onClick={()=>open({kind:'connection',value:null})}>添加连接</Button>}>
-   <div className="space-y-3">{data.providers.length===0&&<p>暂无连接，请先添加厂商的 API 地址和凭据。</p>}
-   {data.providers.map(c=><div key={c.id} className="space-y-2 border-b border-line pb-3">
-    <div><strong>{c.name}</strong> <span className="text-xs text-ink-3">{c.vendor} · {c.enabled?'启用':'停用'} · {c.credential.configured?'已配置凭据':'缺少凭据'} · {c.timeoutMs} ms</span></div>
-    <p className="break-all text-xs text-ink-3">{c.baseUrl} · {c.protocol}{c.policy!=='none'?' · 免费试用白名单保护':''}</p>
-    <div className="flex flex-wrap gap-2">
-     <Button size="sm" disabled={busy} onClick={()=>open({kind:'connection',value:c,readOnly:true})}>查看</Button>
-     <Button size="sm" disabled={busy} onClick={()=>open({kind:'connection',value:c})}>编辑</Button>
-     <Button size="sm" disabled={busy} onClick={async()=>{const r=await command<{detail:string}>('POST','/api/admin/providers/'+c.id+'/test');if(r)setNotice(r.detail)}}>测试连接</Button>
-     <Button size="sm" disabled={busy} onClick={()=>discover(c)}>发现模型</Button>
-     <Button size="sm" disabled={busy} onClick={()=>open({kind:'model',value:null,providerId:c.id})}>手动添加模型</Button>
-     <Button size="sm" disabled={busy} onClick={()=>{setReason('');setProblem(null);setDeleting({kind:'connection',id:c.id,version:c.version,name:c.name})}}>删除</Button>
-    </div>
-   </div>)}</div>
-  </Card>
-  <Card title={'模型（'+models.length+'）'}
-   right={<Button size="sm" disabled={busy||!testableModels.length} onClick={testPage}>
-    {bulkTesting?'正在并发测试…':'并发测试筛选结果（'+testableModels.length+'）'}
+  <div className="flex gap-2">
+   <Button size="sm" tone={view==='manage'?'primary':'secondary'} onClick={()=>setView('manage')}>模型管理</Button>
+   <Button size="sm" tone={view==='routing'?'primary':'secondary'} onClick={()=>setView('routing')}>工作流路由</Button>
+  </div>
+  {view==='manage'?<>
+   <Card title="厂商连接" right={<Button disabled={busy} onClick={()=>open({kind:'connection',value:null})}>添加连接</Button>}>
+    <DataTable rows={data.providers} rowKey={c=>c.id} empty="暂无连接，请先添加厂商的 API 地址和凭据。" columns={[
+     {key:'name',label:'连接',render:c=><div className="space-y-0.5"><strong>{c.name}</strong><p className="break-all font-mono text-xs text-ink-3">{c.baseUrl}</p></div>},
+     {key:'status',label:'状态',render:c=><p className="text-xs">{c.vendor} · {c.enabled?'启用':'停用'} · {c.credential.configured?'已配置凭据':'缺少凭据'} · {c.timeoutMs} ms{c.policy!=='none'?' · 免费试用白名单保护':''}</p>},
+     {key:'actions',label:'操作',render:c=><div className="flex flex-wrap gap-1">
+      <Button size="sm" disabled={busy} onClick={()=>open({kind:'connection',value:c,readOnly:true})}>查看</Button>
+      <Button size="sm" disabled={busy} onClick={()=>open({kind:'connection',value:c})}>编辑</Button>
+      <Button size="sm" disabled={busy} onClick={async()=>{const r=await command<{detail:string}>('POST','/api/admin/providers/'+c.id+'/test');if(r)setNotice(r.detail)}}>测试连接</Button>
+      <Button size="sm" disabled={busy} onClick={()=>discover(c)}>发现模型</Button>
+      <Button size="sm" disabled={busy} onClick={()=>open({kind:'model',value:null,providerId:c.id})}>手动添加模型</Button>
+      <Button size="sm" disabled={busy} onClick={()=>{setReason('');setProblem(null);setDeleting({kind:'connection',id:c.id,version:c.version,name:c.name})}}>删除</Button>
+     </div>},
+    ]}/>
+   </Card>
+   <Card title={'模型（'+models.length+'）'} right={<Button size="sm" disabled={busy||!testableModels.length} onClick={testPage}>
+    {bulkTesting?'正在并发测试…':'并发测试（'+testableModels.length+'）'}
    </Button>}>
-   <p className="mb-3 text-[12px] leading-relaxed text-ink-3">
-    仅测试当前筛选结果中已启用、配置了测试请求的模型；并发发出独立请求、分别保存回执与耗时；
-    可能产生 API 调用费用，不会自动修改工作流路由。
-   </p>
-   {batchResults.length>0&&<details role="status" open className="mb-3 rounded-control bg-bg-sunk p-3 text-[12px] text-ink-2">
-    <summary className="cursor-pointer font-medium">本次能力测试 · {batchResults.filter(r=>r.status==='verified').length} / {batchResults.length} 通过 · 展开逐项耗时</summary>
-    <div className="mt-2 grid max-h-64 gap-1 overflow-auto sm:grid-cols-2">
-     {batchResults.map((r,i)=><p key={i} className="break-all">
-      <span className={r.status==='verified'?'text-ok':'text-hot'}>{r.status==='verified'?'通过':'失败'}</span>
-      {' · '+r.model+' · '+r.detail}
-     </p>)}
-    </div>
-   </details>}
-   <div className="mb-4 flex flex-wrap gap-2"><Select aria-label="按连接筛选" value={provider} onChange={e=>{setProvider(e.target.value);setPage(1)}}><option value="">全部连接</option>{data.providers.map(c=><option key={c.id} value={c.id}>{c.name} · {c.id.slice(0,8)}</option>)}</Select>
-    <Input aria-label="搜索模型" placeholder="搜索模型或能力" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/></div>
-   <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th>连接 / 模型</th><th>能力</th><th>启用 / 路由开关 / 当前资格</th><th>操作</th></tr></thead><tbody>
-    {visibleModels.map(m=><tr key={m.id} className="border-t border-line">
-     <td className="p-2"><div>{data.providers.find(c=>c.id===m.providerId)?.name} · {m.providerId.slice(0,8)}</div><div className="break-all font-mono text-xs">{m.modelId}</div></td>
-     <td className="p-2 text-xs">{m.capabilities.join(', ')||'未配置'}</td>
-     <td className="p-2"><p>{m.enabled?'启用':'停用'} / {m.routeEnabled?'开启':'关闭'} / {m.routing.eligibleCapabilities.length?'可用：'+m.routing.eligibleCapabilities.join(', '):'不可用'}</p>
-      <p className="max-w-sm text-xs text-ink-3">{m.routing.reasons.join('；')}</p><p className="text-xs">{m.checks.map(c=>c.capability+': '+c.status+(c.latencyMs==null?'':' · '+c.latencyMs+' ms')).join('；')}</p></td>
-     <td className="p-2"><div className="flex flex-wrap gap-1">
+    <div className="mb-4 flex flex-wrap gap-2"><Select aria-label="按连接筛选" value={provider} onChange={e=>{setProvider(e.target.value);setPage(1)}}><option value="">全部连接</option>{data.providers.map(c=><option key={c.id} value={c.id}>{c.name} · {c.id.slice(0,8)}</option>)}</Select>
+     <Input aria-label="搜索模型" placeholder="搜索模型或能力" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/></div>
+    <DataTable rows={visibleModels} rowKey={m=>m.id} empty="暂无匹配模型；可以从连接下手动添加。" columns={[
+     {key:'model',label:'连接 / 模型',render:m=><div><div className="text-xs text-ink-3">{data.providers.find(c=>c.id===m.providerId)?.name} · {m.providerId.slice(0,8)}</div><div className="break-all font-mono text-xs">{m.modelId}</div></div>},
+     {key:'caps',label:'能力',render:m=><p className="text-xs">{m.capabilities.join(', ')||'未配置'}</p>},
+     {key:'switch',label:'启用 / 路由开关',render:m=><p className="text-xs">{m.enabled?'启用':'停用'} / {m.routeEnabled?'开启':'关闭'}</p>},
+     {key:'actions',label:'操作',render:m=><div className="flex flex-wrap gap-1">
       <Button size="sm" disabled={busy} onClick={()=>open({kind:'model',value:m,providerId:m.providerId,readOnly:true})}>查看</Button>
       <Button size="sm" disabled={busy} onClick={()=>open({kind:'model',value:m,providerId:m.providerId})}>编辑</Button>
       <Button size="sm" disabled={busy||!m.probeSpec} onClick={async()=>{const r=await command<{status:string;elapsedMs:number;detail:string}>('POST','/api/admin/provider-models/'+m.id+'/test',{capability:m.probeSpec?.capability});if(r)setNotice(m.modelId+'：'+r.status+' · '+r.elapsedMs+' ms · '+r.detail)}}>测试（消耗配额）</Button>
-      <Button size="sm" disabled={busy} onClick={()=>{setProblem(null);setReason('');setDeleting({kind:'model',id:m.id,version:m.version,name:m.modelId})}}>删除</Button>
-     </div></td>
-    </tr>)}
-   </tbody></table>{!models.length&&<p className="p-3">暂无匹配模型；可以从连接下手动添加。</p>}</div>
-   <div className="mt-3 flex items-center gap-3"><Button size="sm" disabled={current<=1} onClick={()=>setPage(current-1)}>上一页</Button><span>{current} / {pages}</span><Button size="sm" disabled={current>=pages} onClick={()=>setPage(current+1)}>下一页</Button></div>
-  </Card>
+      <Button size="sm" disabled={busy} onClick={()=>{setReason('');setProblem(null);setDeleting({kind:'model',id:m.id,version:m.version,name:m.modelId})}}>删除</Button>
+     </div>},
+    ]}/>
+    <div className="mt-3 flex items-center gap-3"><Button size="sm" disabled={current<=1} onClick={()=>setPage(current-1)}>上一页</Button><span>{current} / {pages}</span><Button size="sm" disabled={current>=pages} onClick={()=>setPage(current+1)}>下一页</Button></div>
+   </Card>
+  </>:
+   <Card title="工作流路由 · 当前实际选择" right={<span className="text-xs text-ink-3">绑定 ≠ 可用 · 按阶段独立验证</span>}>
+    <p className="mb-3 flex flex-wrap gap-3 text-[12px] text-ink-3">
+     <span>阶段 {data.workflows.length}</span>
+     <span className="text-ok">可用 {stageStatuses.filter(s=>s.kind==='ready').length}</span>
+     <span className="text-hot">需处理 {stageStatuses.filter(s=>s.kind==='problem').length}</span>
+     <span>待核验 {stageStatuses.filter(s=>s.kind==='unverified').length}</span>
+    </p>
+    <DataTable rows={visibleStages} rowKey={w=>w.key} empty="暂无工作流阶段。" columns={[
+     {key:'stage',label:'阶段',render:w=><div><p className="text-[13px] font-semibold text-ink">{w.label}</p><p className="text-[11px] text-ink-4">{w.source==='admin'?'后台绑定':w.source==='env'?'环境变量':'默认配置'} · {w.key}</p></div>},
+     {key:'state',label:'当前模型 / 状态',render:w=>{const s=workflowStageStatus(w,data);return <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+       <Badge tone={s.kind==='ready'?'ok':s.kind==='problem'?'bad':'warn'}>
+        {s.kind==='ready'?'可路由':s.kind==='problem'?'不可路由':'待核验'}
+       </Badge>
+       <span className="break-all font-mono text-xs text-ink-2">{s.model?.modelId??w.model??'未分配'}</span>
+      </div>
+      <p className="break-words text-xs text-ink-3">{s.provider?s.provider.name+' · '+s.provider.vendor+' · ':''}{s.reason}</p>
+      {s.check&&<p className="text-[11px] text-ink-4">文本测试 {s.check.status} · <Time at={s.check.verifiedAt}/>{s.check.latencyMs!=null?' · '+s.check.latencyMs+' ms':''}</p>}
+     </div>}},
+     {key:'actions',label:'操作',render:w=>{const s=workflowStageStatus(w,data);return <div className="flex flex-wrap gap-1">
+      {s.model&&<Button size="sm" disabled={busy||!s.canTest} title={!s.canTest?'此模型未配置文本测试或连接不可用':undefined} onClick={async()=>{
+       const r=await command<{status:string;elapsedMs:number;detail:string}>('POST','/api/admin/provider-models/'+s.model!.id+'/test',{capability:'text'});
+       if(r)setNotice(s.model!.modelId+'：'+r.status+' · '+r.elapsedMs+' ms · '+r.detail);
+      }}>测试</Button>}
+      <Button size="sm" tone={s.kind==='problem'?'primary':'secondary'} disabled={busy}
+       onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>选择模型</Button>
+     </div>}},
+    ]}/>
+    <div className="mt-3 flex items-center gap-3"><Button size="sm" disabled={routeCurrent<=1} onClick={()=>setRoutePage(routeCurrent-1)}>上一页</Button><span>{routeCurrent} / {routePages}</span><Button size="sm" disabled={routeCurrent>=routePages} onClick={()=>setRoutePage(routeCurrent+1)}>下一页</Button></div>
+   </Card>}
   {editor&&<ConfigurationDialog key={editor.kind+(editor.value?.id??'new')} editor={editor} providers={data.providers} busy={busy} problem={problem} onClose={()=>setEditor(null)} onSubmit={async(input,why)=>{
    const e=editor,id=e.value?.id;
    const path=e.kind==='connection'?'/api/admin/providers'+(id?'/'+id:''):id?'/api/admin/provider-models/'+id:'/api/admin/providers/'+e.providerId+'/models';
@@ -204,7 +175,6 @@ function ConfigurationDialog({editor,providers,busy,problem,onClose,onSubmit}:{e
    {field('documentationUrl','文档地址')}{field('notes','备注',<Textarea disabled={readOnly||busy} value={value('notes')} onChange={e=>change('notes',e.target.value)}/>)}
    <label className="block text-sm"><input type="checkbox" disabled={readOnly||busy} checked={stream} onChange={e=>setStream(e.target.checked)}/> 流式输出</label>
    <label className="block text-sm"><input type="checkbox" disabled={readOnly||busy||!enabled} checked={route} onChange={e=>setRoute(e.target.checked)}/> 路由开关（测试通过后才能从关闭切换为开启）{problem?.fieldErrors?.routeEnabled&&<span role="alert" className="block text-xs text-hot">{problem.fieldErrors.routeEnabled}</span>}</label>
-   {m&&<p className="text-xs">当前资格：{m.routing.eligibleCapabilities.join(', ')||m.routing.reasons.join('；')}</p>}
   </>}
   <label className="block text-sm"><input type="checkbox" disabled={readOnly||busy} checked={enabled} onChange={e=>{setEnabled(e.target.checked);if(!e.target.checked)setRoute(false)}}/> 启用</label>
   {!readOnly&&<label className="block text-sm">修改原因<Input disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/>{problem?.fieldErrors?.reason&&<p role="alert">{problem.fieldErrors.reason}</p>}</label>}
