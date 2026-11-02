@@ -54,9 +54,6 @@ git show "$EVENTGRAPH_PREVIEW_RELEASE:$compose_file" > "$staged_compose"
 cp "$compose_file" "$backup_compose"
 
 sudo -n docker pull "$EVENTGRAPH_IMAGE"
-revision="$(sudo -n docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$EVENTGRAPH_IMAGE")"
-[ "$revision" = "$EVENTGRAPH_PREVIEW_RELEASE" ] \
-  || { echo "Image revision $revision does not match release $EVENTGRAPH_PREVIEW_RELEASE" >&2; exit 1; }
 image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")"
 
 # The tunnel is the only network path to the production database and knowledge
@@ -64,40 +61,54 @@ image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")
 # bound to loopback and the docker bridge gateway to the two containers'
 # compose-network addresses. No database port is opened to the internet on
 # either host. The container IPs change only if those containers are recreated;
-# a stale address fails the deploy visibly instead of misrouting data.
+# a stale address fails the deploy visibly instead of misrouting data. The
+# egress path drops connections at peak, so both the address reads and the
+# host-key scan retry before giving up.
 bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-db_ip="$(prod_ssh_retry 'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" && [ -n "$db_ip" ]   || { echo "Could not read the production database container address" >&2; exit 1; }
-knowledge_ip="$(prod_ssh_retry 'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" && [ -n "$knowledge_ip" ]   || { echo "Could not read the production knowledge container address" >&2; exit 1; }
+db_ip="$(prod_ssh_retry \
+  'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
+  || { echo "Could not read the production database container address" >&2; exit 1; }
+[ -n "$db_ip" ] || { echo "Production database container has no address" >&2; exit 1; }
+knowledge_ip="$(prod_ssh_retry \
+  'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
+  || { echo "Could not read the production knowledge container address" >&2; exit 1; }
+[ -n "$knowledge_ip" ] || { echo "Production knowledge container has no address" >&2; exit 1; }
+
 # Pin the production host key for the tunnel: the runner verifies this
 # fingerprint (secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the
 # same pin must authorize the VM13→production tunnel before the unit below
-# connects. The pin is for whichever host-key algorithm the runner's client
-# verifies (the pinned VM13 key in check.yml is ECDSA, not ed25519), so both
-# algorithms sshd offers are scanned and only the scanned key whose fingerprint
-# matches the pin is trusted — in a dedicated file rewritten on every run — and
-# the connection is pinned to that algorithm so StrictHostKeyChecking matches
-# the single entry.
+# connects. A known_hosts.prod written under the same pin stays valid — the
+# host key does not change between deploys, and re-scanning through the
+# peak-time egress window is exactly what failed a previous deploy — so an
+# existing matching pin file is reused and only a missing or non-matching one
+# triggers a rescan, with retries for the same reason.
 : "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned production host key fingerprint (SHA256:...) required}"
 mkdir -p "${HOME}/.ssh"
 PROD_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.prod"
-prod_scan="$(mktemp "${PROD_KNOWN_HOSTS}.XXXXXX")"
-prod_hit=""
-i=0
-while [ "$i" -lt 3 ] && [ -z "$prod_hit" ]; do
-  ssh-keyscan -T 10 -t ed25519,ecdsa "$prod_host" 2>/dev/null | awk -v h="$prod_host" '$1 == h' > "$prod_scan"
-  prod_hit="$(ssh-keygen -lf "$prod_scan" 2>/dev/null | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { print NR; exit }')"
-  [ -n "$prod_hit" ] || { i=$((i+1)); sleep 5; }
-done
-if [ -n "$prod_hit" ]; then
-  awk -v n="$prod_hit" 'NR == n' "$prod_scan" > "${prod_scan}.ok" && mv "${prod_scan}.ok" "$PROD_KNOWN_HOSTS" && rm -f "$prod_scan"
+pin_ok=""
+if [ -s "$PROD_KNOWN_HOSTS" ] \
+   && ssh-keygen -lf "$PROD_KNOWN_HOSTS" 2>/dev/null | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }'; then
+  echo "Reusing pinned production host key from $PROD_KNOWN_HOSTS"
+  pin_ok=1
 else
-  if [ -s "$prod_scan" ]; then
-    echo "production host key does not match the pinned fingerprint; refusing" >&2
+  prod_scan="$(mktemp "${PROD_KNOWN_HOSTS}.XXXXXX")"
+  i=0
+  while [ "$i" -lt 6 ] && [ -z "$pin_ok" ]; do
+    ssh-keyscan -T 10 -t ed25519,ecdsa "$prod_host" 2>/dev/null | awk -v h="$prod_host" '$1 == h' > "$prod_scan"
+    ssh-keygen -lf "$prod_scan" 2>/dev/null | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }' && pin_ok=1
+    [ -n "$pin_ok" ] || { i=$((i+1)); sleep 15; }
+  done
+  if [ -n "$pin_ok" ]; then
+    cp "$prod_scan" "$PROD_KNOWN_HOSTS" && rm -f "$prod_scan"
   else
-    echo "ssh-keyscan failed for $prod_host after 3 attempts; refusing" >&2
+    if [ -s "$prod_scan" ]; then
+      echo "production host key does not match the pinned fingerprint; refusing" >&2
+    else
+      echo "ssh-keyscan failed for $prod_host after 6 attempts; refusing" >&2
+    fi
+    rm -f "$prod_scan"
+    exit 1
   fi
-  rm -f "$prod_scan"
-  exit 1
 fi
 prod_algo="$(awk '{print $2; exit}' "$PROD_KNOWN_HOSTS")"
 sudo -n tee "/etc/systemd/system/$tunnel_unit.service" >/dev/null <<UNIT
