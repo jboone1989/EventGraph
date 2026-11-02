@@ -474,7 +474,21 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Classify main push release intent
+        id: release_intent
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          should_promote="$(node scripts/ci/promotion-source-equivalence.mjs --classify-push "$BEFORE_SHA" HEAD)"
+          [[ "$should_promote" == 'true' || "$should_promote" == 'false' ]]
+          echo "should_promote=$should_promote" >> "$GITHUB_OUTPUT"
+          if [[ "$should_promote" == 'false' ]]; then
+            echo 'No production release requested: this main push changed only reviewed control/governance paths.'
+          fi
       - name: Validate pinned develop release
+        if: steps.release_intent.outputs.should_promote == 'true'
         id: pin
         shell: bash
         env:
@@ -494,12 +508,14 @@ jobs:
           done
           echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR (read only)
+        if: steps.release_intent.outputs.should_promote == 'true'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Confirm immutable digest exists (no rebuild)
+        if: steps.release_intent.outputs.should_promote == 'true'
         env:
           IMAGE_REF: ${{ steps.pin.outputs.image_ref }}
         run: docker buildx imagetools inspect "$IMAGE_REF"
