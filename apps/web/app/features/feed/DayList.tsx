@@ -10,7 +10,7 @@ import { DayHeader, TimelineSlot } from "./Timeline";
 import { FeedItem } from "./FeedItem";
 import { useText } from "../../components/LanguageSwitch";
 
-export function DayList({ items, todayCount = null, headerAside }: { items: FeedItemSummary[]; todayCount?: number | null; headerAside?: React.ReactNode }) {
+export function DayList({ items, todayCount = null, headerAside, previousVisit = null }: { items: FeedItemSummary[]; todayCount?: number | null; headerAside?: React.ReactNode; previousVisit?: string | null }) {
   const readSet = useReadSet();
   const today = beijingDate(Date.now());
   const days = useMemo(() => {
@@ -31,7 +31,9 @@ export function DayList({ items, todayCount = null, headerAside }: { items: Feed
           <ol className="lg:pt-1">
             {list.map((it) => (
               <TimelineSlot key={it.id} at={it.timelineAt}>
-                <FeedItem item={it} read={readSet.has(it.id)} onOpen={markRead} showTags at={it.timelineAt} />
+                <FeedItem item={it} read={readSet.has(it.id)} onOpen={markRead} showTags at={it.timelineAt}
+                  newSinceVisit={previousVisit !== null && !readSet.has(it.id) &&
+                    Date.parse(it.timelineAt) > Date.parse(previousVisit) && Date.parse(it.timelineAt) <= Date.now()} />
               </TimelineSlot>
             ))}
           </ol>
