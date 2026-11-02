@@ -23,6 +23,19 @@ tunnel_unit=eventgraph-prod-db-tunnel
 prod_host=43.133.181.149
 tunnel_port=15432
 knowledge_port=15434
+# The egress path drops connections at peak; one refused keyscan or inspect is
+# transient and must not abort a deploy. Three attempts, five seconds apart.
+prod_ssh() {
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "ubuntu@$prod_host" "$@"
+}
+prod_ssh_retry() {
+  i=0
+  until prod_ssh "$@"; do
+    i=$((i+1))
+    [ "$i" -lt 3 ] || return 1
+    sleep 5
+  done
+}
 [ -f "$env_file" ] || { echo "Missing $env_file (docs/vm13-preview.md)" >&2; exit 1; }
 grep -q '^DATABASE_URL=.*@devdb:'"$tunnel_port"'/' "$env_file" \
   || { echo "$env_file DATABASE_URL must target devdb:$tunnel_port" >&2; exit 1; }
@@ -53,12 +66,8 @@ image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")
 # either host. The container IPs change only if those containers are recreated;
 # a stale address fails the deploy visibly instead of misrouting data.
 bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-db_ip="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "ubuntu@$prod_host" \
-  'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')"
-knowledge_ip="$(ssh -o BatchMode=yes ubuntu@$prod_host \
-  'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')"
-[ -n "$db_ip" ] && [ -n "$knowledge_ip" ] \
-  || { echo "Could not read production container addresses from $prod_host" >&2; exit 1; }
+db_ip="$(prod_ssh_retry 'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" && [ -n "$db_ip" ]   || { echo "Could not read the production database container address" >&2; exit 1; }
+knowledge_ip="$(prod_ssh_retry 'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" && [ -n "$knowledge_ip" ]   || { echo "Could not read the production knowledge container address" >&2; exit 1; }
 # Pin the production host key for the tunnel: the runner verifies this
 # fingerprint (secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the
 # same pin must authorize the VM13→production tunnel before the unit below
@@ -72,12 +81,24 @@ knowledge_ip="$(ssh -o BatchMode=yes ubuntu@$prod_host \
 mkdir -p "${HOME}/.ssh"
 PROD_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.prod"
 prod_scan="$(mktemp "${PROD_KNOWN_HOSTS}.XXXXXX")"
-ssh-keyscan -T 10 -t ed25519,ecdsa "$prod_host" 2>/dev/null | awk -v h="$prod_host" '$1 == h' > "$prod_scan"
-[ -s "$prod_scan" ] || { echo "ssh-keyscan failed for $prod_host" >&2; rm -f "$prod_scan"; exit 1; }
-prod_hit="$(ssh-keygen -lf "$prod_scan" | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { print NR; exit }')"
-[ -n "$prod_hit" ] || { echo "production host key does not match the pinned fingerprint; refusing" >&2; rm -f "$prod_scan"; exit 1; }
-awk -v n="$prod_hit" 'NR == n' "$prod_scan" > "${prod_scan}.ok" && mv "${prod_scan}.ok" "$PROD_KNOWN_HOSTS"
-rm -f "$prod_scan"
+prod_hit=""
+i=0
+while [ "$i" -lt 3 ] && [ -z "$prod_hit" ]; do
+  ssh-keyscan -T 10 -t ed25519,ecdsa "$prod_host" 2>/dev/null | awk -v h="$prod_host" '$1 == h' > "$prod_scan"
+  prod_hit="$(ssh-keygen -lf "$prod_scan" 2>/dev/null | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { print NR; exit }')"
+  [ -n "$prod_hit" ] || { i=$((i+1)); sleep 5; }
+done
+if [ -n "$prod_hit" ]; then
+  awk -v n="$prod_hit" 'NR == n' "$prod_scan" > "${prod_scan}.ok" && mv "${prod_scan}.ok" "$PROD_KNOWN_HOSTS" && rm -f "$prod_scan"
+else
+  if [ -s "$prod_scan" ]; then
+    echo "production host key does not match the pinned fingerprint; refusing" >&2
+  else
+    echo "ssh-keyscan failed for $prod_host after 3 attempts; refusing" >&2
+  fi
+  rm -f "$prod_scan"
+  exit 1
+fi
 prod_algo="$(awk '{print $2; exit}' "$PROD_KNOWN_HOSTS")"
 sudo -n tee "/etc/systemd/system/$tunnel_unit.service" >/dev/null <<UNIT
 [Unit]
