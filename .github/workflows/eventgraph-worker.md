@@ -51,7 +51,6 @@ safe-outputs:
     draft: false
     fallback-as-issue: false
     auto-close-issue: false
-    auto-merge: squash
     # GH-AW v1.0.1 cannot independently verify its initial REST git_ref
     # effect when signed replay creates a new PR branch. Direct safe-output
     # push remains Claim-scoped and repository rules do not require signatures.
