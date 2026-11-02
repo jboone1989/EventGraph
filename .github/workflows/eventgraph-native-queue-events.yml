@@ -1,0 +1,53 @@
+name: EventGraph native queue continuation
+
+on:
+  workflow_run:
+    workflows: [EventGraph GH-AW Worker]
+    types: [completed]
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eventgraph-native-queue-continuation
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    if: >-
+      ${{ vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
+          (github.event_name == 'workflow_dispatch' ||
+           (github.event_name == 'workflow_run' &&
+            github.event.workflow_run.head_repository.full_name == github.repository &&
+            github.event.workflow_run.event == 'workflow_dispatch') ||
+           (github.event_name == 'pull_request' &&
+            github.event.pull_request.base.ref == 'develop' &&
+            contains(github.event.pull_request.labels.*.name, 'agent-work'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install pinned official GH-AW CLI
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Resume via the native Work Queue scheduler
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN is missing'; exit 1; }
+          # No custom Work selection, in-flight counter or state. The official
+          # Policy, reservation and CAS guards own all scheduling decisions.
+          snapshot="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" stats --json 2>&1)"
+          if ! jq -e '
+            .grants_paused == false and
+            ([.pools[] | select(.pool == "default") | .scheduling_eligible] | add // 0) > 0
+          ' <<< "$snapshot" >/dev/null; then
+            echo 'Native queue paused or no eligible Work; nothing to dispatch'
+            exit 0
+          fi
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
