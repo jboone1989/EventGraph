@@ -1,0 +1,79 @@
+name: EventGraph native real code Work acceptance
+
+# One-shot validation: adding this file to main admits exactly Issue #300.
+# There is no scheduled or Issue-driven custom producer, queue, or retry loop.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/eventgraph-native-real-code-acceptance.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eventgraph-native-code-acceptance-300
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout approved repository configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install official pinned GH-AW operator
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Admit one owner-authorized real code Work through the native queue
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          TASK_ISSUE: '300'
+          SPEC_SHA: a08bc27e15b188235f822edcb969f681d0a8ee15
+          SPEC_PATH: specs/010-ci-change-scope/spec.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN is missing'; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/issues/$TASK_ISSUE" > "$RUNNER_TEMP/owner-issue.json"
+          jq -e --arg owner "${GITHUB_REPOSITORY_OWNER}" \
+            --arg pinned "Spec: ${SPEC_PATH}@${SPEC_SHA}" '
+              .state == "open" and .user.login == $owner and
+              (.labels | any(.name == "agent-ready")) and
+              (.body | contains($pinned) and contains("## Acceptance Criteria"))' \
+            "$RUNNER_TEMP/owner-issue.json" > /dev/null
+          # Do not accept mutable or superseded Spec: exact SHA is on develop
+          # and the spec text has not changed since that approved revision.
+          git fetch --no-tags origin develop
+          git cat-file -e "${SPEC_SHA}:${SPEC_PATH}"
+          git merge-base --is-ancestor "$SPEC_SHA" origin/develop
+          git diff --quiet "$SPEC_SHA" origin/develop -- "$SPEC_PATH"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/284" \
+            --jq '.merged == true and .base.ref == "develop"' | grep -Fxq true
+          issue_body="$(jq -r .body "$RUNNER_TEMP/owner-issue.json")"
+          issue_title="$(jq -r .title "$RUNNER_TEMP/owner-issue.json")"
+          repository_id="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.id | tostring')"
+          task="$(printf 'Issue #%s: %s\nIssue URL: https://github.com/%s/issues/%s\n%s\n' \
+            "$TASK_ISSUE" "$issue_title" "$GITHUB_REPOSITORY" "$TASK_ISSUE" "$issue_body")"
+          jq -n --arg task "$task" --arg repo "$GITHUB_REPOSITORY" \
+            --arg id "$repository_id" '{
+              task: $task,
+              effect_contract: {version: 1, outputs: [
+                {type: "create_pull_request", min: 1, max: 1}
+              ]},
+              resource_scope: {version: 1, resources: [{
+                host: "github.com", repository: $repo, repository_id: $id
+              }]}
+            }' > "$RUNNER_TEMP/real-work.json"
+          # Official GH-AW API owns task idempotency, Claim, Result and retry.
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-work \
+            --file "$RUNNER_TEMP/real-work.json" \
+            --worker-profile eventgraph-worker --priority 3 \
+            --request-id "issue-$TASK_ISSUE"
+          # Project is only a view; label after confirmed native submission.
+          gh issue edit "$TASK_ISSUE" --repo "$GITHUB_REPOSITORY" --add-label agent-work
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
