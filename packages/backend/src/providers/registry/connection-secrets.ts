@@ -1,11 +1,27 @@
 import {createCipheriv,createDecipheriv,randomBytes,createHmac} from 'node:crypto';
-import {credential} from '../../config.ts';
+import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {config,credential} from '../../config.ts';
 import {ProviderConfigError} from './connection-types.ts';
 
+// One stable key per persisted data volume. Never generate a new key on each process start:
+// existing database ciphertext must remain decryptable after container replacement.
+function persistentKey():string {
+ const file=join(config.dataDir,'.model-credential-encryption-key');
+ try {
+  mkdirSync(config.dataDir,{recursive:true,mode:0o700});
+  try {writeFileSync(file,randomBytes(32).toString('base64')+'\n',{flag:'wx',mode:0o600});}
+  catch (error) {if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}
+  return readFileSync(file,'utf8').trim();
+ } catch {
+  throw new ProviderConfigError('Credential encryption key storage is unavailable. Mount a persistent writable AIHOT_DATA_DIR or configure MODEL_CREDENTIAL_ENCRYPTION_KEY','credential',503);
+ }
+}
 function encryptionKey():Buffer {
- const raw=credential('models','MODEL_CREDENTIAL_ENCRYPTION_KEY');
- const key=raw?Buffer.from(raw,'base64'):null;
- if(!key||key.length!==32)throw new ProviderConfigError('Configure MODEL_CREDENTIAL_ENCRYPTION_KEY with a base64 encoded 32 byte key before storing credentials','credential',503);
+ const raw=credential('models','MODEL_CREDENTIAL_ENCRYPTION_KEY')??persistentKey();
+ const key=/^[A-Za-z0-9+/]{43}=$/.test(raw)?Buffer.from(raw,'base64'):null;
+ if(!key||key.length!==32)
+  throw new ProviderConfigError('MODEL_CREDENTIAL_ENCRYPTION_KEY must be a base64 encoded 32 byte key','credential',503);
  return key;
 }
 export function encryptCredential(value:string):string {
