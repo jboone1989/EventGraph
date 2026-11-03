@@ -70,7 +70,7 @@ test("public route subsets produce the same complete navigation data; filters st
     (await UNSAFE_decodeViaTurboStream(body, globalThis)).value as Navigation;
   const stableContent = (navigation: Navigation) => {
     const copy = structuredClone(navigation);
-    for (const route of ["root", "routes/home"]) {
+    for (const route of ["routes/feed-layout", "routes/home"]) {
       assert.ok(copy[route]?.data && typeof copy[route].data === "object", `missing navigation loader: ${route}`);
       assert.equal(typeof copy[route].data.expiresAt, "number", `missing expiry: ${route}`);
       // Only these two loader cache clocks may differ. All other data, including real
