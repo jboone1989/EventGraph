@@ -424,11 +424,11 @@ export async function processDevelopRange({ api, repo, headSha, root = process.c
   const current = await api.request("/repos/" + repo + "/branches/develop");
   if (current.commit?.sha !== headSha) return { kind: "stale-develop-head", graphs: [], results: [] };
   const installSha = execFileSync("git", [
-    "log", "--first-parent", "--diff-filter=A", "-1", "--format=%H", "--", "scripts/ci/spec-task-producer.mjs"
+    "-C", root, "log", "--first-parent", "--diff-filter=A", "-1", "--format=%H", "--", "scripts/ci/spec-task-producer.mjs"
   ], { encoding: "utf8" }).trim();
   if (!/^[0-9a-f]{40}$/.test(installSha)) fail("Could not locate the Producer installation commit");
   const commits = commitShas ?? execFileSync("git", [
-    "rev-list", "--reverse", "--first-parent", installSha + ".." + headSha
+    "-C", root, "rev-list", "--reverse", "--first-parent", installSha + ".." + headSha
   ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
   let queueStatePromise;
   const cachedQueueRead = () => {
