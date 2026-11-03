@@ -63,26 +63,45 @@ before(async () => {
 after(() => web.stop());
 
 test("public route subsets produce the same complete navigation data; filters still differ", async () => {
+  // Decode the actual public navigation payload: Turbo Stream's reference numbering is not
+  // stable across independently serialized requests, even when the underlying content is.
+  type Navigation = Record<string, { data: Record<string, unknown> }>;
+  const decode = async (body: ReadableStream<Uint8Array>) =>
+    (await UNSAFE_decodeViaTurboStream(body, globalThis)).value as Navigation;
+  const stableContent = (navigation: Navigation) => {
+    const copy = structuredClone(navigation);
+    for (const route of ["root", "routes/home"]) {
+      assert.ok(copy[route]?.data && typeof copy[route].data === "object", `missing navigation loader: ${route}`);
+      assert.equal(typeof copy[route].data.expiresAt, "number", `missing expiry: ${route}`);
+      // Only these two loader cache clocks may differ. All other data, including real
+      // timestamp fields, stays in the deep comparison.
+      copy[route].data.expiresAt = 0;
+    }
+    return copy;
+  };
   const answers = await Promise.all(["", "?_routes=root", "?_routes=routes%2Fhome", "?_routes=unknown"].map(async (query) => {
     const res = await fetch(`${origin}/_.data${query}`);
     assert.equal(res.status, 200);
     assert.match(res.headers.get("Cache-Control")!, /^public,/);
     assert.equal(res.headers.get("X-Accel-Expires"), `@${deadline}`);
     assert.doesNotMatch(res.headers.get("Cache-Control")!, /stale/);
-    const body = await res.text();
-    assert.ok(body.includes("root") && body.includes("routes/home"));
-    return body;
+    return stableContent(await decode(res.body!));
   }));
-  // Each server request can generate a new fresh timestamp; the route data itself must agree. Turbo-stream
-  // writes repeated keys (both loaders carry "expiresAt") as references, so only the first stays a literal
-  // followed by digits; normalize every epoch-millisecond number wherever the stream happens to put it.
-  const withoutClock = (body: string) => body.replace(/\b1\d{12}\b/g, "<deadline>");
-  assert.ok(answers.every((body) => withoutClock(body) === withoutClock(answers[0]!)));
+  for (const answer of answers.slice(1)) assert.deepEqual(answer, answers[0]);
+  // Negative proof: a missing real route or changed navigation content must still fail
+  // the exact same assertion, rather than disappearing under broad regex normalization.
+  const missingRoute = structuredClone(answers[0]!);
+  delete missingRoute["routes/home"];
+  assert.throws(() => assert.deepEqual(missingRoute, answers[0]));
+  const changedContent = structuredClone(answers[0]!);
+  changedContent["root"]!.data = { ...changedContent["root"]!.data, wrongNavigation: true };
+  assert.throws(() => assert.deepEqual(changedContent, answers[0]));
   const category = CATEGORY_KEYS.at(-1)!;
   const filtered = await fetch(`${origin}/_.data?category=${category}&_routes=root`);
   const body = await filtered.text();
   assert.ok(body.includes(category));
-  assert.notEqual(body, answers[0]);
+  const filteredNavigation = await decode(new Response(body).body!);
+  assert.notDeepEqual(stableContent(filteredNavigation), answers[0]);
 });
 
 test("filtered pages skip hidden feed overview APIs, but unfiltered pages still request them", async () => {
