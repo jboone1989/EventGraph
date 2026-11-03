@@ -459,6 +459,7 @@ export async function processDevelopRange({ api, repo, headSha, root = process.c
   const commits = commitShas ?? execFileSync("git", [
     "-C", root, "rev-list", "--reverse", "--first-parent", installSha + ".." + headSha
   ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  if (!commits.length) return { kind: "develop-range", scanned: 0, graphs: [], results: [] };
   const mergedPRs = await api.paginate(
     "/repos/" + repo + "/pulls?state=closed&base=develop&sort=updated&direction=desc"
   );
