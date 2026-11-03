@@ -254,7 +254,7 @@ test("Spec intake uses the exact merge SHA and builds its graph", async () => {
     const result = await processMergedCommit({
       api, repo, headSha: specSha, root,
       readQueueState: async () => queueState,
-      readFileAtCommit: async (_sha, filePath) => {
+      readFileAtCommit: (_sha, filePath) => {
         if (filePath === "specs/example/spec.md") return "**Status:** Owner-approved\n";
         if (filePath === "specs/example/plan.md") return "Plan\n";
         if (filePath === "specs/example/tasks.md") return validTasks;
