@@ -62,7 +62,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(page.getByRole("alert")).toContainText("模型暂不可用");
   failure=false;
   await page.getByRole("button",{name:"保存"}).click();
-  await expect(page.getByText("系统默认")).toBeVisible();
+  await expect(page.getByText("系统默认",{exact:true})).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,null);
   await page.setViewportSize({width:390,height:844});
   await expect(page.getByRole("button",{name:"刷新模型"})).toBeVisible();
