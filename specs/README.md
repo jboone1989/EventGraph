@@ -13,6 +13,8 @@ specs/<feature>/
 
 Get the user's approval before implementing substantial behavior changes. Reference the approved `spec.md` **Git SHA and path** (or approved Issue) in the implementation PR. A spec edited only in an implementation branch is a draft, not proof of approval.
 
+For Specs intended for automatic task intake, use the strict Work Items format in [docs/spec-review.md](../docs/spec-review.md) and [Spec 015](015-spec-task-intake/spec.md). The Producer creates Issues only after an owner-merged, owner-approved Spec PR reaches `develop`.
+
 For a small fix, an Issue with concrete acceptance criteria is sufficient. Either ChatGPT or Claude can review against the approved version.
 
 ## Product specifications
