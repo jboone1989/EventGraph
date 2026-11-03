@@ -8,7 +8,7 @@ the production service host and is not updated by this workflow.
 | Host | Responsibility |
 | --- | --- |
 | VM13 (43.133.185.154) | Development Web + API from the checked develop GHCR digest |
-| cn-dev (43.142.127.40) | Development checks and Playwright preview acceptance |
+| GitHub-hosted Actions | Deployment orchestration and direct Chromium preview acceptance |
 | VM09 | Existing production database, graph and services; never deployed by this pipeline |
 
 Preview URL: http://43.133.185.154/.
@@ -52,7 +52,7 @@ repository or to cn-dev.
    Compose file, and restarts only the VM13 `api` and `web` services.
    It compares their image IDs against the published digest and checks health;
    on failure it restores the previous Compose and image.
-3. `e2e_vm13_preview` runs on cn-dev, checks the deployed source SHA,
+3. `e2e_vm13_preview` runs in GitHub-hosted Actions, using the pinned Playwright image to check the deployed source SHA,
    `db: ok`, `dbReadOnly: true`, public daily archive and knowledge endpoints,
    and Chromium zh/en desktop/mobile pages. This is intentionally read-only.
 
@@ -62,5 +62,6 @@ session creation, and admin notes write/readback are no longer valid for a
 production-backed preview. These checks would mutate production data; the
 non-mutating checks and live read-only assertion above supersede them.
 
-A successful PR check or image publish is **not** proof of VM13 deployment.
+No cn-dev SSH connection, development database, or cn-dev Playwright installation is required.
+\nA successful PR check or image publish is **not** proof of VM13 deployment.
 The deploy job and the subsequent cn-dev browser smoke must both succeed.
