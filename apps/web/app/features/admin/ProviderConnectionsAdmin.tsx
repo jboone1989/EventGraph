@@ -205,7 +205,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
    </div>
   </div>
   <Card title={"模型（"+data.models.length+"）"}>
-   <DataTable rows={matching} rowKey={m=>m.id} empty="没有模型；请先建立厂商连接。" columns={[
+   <DataTable rows={matching} rowKey={m=>m.id} empty="没有匹配的模型，请新增模型或调整搜索条件。" columns={[
     {key:"id",label:"模型 ID",render:m=><span className="break-all font-mono text-xs">{m.modelId}</span>},
     {key:"provider",label:"厂商连接",render:m=>names.get(m.providerId)??m.providerId},
     {key:"adapter",label:"类型",render:m=>m.adapter},
