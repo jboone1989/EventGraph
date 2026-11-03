@@ -34,7 +34,7 @@
 - Reject missing/paused/incompatible queue state and never submit a partial graph.
 
 ### T004 — Integrate Spec intake into the existing successful-develop continuation
-**Scope:** Extend the existing `resume_native_queue` job so it admits only a unique owner-merged, same-repository approved Spec PR after exact-SHA Check/E2E/publish success, then runs the existing Dispatcher path.
+**Scope:** Extend the existing `resume_native_queue` job to catch up merged PRs after Producer installation, admit qualifying owner-merged Specs after exact-current-head Check/E2E/publish success, and then run the existing Dispatcher path.
 **Depends on:** T003
 **Acceptance:**
 - Run only after the exact current `develop` head passes the existing native-queue-enabled Check path.
