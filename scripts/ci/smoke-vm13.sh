@@ -60,33 +60,10 @@ const dailyIndex = await dailyRes.json();
 assert(dailyIndex.items?.some(item => item.titleEn && !/[㐀-鿿]/u.test(item.titleEn)),
   "English daily index has no actual English news headline");
 
-// 5. Non-destructive write: through the VM13 API on a far-past date that no
-//    daily page renders, read back through the API, then restore the prior
-//    state through the same API.
-const day = "2000-01-01";
-const before = await (await fetch(root + "/api/admin/notes?days=36500", { headers: { cookie } })).json();
-const previous = before.rows.find(row => row.day === day) ?? null;
-const probe = `VM13 CD probe ${release} ${Date.now()}`;
-const writeRes = await fetch(root + "/api/admin/notes", {
-  method: "POST",
-  headers: { "content-type": "application/json", ...admin },
-  body: JSON.stringify({ day, note: probe }),
-});
-assert(writeRes.status === 200, "note write status " + writeRes.status);
-const after = await (await fetch(root + "/api/admin/notes?days=36500", { headers: { cookie } })).json();
-assert(after.rows.find(row => row.day === day)?.note === probe, "probe note not readable through the VM13 API");
-if (previous) {
-  const restoreRes = await fetch(root + "/api/admin/notes", {
-    method: "POST",
-    headers: { "content-type": "application/json", ...admin },
-    body: JSON.stringify({ day, note: previous.note, noteEn: previous.noteEn }),
-  });
-  assert(restoreRes.status === 200, "note restore status " + restoreRes.status);
-}
-const restored = await (await fetch(root + "/api/admin/notes?days=36500", { headers: { cookie } })).json();
-const restoredRow = restored.rows.find(row => row.day === day) ?? null;
-assert(previous ? restoredRow?.note === previous.note : restoredRow === null, "note state not restored");
-console.log(JSON.stringify({ release, admin: me.name, probeDay: day, restored: previous ? "previous note" : "far-past probe left in place" }));
+// 5. Read-only admin endpoint check; never write probe notes into production.
+const notesRes = await fetch(root + "/api/admin/notes?days=1", { headers: { cookie } });
+assert(notesRes.status === 200, "read-only admin notes status " + notesRes.status);
+console.log(JSON.stringify({ release, admin: me.name, dataAccess: "read-only" }));
 
 // 6. Knowledge endpoints serve the production graph through the database tunnel.
 const stats = await (await fetch(root + "/api/site/knowledge/stats")).json();
