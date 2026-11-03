@@ -8,9 +8,9 @@ import {ProviderConnectionsAdmin} from "../../features/admin/ProviderConnections
 export async function loader({request}:Route.LoaderArgs){
  return adminGet<ProviderManagement>(request,"/api/admin/providers");
 }
-export const meta:Route.MetaFunction=()=>[{title:"模型管理 · "+SITE.name+" 后台"}];
+export const meta:Route.MetaFunction=()=>[{title:"厂商与模型 · "+SITE.name+" 后台"}];
 export default function ModelsAdmin({loaderData}:Route.ComponentProps){
- return <AdminPage title="模型管理" subtitle="查看、添加、编辑、删除模型，并在每个模型上直接测试。"
+ return <AdminPage title="厂商与模型" subtitle="一个厂商配置 API Key 与多个模型。测试通过后可在工作流绑定页面选择。"
   >
   <ProviderConnectionsAdmin data={loaderData}/>
  </AdminPage>;
