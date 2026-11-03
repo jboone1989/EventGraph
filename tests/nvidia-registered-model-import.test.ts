@@ -30,8 +30,8 @@ test('initial NVIDIA import includes only official Free Endpoint candidates and 
    ON CONFLICT DO NOTHING`;
   const result=await importNvidiaModels();
   assert.equal(result.status,'imported');
-  assert.equal(result.summary.catalogue,81);
-  assert.equal(result.summary.total,15);
+  assert.equal((result.summary as {catalogue:number}).catalogue,81);
+  assert.equal((result.summary as {total:number}).total,15);
   assert.equal(free.length,15);
   const models=await sql<{model_id:string;notes:string|null;updated_by:string}[]>`
    SELECT model_id,notes,updated_by FROM registered_models WHERE provider_id=${CID}::uuid`;
@@ -66,8 +66,8 @@ test('correction deletes untouched invalid seed entries, preserving edited and l
   }
   const correction=await importNvidiaModels();
   assert.equal(correction.status,'reconciled');
-  assert.ok(correction.summary.deleted>=1);
-  assert.ok(correction.summary.preservedNonFree>=1);
+  assert.ok((correction.summary as {deleted:number}).deleted>=1);
+  assert.ok((correction.summary as {preservedNonFree:number}).preservedNonFree>=1);
   const rows=await sql<{model_id:string}[]>`SELECT model_id FROM registered_models WHERE id IN (${legacy}::uuid,${retained}::uuid)`;
   assert.equal(rows.some(x=>x.model_id===invalid),false);
   assert.equal(rows.some(x=>x.model_id===edited),true);
