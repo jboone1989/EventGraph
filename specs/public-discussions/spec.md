@@ -14,7 +14,7 @@
 - 以 **稳定的 canonical Story publicId** 而不是页面 URL 或标题作为公共讨论键；一个 Story 相关的多篇新闻，以及 `/story/:id`、`/en/story/:id` 和相关的 `/items/:id`，应加载同一条 Discussion。
 - 优先试验 giscus 官方的 `specific term` 映射模式，使用命名空间化的 ID（如 `eventgraph:story:<publicId>`）；真实测试匹配唯一性、同事件中英两版一致性和自动创建行为。不要对同一事件的每条新闻按 pathname 分别创建讨论。
 - **尚未归组的文章**、Story 合并/重定向、撤回或不公开的内容，必须在实施 Spec/测试中确定链接行为：允许暂不显示讨论，不能胡乱映射、不应创建孤立无主讨论。
-- 点击“讨论”不应遮盖新闻正文或手机导航，也不能让页面在初次加载时为了第三方脚本/授权而明显阻塞；评论区适当延迟加载并保留跳转 GitHub Discussion 的出口。
+- 讨论区应在进入有效 Story 页面后自动呈现，不要求点击“加载讨论”；嵌入不得遮盖新闻正文或手机导航，也不能因为第三方脚本或授权而阻塞首次阅读。giscus 脚本异步加载、讨论 iframe 懒加载，并保留跳转 GitHub Discussions 的出口。
 
 ## 权限与社区治理
 
@@ -41,4 +41,4 @@
 - [GitHub Discussions 管理](https://docs.github.com/en/discussions/managing-discussions-for-your-community)
 - [GitHub Discussions moderation](https://docs.github.com/en/discussions/managing-discussions-for-your-community/moderating-discussions)
 
-首次实现：在公开 Story 和具备 Story 上下文的新闻详情中共用 `eventgraph:story:<canonicalPublicId>`，读者点击才加载官方 giscus。无有效 Story ID、或未配置 `VITE_GISCUS_CATEGORY_ID` 时不显示讨论入口。GitHub 仓库已确认公开且启用了 Discussions；节点 ID 为 `R_kgDOVHEeYA`。**尚须核对 Discussion 分类 ID、giscus App 安装、真实评论写入、权限与移动端浏览器**，D-03/D-06 不得写成已验收。
+首次实现：在公开 Story 和具备 Story 上下文的新闻详情中共用 `eventgraph:story:<canonicalPublicId>`，进入页面后自动挂载官方 giscus（脚本异步、讨论 iframe 懒加载），不设置人工加载按钮。无有效 Story ID、或未配置 `VITE_GISCUS_CATEGORY_ID` 时不显示讨论入口。GitHub 仓库已确认公开且启用了 Discussions；节点 ID 为 `R_kgDOVHEeYA`。**尚须核对 Discussion 分类 ID、giscus App 安装、真实评论写入、权限与移动端浏览器**，D-03/D-06 不得写成已验收。
