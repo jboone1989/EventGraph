@@ -615,10 +615,9 @@ jobs:
             bash scripts/deploy-prod.sh
 
 
-  # cn-dev handles the worker and data services; it is not a release gateway for VM13.
-  # No image pull or Web/API deployment is performed on cn-dev by this workflow.
-  # VM13 runs the development Web and API from the same tested digest; the API
-  # reaches the cn-dev development database only through the on-host SSH tunnel.
+  # VM13 runs the development Web and API using the checked immutable digest.
+  # Its API reads production data through a pinned SSH tunnel. Neither cn-dev
+  # nor a separate development database or worker participates in this deployment.
   deploy_vm13_preview:
     needs: publish
     if: >-
@@ -669,7 +668,7 @@ jobs:
           else
             echo '::notice::A newer executable or unreadable branch tip; skip release'
           fi
-      - name: Deploy VM13 Web and API on the cn-dev development database
+      - name: Deploy VM13 Web and API from immutable digest
         if: steps.current.outputs.deploy == 'true'
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
@@ -686,8 +685,8 @@ jobs:
           version: '1.8.2'
           script_path: scripts/ci/deploy-vm13-preview.sh
 
-  # Acceptance runs on cn-dev: API digest/backend/admin/write checks in
-  # scripts/ci/smoke-vm13.sh plus the Chromium page checks; never on VM13 itself.
+  # Acceptance runs on GitHub-hosted Actions with the official Playwright image.
+  # GitHub checks VM13 directly; there is no SSH or dependency on cn-dev.
   e2e_vm13_preview:
     needs: deploy_vm13_preview
     if: ${{ needs.deploy_vm13_preview.outputs.deployed == 'true' &&
@@ -700,21 +699,24 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.deploy_vm13_preview.outputs.release }}
           persist-credentials: false
-      - name: Run cn-dev Chromium against VM13
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install browser test dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify deployed VM13 release directly from GitHub Actions
         env:
           EVENTGRAPH_PREVIEW_URL: http://43.133.185.154
           EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.deploy_vm13_preview.outputs.release }}
-        with:
-          host: ${{ vars.EVENTGRAPH_DEV_HOST }}
-          username: ${{ vars.EVENTGRAPH_DEV_USER }}
-          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
-          fingerprint: ${{ secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT }}
-          envs: EVENTGRAPH_PREVIEW_URL,EVENTGRAPH_PREVIEW_RELEASE
-          command_timeout: 8m
-          version: '1.8.2'
-          script_path: scripts/ci/smoke-vm13.sh
+        run: |
+          docker run --rm --init --ipc=host --network host \
+            -v "$PWD:/work" -w /work \
+            -e EVENTGRAPH_PREVIEW_URL -e EVENTGRAPH_PREVIEW_RELEASE \
+            mcr.microsoft.com/playwright:v1.61.1-noble \
+            sh scripts/ci/smoke-vm13.sh
 
   # Re-enter the official GH-AW queue only after this exact develop SHA has
   # passed the existing application checks. No custom Work selection or gate.
