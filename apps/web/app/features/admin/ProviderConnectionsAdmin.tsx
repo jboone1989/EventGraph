@@ -24,7 +24,8 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  const {run,busy}=useAdminAction();
  const [search,setSearch]=useState(''),[page,setPage]=useState(1);
  const [editor,setEditor]=useState<Editor|null>(null);
- const [connections,setConnections]=useState(data.providers);
+ const [createdConnections,setCreatedConnections]=useState<ProviderConnection[]>([]);
+ const connections=[...data.providers,...createdConnections.filter(c=>!data.providers.some(p=>p.id===c.id))];
  const [deleting,setDeleting]=useState<RegisteredModel|null>(null);
  const [problem,setProblem]=useState<Problem|null>(null),[notice,setNotice]=useState('');
  const [testing,setTesting]=useState<string|null>(null);
@@ -50,7 +51,7 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
 
  async function createConnection(input:ConnectionInput):Promise<ProviderConnection|null> {
   const result=await command<ProviderConnection>('POST','/api/admin/providers',{...input,reason:'后台新增连接：'+input.name});
-  if(result){setConnections(old=>[...old,result]);setNotice('已保存连接：'+result.name);}
+  if(result){setCreatedConnections(old=>[...old,result]);setNotice('已保存连接：'+result.name);}
   return result??null;
  }
  async function saveModel(input:ModelInput,reason:string) {
