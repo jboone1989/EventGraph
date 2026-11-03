@@ -129,7 +129,7 @@ test("skips a legacy owner-approved Spec PR without a work-intake contract", asy
   assert.equal(result.kind, "not-auto-intake-spec");
 });
 
-test("rejects a declared auto-intake Spec that omits tasks.md", async () => {
+test("skips an owner-approved one-file Spec without tasks.md (PR #328)", async () => {
   const approved = {
     number: 500, merged_at: "2026-11-03T10:18:00Z", merge_commit_sha: specSha,
     merged_by: { login: "jboone1989" },
@@ -144,7 +144,35 @@ test("rejects a declared auto-intake Spec that omits tasks.md", async () => {
     paginate: async path => {
       if (path.includes("/pulls?state=closed")) return [approved];
       if (path.includes("/pulls/500/files")) return [
-        { filename: "specs/example/spec.md" }, { filename: "specs/example/plan.md" }
+        { filename: "specs/example/spec.md" }
+      ];
+      throw new Error("No Issue/Work request allowed: " + path);
+    }
+  };
+  const result = await processMergedCommit({
+    api, repo, headSha: specSha,
+    readFileAtCommit: () => "**Status:** Owner-approved (2026-11-03).\n",
+    readQueueState: async () => { throw new Error("One-file Spec must not read queue state"); }
+  });
+  assert.equal(result.kind, "approved-spec-without-work-items");
+});
+
+test("rejects an opted-in Spec with tasks.md but missing plan.md", async () => {
+  const approved = {
+    number: 500, merged_at: "2026-11-03T10:18:00Z", merge_commit_sha: specSha,
+    merged_by: { login: "jboone1989" },
+    base: { ref: "develop", repo: { full_name: repo } },
+    head: { ref: "spec/example", repo: { full_name: repo } }, labels: []
+  };
+  const api = {
+    request: async path => {
+      if (path.endsWith("/pulls/500")) return approved;
+      throw new Error("No Issue/Work request allowed: " + path);
+    },
+    paginate: async path => {
+      if (path.includes("/pulls?state=closed")) return [approved];
+      if (path.includes("/pulls/500/files")) return [
+        { filename: "specs/example/spec.md" }, { filename: "specs/example/tasks.md" }
       ];
       throw new Error("No Issue/Work request allowed: " + path);
     }
@@ -152,8 +180,8 @@ test("rejects a declared auto-intake Spec that omits tasks.md", async () => {
   await assert.rejects(() => processMergedCommit({
     api, repo, headSha: specSha,
     readFileAtCommit: () => "**Status:** Owner-approved\n",
-    readQueueState: async () => { throw new Error("Incomplete Spec must not read queue state"); }
-  }), /requires the PR to change all three files: specs\/example\/tasks\.md/);
+    readQueueState: async () => { throw new Error("Invalid Spec must not read queue state"); }
+  }), /requires the PR to change all three files: specs\/example\/plan\.md/);
 });
 
 test("builds a native graph with policy-derived routing and completed Issue dependencies", () => {
