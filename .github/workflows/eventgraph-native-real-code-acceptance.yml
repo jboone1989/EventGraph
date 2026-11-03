@@ -77,10 +77,12 @@ jobs:
               }]}
             }' > "$RUNNER_TEMP/real-work.json"
           # Official GH-AW API owns task idempotency, Claim, Result and retry.
+          # Original issue-300 Work made 2 attempts but each failed before model startup
+          # due to GH-AW -1/AWF positive-value incompatibility. Never replay an old Claim.
           gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-work \
             --file "$RUNNER_TEMP/real-work.json" \
             --worker-profile eventgraph-worker \
-            --request-id "issue-$TASK_ISSUE"
+            --request-id "issue-$TASK_ISSUE-awf-runtime-recovery-20261103"
           # Project is only a view; label after confirmed native submission.
           GH_TOKEN="$EVENTGRAPH_ISSUE_TOKEN" gh issue edit "$TASK_ISSUE" --repo "$GITHUB_REPOSITORY" --add-label agent-work
           # Preserve the existing one-open-agent-PR serialization gate.
