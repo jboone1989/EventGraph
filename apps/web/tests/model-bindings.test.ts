@@ -50,7 +50,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");
   await picker.selectOption(modelKey);
   await page.getByRole("button",{name:"保存"}).click();
-  await expect(page.getByText("后台绑定")).toBeVisible();
+  await expect(page.getByText("已绑定",{exact:true})).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,modelKey);
   assert.match(writes.at(-1)!.body.reason,/prefilter/);
   await picker.selectOption("");
