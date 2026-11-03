@@ -11,6 +11,7 @@ export function isPromotionControlPath(path) {
     path.startsWith("specs/") ||
     path === "scripts/deploy-prod.sh" ||
     path === "docs/ci-cd.md" ||
+    path === "docs/spec-review.md" ||
     path === "docs/production-deployment.md";
 }
 

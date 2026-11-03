@@ -50,6 +50,7 @@ test("only explicitly reviewed control/governance paths are excluded", () => {
     "specs/014-main-promotion-runtime-equivalence/spec.md",
     "scripts/deploy-prod.sh",
     "docs/ci-cd.md",
+    "docs/spec-review.md",
     "docs/production-deployment.md",
   ]) assert.equal(isPromotionControlPath(path), true, path);
 
@@ -107,6 +108,7 @@ test("malformed source SHA is rejected before git comparison", () => {
 test("main control-only push is not a production release", () => {
   const f = fixture({
     ".github/workflows/check.yml": "name: Reviewed control update\\n",
+    "docs/spec-review.md": "## Approved Spec task intake\\n",
     "specs/new/spec.md": "# Approved control decision\\n",
     "scripts/ci/helper.mjs": "export const control = true;\\n",
   });
