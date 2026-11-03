@@ -1,6 +1,7 @@
 #!/bin/sh
 # Run on a GitHub-hosted runner against VM13, independent of cn-dev.
-# Validate the deployed release and read-only public APIs without modifying data.
+# Validate the deployed develop Web/API and writable production DB session.
+# No state is mutated by this public-browser smoke; the deploy runs a rolled-back SQL probe.
 set -eu
 : "${EVENTGRAPH_PREVIEW_URL:?missing VM13 preview URL}"
 : "${EVENTGRAPH_PREVIEW_RELEASE:?missing deployed release SHA}"
@@ -17,9 +18,10 @@ const assert = (condition, message) => { if (!condition) throw new Error(message
 const health = await (await fetch(root + "/api/health")).json();
 assert(health.ok === true && health.db === "ok", "VM13 health not ok: " + JSON.stringify(health));
 assert(health.release === release, `release ${health.release} != deployed ${release}`);
-assert(health.dbReadOnly === true, "VM13 PostgreSQL sessions are not read-only");
+assert(health.dbReadOnly === false, "VM13 PostgreSQL session remains read-only");
 
-// The preview points at production data, so login/notes-write probes are forbidden.
+// The preview now permits admin writes to production, but the public smoke
+// remains non-mutating; the deploy already proved transactional writes.
 // 2. The English archive should expose real English headlines in the API, not
 // only the uniform date fallback. Source-original English titles are accepted.
 const dailyRes = await fetch(root + "/api/site/reports/daily?en=1");
