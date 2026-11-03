@@ -24,6 +24,18 @@ test('persisted credential fingerprint is keyed, never the offline SHA-256 of an
  assert.notEqual(credentialDigest(weak),credentialDigest(weak+'-rotated'));
 });
 
+
+test('a provider with no models can be deleted in one CRUD operation even when enabled',async()=>{
+ const first=await createConnection(connection({name:'empty-'+randomUUID(),enabled:true}),'create',actor);
+ assert.deepEqual(await deleteConnection(first.id,first.version,'delete empty connection',actor),{deleted:true});
+ const second=await createConnection(connection({name:'has-model-'+randomUUID(),enabled:true}),'create',actor);
+ const child=await createRegisteredModel(model(second.id),'create child',actor);
+ await assert.rejects(deleteConnection(second.id,second.version,'delete with child',actor),
+  e=>e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.id===child.id));
+ await deleteRegisteredModel(child.id,child.version,'delete child',actor);
+ assert.deepEqual(await deleteConnection(second.id,second.version,'delete empty connection',actor),{deleted:true});
+});
+
 test('credentials support replace, keep and clear, without values in views or audits',async()=>{
  const secret='secret-'+randomUUID();
  const c=await createConnection(connection({credential:{action:'replace',value:secret}}),'test',actor);
