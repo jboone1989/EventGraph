@@ -49,6 +49,7 @@ export function parseTasks(markdown) {
         fail(match[1] + " has malformed Depends on syntax");
       }
       dependsOn = dependencyText.split(",").map(value => value.trim());
+      if (new Set(dependsOn).size !== dependsOn.length) fail(match[1] + " has duplicate dependencies");
     }
     const acceptanceIndex = acceptanceIndexes[0];
     const acceptanceLines = block.slice(acceptanceIndex + 1).filter(line => line.trim());
@@ -74,6 +75,7 @@ export function validateTaskGraph(tasks) {
     byId.set(task.id, task);
   }
   for (const task of tasks) {
+    if (new Set(task.dependsOn).size !== task.dependsOn.length) fail(task.id + " has duplicate dependencies");
     for (const dependency of task.dependsOn) {
       if (dependency === task.id) fail(task.id + " cannot depend on itself");
       if (!byId.has(dependency)) fail(task.id + " references unknown dependency " + dependency);
@@ -139,7 +141,7 @@ export function issueBody(task, specPath, specSha, specPrUrl) {
 }
 
 export function getSpecDirectory(files) {
-  const relevant = files.map(file => file.filename).filter(path => /^specs\/[^/]+\/(?:spec|plan|tasks)\.md$/.test(path));
+  const relevant = files.map(file => file.filename).filter(path => /^specs\/[A-Za-z0-9._-]+\/(?:spec|plan|tasks)\.md$/.test(path));
   if (!relevant.length) return null;
   const directories = new Set(relevant.map(path => path.split("/")[1]));
   if (directories.size !== 1) fail("A single merged PR may activate only one Spec directory");
