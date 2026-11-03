@@ -46,7 +46,8 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  const [testResults,setTestResults]=useState<Record<string,TestResult>>({});
  const command=async<T,>(method:'POST'|'PATCH'|'DELETE',path:string,body?:unknown)=>{
   setProblem(null);
-  return run<T>(method,path,body,{onError:setProblem});
+  const modelId=body&&typeof body==='object'&&'modelId' in body&&typeof body.modelId==='string'?body.modelId:'';
+  return run<T>(method,path,body,{onError:setProblem,label:method+' '+path+' '+modelId});
  };
  const openModel=(providerId:string,model:RegisteredModel|null=null,readOnly=false)=>{
   setProblem(null);setModelEditor({providerId,model,readOnly});

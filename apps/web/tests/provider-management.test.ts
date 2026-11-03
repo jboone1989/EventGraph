@@ -65,7 +65,7 @@ test('provider-first setup saves credentials and models, then offers verified mo
   await expect(page.getByRole('button',{name:'＋ 新增厂商'})).toBeVisible();
   await page.getByRole('button',{name:'＋ 新增厂商'}).click();
   const dialog=page.getByRole('dialog');
-  await expect(dialog.getByLabel('API Base URL')).toHaveCount(0);
+  await expect(dialog.getByLabel('API Base URL')).toBeHidden();
   await dialog.getByLabel('API Key').fill('example-secret-not-for-dom');
   await expect(dialog.getByLabel('模型 ID（每行一个）')).toHaveValue('deepseek-chat\ndeepseek-reasoner');
   await dialog.getByRole('button',{name:'保存厂商及模型'}).click();
