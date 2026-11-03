@@ -191,9 +191,10 @@ export function defaultWorkerRoute(queueState) {
   return { poolName, profileName, profile };
 }
 
-export function buildWorkGraph({ tasks, issues, queueState, repo, specPath, specSha, specPrUrl, now = Date.now() }) {
+export function buildWorkGraph({ tasks, issues, queueState, repo, repositoryId, specPath, specSha, specPrUrl, now = Date.now() }) {
   validateTaskGraph(tasks);
   const { poolName, profileName, profile } = defaultWorkerRoute(queueState);
+  if (String(repositoryId) !== REPOSITORY_ID) fail("Repository ID does not match the approved EventGraph resource scope");
   const graphId = "spec-" + specSha;
   const effectContract = {
     version: 1,
@@ -205,7 +206,7 @@ export function buildWorkGraph({ tasks, issues, queueState, repo, specPath, spec
   };
   const issueFor = taskId => {
     const issue = issues instanceof Map ? issues.get(taskId) : issues[taskId];
-    if (!issue || !issue.number || !issue.html_url) fail("Missing Issue for task " + taskId);
+    if (!issue || !issue.id || !issue.number || !issue.html_url) fail("Missing Issue identity for task " + taskId);
     return issue;
   };
   return tasks.map(task => {
@@ -214,7 +215,11 @@ export function buildWorkGraph({ tasks, issues, queueState, repo, specPath, spec
       const predecessor = issueFor(dependencyId);
       return {
         kind: "issue",
-        resource: { kind: "issue", host: "github.com", repository: repo, number: String(predecessor.number) },
+        resource: {
+          kind: "issue", host: "github.com", repository: repo,
+          repository_id: String(repositoryId), resource_id: String(predecessor.id),
+          number: String(predecessor.number)
+        },
         condition: "completed"
       };
     });
@@ -405,8 +410,13 @@ export async function processMergedCommit({
   if (workIds.every(id => Object.hasOwn(admitted, id))) {
     return { kind: "already-admitted", prNumber: pr.number, specPath, specSha: headSha };
   }
+  const repository = await api.request("/repos/" + repo);
+  if (String(repository.id) !== REPOSITORY_ID) fail("GitHub repository ID differs from the approved Work Queue resource scope");
   const issues = await ensureTaskIssues({ api, repo, tasks, specPath, specSha: headSha, specPrUrl: pr.html_url });
-  const graph = buildWorkGraph({ tasks, issues, queueState, repo, specPath, specSha: headSha, specPrUrl: pr.html_url, now });
+  const graph = buildWorkGraph({
+    tasks, issues, queueState, repo, repositoryId: repository.id,
+    specPath, specSha: headSha, specPrUrl: pr.html_url, now
+  });
   return { kind: "spec-intake", prNumber: pr.number, specPath, specSha: headSha, issueCount: issues.size, graph };
 }
 
