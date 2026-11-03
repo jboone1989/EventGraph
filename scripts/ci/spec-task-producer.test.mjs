@@ -69,6 +69,7 @@ test("rejects malformed, duplicate, missing and cyclic task dependencies", () =>
   assert.throws(() => parseTasks(validTasks.replace("**Scope:** Add the API endpoint.", "**Scope:** ")), /empty Scope/);
   assert.throws(() => parseTasks(validTasks.replace("### T002 — Add the UI", "### T001 — Add the UI")), /Duplicate Task ID/);
   assert.throws(() => parseTasks(validTasks.replace("**Depends on:** T001", "**Depends on:** T009")), /unknown dependency/);
+  assert.throws(() => parseTasks(validTasks.replace("**Depends on:** T001", "**Depends on:** T001, T001")), /duplicate dependencies/);
   assert.throws(() => parseTasks(validTasks.replace("**Depends on:** none", "**Depends on:** T002")), /cycle/);
   assert.throws(() => parseTasks("## Work Items\n\n### T001 — Missing fields"), /Scope, Depends on and Acceptance/);
 });
