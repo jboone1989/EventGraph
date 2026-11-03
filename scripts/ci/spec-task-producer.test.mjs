@@ -37,12 +37,22 @@ const queueState = {
   admission_paused: false,
   policy: {
     authorization: "aw",
+    limits: { payload_bytes: 16384, predecessors: 64, assignment_bytes: 49152 },
     pools: {
       default: {
         default_profile: "eventgraph-worker",
         profiles: {
           "eventgraph-worker": { trust_domain: "default", logical_contract: "b".repeat(64) }
         }
+      }
+    }
+  },
+  deployments: {
+    default: {
+      "eventgraph-worker": {
+        current_ref: "c".repeat(40),
+        current_contract: "d".repeat(64),
+        revisions: { ["c".repeat(40)]: { available: true } }
       }
     }
   }
