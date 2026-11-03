@@ -52,7 +52,7 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
    <Button size="sm" disabled={busy||!canSave} onClick={save}>保存</Button>
   </div>
   {selected&&chosen&&!usable(chosen,step)&&<p className="text-xs text-amber">
-   模型尚不可用于此流程；请先在模型管理中测试并启用工作流调用。
+   模型尚不可用于此流程；请在厂商与模型页面测试该模型。
   </p>}
   {error&&<p role="alert" className="text-xs text-hot">{error}</p>}
  </div>;
@@ -68,7 +68,7 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
  return <AdminPage title="工作流模型绑定"
   subtitle="每个处理阶段可独立指定模型。新增模型后返回此页或刷新即可看到；切换仅影响后续任务。"
   actions={<>
-   <ButtonLink to="/admin/models">模型管理</ButtonLink>
+   <ButtonLink to="/admin/models">厂商与模型</ButtonLink>
    <Button disabled={revalidator.state!=="idle"} busy={revalidator.state!=="idle"}
     onClick={()=>revalidator.revalidate()}>刷新模型</Button>
   </>}>
@@ -87,7 +87,7 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
      key={s.key+":"+s.current.source+":"+s.current.model} step={s} choices={choices}/>},
    ]}/>
    <p className="mt-4 text-xs text-ink-4">
-    下拉列表包含新增模型。未通过测试或未开启工作流调用的模型会显示但不可选择。
+    下拉列表包含新增模型。未通过测试或不可路由的模型会显示但不可选择；厂商页测试成功后自动开启可选路由。
    </p>
   </Card>
  </AdminPage>;
