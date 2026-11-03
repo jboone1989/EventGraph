@@ -88,7 +88,12 @@ export async function testConnection(id:string) {
 /** Return safe, actionable diagnostics without exposing upstream response bodies or secrets. */
 export function diagnoseProbeFailure(error:unknown):{status:'failed'|'unknown';detail:string}{
  const cause=error instanceof ReceiptUnknownError?(error.cause??error):error;
- if(cause instanceof ProviderRejectedError)return {status:'failed',detail:'Provider HTTP '+(cause.status??'?')};
+ if(cause instanceof ProviderRejectedError){
+  const code=cause.status;
+  const detail=code===410?'Provider HTTP 410 (model retired or unavailable on this endpoint)':
+   code===429?'Provider HTTP 429 (rate limit or capacity; retry later)':'Provider HTTP '+(code??'?');
+  return {status:'failed',detail};
+ }
  if(cause instanceof ProviderConfigError)return {status:error instanceof ReceiptUnknownError?'unknown':'failed',detail:cause.message};
  if(cause instanceof BudgetExceededError)return {status:'failed',detail:cause.message};
  if(error instanceof ReceiptUnknownError)return {status:'unknown',detail:'Provider outcome unknown; inspect receipt '+error.receiptId+' before retesting'};
@@ -113,11 +118,18 @@ export async function testRegisteredModel(id:string,capability:string,actor:stri
    return {response:data,requestId,usage:(data.usage as Record<string,unknown>)??null};
   });
   const d=receipt.response as Record<string,unknown>;
-  const text=(d.choices as Array<{message?:{content?:unknown}}>|undefined)?.[0]?.message?.content;
+  const choice=(d.choices as Array<{message?:{content?:unknown;reasoning_content?:unknown};finish_reason?:unknown}>|undefined)?.[0];
+  const text=choice?.message?.content;
   const vector=(d.data as Array<{embedding?:unknown}>|undefined)?.[0]?.embedding;
   const valid=m.probe_spec.response==='chat'?typeof text==='string'&&!!text.trim():
    m.probe_spec.response==='embedding'?Array.isArray(vector)&&vector.length>0&&vector.every(x=>typeof x==='number'&&Number.isFinite(x)):Object.keys(d).length>0&&!d.error;
   if(valid){status='verified';detail='Valid '+m.probe_spec.response+' response';}
+  else if(m.probe_spec.response==='chat'){
+   if(choice?.finish_reason==='length')detail='Output token limit reached before final answer; increase max_tokens or lower reasoning effort';
+   else if(typeof choice?.message?.reasoning_content==='string'&&choice.message.reasoning_content.trim())
+    detail='Reasoning returned without final assistant text; adjust thinking mode or output tokens';
+   else detail=choice?'Provider returned no usable final assistant text':'Provider returned no chat choices';
+  }
  }catch(error){const failed=diagnoseProbeFailure(error);status=failed.status;detail=failed.detail;}
  const elapsedMs=Date.now()-started;
  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,config_snapshot,status,verified_at,latency_ms,detail)

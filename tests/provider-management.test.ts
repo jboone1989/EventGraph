@@ -163,6 +163,8 @@ test('model probes identify upstream HTTP failures and preserve known preflight 
   {status:'failed',detail:'Provider HTTP 401'});
  const unknown=new ReceiptUnknownError(17,'wrapped',{cause:new ProviderConfigError('Provider DNS resolution failed','baseUrl',502)});
  assert.deepEqual(diagnoseProbeFailure(unknown),{status:'unknown',detail:'Provider DNS resolution failed'});
+ assert.match(diagnoseProbeFailure(new ProviderRejectedError('410',410,false)).detail,/retired or unavailable/);
+ assert.match(diagnoseProbeFailure(new ProviderRejectedError('429',429,true)).detail,/rate limit/);
  const budget=diagnoseProbeFailure(new BudgetExceededError('nvidia','day',3600));
  assert.equal(budget.status,'failed');assert.match(budget.detail,/Budget for nvidia exhausted/);
 });
@@ -174,4 +176,15 @@ test('NVIDIA non-free model test fails explicitly before reserving a paid receip
  await assert.rejects(testRegisteredModel(m.id,'text','test'),/not on the verified NVIDIA Free Endpoint list/);
  const [count]=await sql<{count:number}[]>`SELECT count(*)::integer AS count FROM receipts WHERE subject=${m.id+':text'}`;
  assert.equal(count!.count,0);
+});
+test('a reasoning-only response is reported as output-budget exhaustion, not generic shape mismatch',async()=>{
+ const c=await createConnection(connection({baseUrl:'https://reasoning.invalid/v1'}),'test','test');
+ const m=await createRegisteredModel(model(c.id,{modelId:'reasoning-only',requestDefaults:{},
+  probeSpec:{capability:'text',body:{messages:[{role:'user',content:'OK'}],max_tokens:128},response:'chat'}}),'test','test');
+ network.get('https://reasoning.invalid').intercept({path:'/v1/chat/completions',method:'POST'})
+  .reply(200,{choices:[{message:{content:null,reasoning_content:'thinking'},finish_reason:'length'}]});
+ const out=await testRegisteredModel(m.id,'text','test');
+ assert.equal(out.status,'failed');
+ assert.match(out.detail,/Output token limit reached/);
+ network.assertNoPendingInterceptors();
 });
