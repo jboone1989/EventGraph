@@ -23,11 +23,11 @@ Use GitHub's native Auto-merge and existing branch rulesets. Do not introduce a 
 
 ## 3. Required behavior
 
-1. Cover every same-repository, open, non-draft PR targeting `develop` or `main`. Do not require an `agent-work` label, an `agent/*` branch name, or a special workflow variable.
+1. Cover every same-repository, open, non-draft PR targeting `develop`. Do not require an `agent-work` label, an `agent/*` branch name, or a special workflow variable.
 2. After the existing `Check` workflow completes successfully for the exact current PR head, a trusted default-branch workflow revalidates the live PR and enables GitHub native Auto-merge using squash.
 3. Before enabling Auto-merge, revalidate:
    - the source Check run completed successfully and belongs to the current PR head SHA;
-   - the PR remains open, non-draft, same-repository, and targets a supported branch;
+   - the PR remains open, non-draft, same-repository, and targets `develop`;
    - the live PR head SHA still equals the successful Check run's head SHA;
    - the PR base ref and base SHA are read live;
    - no unresolved review threads or other branch-rule blockers are bypassed.
@@ -53,7 +53,7 @@ The develop-only `eventgraph-native-pr-closed.yml` currently has a special-case 
 - [ ] A PR with failed, cancelled, pending, or stale required CI remains unmerged.
 - [ ] A new head SHA requires a new successful Check before Auto-merge is enabled.
 - [ ] Unresolved review threads and all other branch rules remain enforced; no admin bypass or direct merge.
-- [ ] The current `main` `claude-review` rule is documented as an explicit blocker; this implementation neither bypasses it nor silently changes it.
+- [ ] PRs targeting `main` are out of scope for this change. Keep the existing `main` ruleset unchanged; no production release is being performed.
 - [ ] Existing native queue continuation still runs after an agent PR closes.
 - [ ] A real ordinary PR to `develop` demonstrates automatic native Auto-merge end to end.
 
@@ -61,7 +61,7 @@ The develop-only `eventgraph-native-pr-closed.yml` currently has a special-case 
 
 - Re-enabling or repairing the independent GLM Review workflow.
 - Adding `claude-review` to the `develop` ruleset.
-- Changing the `main` ruleset without a separate owner decision.
+- Changing or merging PRs into `main`; production release is out of scope.
 - Changing the CI test matrix or required check names.
 - Bypassing branch rulesets, required checks, review-thread resolution, or Spec gates.
 - Changing application deployment cadence or production infrastructure.
