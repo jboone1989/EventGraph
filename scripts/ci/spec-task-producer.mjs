@@ -344,9 +344,11 @@ export async function ensureTaskIssues({ api, repo, tasks, specPath, specSha, sp
   return result;
 }
 
-async function findMergedPRForCommit({ api, repo, headSha }) {
-  const associated = await api.paginate("/repos/" + repo + "/commits/" + headSha + "/pulls");
-  const candidates = associated.filter(pr =>
+async function findMergedPRForCommit({ api, repo, headSha, mergedPRs }) {
+  const closedPRs = mergedPRs ?? await api.paginate(
+    "/repos/" + repo + "/pulls?state=closed&base=develop&sort=updated&direction=desc"
+  );
+  const candidates = closedPRs.filter(pr =>
     pr.merge_commit_sha === headSha &&
     pr.merged_at &&
     pr.base?.ref === "develop" &&
@@ -391,11 +393,11 @@ export function readGitFile(root, commitSha, filePath) {
 }
 
 export async function processMergedCommit({
-  api, repo, headSha, root = process.cwd(), readQueueState, readFileAtCommit,
+  api, repo, headSha, root = process.cwd(), readQueueState, readFileAtCommit, mergedPRs,
   now = Date.now()
 }) {
   const readSpecFile = readFileAtCommit ?? ((sha, filePath) => readGitFile(root, sha, filePath));
-  const pr = await findMergedPRForCommit({ api, repo, headSha });
+  const pr = await findMergedPRForCommit({ api, repo, headSha, mergedPRs });
   if (!pr) return { kind: "no-associated-merged-pr" };
 
   const isAgentWork = (pr.labels ?? []).some(label => label.name === WORKER_LABEL);
@@ -457,6 +459,9 @@ export async function processDevelopRange({ api, repo, headSha, root = process.c
   const commits = commitShas ?? execFileSync("git", [
     "-C", root, "rev-list", "--reverse", "--first-parent", installSha + ".." + headSha
   ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  const mergedPRs = await api.paginate(
+    "/repos/" + repo + "/pulls?state=closed&base=develop&sort=updated&direction=desc"
+  );
   let queueStatePromise;
   const cachedQueueRead = () => {
     if (!queueStatePromise) queueStatePromise = Promise.resolve(readQueueState());
