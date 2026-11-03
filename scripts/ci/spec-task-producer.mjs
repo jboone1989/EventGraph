@@ -327,7 +327,7 @@ async function findMergedPRForCommit({ api, repo, headSha }) {
   return api.request("/repos/" + repo + "/pulls/" + candidates[0].number);
 }
 
-async function completeTaskIssue({ api, repo, pr }) {
+export async function completeTaskIssue({ api, repo, pr }) {
   const reference = parseWorkerPRBody(pr.body, repo);
   if (!reference) return { completed: false, reason: "legacy-agent-work-pr" };
   const issue = await api.request("/repos/" + repo + "/issues/" + reference.issueNumber);
