@@ -1141,7 +1141,7 @@
       "requestDefaults": {
         "reasoning_effort": "low"
       },
-      "timeoutMs": 60000,
+      "timeoutMs": 120000,
       "stream": false,
       "complexity": "light",
       "documentationUrl": "https://docs.api.nvidia.com/nim/reference/openai-gpt-oss-20b-infer",
@@ -1183,12 +1183,15 @@
     {
       "vendor": "nvidia",
       "modelId": "stepfun-ai/step-5-preview",
-      "adapter": "unconfigured",
-      "endpoint": null,
+      "adapter": "chat",
+      "endpoint": "https://integrate.api.nvidia.com/v1/chat/completions",
       "credentialEnv": "NVIDIA_API_KEY",
-      "capabilities": [],
+      "capabilities": [
+        "text",
+        "vision"
+      ],
       "requestDefaults": {},
-      "timeoutMs": 60000,
+      "timeoutMs": 180000,
       "stream": false,
       "complexity": "heavy",
       "documentationUrl": "https://docs.api.nvidia.com/nim/reference/stepfun-ai-step-5-preview-infer",

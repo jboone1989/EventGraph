@@ -25,6 +25,8 @@ interface Legacy {
 type Probe={vendor:string;modelId:string;probeSpec:unknown};
 const KEY='nvidia.registeredModelsBootstrap.v1';
 const FREE_KEY='nvidia.registeredModelsFreeOnly.v2';
+const SMOKE_KEY='nvidia.officialSmokeProbes.v1';
+const SMOKE_IDS=['nvidia/nemotron-3.5-super-vl-120b-a12b','openai/gpt-oss-20b','stepfun-ai/step-5-preview'];
 const FREE_IDS=Object.keys(VERIFIED_FREE_TRIAL_ENDPOINTS);
 const BASE='https://integrate.api.nvidia.com/v1';
 const ACTOR='nvidia-model-import';
@@ -66,6 +68,44 @@ async function reconcileFreeOnly(tx:Tx,connectionId:string,catalogueSize:number)
   null,summary,{db:tx});
  return {status:'reconciled',summary};
 }
+/** Update only unchanged bootstrap rows with current model-specific official smoke profiles.
+ * Operator edits, successful probes and workflow use remain untouched. */
+async function reconcileSmokeProbes(tx:Tx,connectionId:string,rows:Seed[],probes:Map<string,unknown>){
+ const [done]=await tx<{value:unknown}[]>`SELECT value FROM settings WHERE key=${SMOKE_KEY}`;
+ if(done)return {status:'already-synced',summary:done.value};
+ let updated=0;
+ for(const id of SMOKE_IDS){
+  const seed=rows.find(x=>x.modelId===id),probe=probes.get(id);
+  if(!seed||!probe)throw Error('Missing current official smoke profile for '+id);
+  const result=await tx<{id:string}[]>`UPDATE registered_models AS m SET
+   adapter=${seed.adapter},capabilities=${tx.json(seed.capabilities)},
+   request_defaults=${tx.json(seed.requestDefaults as never)},probe_spec=${tx.json(probe as never)},
+   stream=${seed.stream},timeout_override_ms=${seed.timeoutMs},
+   updated_by=${ACTOR},version=version+1,updated_at=now()
+   WHERE m.provider_id=${connectionId}::uuid AND m.model_id=${id}
+    AND m.version=1 AND m.updated_by=${ACTOR}
+    AND m.upstream_metadata->>'source'='seed-catalogue'
+    AND NOT m.enabled AND NOT m.route_enabled
+    AND NOT EXISTS(SELECT 1 FROM provider_workflow_models w WHERE w.model_id=m.id)
+    AND NOT EXISTS(SELECT 1 FROM registered_model_checks ch WHERE ch.model_id=m.id
+      AND ch.status IN ('verified','legacy') AND ch.verified_at IS NOT NULL)
+    AND (m.adapter IS DISTINCT FROM ${seed.adapter}
+      OR m.capabilities IS DISTINCT FROM ${tx.json(seed.capabilities)}
+      OR m.request_defaults IS DISTINCT FROM ${tx.json(seed.requestDefaults as never)}
+      OR m.probe_spec IS DISTINCT FROM ${tx.json(probe as never)}
+      OR m.stream IS DISTINCT FROM ${seed.stream}
+      OR m.timeout_override_ms IS DISTINCT FROM ${seed.timeoutMs})
+   RETURNING id`;
+  updated+=result.length;
+ }
+ const summary={candidates:SMOKE_IDS.length,updated,skipped:SMOKE_IDS.length-updated,connectionId};
+ await tx`INSERT INTO settings(key,value,updated_by) VALUES
+  (${SMOKE_KEY},${tx.json(summary)},${ACTOR})`;
+ await audit(ACTOR,'provider.models.official-smoke-sync','nvidia',
+  'Align only untouched bootstrap probes with documented NVIDIA model-specific samples',
+  null,summary,{db:tx});
+ return {status:'synced',summary};
+}
 export async function importNvidiaModels() {
  if(process.env.EVENTGRAPH_PREVIEW_MODE!=='true')
   throw new Error('NVIDIA import requires the VM13 preview environment');
@@ -73,7 +113,11 @@ export async function importNvidiaModels() {
  return sql.begin(async tx=>{
   await tx`SELECT pg_advisory_xact_lock(hashtext('nvidia-registered-model-import'))`;
   const [done]=await tx<{value:{catalogue:number;legacy:number;total:number;inserted:number;preserved:number;connectionId:string}}[]>`SELECT value FROM settings WHERE key=${KEY}`;
-  if(done)return reconcileFreeOnly(tx,done.value.connectionId,rows.length);
+  if(done){
+   const free=await reconcileFreeOnly(tx,done.value.connectionId,rows.length);
+   const smoke=await reconcileSmokeProbes(tx,done.value.connectionId,rows,probes);
+   return {...free,smoke};
+  }
   const old=await tx<Legacy[]>`SELECT model_id,adapter,endpoint,capabilities,request_defaults,timeout_ms,probe_spec,
    stream,complexity,documentation_url,notes FROM model_providers WHERE vendor='nvidia'`;
   const legacy=new Map(old.map(x=>[x.model_id,x]));
@@ -135,7 +179,8 @@ export async function importNvidiaModels() {
   await tx`INSERT INTO settings(key,value,updated_by) VALUES
    (${KEY},${tx.json(summary)},${ACTOR}),
    (${FREE_KEY},${tx.json({catalogue:rows.length,eligible:FREE_IDS.length,deleted:0,remaining:all.size,
-    preservedNonFree:0,connectionId})},${ACTOR})`;
+    preservedNonFree:0,connectionId})},${ACTOR}),
+   (${SMOKE_KEY},${tx.json({candidates:SMOKE_IDS.length,updated:0,skipped:SMOKE_IDS.length,connectionId})},${ACTOR})`;
   await audit(ACTOR,'provider.models.bootstrap','nvidia','Operator approved importing historical NVIDIA models into registered_models',null,summary,{db:tx});
   return {status:'imported',summary};
  });

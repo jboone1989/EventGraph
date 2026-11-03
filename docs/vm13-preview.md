@@ -95,3 +95,12 @@ The deploy job and the subsequent GitHub-hosted browser smoke must both succeed.
 ### NVIDIA free-catalogue correction (2026-11-03)
 
 The previous one-time 81-model catalogue was not a list of free API endpoints. The deployment importer now admits only the 15 NVIDIA-documented Free Endpoint candidates from `VERIFIED_FREE_TRIAL_ENDPOINTS`. On the historical VM13-connected production table it reconciles the earlier bootstrap exactly once, deleting only unedited `seed-catalogue` rows from the original connection, excluding workflow-referenced, aliased, user-edited and manually added records. The NVIDIA provider and its saved API Key remain untouched. The audit and `nvidia.registeredModelsFreeOnly.v2` marker record totals. A Free Endpoint listing is not a guarantee of live API entitlement, so each candidate still needs an individual manual probe; no automatic model sweeps run.
+
+### Model-specific NVIDIA test probes (2026-11-03)
+
+NVIDIA officially documents a smaller-effort mode for Nemotron 3.5 Super VL (the previous 384-token reasoning probe could end without a final answer), a complete OpenAI-compatible Chat API for Step 5 Preview (previously registered with no probe), and a Chat endpoint for GPT-OSS 20B (previous 60-second timeout). The seed catalogue now configures model-specific request samples, with no automatic invocation. A one-time `nvidia.officialSmokeProbes.v1` transaction corrects only unchanged, disabled, machine-imported rows on VM13. Operator edits, verified checks, active routes and saved credentials remain untouched. It logs updated/skipped totals. Official references:
+- https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-super-vl-120b-a12b-infer
+- https://docs.api.nvidia.com/nim/reference/stepfun-ai-step-5-preview-infer
+- https://docs.api.nvidia.com/nim/reference/openai-gpt-oss-20b-infer
+
+A NVIDIA 410 means this model ID is unavailable at the called endpoint, while 429 is throttling/capacity; neither is resolved by raising timeouts. No NVIDIA API calls run as part of a deploy or test suite.
