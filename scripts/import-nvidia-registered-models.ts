@@ -79,7 +79,7 @@ async function reconcileSmokeProbes(tx:Tx,connectionId:string,rows:Seed[],probes
   if(!seed||!probe)throw Error('Missing current official smoke profile for '+id);
   const result=await tx<{id:string}[]>`UPDATE registered_models AS m SET
    adapter=${seed.adapter},capabilities=${tx.json(seed.capabilities)},
-   request_defaults=${tx.json(seed.requestDefaults)},probe_spec=${tx.json(probe as never)},
+   request_defaults=${tx.json(seed.requestDefaults as never)},probe_spec=${tx.json(probe as never)},
    stream=${seed.stream},timeout_override_ms=${seed.timeoutMs},
    updated_by=${ACTOR},version=version+1,updated_at=now()
    WHERE m.provider_id=${connectionId}::uuid AND m.model_id=${id}
@@ -91,7 +91,7 @@ async function reconcileSmokeProbes(tx:Tx,connectionId:string,rows:Seed[],probes
       AND ch.status IN ('verified','legacy') AND ch.verified_at IS NOT NULL)
     AND (m.adapter IS DISTINCT FROM ${seed.adapter}
       OR m.capabilities IS DISTINCT FROM ${tx.json(seed.capabilities)}
-      OR m.request_defaults IS DISTINCT FROM ${tx.json(seed.requestDefaults)}
+      OR m.request_defaults IS DISTINCT FROM ${tx.json(seed.requestDefaults as never)}
       OR m.probe_spec IS DISTINCT FROM ${tx.json(probe as never)}
       OR m.stream IS DISTINCT FROM ${seed.stream}
       OR m.timeout_override_ms IS DISTINCT FROM ${seed.timeoutMs})
