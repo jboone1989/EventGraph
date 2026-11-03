@@ -471,7 +471,7 @@ export async function processDevelopRange({ api, repo, headSha, root = process.c
   const graphs = [];
   for (const commitSha of commits) {
     const result = await processMergedCommit({
-      api, repo, headSha: commitSha, root, readQueueState: cachedQueueRead
+      api, repo, headSha: commitSha, root, readQueueState: cachedQueueRead, mergedPRs
     });
     results.push(result);
     if (result.graph) graphs.push(result);
