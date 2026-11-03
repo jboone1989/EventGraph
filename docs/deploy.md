@@ -332,7 +332,7 @@ cd apps/web && NODE_ENV=production node --env-file=../../.env server.ts   # 网�
 
 ### 可选公共事件讨论（GitHub Discussions / giscus）
 
-事件页及其相关新闻共用一个 GitHub Discussion。使用官方 giscus，读者需要点击“加载讨论”才会执行第三方脚本。默认禁用，不安装评论服务器或账号系统。
+事件页及其相关新闻共用一个 GitHub Discussion。配置好讨论分类后，进入页面会自动显示官方 giscus 讨论区（脚本异步加载、讨论 iframe 懒加载），无需点击“加载讨论”。未配置分类时隐藏讨论区，不安装评论服务器或账号系统。
 
 在已启用 GitHub Discussions 的**公开仓库**安装 giscus App，创建或选定一个适合的 Discussion 分类；到 [giscus 官方配置页](https://giscus.app/) 核对该仓库的分类 ID。仓库身份由 `site/site.ts` 的 `SITE.discussions.repo/repoId` 提供，其他部署需在此调整。将真实分类 ID 填入 `VITE_GISCUS_CATEGORY_ID` 后**重新构建 Web 镜像**；这是 Vite 构建时变量，在运行中的容器里仅设置环境变量不会生效。标准 Compose 使用根 `.env` 传入 Docker build arg；GitHub GHCR 工作流使用仓库变量 `EVENTGRAPH_GISCUS_CATEGORY_ID`。未配置分类时整块讨论入口隐藏，不得填写猜测的 ID。
 
