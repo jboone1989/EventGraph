@@ -40,7 +40,7 @@ async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<strin
  const anthropic=c.protocol==='anthropic-compatible';
  const payload=anthropic&&body?anthropicRequest(body):body;
  try {
-  const headers=anthropic?{'x-api-key':key,'anthropic-version':'2023-06-01','content-type':'application/json',accept:'application/json'}:
+  const headers:Record<string,string>=anthropic?{'x-api-key':key,'anthropic-version':'2023-06-01','content-type':'application/json',accept:'application/json'}:
    {authorization:'Bearer '+key,'content-type':'application/json',accept:body?.stream===true?'text/event-stream':'application/json'};
   const res=await guardedFetch(modelEndpoint(c,m),{method:body?'POST':'GET',headers,
    body:payload?JSON.stringify(payload):undefined,timeoutMs:m?.timeout_override_ms??c.timeout_ms,maxRedirects:0,maxBytes:8*1024*1024});
