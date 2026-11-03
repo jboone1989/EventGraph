@@ -279,7 +279,7 @@ test("Spec intake uses the exact merge SHA and builds its graph", async () => {
       throw new Error("Unexpected request: " + path);
     },
     paginate: async path => {
-      if (path.includes("/commits/")) return [{
+      if (path.includes("/pulls?state=closed")) return [{
         number: 500, merge_commit_sha: specSha, merged_at: mergedPr.merged_at,
         base: mergedPr.base, head: mergedPr.head
       }];
