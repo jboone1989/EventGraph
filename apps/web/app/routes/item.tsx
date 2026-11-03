@@ -709,10 +709,6 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             <EventContext story={item.story} context={item.storyContext} currentId={item.id} en={en} />
           )}
 
-          {item.story && item.storyContext && item.storyContext.reportCount > 1 && (
-            <StoryDiscussion storyPublicId={item.story.publicId} />
-          )}
-
           {item.sameEvent && !en && (
             <p className="mt-5 text-[13px] leading-relaxed text-ink-4">
               {t("同一新闻，精选展示", "The same news, shown as this event's selected report:")}
@@ -798,6 +794,8 @@ function ItemView({ item }: { item: SiteItemDetail }) {
               </ul>
             </section>
           )}
+          {/* Every public item gets its own discussion, including ungrouped reports. */}
+          <StoryDiscussion key={item.id} itemId={item.id} />
         </article>
       </ArticleLayout>
 
