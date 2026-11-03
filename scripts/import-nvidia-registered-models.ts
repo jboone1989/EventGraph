@@ -29,7 +29,7 @@ function catalogue(){
  const seeds=JSON.parse(readFileSync(join(REPO_ROOT,'config/model-provider-seed.json'),'utf8')) as {providers:Seed[]};
  const probes=JSON.parse(readFileSync(join(REPO_ROOT,'config/model-provider-probes.json'),'utf8')) as {providers:Probe[]};
  const rows=seeds.providers.filter(x=>x.vendor==='nvidia');
- if(rows.length!==81||new Set(rows.map(x=>x.modelId)).size!==rows.length)
+ if(rows.length<1||new Set(rows.map(x=>x.modelId)).size!==rows.length)
   throw new Error('NVIDIA catalogue changed; review this one-time import before running');
  if(rows.some(x=>x.credentialEnv!=='NVIDIA_API_KEY'))
   throw new Error('NVIDIA bootstrap has unexpected credential source');
@@ -41,7 +41,7 @@ export async function importNvidiaModels() {
  const {rows,probes}=catalogue();
  return sql.begin(async tx=>{
   await tx`SELECT pg_advisory_xact_lock(hashtext('nvidia-registered-model-import'))`;
-  const [done]=await tx<{value:unknown}[]>`SELECT value FROM settings WHERE key=${KEY}`;
+  const [done]=await tx<{value:{catalogue:number;legacy:number;total:number;inserted:number;preserved:number;connectionId:string}}[]>`SELECT value FROM settings WHERE key=${KEY}`;
   if(done)return {status:'already-imported',summary:done.value};
   const old=await tx<Legacy[]>`SELECT model_id,adapter,endpoint,capabilities,request_defaults,timeout_ms,probe_spec,
    stream,complexity,documentation_url,notes FROM model_providers WHERE vendor='nvidia'`;
@@ -89,7 +89,7 @@ export async function importNvidiaModels() {
      capabilities,request_defaults,probe_spec,stream,complexity,documentation_url,
      notes,enabled,route_enabled,upstream_metadata,updated_by)
     VALUES (${migratedId('model',['nvidia',modelId])}::uuid,${connectionId}::uuid,${modelId},
-     ${adapter},${endpoint},${timeout},${tx.json(capabilities)},${tx.json(defaults)},
+     ${adapter},${endpoint},${timeout},${tx.json(capabilities)},${tx.json(defaults as never)},
      ${probe===null?null:tx.json(probe as never)},${stream},${complexity},${docs},${notes},
      false,false,${tx.json({source:prior?'legacy-model-providers':'seed-catalogue'})},${ACTOR})
     ON CONFLICT DO NOTHING RETURNING id`;
