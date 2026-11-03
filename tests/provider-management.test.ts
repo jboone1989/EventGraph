@@ -67,7 +67,7 @@ test('disabled deployment rejects a manual model test before reserving a receipt
  try {
   await assert.rejects(testRegisteredModel(m.id,'text','test'),error=>
    error instanceof ProviderConfigError&&/MODEL_CALLS_ENABLED=false/.test(error.message));
-  const [receipts]=await sql<{count:number}[]>\`SELECT count(*)::integer AS count FROM receipts WHERE subject=\${m.id+':text'}\`;
+  const [receipts]=await sql<{count:number}[]>`SELECT count(*)::integer AS count FROM receipts WHERE subject=${m.id+':text'}`;
   assert.equal(receipts!.count,0);
  } finally {config.modelCallsEnabled=previous;}
 });
