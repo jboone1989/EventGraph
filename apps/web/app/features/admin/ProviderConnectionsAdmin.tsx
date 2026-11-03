@@ -1,184 +1,229 @@
 import {useState} from 'react';
-import {useRevalidator} from 'react-router';
-import type {ProviderManagement,ProviderConnection,RegisteredModel,ConnectionInput,ModelInput,ModelCapability} from '@aihot/contracts/providers';
-import {Button,Input,Select,Textarea,Card,Badge,DataTable,Time} from './ui';
-import {workflowStageStatus} from './workflow-status';
+import type {ProviderManagement,ProviderConnection,RegisteredModel,ConnectionInput,ModelInput} from '@aihot/contracts/providers';
+import {Button,Input,Select,Textarea,Card,Badge,DataTable} from './ui';
 import {useAdminAction} from './action';
 
 type Problem={detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>};
-type Editor={kind:'connection';value:ProviderConnection|null;readOnly?:boolean}|{kind:'model';value:RegisteredModel|null;providerId:string;readOnly?:boolean};
-const caps:ModelCapability[]=['text','reasoning','vision','embedding','embedding_vision','document','safety','translation','coding','video','reward'];
-const defaultProbe={capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'};
+type Editor={model:RegisteredModel|null;readOnly:boolean};
+type TestResult={status:string;elapsedMs:number;detail:string};
 const PAGE_SIZE=20;
+const NEW_CONNECTION='__new__';
+const probeFor=(adapter:ModelInput['adapter']):RegisteredModel['probeSpec']=>{
+ if(adapter==='chat')return {capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'};
+ if(adapter==='embedding')return {capability:'embedding',body:{input:'sample'},response:'embedding'};
+ return null;
+};
+const capabilitiesFor=(adapter:ModelInput['adapter']):ModelInput['capabilities']=>{
+ if(adapter==='embedding')return ['embedding'];
+ if(adapter==='document')return ['document'];
+ if(adapter==='safety')return ['safety'];
+ return adapter==='chat'?['text']:[];
+};
 
 export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
- const {run,busy:actionBusy}=useAdminAction();
- const revalidator=useRevalidator();
- const [view,setView]=useState<'manage'|'routing'>('manage');
- const [bulkTesting,setBulkTesting]=useState(false);
- const busy=actionBusy||bulkTesting;
- const [editor,setEditor]=useState<Editor|null>(null),[problem,setProblem]=useState<Problem|null>(null);
- const [provider,setProvider]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1),[routePage,setRoutePage]=useState(1);
- const [notice,setNotice]=useState(''),[reason,setReason]=useState('');
- const [deleting,setDeleting]=useState<{kind:'connection'|'model';id:string;version:number;name:string}|null>(null);
- const [discovery,setDiscovery]=useState<{id:string;models:Array<{modelId:string;status:string}>}|null>(null);
- const [selected,setSelected]=useState<string[]>([]);
- const [workflow,setWorkflow]=useState<{key:string;model:string}|null>(null);
+ const {run,busy}=useAdminAction();
+ const [search,setSearch]=useState(''),[page,setPage]=useState(1);
+ const [editor,setEditor]=useState<Editor|null>(null);
+ const [createdConnectionId,setCreatedConnectionId]=useState<string|null>(null);
+ const [deleting,setDeleting]=useState<RegisteredModel|null>(null);
+ const [problem,setProblem]=useState<Problem|null>(null),[notice,setNotice]=useState('');
+ const [testing,setTesting]=useState<string|null>(null);
+ const [testResults,setTestResults]=useState<Record<string,TestResult>>({});
  const command=async<T,>(method:'POST'|'PATCH'|'DELETE',path:string,body?:unknown)=>{
-  setProblem(null);return run<T>(method,path,body,{onError:setProblem});
+  setProblem(null);
+  return run<T>(method,path,body,{onError:setProblem});
  };
- const open=(e:Editor)=>{setProblem(null);setEditor(e)};
- const models=data.models.filter(m=>(!provider||m.providerId===provider)&&(!search||[m.modelId,data.providers.find(c=>c.id===m.providerId)?.name??'',...m.capabilities].join(' ').toLowerCase().includes(search.toLowerCase())));
- const pages=Math.max(1,Math.ceil(models.length/PAGE_SIZE)),current=Math.min(page,pages);
- const visibleModels=models.slice((current-1)*PAGE_SIZE,current*PAGE_SIZE);
- const testableModels=models.filter(m=>m.enabled&&m.probeSpec);
- const routePages=Math.max(1,Math.ceil(data.workflows.length/PAGE_SIZE)),routeCurrent=Math.min(routePage,routePages);
- const visibleStages=data.workflows.slice((routeCurrent-1)*PAGE_SIZE,routeCurrent*PAGE_SIZE);
- const stageStatuses=data.workflows.map(w=>workflowStageStatus(w,data));
- async function testPage() {
-  if(bulkTesting||!testableModels.length)return;
-  setBulkTesting(true);
+ const open=(model:RegisteredModel|null,readOnly=false)=>{
+  setProblem(null);setCreatedConnectionId(null);setEditor({model,readOnly});
+ };
+ const filtered=data.models.filter(m=>{
+  const connection=data.providers.find(c=>c.id===m.providerId);
+  return (m.modelId+' '+(connection?.name??'')+' '+(connection?.vendor??'')).toLowerCase().includes(search.trim().toLowerCase());
+ });
+ const pages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
+ const current=Math.min(page,pages);
+ const visible=filtered.slice((current-1)*PAGE_SIZE,current*PAGE_SIZE);
+ const errors=problem&&<div role="alert" className="space-y-1 text-sm text-hot">
+  <p>{problem.detail}</p>
+  {problem.dependencies?.map(d=><p key={d.kind+d.id}>{d.name} 正在引用此模型</p>)}
+ </div>;
+
+ async function saveModel(input:ModelInput,reason:string,newConnection:ConnectionInput|null) {
+  let providerId=input.providerId;
+  if(newConnection) {
+   providerId=createdConnectionId??'';
+   if(!providerId){
+    const created=await command<ProviderConnection>('POST','/api/admin/providers',{...newConnection,reason:'新增模型连接：'+input.modelId});
+    if(!created)return;
+    providerId=created.id;
+    setCreatedConnectionId(providerId);
+   }
+  }
+  const existing=editor?.model;
+  const path=existing?'/api/admin/provider-models/'+existing.id:'/api/admin/providers/'+providerId+'/models';
+  const result=await command<RegisteredModel>(existing?'PATCH':'POST',path,{
+   ...input,providerId,reason,...(existing?{version:existing.version}:{})
+  });
+  if(result){setEditor(null);setCreatedConnectionId(null);setNotice((existing?'已更新：':'已添加：')+input.modelId);}
+ }
+
+ async function testModel(m:RegisteredModel) {
+  setProblem(null);
+  if(!m.probeSpec){
+   setNotice(m.modelId+' 尚未配置测试请求；请在编辑模型的「测试配置」中填写。');
+   return;
+  }
+  setTesting(m.id);
   try {
-   let passed=0;
-   await Promise.all(testableModels.map(async m=>{
-    const response=await run<{status:string;elapsedMs:number;detail:string}>(
-     'POST','/api/admin/provider-models/'+m.id+'/test',
-     {capability:m.probeSpec!.capability},
-     {label:'batch-probe-'+m.id,revalidate:false,quietError:true,onError:()=>{}});
-    if(response?.status==='verified')passed++;
-   }));
-   setNotice('并发测试完成：通过 '+passed+' / '+testableModels.length+'；刷新后看工作流路由视图的最近测试时间。');
-   revalidator.revalidate();
-  } finally {setBulkTesting(false);}
+   const result=await command<TestResult>('POST','/api/admin/provider-models/'+m.id+'/test',{capability:m.probeSpec.capability});
+   if(result){
+    setTestResults(old=>({...old,[m.id]:result}));
+    setNotice(m.modelId+'：'+(result.status==='verified'?'通过':'失败')+' · '+result.elapsedMs+' ms · '+result.detail);
+   }
+  } finally {setTesting(null);}
  }
- async function discover(c:ProviderConnection) {
-  const result=await command<{models:Array<{modelId:string;status:string}>}>('POST','/api/admin/providers/'+c.id+'/discover');
-  if(result){setSelected([]);setReason('');setDiscovery({id:c.id,models:result.models})}
- }
- const errors=problem&&<div role="alert" className="space-y-1 text-sm text-hot"><p>{problem.detail}</p>{problem.dependencies?.map(d=><p key={d.kind+d.id}>{d.kind==='model'?'模型':'工作流'}：{d.name}</p>)}</div>;
- return <div className="space-y-5">
-  {notice&&<p role="status" className="text-sm">{notice}</p>}
-  {!editor&&!deleting&&!discovery&&!workflow&&errors}
-  <div className="flex gap-2">
-   <Button size="sm" tone={view==='manage'?'primary':'secondary'} onClick={()=>setView('manage')}>模型管理</Button>
-   <Button size="sm" tone={view==='routing'?'primary':'secondary'} onClick={()=>setView('routing')}>工作流路由</Button>
-  </div>
-  {view==='manage'?<>
-   <Card title="厂商连接" right={<Button disabled={busy} onClick={()=>open({kind:'connection',value:null})}>添加连接</Button>}>
-    <DataTable rows={data.providers} rowKey={c=>c.id} empty="暂无连接，请先添加厂商的 API 地址和凭据。" columns={[
-     {key:'name',label:'连接',render:c=><div className="space-y-0.5"><strong>{c.name}</strong><p className="break-all font-mono text-xs text-ink-3">{c.baseUrl}</p></div>},
-     {key:'status',label:'状态',render:c=><p className="text-xs">{c.vendor} · {c.enabled?'启用':'停用'} · {c.credential.configured?'已配置凭据':'缺少凭据'} · {c.timeoutMs} ms{c.policy!=='none'?' · 免费试用白名单保护':''}</p>},
-     {key:'actions',label:'操作',render:c=><div className="flex flex-wrap gap-1">
-      <Button size="sm" disabled={busy} onClick={()=>open({kind:'connection',value:c,readOnly:true})}>查看</Button>
-      <Button size="sm" disabled={busy} onClick={()=>open({kind:'connection',value:c})}>编辑</Button>
-      <Button size="sm" disabled={busy} onClick={async()=>{const r=await command<{detail:string}>('POST','/api/admin/providers/'+c.id+'/test');if(r)setNotice(r.detail)}}>测试连接</Button>
-      <Button size="sm" disabled={busy} onClick={()=>discover(c)}>发现模型</Button>
-      <Button size="sm" disabled={busy} onClick={()=>open({kind:'model',value:null,providerId:c.id})}>手动添加模型</Button>
-      <Button size="sm" disabled={busy} onClick={()=>{setReason('');setProblem(null);setDeleting({kind:'connection',id:c.id,version:c.version,name:c.name})}}>删除</Button>
-     </div>},
-    ]}/>
-   </Card>
-   <Card title={'模型（'+models.length+'）'} right={<Button size="sm" disabled={busy||!testableModels.length} onClick={testPage}>
-    {bulkTesting?'正在并发测试…':'并发测试（'+testableModels.length+'）'}
-   </Button>}>
-    <div className="mb-4 flex flex-wrap gap-2"><Select aria-label="按连接筛选" value={provider} onChange={e=>{setProvider(e.target.value);setPage(1)}}><option value="">全部连接</option>{data.providers.map(c=><option key={c.id} value={c.id}>{c.name} · {c.id.slice(0,8)}</option>)}</Select>
-     <Input aria-label="搜索模型" placeholder="搜索模型或能力" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/></div>
-    <DataTable rows={visibleModels} rowKey={m=>m.id} empty="暂无匹配模型；可以从连接下手动添加。" columns={[
-     {key:'model',label:'连接 / 模型',render:m=><div><div className="text-xs text-ink-3">{data.providers.find(c=>c.id===m.providerId)?.name} · {m.providerId.slice(0,8)}</div><div className="break-all font-mono text-xs">{m.modelId}</div></div>},
-     {key:'caps',label:'能力',render:m=><p className="text-xs">{m.capabilities.join(', ')||'未配置'}</p>},
-     {key:'switch',label:'启用 / 路由开关',render:m=><p className="text-xs">{m.enabled?'启用':'停用'} / {m.routeEnabled?'开启':'关闭'}</p>},
-     {key:'actions',label:'操作',render:m=><div className="flex flex-wrap gap-1">
-      <Button size="sm" disabled={busy} onClick={()=>open({kind:'model',value:m,providerId:m.providerId,readOnly:true})}>查看</Button>
-      <Button size="sm" disabled={busy} onClick={()=>open({kind:'model',value:m,providerId:m.providerId})}>编辑</Button>
-      <Button size="sm" disabled={busy||!m.probeSpec} onClick={async()=>{const r=await command<{status:string;elapsedMs:number;detail:string}>('POST','/api/admin/provider-models/'+m.id+'/test',{capability:m.probeSpec?.capability});if(r)setNotice(m.modelId+'：'+r.status+' · '+r.elapsedMs+' ms · '+r.detail)}}>测试（消耗配额）</Button>
-      <Button size="sm" disabled={busy} onClick={()=>{setReason('');setProblem(null);setDeleting({kind:'model',id:m.id,version:m.version,name:m.modelId})}}>删除</Button>
-     </div>},
-    ]}/>
-    <div className="mt-3 flex items-center gap-3"><Button size="sm" disabled={current<=1} onClick={()=>setPage(current-1)}>上一页</Button><span>{current} / {pages}</span><Button size="sm" disabled={current>=pages} onClick={()=>setPage(current+1)}>下一页</Button></div>
-   </Card>
-  </>:
-   <Card title="工作流路由 · 当前实际选择" right={<span className="text-xs text-ink-3">绑定 ≠ 可用 · 按阶段独立验证</span>}>
-    <p className="mb-3 flex flex-wrap gap-3 text-[12px] text-ink-3">
-     <span>阶段 {data.workflows.length}</span>
-     <span className="text-ok">可用 {stageStatuses.filter(s=>s.kind==='ready').length}</span>
-     <span className="text-hot">需处理 {stageStatuses.filter(s=>s.kind==='problem').length}</span>
-     <span>待核验 {stageStatuses.filter(s=>s.kind==='unverified').length}</span>
-    </p>
-    <DataTable rows={visibleStages} rowKey={w=>w.key} empty="暂无工作流阶段。" columns={[
-     {key:'stage',label:'阶段',render:w=><div><p className="text-[13px] font-semibold text-ink">{w.label}</p><p className="text-[11px] text-ink-4">{w.source==='admin'?'后台绑定':w.source==='env'?'环境变量':'默认配置'} · {w.key}</p></div>},
-     {key:'state',label:'当前模型 / 状态',render:w=>{const s=workflowStageStatus(w,data);return <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-2">
-       <Badge tone={s.kind==='ready'?'ok':s.kind==='problem'?'bad':'warn'}>
-        {s.kind==='ready'?'可路由':s.kind==='problem'?'不可路由':'待核验'}
-       </Badge>
-       <span className="break-all font-mono text-xs text-ink-2">{s.model?.modelId??w.model??'未分配'}</span>
-      </div>
-      <p className="break-words text-xs text-ink-3">{s.provider?s.provider.name+' · '+s.provider.vendor+' · ':''}{s.reason}</p>
-      {s.check&&<p className="text-[11px] text-ink-4">文本测试 {s.check.status} · <Time at={s.check.verifiedAt}/>{s.check.latencyMs!=null?' · '+s.check.latencyMs+' ms':''}</p>}
-     </div>}},
-     {key:'actions',label:'操作',render:w=>{const s=workflowStageStatus(w,data);return <div className="flex flex-wrap gap-1">
-      {s.model&&<Button size="sm" disabled={busy||!s.canTest} title={!s.canTest?'此模型未配置文本测试或连接不可用':undefined} onClick={async()=>{
-       const r=await command<{status:string;elapsedMs:number;detail:string}>('POST','/api/admin/provider-models/'+s.model!.id+'/test',{capability:'text'});
-       if(r)setNotice(s.model!.modelId+'：'+r.status+' · '+r.elapsedMs+' ms · '+r.detail);
-      }}>测试</Button>}
-      <Button size="sm" tone={s.kind==='problem'?'primary':'secondary'} disabled={busy}
-       onClick={()=>{setProblem(null);setReason('');setWorkflow({key:w.key,model:w.model})}}>选择模型</Button>
-     </div>}},
-    ]}/>
-    <div className="mt-3 flex items-center gap-3"><Button size="sm" disabled={routeCurrent<=1} onClick={()=>setRoutePage(routeCurrent-1)}>上一页</Button><span>{routeCurrent} / {routePages}</span><Button size="sm" disabled={routeCurrent>=routePages} onClick={()=>setRoutePage(routeCurrent+1)}>下一页</Button></div>
-   </Card>}
-  {editor&&<ConfigurationDialog key={editor.kind+(editor.value?.id??'new')} editor={editor} providers={data.providers} busy={busy} problem={problem} onClose={()=>setEditor(null)} onSubmit={async(input,why)=>{
-   const e=editor,id=e.value?.id;
-   const path=e.kind==='connection'?'/api/admin/providers'+(id?'/'+id:''):id?'/api/admin/provider-models/'+id:'/api/admin/providers/'+e.providerId+'/models';
-   const result=await command(id?'PATCH':'POST',path,{...input,...(id?{version:e.value!.version}:{}),reason:why});if(result)setEditor(null);
-  }}/>}
-  {deleting&&<Modal title={'删除 '+deleting.name} busy={busy} close={()=>setDeleting(null)}><p>请先停用；仍被模型或工作流引用时不能删除。</p>{errors}<Input aria-label="删除原因" placeholder="删除原因" value={reason} onChange={e=>setReason(e.target.value)}/><Button disabled={busy||!reason.trim()} onClick={async()=>{const r=await command('DELETE',(deleting.kind==='connection'?'/api/admin/providers/':'/api/admin/provider-models/')+deleting.id,{version:deleting.version,reason});if(r)setDeleting(null)}}>确认删除</Button></Modal>}
-  {discovery&&<Modal title="选择导入模型" busy={busy} close={()=>setDiscovery(null)}><p className="text-xs">未被本次列表返回的模型保留原配置。发现接口不可用时，可手动添加。</p>{errors}<div className="max-h-80 overflow-y-auto">{discovery.models.map(m=><label className="block break-all text-sm" key={m.modelId}><input type="checkbox" disabled={m.status!=='new'||busy} checked={selected.includes(m.modelId)} onChange={e=>setSelected(e.target.checked?[...selected,m.modelId]:selected.filter(x=>x!==m.modelId))}/> {m.modelId} · {m.status==='new'?'新增':m.status==='existing'?'已存在':'本次未发现'}</label>)}</div><Input aria-label="导入原因" placeholder="导入原因" value={reason} onChange={e=>setReason(e.target.value)}/><Button disabled={busy||!selected.length||!reason.trim()} onClick={async()=>{const r=await command('POST','/api/admin/providers/'+discovery.id+'/models:import',{modelIds:selected,reason});if(r)setDiscovery(null)}}>导入所选（默认停用）</Button></Modal>}
-  {workflow&&<Modal title="切换工作流模型" busy={busy} close={()=>setWorkflow(null)}>{errors}<Select aria-label="工作流模型" value={workflow.model} onChange={e=>setWorkflow({...workflow,model:e.target.value})}><option value="">使用环境或默认配置</option>{!data.models.some(m=>'model:'+m.id===workflow.model)&&workflow.model&&<option value={workflow.model}>{workflow.model}</option>}{data.models.map(m=><option key={m.id} value={'model:'+m.id}>{data.providers.find(c=>c.id===m.providerId)?.name} · {m.modelId} · {m.id.slice(0,8)}</option>)}</Select><Input aria-label="切换原因" placeholder="切换原因" value={reason} onChange={e=>setReason(e.target.value)}/><Button disabled={busy||!reason.trim()} onClick={async()=>{const r=await command('POST','/api/admin/models/'+workflow.key,{model:workflow.model||null,reason});if(r)setWorkflow(null)}}>保存选择</Button></Modal>}
+
+ return <div className="space-y-4">
+  {notice&&<p role="status" className="break-words text-sm">{notice}</p>}
+  {!editor&&!deleting&&errors}
+  <Card title={'模型列表（'+filtered.length+'）'} right={<Button disabled={busy} onClick={()=>open(null)}>新增模型</Button>}>
+   <div className="mb-4 max-w-md"><Input aria-label="搜索模型" placeholder="搜索模型 ID 或厂商" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/></div>
+   <DataTable rows={visible} rowKey={m=>m.id} empty="暂无模型，点击「新增模型」开始。" columns={[
+    {key:'model',label:'模型 ID',render:m=><span className="break-all font-mono text-xs">{m.modelId}</span>},
+    {key:'provider',label:'厂商',render:m=><span className="text-xs">{data.providers.find(c=>c.id===m.providerId)?.name??'未知连接'}</span>},
+    {key:'type',label:'类型',render:m=><span className="text-xs">{m.adapter}</span>},
+    {key:'state',label:'状态',render:m=><Badge tone={m.enabled?'ok':'muted'}>{m.enabled?'启用':'停用'}</Badge>},
+    {key:'actions',label:'操作',render:m=>{
+     const check=m.checks.find(c=>c.capability===m.probeSpec?.capability);
+     const latest=testResults[m.id];
+     const status=latest?.status??check?.status;
+     return <div className="flex flex-wrap items-center gap-1">
+      <Button size="sm" disabled={busy||testing!==null} onClick={()=>open(m,true)}>查看</Button>
+      <Button size="sm" disabled={busy||testing!==null} onClick={()=>open(m)}>编辑</Button>
+      <Button size="sm" disabled={busy||testing!==null} onClick={()=>testModel(m)}>{testing===m.id?'测试中…':'测试'}</Button>
+      {status&&<Badge tone={status==='verified'?'ok':status==='unverified'?'muted':'bad'}>{status==='verified'?'通过':status==='unverified'?'待测试':'失败'}</Badge>}
+      <Button size="sm" disabled={busy||testing!==null} onClick={()=>{setProblem(null);setDeleting(m)}}>删除</Button>
+     </div>;
+    }},
+   ]}/>
+   <div className="mt-3 flex items-center gap-3">
+    <Button size="sm" disabled={current<=1} onClick={()=>setPage(current-1)}>上一页</Button>
+    <span className="text-xs">{current} / {pages}</span>
+    <Button size="sm" disabled={current>=pages} onClick={()=>setPage(current+1)}>下一页</Button>
+   </div>
+  </Card>
+  {editor&&<ModelDialog key={(editor.model?.id??'new')+(editor.readOnly?'view':'edit')} editor={editor}
+   providers={data.providers} busy={busy||testing!==null} problem={problem}
+   onClose={()=>setEditor(null)} onSave={saveModel}/>}
+  {deleting&&<Modal title={'删除模型：'+deleting.modelId} busy={busy} onClose={()=>setDeleting(null)}>
+   <p className="text-sm">确定删除这个模型吗？此操作不可撤销。已启用或被工作流引用的模型，后端会阻止删除。</p>
+   {errors}
+   <div className="flex gap-2">
+    <Button disabled={busy} onClick={async()=>{
+     const result=await command('DELETE','/api/admin/provider-models/'+deleting.id,{
+      version:deleting.version,reason:'后台删除模型：'+deleting.modelId
+     });
+     if(result){setDeleting(null);setNotice('已删除：'+deleting.modelId);}
+    }}>确认删除</Button>
+    <Button tone="secondary" disabled={busy} onClick={()=>setDeleting(null)}>取消</Button>
+   </div>
+  </Modal>}
  </div>;
 }
-function Modal({title,busy,close,children}:{title:string;busy:boolean;close:()=>void;children:React.ReactNode}) {
- return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"><section role="dialog" aria-modal="true" aria-label={title} className="max-h-[90vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-panel bg-surface p-5"><div className="flex items-center justify-between"><h3>{title}</h3><Button disabled={busy} onClick={close}>关闭</Button></div>{children}</section></div>;
+
+function Modal({title,busy,onClose,children}:{title:string;busy:boolean;onClose:()=>void;children:React.ReactNode}) {
+ return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+  <section role="dialog" aria-modal="true" aria-label={title} className="max-h-[90vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-panel bg-surface p-5">
+   <div className="flex items-center justify-between gap-2"><h3>{title}</h3><Button disabled={busy} onClick={onClose}>关闭</Button></div>
+   {children}
+  </section>
+ </div>;
 }
-function ConfigurationDialog({editor,providers,busy,problem,onClose,onSubmit}:{editor:Editor;providers:ProviderConnection[];busy:boolean;problem:Problem|null;onClose:()=>void;onSubmit:(input:ConnectionInput|ModelInput,reason:string)=>Promise<void>}) {
- const c=editor.kind==='connection'?editor.value:null,m=editor.kind==='model'?editor.value:null,readOnly=!!editor.readOnly;
- const [values,setValues]=useState<Record<string,string>>({name:c?.name??'',vendor:c?.vendor??'',protocol:c?.protocol??'openai-compatible',baseUrl:c?.baseUrl??'',timeoutMs:String(c?.timeoutMs??60000),credentialAction:'keep',credential:'',
-  providerId:editor.kind==='model'?editor.providerId:'',modelId:m?.modelId??'',adapter:m?.adapter??'chat',endpointOverride:m?.endpointOverride??'',timeoutOverrideMs:m?.timeoutOverrideMs==null?'':String(m.timeoutOverrideMs),complexity:m?.complexity??'medium',
-  requestDefaults:JSON.stringify(m?.requestDefaults??{},null,2),probeSpec:JSON.stringify(m?m.probeSpec:defaultProbe,null,2),documentationUrl:m?.documentationUrl??'',notes:m?.notes??''});
- const [enabled,setEnabled]=useState(c?.enabled??m?.enabled??false),[route,setRoute]=useState(m?.routeEnabled??false),[stream,setStream]=useState(m?.stream??false),[capabilities,setCapabilities]=useState<ModelCapability[]>(m?.capabilities??['text']),[reason,setReason]=useState(''),[error,setError]=useState('');
- const value=(key:string)=>values[key]??'',change=(key:string,v:string)=>setValues({...values,[key]:v});
- const field=(key:string,label:string,node?:React.ReactNode)=><label className="block space-y-1 text-sm"><span>{label}</span>{node??<Input disabled={readOnly||busy} value={value(key)} onChange={e=>change(key,e.target.value)}/>} {problem?.fieldErrors?.[key]&&<span role="alert" className="block text-xs text-hot">{problem.fieldErrors[key]}</span>}</label>;
+
+function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
+ editor:Editor;providers:ProviderConnection[];busy:boolean;problem:Problem|null;
+ onClose:()=>void;onSave:(input:ModelInput,reason:string,connection:ConnectionInput|null)=>Promise<void>;
+}) {
+ const m=editor.model,readOnly=editor.readOnly;
+ const [providerId,setProviderId]=useState(m?.providerId??providers[0]?.id??NEW_CONNECTION);
+ const [modelId,setModelId]=useState(m?.modelId??'');
+ const [adapter,setAdapter]=useState<ModelInput['adapter']>(m?.adapter??'chat');
+ const [enabled,setEnabled]=useState(m?.enabled??true);
+ const [notes,setNotes]=useState(m?.notes??'');
+ const [probeText,setProbeText]=useState(JSON.stringify(m?.probeSpec??probeFor(m?.adapter??'chat'),null,2));
+ const [connectionName,setConnectionName]=useState(''),[vendor,setVendor]=useState('');
+ const [baseUrl,setBaseUrl]=useState(''),[apiKey,setApiKey]=useState('');
+ const [error,setError]=useState('');
+ const fieldError=(key:string)=>problem?.fieldErrors?.[key]&&<span role="alert" className="text-xs text-hot">{problem.fieldErrors[key]}</span>;
+ const changeAdapter=(value:ModelInput['adapter'])=>{
+  setAdapter(value);
+  if(!m||value!==m.adapter)setProbeText(JSON.stringify(probeFor(value),null,2));
+ };
  async function save(){
-  setError('');try {
-   const input:ConnectionInput|ModelInput=editor.kind==='connection'?{name:value('name'),vendor:value('vendor'),protocol:'openai-compatible',baseUrl:value('baseUrl'),timeoutMs:Number(value('timeoutMs')),enabled,
-    credential:value('credentialAction')==='replace'?{action:'replace',value:value('credential')}:{action:value('credentialAction') as 'keep'|'clear'}}:
-    {providerId:value('providerId'),modelId:value('modelId'),adapter:value('adapter') as ModelInput['adapter'],endpointOverride:value('endpointOverride')||null,timeoutOverrideMs:value('timeoutOverrideMs')?Number(value('timeoutOverrideMs')):null,
-     capabilities,requestDefaults:JSON.parse(value('requestDefaults')),probeSpec:JSON.parse(value('probeSpec')),stream,complexity:value('complexity') as ModelInput['complexity'],documentationUrl:value('documentationUrl')||null,notes:value('notes')||null,enabled,routeEnabled:route};
-   await onSubmit(input,reason);
-  }catch{setError('请求参数或测试请求必须是有效 JSON；空测试请求请填 null。')}
+  setError('');
+  if(!modelId.trim()){setError('请输入模型 ID');return;}
+  if(providerId===NEW_CONNECTION&&(!connectionName.trim()||!vendor.trim()||!baseUrl.trim()||!apiKey.trim())){
+   setError('请填写新连接的名称、厂商、API 地址及 API Key');return;
+  }
+  try {
+   const probeSpec=JSON.parse(probeText) as ModelInput['probeSpec'];
+   const sameAdapter=!!m&&m.adapter===adapter;
+   const input:ModelInput={
+    providerId,modelId:modelId.trim(),adapter,
+    endpointOverride:m?.endpointOverride??null,timeoutOverrideMs:m?.timeoutOverrideMs??null,
+    capabilities:sameAdapter?m.capabilities:capabilitiesFor(adapter),
+    requestDefaults:m?.requestDefaults??{},probeSpec,
+    stream:sameAdapter?(m?.stream??false):false,complexity:m?.complexity??'medium',
+    documentationUrl:m?.documentationUrl??null,notes:notes||null,enabled,
+    routeEnabled:enabled&&sameAdapter&&providerId===m?.providerId?(m?.routeEnabled??false):false
+   };
+   const connection:ConnectionInput|null=providerId===NEW_CONNECTION?{
+    name:connectionName.trim(),vendor:vendor.trim(),protocol:'openai-compatible',
+    baseUrl:baseUrl.trim(),timeoutMs:60000,enabled:true,
+    credential:{action:'replace',value:apiKey}
+   }:null;
+   await onSave(input,(m?'后台编辑模型：':'后台新增模型：')+modelId.trim(),connection);
+  }catch{setError('测试配置必须是有效 JSON 对象或 null');}
  }
- return <Modal title={(readOnly?'查看':editor.value?'编辑':'添加')+(editor.kind==='connection'?'连接':'模型')} busy={busy} close={onClose}>
-  {editor.kind==='connection'?<>
-   {field('name','连接名称')}{field('vendor','厂商标签')}{field('protocol','调用协议',<Select disabled value="openai-compatible"><option>openai-compatible</option></Select>)}
-   {field('baseUrl','API Base URL（完整路径前缀）')}{field('timeoutMs','连接超时（毫秒）')}
-   <p className="text-xs">凭据状态：{c?.credential.configured?'已配置':'未配置'}；密钥不会回显。</p>
-   {!readOnly&&<>{field('credentialAction','凭据操作',<Select disabled={busy} value={value('credentialAction')} onChange={e=>change('credentialAction',e.target.value)}><option value="keep">保留</option><option value="replace">替换</option><option value="clear">清除</option></Select>)}
-    {value('credentialAction')==='replace'&&field('credential','新 API Key',<Input type="password" autoComplete="new-password" disabled={busy} value={value('credential')} onChange={e=>change('credential',e.target.value)}/>)}</>}
-  </>:<>
-   {field('providerId','所属连接',<Select disabled={readOnly||busy} value={value('providerId')} onChange={e=>change('providerId',e.target.value)}>{providers.map(c=><option key={c.id} value={c.id}>{c.name} · {c.id.slice(0,8)}</option>)}</Select>)}
-   {field('modelId','上游模型 ID')}{field('adapter','模型类型',<Select disabled={readOnly||busy} value={value('adapter')} onChange={e=>change('adapter',e.target.value)}>{['chat','embedding','document','safety','special','unconfigured'].map(x=><option key={x}>{x}</option>)}</Select>)}
-   {field('endpointOverride','独立 Endpoint（留空沿用连接）')}{field('timeoutOverrideMs','独立超时（毫秒，留空沿用连接）')}
-   <fieldset disabled={readOnly||busy}><legend className="text-sm">能力</legend><div className="flex flex-wrap gap-3">{caps.map(cap=><label key={cap} className="text-xs"><input type="checkbox" checked={capabilities.includes(cap)} onChange={e=>setCapabilities(e.target.checked?[...capabilities,cap]:capabilities.filter(x=>x!==cap))}/> {cap}</label>)}</div>{problem?.fieldErrors?.capabilities&&<p role="alert">{problem.fieldErrors.capabilities}</p>}</fieldset>
-   {field('complexity','复杂度',<Select disabled={readOnly||busy} value={value('complexity')} onChange={e=>change('complexity',e.target.value)}>{['light','medium','heavy'].map(x=><option key={x}>{x}</option>)}</Select>)}
-   {field('requestDefaults','请求默认参数（JSON）',<Textarea rows={4} disabled={readOnly||busy} value={value('requestDefaults')} onChange={e=>change('requestDefaults',e.target.value)}/>)}
-   {field('probeSpec','能力测试请求（JSON，null 表示未配置）',<Textarea rows={5} disabled={readOnly||busy} value={value('probeSpec')} onChange={e=>change('probeSpec',e.target.value)}/>)}
-   {field('documentationUrl','文档地址')}{field('notes','备注',<Textarea disabled={readOnly||busy} value={value('notes')} onChange={e=>change('notes',e.target.value)}/>)}
-   <label className="block text-sm"><input type="checkbox" disabled={readOnly||busy} checked={stream} onChange={e=>setStream(e.target.checked)}/> 流式输出</label>
-   <label className="block text-sm"><input type="checkbox" disabled={readOnly||busy||!enabled} checked={route} onChange={e=>setRoute(e.target.checked)}/> 路由开关（测试通过后才能从关闭切换为开启）{problem?.fieldErrors?.routeEnabled&&<span role="alert" className="block text-xs text-hot">{problem.fieldErrors.routeEnabled}</span>}</label>
-  </>}
-  <label className="block text-sm"><input type="checkbox" disabled={readOnly||busy} checked={enabled} onChange={e=>{setEnabled(e.target.checked);if(!e.target.checked)setRoute(false)}}/> 启用</label>
-  {!readOnly&&<label className="block text-sm">修改原因<Input disabled={busy} value={reason} onChange={e=>setReason(e.target.value)}/>{problem?.fieldErrors?.reason&&<p role="alert">{problem.fieldErrors.reason}</p>}</label>}
+ const disabled=busy||readOnly;
+ return <Modal title={(readOnly?'查看':m?'编辑':'新增')+'模型'} busy={busy} onClose={onClose}>
+  <label className="block space-y-1 text-sm">模型 ID
+   <Input disabled={disabled} value={modelId} onChange={e=>setModelId(e.target.value)}/>
+   {fieldError('modelId')}
+  </label>
+  <label className="block space-y-1 text-sm">厂商连接
+   <Select disabled={disabled} value={providerId} onChange={e=>setProviderId(e.target.value)}>
+    {providers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+    {!m&&<option value={NEW_CONNECTION}>＋ 新建连接</option>}
+   </Select>
+   {fieldError('providerId')}
+  </label>
+  {providerId===NEW_CONNECTION&&!m&&<div className="space-y-3 rounded-panel bg-bg-sunk p-3">
+   <p className="text-xs text-ink-3">此模型没有可用连接时，在这里配置一次即可。</p>
+   <label className="block space-y-1 text-sm">连接名称<Input disabled={disabled} value={connectionName} onChange={e=>setConnectionName(e.target.value)}/>{fieldError('name')}</label>
+   <label className="block space-y-1 text-sm">厂商名称<Input disabled={disabled} value={vendor} onChange={e=>setVendor(e.target.value)}/>{fieldError('vendor')}</label>
+   <label className="block space-y-1 text-sm">API Base URL<Input disabled={disabled} value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1"/>{fieldError('baseUrl')}</label>
+   <label className="block space-y-1 text-sm">API Key<Input type="password" autoComplete="new-password" disabled={disabled} value={apiKey} onChange={e=>setApiKey(e.target.value)}/>{fieldError('credential')}</label>
+  </div>}
+  <label className="block space-y-1 text-sm">模型类型
+   <Select disabled={disabled} value={adapter} onChange={e=>changeAdapter(e.target.value as ModelInput['adapter'])}>
+    {['chat','embedding','document','safety','special','unconfigured'].map(value=><option key={value} value={value}>{value}</option>)}
+   </Select>
+   {fieldError('adapter')}
+  </label>
+  <label className="block space-y-1 text-sm">备注
+   <Textarea disabled={disabled} rows={2} value={notes} onChange={e=>setNotes(e.target.value)}/>
+  </label>
+  <label className="flex items-center gap-2 text-sm">
+   <input type="checkbox" disabled={disabled} checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> 启用模型
+  </label>
+  <details className="text-sm">
+   <summary className="cursor-pointer text-ink-3">测试配置（特殊模型可按需修改）</summary>
+   <p className="mt-2 text-xs text-ink-3">普通对话和向量模型自动填入测试请求。其他类型可以填写专用请求，或保留 null。</p>
+   <Textarea rows={5} disabled={disabled} value={probeText} onChange={e=>setProbeText(e.target.value)}/>
+   {fieldError('probeSpec')}
+  </details>
   {(error||problem)&&<p role="alert" className="text-sm text-hot">{error||problem?.detail}</p>}
-  {!readOnly&&<Button disabled={busy||!reason.trim()} onClick={save}>保存</Button>}
+  {!readOnly&&<Button disabled={busy} onClick={save}>保存</Button>}
  </Modal>;
 }
