@@ -431,6 +431,14 @@ export async function processMergedCommit({
   }
   const repository = await api.request("/repos/" + repo);
   if (String(repository.id) !== REPOSITORY_ID) fail("GitHub repository ID differs from the approved Work Queue resource scope");
+  const placeholderIssues = new Map(tasks.map(task => [task.id, {
+    id: 9999999999, number: 9999999999,
+    html_url: "https://github.com/" + repo + "/issues/9999999999"
+  }]));
+  buildWorkGraph({
+    tasks, issues: placeholderIssues, queueState, repo, repositoryId: repository.id,
+    specPath, specSha: headSha, specPrUrl: pr.html_url, now
+  });
   const issues = await ensureTaskIssues({ api, repo, tasks, specPath, specSha: headSha, specPrUrl: pr.html_url });
   const graph = buildWorkGraph({
     tasks, issues, queueState, repo, repositoryId: repository.id,
