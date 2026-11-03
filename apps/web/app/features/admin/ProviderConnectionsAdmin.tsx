@@ -222,7 +222,7 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave,onCreateConne
     {fieldError('name')}
    </label>
    <label className="block space-y-1 text-sm">厂商
-    <Select disabled={disabled} value={vendor} onChange={e=>{setVendor(e.target.value);setBaseUrl(defaultUrl(e.target.value,protocol));}}>
+    <Select aria-label="厂商" disabled={disabled} value={vendor} onChange={e=>{setVendor(e.target.value);setBaseUrl(defaultUrl(e.target.value,protocol));}}>
      <option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option>
      <option value="anthropic">Anthropic</option><option value="nvidia">NVIDIA</option>
      <option value="zhipu">智谱 AI</option><option value="custom">其他厂商</option>
