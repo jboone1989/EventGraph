@@ -1,53 +1,78 @@
 import assert from 'node:assert/strict';
 import {after,test} from 'node:test';
 import {sql,closeDb} from '@aihot/backend/db';
+import {VERIFIED_FREE_TRIAL_ENDPOINTS} from '@aihot/backend/providers/registry/types';
 import {importNvidiaModels} from '../scripts/import-nvidia-registered-models.ts';
 import {migratedId} from '../scripts/migrate-provider-connections.ts';
 
 after(closeDb);
+const BOOTSTRAP='nvidia.registeredModelsBootstrap.v1';
+const FREE_ONLY='nvidia.registeredModelsFreeOnly.v2';
+const CID=migratedId('connection',['nvidia','https://integrate.api.nvidia.com/v1','NVIDIA_API_KEY']);
+const free=Object.keys(VERIFIED_FREE_TRIAL_ENDPOINTS);
 
-test('one-time NVIDIA import preserves existing model edits, original adapters and tests',async()=>{
+test('initial NVIDIA import includes only official Free Endpoint candidates and keeps operator rows',async()=>{
  const oldMode=process.env.EVENTGRAPH_PREVIEW_MODE;
- const connectionId=migratedId('connection',['nvidia','https://integrate.api.nvidia.com/v1','NVIDIA_API_KEY']);
- const retainedId=migratedId('model',['nvidia','01-ai/yi-large']);
- try {
+ const manualId=migratedId('model',['nvidia','01-ai/yi-large']);
+ try{
   await assert.rejects(importNvidiaModels(),/requires the VM13 preview environment/);
   process.env.EVENTGRAPH_PREVIEW_MODE='true';
-  await sql`DELETE FROM settings WHERE key='nvidia.registeredModelsBootstrap.v1'`;
+  await sql`DELETE FROM settings WHERE key IN (${BOOTSTRAP},${FREE_ONLY})`;
   await sql`INSERT INTO provider_connections
    (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,credential_env,updated_by)
-   VALUES (${connectionId}::uuid,'NVIDIA','nvidia','openai-compatible',
-     'https://integrate.api.nvidia.com/v1',60000,true,'nvidia-free-trial','NVIDIA_API_KEY','test')
+   VALUES (${CID}::uuid,'NVIDIA','nvidia','openai-compatible',
+    'https://integrate.api.nvidia.com/v1',60000,true,'nvidia-free-trial','NVIDIA_API_KEY','test')
    ON CONFLICT(id) DO NOTHING`;
   await sql`INSERT INTO registered_models
    (id,provider_id,model_id,adapter,capabilities,request_defaults,notes,updated_by)
-   VALUES (${retainedId}::uuid,${connectionId}::uuid,'01-ai/yi-large','chat','["text"]'::jsonb,
-    '{}'::jsonb,'my custom notes','test')
+   VALUES (${manualId}::uuid,${CID}::uuid,'01-ai/yi-large','chat','["text"]'::jsonb,
+    '{}'::jsonb,'my custom notes','operator')
    ON CONFLICT DO NOTHING`;
-  const imported=await importNvidiaModels();
-  assert.equal(imported.status,'imported');
-  assert.equal(imported.summary.catalogue,81);
-  assert.ok(imported.summary.total>=81);
-  assert.ok(imported.summary.preserved>=1);
+  const result=await importNvidiaModels();
+  assert.equal(result.status,'imported');
+  assert.equal((result.summary as {catalogue:number}).catalogue,81);
+  assert.equal((result.summary as {total:number}).total,15);
+  assert.equal(free.length,15);
+  const models=await sql<{model_id:string;notes:string|null;updated_by:string}[]>`
+   SELECT model_id,notes,updated_by FROM registered_models WHERE provider_id=${CID}::uuid`;
+  assert.ok(models.length>=16);
+  assert.ok(free.every(id=>models.some(m=>m.model_id===id)));
+  assert.equal(models.find(x=>x.model_id==='01-ai/yi-large')?.notes,'my custom notes');
+  assert.equal(models.some(x=>x.model_id==='ibm/granite-3.0-3b-a800m-instruct'),false);
+  const again=await importNvidiaModels();
+  assert.equal(again.status,'already-reconciled');
+ }finally{
+  if(oldMode===undefined)delete process.env.EVENTGRAPH_PREVIEW_MODE;
+  else process.env.EVENTGRAPH_PREVIEW_MODE=oldMode;
+ }
+});
 
-  const models=await sql<{model_id:string;adapter:string;notes:string|null;enabled:boolean;route_enabled:boolean;probe_spec:unknown}[]>`
-   SELECT m.model_id,m.adapter,m.notes,m.enabled,m.route_enabled,m.probe_spec
-   FROM registered_models m JOIN provider_connections c ON c.id=m.provider_id
-   WHERE c.vendor='nvidia'`;
-  assert.ok(models.length>=81);
-  assert.equal(new Set(models.map(x=>x.model_id)).size,models.length);
-  const preserved=models.find(x=>x.model_id==='01-ai/yi-large');
-  assert.equal(preserved?.notes,'my custom notes');
-  assert.ok(models.some(x=>x.adapter==='embedding'));
-  assert.ok(models.some(x=>x.adapter==='safety'));
-  assert.ok(models.some(x=>x.adapter==='unconfigured'));
-  const afterFirst=models.length;
-  const repeated=await importNvidiaModels();
-  assert.equal(repeated.status,'already-imported');
-  const [count]=await sql<{count:number}[]>`
-   SELECT count(*)::integer AS count FROM registered_models m
-   JOIN provider_connections c ON c.id=m.provider_id WHERE c.vendor='nvidia'`;
-  assert.equal(count?.count,afterFirst,'idempotent execution must not create duplicates');
+test('correction deletes untouched invalid seed entries, preserving edited and linked records',async()=>{
+ const oldMode=process.env.EVENTGRAPH_PREVIEW_MODE;
+ const invalid='ibm/granite-3.0-3b-a800m-instruct';
+ const edited='ibm/granite-3.0-8b-instruct';
+ const legacy=migratedId('model',['nvidia',invalid]);
+ const retained=migratedId('model',['nvidia',edited]);
+ try{
+  process.env.EVENTGRAPH_PREVIEW_MODE='true';
+  // Simulate the earlier 81-row bootstrap while leaving its recorded source marker.
+  await sql`DELETE FROM settings WHERE key=${FREE_ONLY}`;
+  for(const [id,name,version,actor] of [[legacy,invalid,1,'nvidia-model-import'],[retained,edited,2,'operator']] as const){
+   await sql`INSERT INTO registered_models
+    (id,provider_id,model_id,adapter,capabilities,request_defaults,upstream_metadata,version,updated_by)
+    VALUES (${id}::uuid,${CID}::uuid,${name},'chat','["text"]'::jsonb,'{}'::jsonb,
+      '{"source":"seed-catalogue"}'::jsonb,${version},${actor})
+    ON CONFLICT DO NOTHING`;
+  }
+  const correction=await importNvidiaModels();
+  assert.equal(correction.status,'reconciled');
+  assert.ok((correction.summary as {deleted:number}).deleted>=1);
+  assert.ok((correction.summary as {preservedNonFree:number}).preservedNonFree>=1);
+  const rows=await sql<{model_id:string}[]>`SELECT model_id FROM registered_models WHERE id IN (${legacy}::uuid,${retained}::uuid)`;
+  assert.equal(rows.some(x=>x.model_id===invalid),false);
+  assert.equal(rows.some(x=>x.model_id===edited),true);
+  const again=await importNvidiaModels();
+  assert.equal(again.status,'already-reconciled');
  }finally{
   if(oldMode===undefined)delete process.env.EVENTGRAPH_PREVIEW_MODE;
   else process.env.EVENTGRAPH_PREVIEW_MODE=oldMode;

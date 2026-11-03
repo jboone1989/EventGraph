@@ -91,3 +91,7 @@ No cn-dev SSH connection, development database, or cn-dev Playwright installatio
 
 A successful PR check or image publish is **not** proof of VM13 deployment.
 The deploy job and the subsequent GitHub-hosted browser smoke must both succeed.
+
+### NVIDIA free-catalogue correction (2026-11-03)
+
+The previous one-time 81-model catalogue was not a list of free API endpoints. The deployment importer now admits only the 15 NVIDIA-documented Free Endpoint candidates from `VERIFIED_FREE_TRIAL_ENDPOINTS`. On the historical VM13-connected production table it reconciles the earlier bootstrap exactly once, deleting only unedited `seed-catalogue` rows from the original connection, excluding workflow-referenced, aliased, user-edited and manually added records. The NVIDIA provider and its saved API Key remain untouched. The audit and `nvidia.registeredModelsFreeOnly.v2` marker record totals. A Free Endpoint listing is not a guarantee of live API entitlement, so each candidate still needs an individual manual probe; no automatic model sweeps run.

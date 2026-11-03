@@ -42,7 +42,7 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  const [providerEditor,setProviderEditor]=useState<ProviderConnection|null|undefined>();
  const [deleting,setDeleting]=useState<RegisteredModel|null>(null);
  const [problem,setProblem]=useState<Problem|null>(null),[notice,setNotice]=useState('');
- const [testing,setTesting]=useState<string|null>(null);
+ const [testingIds,setTestingIds]=useState<Record<string,boolean>>({});
  const [testResults,setTestResults]=useState<Record<string,TestResult>>({});
  const command=async<T,>(method:'POST'|'PATCH'|'DELETE',path:string,body?:unknown)=>{
   setProblem(null);
@@ -84,24 +84,33 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
   if(result){setModelEditor(null);setNotice((old?'已更新模型：':'已添加模型：')+result.modelId);}
  }
  async function testModel(m:RegisteredModel){
-  setProblem(null);
-  if(!m.probeSpec){setNotice(m.modelId+' 尚未配置测试请求。请编辑该模型的高级测试配置。');return;}
-  setTesting(m.id);
-  try {
-   const result=await command<TestResult>('POST','/api/admin/provider-models/'+m.id+'/test',{capability:m.probeSpec.capability});
-   if(!result)return;
+  if(testingIds[m.id])return;
+  if(!m.probeSpec){
+   setTestResults(old=>({...old,[m.id]:{status:'failed',elapsedMs:0,detail:'尚未配置测试请求，请编辑此模型的高级测试配置。'}}));
+   return;
+  }
+  setTestingIds(old=>({...old,[m.id]:true}));
+  try{
+   let failure='网络请求失败，未收到测试结果';
+   const result=await run<TestResult>('POST','/api/admin/provider-models/'+m.id+'/test',
+    {capability:m.probeSpec.capability},{label:'probe:'+m.id,background:true,revalidate:false,quietError:true,
+     onError:p=>{failure=p.detail;}});
+   if(!result){
+    setTestResults(old=>({...old,[m.id]:{status:'failed',elapsedMs:0,detail:failure}}));
+    return;
+   }
    setTestResults(old=>({...old,[m.id]:result}));
    if(result.status==='verified'&&m.enabled&&m.adapter==='chat'&&!m.routeEnabled){
-    const enabled=await command<RegisteredModel>('PATCH','/api/admin/provider-models/'+m.id,{
+    let routeError='无法启用模型路由';
+    const enabled=await run<RegisteredModel>('PATCH','/api/admin/provider-models/'+m.id,{
      ...modelInput(m),routeEnabled:true,version:m.version,reason:'测试通过后允许工作流选择模型：'+m.modelId
-    });
-    setNotice(enabled?m.modelId+' 测试通过，已可在工作流绑定页面选择。':
-     m.modelId+' 测试通过，但启用工作流路由失败，请编辑模型检查。');
-   }else{
-    setNotice(m.modelId+'：'+(result.status==='verified'?'测试通过':'测试失败')+
-     ' · '+result.elapsedMs+' ms · '+result.detail);
+    },{label:'route-after-probe:'+m.id,background:true,quietError:true,
+     onError:p=>{routeError=p.detail;}});
+    if(!enabled)setTestResults(old=>({...old,[m.id]:{...result,detail:result.detail+'；但启用工作流失败：'+routeError}}));
    }
-  }finally{setTesting(null);}
+  }finally{
+   setTestingIds(old=>({...old,[m.id]:false}));
+  }
  }
  const matching=data.providers.filter(c=>{
   const models=data.models.filter(m=>m.providerId===c.id);
@@ -138,13 +147,16 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
       const receipt=m.checks.find(x=>x.capability===m.probeSpec?.capability);
       const status=testResults[m.id]?.status??receipt?.status;
       return <div className="flex flex-wrap items-center gap-1">
-       <Button size="sm" disabled={busy||testing!==null} onClick={()=>openModel(c.id,m)}>编辑</Button>
-       <Button size="sm" disabled={busy||testing!==null} onClick={()=>testModel(m)}>
-        {testing===m.id?'测试中…':'测试'}
+       <Button size="sm" disabled={busy||!!testingIds[m.id]} onClick={()=>openModel(c.id,m)}>编辑</Button>
+       <Button size="sm" disabled={!!testingIds[m.id]} onClick={()=>testModel(m)}>
+        {testingIds[m.id]?'测试中…':'测试'}
        </Button>
        {status&&<Badge tone={status==='verified'?'ok':status==='unverified'?'muted':'bad'}>
         {status==='verified'?'通过':status==='unverified'?'待测试':'失败'}</Badge>}
-       <Button size="sm" disabled={busy||testing!==null} onClick={()=>{setProblem(null);setDeleting(m)}}>删除</Button>
+       <Button size="sm" disabled={busy||!!testingIds[m.id]} onClick={()=>{setProblem(null);setDeleting(m)}}>删除</Button>
+       {testResults[m.id]&&<span role="status" className={'block max-w-sm break-words text-xs '+(testResults[m.id].status==='verified'?'text-ink-3':'text-hot')}>
+        {testResults[m.id].elapsedMs} ms · {testResults[m.id].detail}
+       </span>}
       </div>;
      }}
     ]}/>
@@ -156,7 +168,7 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
   {providerEditor!==undefined&&<ProviderDialog key={providerEditor?.id??'new'} connection={providerEditor}
    connections={data.providers} busy={busy} problem={problem} onClose={()=>setProviderEditor(undefined)} onSave={saveProvider}/>}
   {modelEditor&&<ModelDialog key={modelEditor.model?.id??'new-'+modelEditor.providerId}
-   editor={modelEditor} busy={busy||testing!==null} problem={problem} onClose={()=>setModelEditor(null)} onSave={saveModel}/>}
+   editor={modelEditor} busy={busy||!!testingIds[modelEditor.model?.id??'']} problem={problem} onClose={()=>setModelEditor(null)} onSave={saveModel}/>}
   {deleting&&<Modal title={'删除模型：'+deleting.modelId} busy={busy} onClose={()=>setDeleting(null)}>
    <p className="text-sm">确定删除这个模型吗？已启用或被工作流引用的模型会被后端阻止删除。</p>
    {errors}
