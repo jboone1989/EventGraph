@@ -8,11 +8,17 @@ import {paidRequest,ProviderRejectedError,rejectReceivedResponse} from '../recei
 import {parseSseCompletion} from './adapter.ts';
 import {loadConnection,loadModel,modelInput,connectionView,configurationFingerprint,configurationSnapshot,routingState,type CheckRow,type ModelRow,type ConnectionRow} from './connections.ts';
 import {storedCredential} from './connection-secrets.ts';
+import {anthropicRequest,anthropicResponse} from './anthropic-compat.ts';
 import {checkApiUrl,checkConnectionPolicy,checkModel} from './connection-validation.ts';
 import {ProviderConfigError} from './connection-types.ts';
 
 export function modelEndpoint(c:ConnectionRow,m?:ModelRow):string {
- return m?.endpoint_override??c.base_url.replace(/\/$/,'')+(m?.adapter==='embedding'?'/embeddings':m?'/chat/completions':'/models');
+ const base=c.base_url.replace(/\/$/,'');
+ if(c.protocol==='anthropic-compatible'){
+  const root=base.endsWith('/v1')?base:base+'/v1';
+  return m?.endpoint_override??root+(m?'/messages':'/models');
+ }
+ return m?.endpoint_override??base+(m?.adapter==='embedding'?'/embeddings':m?'/chat/completions':'/models');
 }
 export async function registeredRuntime(id:string,capability?:string) {
  const m=await loadModel(id),c=await loadConnection(m.provider_id);
@@ -31,14 +37,18 @@ async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<strin
  checkApiUrl(c.base_url);
  checkConnectionPolicy(c.base_url,c.policy);
  if(m)checkModel({...modelInput(m),enabled:true,routeEnabled:false},connectionView(c));
+ const anthropic=c.protocol==='anthropic-compatible';
+ const payload=anthropic&&body?anthropicRequest(body):body;
  try {
-  const res=await guardedFetch(modelEndpoint(c,m),{method:body?'POST':'GET',headers:{authorization:'Bearer '+key,
-   'content-type':'application/json',accept:body?.stream===true?'text/event-stream':'application/json'},
-   body:body?JSON.stringify(body):undefined,timeoutMs:m?.timeout_override_ms??c.timeout_ms,maxRedirects:0,maxBytes:8*1024*1024});
+  const headers=anthropic?{'x-api-key':key,'anthropic-version':'2023-06-01','content-type':'application/json',accept:'application/json'}:
+   {authorization:'Bearer '+key,'content-type':'application/json',accept:body?.stream===true?'text/event-stream':'application/json'};
+  const res=await guardedFetch(modelEndpoint(c,m),{method:body?'POST':'GET',headers,
+   body:payload?JSON.stringify(payload):undefined,timeoutMs:m?.timeout_override_ms??c.timeout_ms,maxRedirects:0,maxBytes:8*1024*1024});
   if(res.status<200||res.status>=300)throw new ProviderRejectedError('Provider HTTP '+res.status,res.status,res.status===429||res.status>=500);
   const raw=res.text().split(key).join('[redacted]');
-  const data=body?.stream===true?parseSseCompletion(raw):JSON.parse(raw) as Record<string,unknown>;
-  if(!data||typeof data!=='object'||Array.isArray(data))throw Error('Invalid response');
+  const parsed=body?.stream===true?parseSseCompletion(raw):JSON.parse(raw) as Record<string,unknown>;
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw Error('Invalid response');
+  const data=anthropic&&body?anthropicResponse(parsed):parsed;
   return {data,requestId:res.headers.get('x-request-id')};
  } catch(error) {
   if(error instanceof ProviderRejectedError)throw error;
