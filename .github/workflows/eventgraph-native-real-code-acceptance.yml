@@ -40,6 +40,10 @@ jobs:
           set -euo pipefail
           [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN is missing'; exit 1; }
           gh api "repos/$GITHUB_REPOSITORY/issues/$TASK_ISSUE" > "$RUNNER_TEMP/owner-issue.json"
+          if jq -e '.state == "closed"' "$RUNNER_TEMP/owner-issue.json" > /dev/null; then
+            echo "::notice::Issue #300 is already closed; no Work to admit"
+            exit 0
+          fi
           jq -e --arg owner "${GITHUB_REPOSITORY_OWNER}" \
             --arg pinned "Spec: ${SPEC_PATH}@${SPEC_SHA}" '
               .state == "open" and .user.login == $owner and
@@ -53,7 +57,8 @@ jobs:
           git merge-base --is-ancestor "$SPEC_SHA" origin/develop
           git diff --quiet "$SPEC_SHA" origin/develop -- "$SPEC_PATH"
           gh api "repos/$GITHUB_REPOSITORY/pulls/284" \
-            --jq '.merged == true and .base.ref == "develop"' | grep -Fxq true
+            --jq '(.merged == true) and (.base.ref == "develop") and (.merged_by.login == "jboone1989")' | grep -Fxq true
+          gh api "repos/$GITHUB_REPOSITORY/pulls/284/files" --paginate --jq '.[].filename' | grep -Fxq "$SPEC_PATH"
           issue_body="$(jq -r .body "$RUNNER_TEMP/owner-issue.json")"
           issue_title="$(jq -r .title "$RUNNER_TEMP/owner-issue.json")"
           repository_id="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.id | tostring')"
@@ -76,4 +81,10 @@ jobs:
             --request-id "issue-$TASK_ISSUE"
           # Project is only a view; label after confirmed native submission.
           gh issue edit "$TASK_ISSUE" --repo "$GITHUB_REPOSITORY" --add-label agent-work
+          # Preserve the existing one-open-agent-PR serialization gate.
+          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq 'length')"
+          if [[ "$open" != 0 ]]; then
+            echo "::notice::Open agent-work PR on develop; Work submitted, native dispatch deferred"
+            exit 0
+          fi
           gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
