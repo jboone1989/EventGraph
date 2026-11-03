@@ -41,8 +41,10 @@ grep -q '^DATABASE_URL=.*@devdb:'"$tunnel_port"'/' "$env_file" \
   || { echo "$env_file DATABASE_URL must target devdb:$tunnel_port" >&2; exit 1; }
 
 previous_image=""
+previous_release=""
 if sudo -n docker inspect eventgraph-vm13-preview-web-1 >/dev/null 2>&1; then
   previous_image="$(sudo -n docker inspect --format '{{.Config.Image}}' eventgraph-vm13-preview-web-1)"
+  previous_release="$(sudo -n docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' eventgraph-vm13-preview-web-1 | sed -n 's/^AIHOT_RELEASE=//p' | head -n1)"
 fi
 
 git fetch --quiet --no-tags origin develop
@@ -50,6 +52,16 @@ staged_compose="$(mktemp "$PWD/.vm13-next.XXXXXX.yml")"
 backup_compose="$(mktemp "$PWD/.vm13-prev.XXXXXX.yml")"
 cleanup() { rm -f "$staged_compose" "$backup_compose"; }
 trap cleanup EXIT
+restore() {
+  echo "Preview deployment failed; restoring the previous image and Compose file" >&2
+  cp "$backup_compose" "$compose_file"
+  if [ -n "$previous_image" ] && [ -n "$previous_release" ]; then
+    sudo -n env EVENTGRAPH_APP_IMAGE="$previous_image" EVENTGRAPH_PREVIEW_RELEASE="$previous_release" \
+      docker compose -f "$compose_file" up -d --no-build --pull never --force-recreate api web \
+      || echo "Previous preview containers could not be restarted" >&2
+  fi
+  exit 1
+}
 git show "$EVENTGRAPH_PREVIEW_RELEASE:$compose_file" > "$staged_compose"
 cp "$compose_file" "$backup_compose"
 
@@ -149,6 +161,10 @@ wait_for_db() {
   return 1
 }
 wait_for_db || { echo "Database tunnel did not become ready" >&2; restore; }
+
+# Use the Compose file from this exact tested release, including the preview's
+# read-only database setting. Preserve the previous file for a failure rollback.
+cp "$staged_compose" "$compose_file"
 
 # A development preview consumes production data read-only. Production migrations
 # and source seeding belong only to the separately gated production release.
