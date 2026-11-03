@@ -4,13 +4,14 @@ import {config} from '../../config.ts';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
 import {guardedFetch} from '../../lib/http-fetch.ts';
-import {paidRequest,ProviderRejectedError,rejectReceivedResponse} from '../receipts.ts';
+import {paidRequest,ProviderRejectedError,ReceiptUnknownError,BudgetExceededError,rejectReceivedResponse} from '../receipts.ts';
 import {parseSseCompletion} from './adapter.ts';
 import {loadConnection,loadModel,modelInput,connectionView,configurationFingerprint,configurationSnapshot,routingState,type CheckRow,type ModelRow,type ConnectionRow} from './connections.ts';
 import {storedCredential} from './connection-secrets.ts';
 import {anthropicRequest,anthropicResponse} from './anthropic-compat.ts';
 import {checkApiUrl,checkConnectionPolicy,checkModel} from './connection-validation.ts';
 import {ProviderConfigError} from './connection-types.ts';
+import {isVerifiedFreeTrialProvider} from './types.ts';
 
 export function modelEndpoint(c:ConnectionRow,m?:ModelRow):string {
  const base=c.base_url.replace(/\/$/,'');
@@ -51,8 +52,19 @@ async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<strin
   const data=anthropic&&body?anthropicResponse(parsed):parsed;
   return {data,requestId:res.headers.get('x-request-id')};
  } catch(error) {
-  if(error instanceof ProviderRejectedError)throw error;
-  throw new ProviderConfigError('Provider request failed: network, destination policy or response format','baseUrl',502);
+  if(error instanceof ProviderRejectedError||error instanceof ProviderConfigError)throw error;
+  if(error instanceof SyntaxError)throw new ProviderConfigError('Provider returned invalid JSON','baseUrl',502);
+  if(error instanceof Error&&(error.name==='TimeoutError'||error.name==='AbortError'))
+   throw new ProviderConfigError('Provider request timed out','baseUrl',504);
+  const problem=error as {code?:string;cause?:{code?:string}};
+  const code=problem?.cause?.code??problem?.code;
+  if(code==='ENOTFOUND'||code==='EAI_AGAIN')
+   throw new ProviderConfigError('Provider DNS resolution failed','baseUrl',502);
+  if(code==='ECONNREFUSED'||code==='ECONNRESET')
+   throw new ProviderConfigError('Provider connection failed or reset','baseUrl',502);
+  if(typeof code==='string'&&(/CERT|TLS|SSL/).test(code))
+   throw new ProviderConfigError('Provider TLS certificate or handshake failed','baseUrl',502);
+  throw new ProviderConfigError('Provider network or destination-policy error (no valid response)','baseUrl',502);
  }
 }
 export async function requestRegisteredModel(id:string,capability:string,body:Record<string,unknown>,expectedFingerprint?:string) {
@@ -73,6 +85,15 @@ export async function discoverModels(id:string) {
 export async function testConnection(id:string) {
  const c=await loadConnection(id);await transport(c,undefined);return {ok:true,detail:'Connection and models endpoint responded; model capability is not verified'};
 }
+/** Return safe, actionable diagnostics without exposing upstream response bodies or secrets. */
+export function diagnoseProbeFailure(error:unknown):{status:'failed'|'unknown';detail:string}{
+ const cause=error instanceof ReceiptUnknownError?(error.cause??error):error;
+ if(cause instanceof ProviderRejectedError)return {status:'failed',detail:'Provider HTTP '+(cause.status??'?')};
+ if(cause instanceof ProviderConfigError)return {status:error instanceof ReceiptUnknownError?'unknown':'failed',detail:cause.message};
+ if(cause instanceof BudgetExceededError)return {status:'failed',detail:cause.message};
+ if(error instanceof ReceiptUnknownError)return {status:'unknown',detail:'Provider outcome unknown; inspect receipt '+error.receiptId+' before retesting'};
+ return {status:'unknown',detail:'Unexpected model test error'};
+}
 export async function testRegisteredModel(id:string,capability:string,actor:string) {
  const {m,c,fingerprint,snapshot}=await registeredRuntime(id);
  if(!m.probe_spec||m.probe_spec.capability!==capability||!m.capabilities.includes(capability as never))
@@ -81,6 +102,8 @@ export async function testRegisteredModel(id:string,capability:string,actor:stri
  // credential must never be reported as an uncertain upstream response.
  if(!config.modelCallsEnabled)throw new ProviderConfigError('Model tests are disabled on this deployment (MODEL_CALLS_ENABLED=false)','connection',409);
  if(!storedCredential(c))throw new ProviderConfigError('Configure the provider API key before testing','credential',409);
+ if(c.policy==='nvidia-free-trial'&&!isVerifiedFreeTrialProvider(m.model_id))
+  throw new ProviderConfigError('This model is not on the verified NVIDIA Free Endpoint list','modelId',409);
  const started=Date.now();let status='failed',detail='Response shape mismatch';
  try {
   const body={...m.request_defaults,...m.probe_spec.body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})};
@@ -95,7 +118,7 @@ export async function testRegisteredModel(id:string,capability:string,actor:stri
   const valid=m.probe_spec.response==='chat'?typeof text==='string'&&!!text.trim():
    m.probe_spec.response==='embedding'?Array.isArray(vector)&&vector.length>0&&vector.every(x=>typeof x==='number'&&Number.isFinite(x)):Object.keys(d).length>0&&!d.error;
   if(valid){status='verified';detail='Valid '+m.probe_spec.response+' response';}
- }catch(error){status='unknown';detail=error instanceof ProviderRejectedError?'HTTP '+error.status:'Request failed; check credential, destination and response format';}
+ }catch(error){const failed=diagnoseProbeFailure(error);status=failed.status;detail=failed.detail;}
  const elapsedMs=Date.now()-started;
  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,config_snapshot,status,verified_at,latency_ms,detail)
   VALUES (${id}::uuid,${capability},${fingerprint},${sql.json(snapshot)},${status},${status==='verified'?new Date():null},${elapsedMs},${detail})

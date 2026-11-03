@@ -27,13 +27,13 @@ export function useAdminAction() {
       method: "POST" | "PATCH" | "PUT" | "DELETE",
       path: string,
       body?: unknown,
-      opts: { success?: string; label?: string; revalidate?: boolean; quietError?: boolean; onError?:(problem:{detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>})=>void } = {},
+      opts: { success?: string; label?: string; revalidate?: boolean; quietError?: boolean; background?:boolean; onError?:(problem:{detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>})=>void } = {},
     ): Promise<T | null> => {
       const label = opts.label ?? `${method} ${path}`;
       // The same command retried after a failure keeps its key, so paid work is not repeated.
       const key = keys.current.get(label) ?? newKey();
       keys.current.set(label, key);
-      setPending(label);
+      if(!opts.background)setPending(label);
       try {
         const res = await fetch(path, {
           method,
@@ -57,7 +57,7 @@ export function useAdminAction() {
         if (!opts.quietError) toast(error instanceof AdminError ? error.message : "网络错误，请稍后再试", "error");
         return null;
       } finally {
-        setPending(null);
+        if(!opts.background)setPending(null);
       }
     },
     [me.csrf, revalidator],

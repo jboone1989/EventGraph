@@ -6,13 +6,14 @@ import {z} from 'zod';
 import {sql,closeDb} from '@aihot/backend/db';
 import {config} from '@aihot/backend/config';
 import {createConnection,createRegisteredModel,updateRegisteredModel,updateConnection,getRegisteredModel,loadConnection,loadModel,configurationFingerprint,configurationSnapshot,writeWorkflowModel} from '@aihot/backend/providers/registry/connections';
-import {registeredRuntime,requestRegisteredModel,discoverModels,testRegisteredModel,embedRegisteredModel} from '@aihot/backend/providers/registry/runtime';
+import {registeredRuntime,requestRegisteredModel,discoverModels,testRegisteredModel,diagnoseProbeFailure,embedRegisteredModel} from '@aihot/backend/providers/registry/runtime';
 import {importModels} from '@aihot/backend/providers/registry/import';
 import {switchModel} from '@aihot/backend/admin/models';
 import {modelFor,modelSources,invalidateModelCache,stepsOnService} from '@aihot/backend/editorial/models';
 import {chatJson} from '@aihot/backend/providers/llm';
 import type {ConnectionInput,ModelInput} from '@aihot/contracts/providers';
 import {ProviderConfigError} from '@aihot/backend/providers/registry/connection-types';
+import {ProviderRejectedError,ReceiptUnknownError,BudgetExceededError} from '@aihot/backend/providers/receipts';
 import {buildApp} from '../apps/api/src/app.ts';
 const {MockAgent,getGlobalDispatcher,setGlobalDispatcher}=createRequire(new URL('../packages/backend/package.json',import.meta.url))('undici') as typeof import('undici');
 const prior={dispatcher:getGlobalDispatcher(),private:config.allowPrivateNetworkFetch,proxy:config.egressProxyUrl,admin:config.devAdmin};
@@ -155,4 +156,22 @@ test('HTTP CRUD enforces auth and CSRF, exposes field errors and returns deletio
   const stale=await app.inject({method:'PATCH',url:'/api/admin/providers/'+c.id,headers,payload:{...connection(),reason:'stale',version:99}});assert.equal(stale.statusCode,409);
   config.devAdmin=null;assert.equal((await app.inject({url:'/api/admin/providers'})).statusCode,401);
  } finally {config.devAdmin={displayName:'Test admin'};await app.close();}
+});
+
+test('model probes identify upstream HTTP failures and preserve known preflight error causes',()=>{
+ assert.deepEqual(diagnoseProbeFailure(new ProviderRejectedError('Provider HTTP 401',401,false)),
+  {status:'failed',detail:'Provider HTTP 401'});
+ const unknown=new ReceiptUnknownError(17,'wrapped',{cause:new ProviderConfigError('Provider DNS resolution failed','baseUrl',502)});
+ assert.deepEqual(diagnoseProbeFailure(unknown),{status:'unknown',detail:'Provider DNS resolution failed'});
+ const budget=diagnoseProbeFailure(new BudgetExceededError('nvidia','day',3600));
+ assert.equal(budget.status,'failed');assert.match(budget.detail,/Budget for nvidia exhausted/);
+});
+test('NVIDIA non-free model test fails explicitly before reserving a paid receipt',async()=>{
+ const c=await createConnection(connection({vendor:'nvidia',baseUrl:'https://integrate.api.nvidia.com/v1',
+  credential:{action:'replace',value:'test-only-secret'}}),'test','test');
+ const m=await createRegisteredModel(model(c.id,{modelId:'ibm/granite-3.0-3b-a800m-instruct',
+  requestDefaults:{},enabled:false,routeEnabled:false}),'test','test');
+ await assert.rejects(testRegisteredModel(m.id,'text','test'),/not on the verified NVIDIA Free Endpoint list/);
+ const [count]=await sql<{count:number}[]>`SELECT count(*)::integer AS count FROM receipts WHERE subject=${m.id+':text'}`;
+ assert.equal(count!.count,0);
 });
