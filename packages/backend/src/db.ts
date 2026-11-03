@@ -18,7 +18,12 @@ export const sql = postgres(config.databaseUrl, {
   // Prepared statements keep PostgreSQL's plan cache: planning a detail read took longer than running
   // it. Searches plan every execution instead (withCustomPlans). JIT compilation costs more than
   // these short queries ever run.
-  connection: { jit: "off" },
+  connection: {
+    jit: "off",
+    // VM13 previews production data but must never write to it. The PostgreSQL
+    // connection starts with read-only transactions; normal deployments are unchanged.
+    ...(process.env.EVENTGRAPH_PREVIEW_READONLY === "true" ? { default_transaction_read_only: true } : {}),
+  },
   types: {
     int8: numberType(20),
     numeric: numberType(1700),
