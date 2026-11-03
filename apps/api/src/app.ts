@@ -88,8 +88,8 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get("/api/health", async (_req, reply) => {
     const started = Date.now();
-    await sql`SELECT 1`;
-    return reply.header("Cache-Control", "no-store").send({ ok: true, db: "ok", ms: Date.now() - started, release: process.env.AIHOT_RELEASE ?? "dev" });
+    const [session] = await sql<{ read_only: string }[]>`SELECT current_setting('transaction_read_only') AS read_only`;
+    return reply.header("Cache-Control", "no-store").send({ ok: true, db: "ok", dbReadOnly: session?.read_only === "on", ms: Date.now() - started, release: process.env.AIHOT_RELEASE ?? "dev" });
   });
 
   registerSite(app);
