@@ -75,10 +75,13 @@ test('model admin is a single CRUD list with a test action on each row',async()=
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText('z-ai/example-chat',{exact:true})).toBeVisible();
 
-  assert.equal(writes[0]!.path,'/api/admin/providers');
-  assert.equal(writes[1]!.path,'/api/admin/providers/11111111-1111-4111-a111-111111111111/models');
-  assert.equal(writes[1]!.body.modelId,'z-ai/example-chat');
-  assert.deepEqual(writes[1]!.body.capabilities,['text']);
+  const connectionWrite=writes.find(w=>w.method==='POST'&&w.path==='/api/admin/providers');
+  const modelWrite=writes.find(w=>w.method==='POST'&&w.path.endsWith('/models'));
+  assert.ok(connectionWrite);
+  assert.ok(modelWrite);
+  assert.equal(modelWrite.path,'/api/admin/providers/11111111-1111-4111-a111-111111111111/models');
+  assert.equal(modelWrite.body.modelId,'z-ai/example-chat');
+  assert.deepEqual(modelWrite.body.capabilities,['text']);
   assert.ok(!(await page.locator('body').innerText()).includes('secret-value'));
 
   await page.getByRole('button',{name:'测试',exact:true}).click();
@@ -138,7 +141,7 @@ test('models without a probe still show a per-row test button with actionable fe
   const page=await browser.newPage();
   await page.goto(web.origin+'/admin/models');
   await page.getByRole('button',{name:'测试',exact:true}).click();
-  await expect(page.getByRole('status')).toContainText('尚未配置测试请求');
+  await expect(page.locator('p[role="status"]')).toContainText('尚未配置测试请求');
   await expect(page.getByRole('button',{name:'工作流路由'})).toHaveCount(0);
  } finally {
   await browser?.close();
