@@ -22,7 +22,7 @@ Inspected EventGraph `develop`, `main`, and the pinned upstream GH-AW v1.0.1 sou
 
 - `gh aw work-queue submit-graph --file <path>` atomically admits 1–256 complete normalized Work nodes: [work_command.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/cli/work_command.go).
 - Work identity is derived from canonical `graph_id` and `node_key`; normalized Work includes `depends_on`, routing fields, payload and enqueue time: [work_queue_graph.cjs](https://github.com/github/gh-aw/blob/0627fdb/actions/setup/js/work_queue_graph.cjs).
-- GH-AW v1.0.1 accepts normalized external resources with repository and resource database IDs; the Producer resolves those IDs from GitHub REST before submission, and the native CLI/replayer validates them: [work_queue_graph.cjs](https://github.com/github/gh-aw/blob/0627fdb/actions/setup/js/work_queue_graph.cjs), [types.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/workqueue/types.go), and [dependencies.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/workqueue/dependencies.go).
+- GH-AW v1.0.1 requires normalized external resources to include repository and resource database IDs; the Producer resolves those IDs from GitHub REST before submission, and the native CLI/replayer validates them: [work_queue_graph.cjs](https://github.com/github/gh-aw/blob/0627fdb/actions/setup/js/work_queue_graph.cjs), [types.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/workqueue/types.go), and [dependencies.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/workqueue/dependencies.go).
 - Issue dependency condition `completed` is satisfied only when the Issue is closed with GitHub state reason `completed`; a generic close or `not_planned` does not satisfy it: [dependencies.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/workqueue/dependencies.go).
 - GH-AW documents Issues as external dependency nodes, not queue storage: [Work Queue operations](https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/patterns/workqueue-ops.md).
 
@@ -56,7 +56,7 @@ The Worker source and generated lock live on `main`, while the Producer and Chec
 - Graph ID: `spec-<40-char-spec-sha>`.
 - Node key: the exact Task ID.
 - Work ID: GH-AW v1.0.1 canonical identity digest for graph ID and node key.
-- External dependency: `{kind:"issue", resource:{kind:"issue",host:"github.com",repository:"jboone1989/EventGraph",number:"<issue-number>"}, condition:"completed"}`; the native admission resolver supplies immutable GitHub repository/resource IDs.
+- External dependency: `{kind:"issue", resource:{kind:"issue",host:"github.com",repository:"jboone1989/EventGraph",repository_id:"1416699488",resource_id:"<issue-database-id>",number:"<issue-number>"}, condition:"completed"}`. The Producer resolves the repository and Issue database IDs through GitHub REST; the native CLI validates the complete normalized resource.
 - Work payload: `task`, `task_id`, `issue_number`, `issue_url`, `spec_path`, `spec_sha`, `scope`, `acceptance_criteria`, the exact Spec 012 `effect_contract` and `resource_scope`.
 - Worker routing: derive the default Worker profile, logical contract and trust domain from the live installed Policy. Never hardcode GLM or Pi.
 - Completion: only the trusted post-merge Check continuation closes the matching Issue with reason `completed`.
