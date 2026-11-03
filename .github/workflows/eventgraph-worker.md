@@ -56,7 +56,9 @@ safe-outputs:
     # push remains Claim-scoped and repository rules do not require signatures.
     signed-commits: false
 max-turns: 40
-max-ai-credits: -1
+# AWF v0.29 rejects -1 in apiProxy.maxAiCredits even though GH-AW v1.0.1 compiles it.
+# 100M is above AWF's non-overridable 10k AIC hard cap: no lower project-imposed cutoff.
+max-ai-credits: 100M
 timeout-minutes: 30
 jobs:
   agent:
