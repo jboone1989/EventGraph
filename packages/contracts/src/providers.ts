@@ -1,5 +1,5 @@
 export type ModelCapability='text'|'reasoning'|'vision'|'embedding'|'embedding_vision'|'document'|'safety'|'translation'|'coding'|'video'|'reward';
-export const PROTOCOLS = ['openai-compatible'] as const;
+export const PROTOCOLS = ['openai-compatible','anthropic-compatible'] as const;
 export type CredentialEdit = {action:'keep'|'clear'} | {action:'replace';value:string};
 export interface ProviderConnection {
  id:string;name:string;vendor:string;protocol:typeof PROTOCOLS[number];baseUrl:string;
