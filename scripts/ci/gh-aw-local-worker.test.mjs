@@ -22,8 +22,10 @@ test("the Worker source selects claim-scoped unsigned delivery while GH-AW v1.0.
   assert.match(source, /create-pull-request:[\s\S]*?signed-commits:\s*false/);
   assert.match(lock, /\\\"signed_commits\\\":false/);
   assert.doesNotMatch(source, /EVENTGRAPH_WORKER_RUN_ID|eventgraph-work-id|worker-run-id/);
-  assert.match(source, /generated safe-output footer is the authoritative machine-readable provenance/);
-  assert.match(source, /There is no custom Producer or issue-label intake/);
+  assert.match(source, /generated safe-output footer remains the authoritative machine-readable Work\/Claim provenance/);
+  assert.match(source, /deterministic Producer in the existing successful develop Check continuation/);
+  assert.match(source, /Task: <task_id>/);
+  assert.match(source, /Issue URL: https:\/\/github\.com\/jboone1989\/EventGraph\/issues\/<issue-number>/);
   assert.match(source, /GitHub Actions triggers the official native Dispatcher/);
   assert.match(source, /one-open-agent-PR serialization rule/);
   assert.doesNotMatch(source, /Producer already verified|deterministic completion bridge/);
