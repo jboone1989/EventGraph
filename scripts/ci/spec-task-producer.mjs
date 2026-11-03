@@ -418,6 +418,12 @@ export async function processMergedCommit({
     return { kind: "not-auto-intake-spec", prNumber: pr.number, specPath };
   }
   const changedPaths = new Set(files.map(file => file.filename));
+  // Existing one-file owner-approved Specs are not automatic Work Queue contracts.
+  // The tasks.md change opts a Spec into deterministic task intake; once opted
+  // in, the complete three-file contract is mandatory.
+  if (!changedPaths.has(tasksPath)) {
+    return { kind: "approved-spec-without-work-items", prNumber: pr.number, specPath };
+  }
   for (const required of [specPath, planPath, tasksPath]) {
     if (!changedPaths.has(required)) {
       fail("Approved Spec intake requires the PR to change all three files: " + required);
