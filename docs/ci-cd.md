@@ -4,7 +4,7 @@ A release uses **one** application image: push to `develop` → Check/E2E → im
 
 - Feature PRs (including promotion PRs targeting `main`) still run the repository's required `check`, `docker` and browser checks.
 - Only a push to `develop` runs builds and publishes `ghcr.io/jboone1989/eventgraph-app@sha256:...`.
-- A push to `main` runs `promote` only. Its `.github/production-image.env` pins both the successful develop SOURCE_SHA and digest; promotion requires successful `check`, `e2e`, `publish` results for that SHA, unchanged application inputs, and an existing digest. The main push never builds a second image.
+- A push to `main` runs the `promote` job, which **first classifies the entire pushed commit range**. Control/governance-only updates (workflows, Specs, CI scripts and release documentation) log `No production release requested` and finish successfully **without promoting or revalidating an image**. A changed production image pin or any runtime/release input requests a real promotion; only then must `.github/production-image.env` reference a successful develop SOURCE_SHA and digest, the SHA have successful `check`, `e2e`, `publish` results, the application inputs remain runtime-equivalent and the immutable GHCR digest exist. The main push never builds a second image.
 - The `deploy_production` job runs only if `EVENTGRAPH_PROD_AUTO_DEPLOY=true` is configured. It invokes the existing VM09 `scripts/deploy-prod.sh`. With no configured production SSH, run that script on VM09 through an authorized operator; **merging to main by itself does not deploy**.
 
 ## VM09 (production)
