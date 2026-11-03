@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -356,7 +356,21 @@ export async function completeTaskIssue({ api, repo, pr }) {
   return { completed: true, issueNumber: reference.issueNumber, taskId: reference.taskId };
 }
 
-export async function processMergedCommit({ api, repo, headSha, root = process.cwd(), readQueueState, now = Date.now() }) {
+export function readGitFile(root, commitSha, filePath) {
+  try {
+    return execFileSync("git", ["-C", root, "show", commitSha + ":" + filePath], {
+      encoding: "utf8", maxBuffer: 8 * 1024 * 1024
+    });
+  } catch {
+    fail("Spec file " + filePath + " is not present at approved merge SHA " + commitSha);
+  }
+}
+
+export async function processMergedCommit({
+  api, repo, headSha, root = process.cwd(), readQueueState, readFileAtCommit,
+  now = Date.now()
+}) {
+  const readSpecFile = readFileAtCommit ?? ((sha, filePath) => readGitFile(root, sha, filePath));
   const pr = await findMergedPRForCommit({ api, repo, headSha });
   if (!pr) return { kind: "no-associated-merged-pr" };
 
@@ -376,9 +390,9 @@ export async function processMergedCommit({ api, repo, headSha, root = process.c
   const specPath = "specs/" + directory + "/spec.md";
   const planPath = "specs/" + directory + "/plan.md";
   const tasksPath = "specs/" + directory + "/tasks.md";
-  const specText = readFileSync(resolve(root, specPath), "utf8");
-  readFileSync(resolve(root, planPath), "utf8");
-  const tasksText = readFileSync(resolve(root, tasksPath), "utf8");
+  const specText = readSpecFile(headSha, specPath);
+  readSpecFile(headSha, planPath);
+  const tasksText = readSpecFile(headSha, tasksPath);
   if (!/^\*\*Status:\*\*\s*Owner-approved\b/m.test(specText)) {
     fail("Spec " + specPath + " does not declare Status: Owner-approved");
   }
