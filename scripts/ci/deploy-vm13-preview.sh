@@ -26,7 +26,7 @@ knowledge_port=15434
 # The egress path drops connections at peak; one refused keyscan or inspect is
 # transient and must not abort a deploy. Three attempts, five seconds apart.
 prod_ssh() {
-  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "ubuntu@$prod_host" "$@"
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$PROD_KNOWN_HOSTS" -o HostKeyAlgorithms="$prod_algo" -o ConnectTimeout=10 "ubuntu@$prod_host" "$@"
 }
 prod_ssh_retry() {
   i=0
@@ -64,30 +64,20 @@ image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")
 # a stale address fails the deploy visibly instead of misrouting data. The
 # egress path drops connections at peak, so both the address reads and the
 # host-key scan retry before giving up.
-bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-db_ip="$(prod_ssh_retry \
-  'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
-  || { echo "Could not read the production database container address" >&2; exit 1; }
-[ -n "$db_ip" ] || { echo "Production database container has no address" >&2; exit 1; }
-knowledge_ip="$(prod_ssh_retry \
-  'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
-  || { echo "Could not read the production knowledge container address" >&2; exit 1; }
-[ -n "$knowledge_ip" ] || { echo "Production knowledge container has no address" >&2; exit 1; }
-
 # Pin the production host key for the tunnel: the runner verifies this
-# fingerprint (secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the
+# fingerprint (secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT) on its own hops, and the
 # same pin must authorize the VM13→production tunnel before the unit below
 # connects. A known_hosts.prod written under the same pin stays valid — the
 # host key does not change between deploys, and re-scanning through the
 # peak-time egress window is exactly what failed a previous deploy — so an
 # existing matching pin file is reused and only a missing or non-matching one
 # triggers a rescan, with retries for the same reason.
-: "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned production host key fingerprint (SHA256:...) required}"
+: "${EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT:?pinned production host key fingerprint (SHA256:...) required}"
 mkdir -p "${HOME}/.ssh"
 PROD_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.prod"
 pin_ok=""
 if [ -s "$PROD_KNOWN_HOSTS" ] \
-   && ssh-keygen -lf "$PROD_KNOWN_HOSTS" 2>/dev/null | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }'; then
+   && ssh-keygen -lf "$PROD_KNOWN_HOSTS" 2>/dev/null | awk -v fp="$EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }'; then
   echo "Reusing pinned production host key from $PROD_KNOWN_HOSTS"
   pin_ok=1
 else
@@ -95,7 +85,7 @@ else
   i=0
   while [ "$i" -lt 6 ] && [ -z "$pin_ok" ]; do
     ssh-keyscan -T 10 -t ed25519,ecdsa "$prod_host" 2>/dev/null | awk -v h="$prod_host" '$1 == h' > "$prod_scan"
-    ssh-keygen -lf "$prod_scan" 2>/dev/null | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }' && pin_ok=1
+    ssh-keygen -lf "$prod_scan" 2>/dev/null | awk -v fp="$EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }' && pin_ok=1
     [ -n "$pin_ok" ] || { i=$((i+1)); sleep 15; }
   done
   if [ -n "$pin_ok" ]; then
@@ -111,6 +101,17 @@ else
   fi
 fi
 prod_algo="$(awk '{print $2; exit}' "$PROD_KNOWN_HOSTS")"
+
+bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
+db_ip="$(prod_ssh_retry \
+  'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
+  || { echo "Could not read the production database container address" >&2; exit 1; }
+[ -n "$db_ip" ] || { echo "Production database container has no address" >&2; exit 1; }
+knowledge_ip="$(prod_ssh_retry \
+  'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
+  || { echo "Could not read the production knowledge container address" >&2; exit 1; }
+[ -n "$knowledge_ip" ] || { echo "Production knowledge container has no address" >&2; exit 1; }
+
 sudo -n tee "/etc/systemd/system/$tunnel_unit.service" >/dev/null <<UNIT
 [Unit]
 Description=EventGraph production database and knowledge SSH tunnel for the VM13 preview
@@ -149,10 +150,8 @@ wait_for_db() {
 }
 wait_for_db || { echo "Database tunnel did not become ready" >&2; restore; }
 
-# The preview reads the production database through this tunnel. Run idempotent
-# migrations and missing-source seed here — the same steps a production deploy
-# runs — so the schema always matches the containers being started.
-compose run --rm --no-deps -T --entrypoint sh api -c 'node scripts/migrate.ts && node scripts/seed.ts' || restore
+# A development preview consumes production data read-only. Production migrations
+# and source seeding belong only to the separately gated production release.
 
 compose up -d --no-build --pull never --force-recreate --remove-orphans api web || restore
 for service in api web; do
