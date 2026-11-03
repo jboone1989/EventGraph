@@ -146,10 +146,7 @@ export function getSpecDirectory(files) {
   const directories = new Set(relevant.map(path => path.split("/")[1]));
   if (directories.size !== 1) fail("A single merged PR may activate only one Spec directory");
   const directory = Array.from(directories)[0];
-  const required = ["spec.md", "plan.md", "tasks.md"].map(name => "specs/" + directory + "/" + name);
-  for (const path of required) {
-    if (!relevant.includes(path)) fail("Spec intake requires the PR to change all three files: " + path);
-  }
+  if (!relevant.includes("specs/" + directory + "/spec.md")) return null;
   return directory;
 }
 
@@ -417,11 +414,17 @@ export async function processMergedCommit({
   const planPath = "specs/" + directory + "/plan.md";
   const tasksPath = "specs/" + directory + "/tasks.md";
   const specText = readSpecFile(headSha, specPath);
+  if (!/^\*\*Status:\*\*\s*Owner-approved\b/m.test(specText)) {
+    return { kind: "not-auto-intake-spec", prNumber: pr.number, specPath };
+  }
+  const changedPaths = new Set(files.map(file => file.filename));
+  for (const required of [specPath, planPath, tasksPath]) {
+    if (!changedPaths.has(required)) {
+      fail("Approved Spec intake requires the PR to change all three files: " + required);
+    }
+  }
   readSpecFile(headSha, planPath);
   const tasksText = readSpecFile(headSha, tasksPath);
-  if (!/^\*\*Status:\*\*\s*Owner-approved\b/m.test(specText)) {
-    fail("Spec " + specPath + " does not declare Status: Owner-approved");
-  }
   const tasks = parseTasks(tasksText);
   const queueState = await readQueueState();
   defaultWorkerRoute(queueState);

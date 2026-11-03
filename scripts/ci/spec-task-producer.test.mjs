@@ -90,8 +90,70 @@ test("recognizes exactly one complete Spec directory from merged PR files", () =
   ];
   assert.equal(getSpecDirectory(files), "example");
   assert.equal(getSpecDirectory([{ filename: "README.md" }]), null);
-  assert.throws(() => getSpecDirectory(files.slice(0, 2)), /requires the PR to change all three/);
+  assert.equal(getSpecDirectory(files.slice(0, 2)), "example");
+  assert.equal(getSpecDirectory([{ filename: "specs/example/tasks.md" }]), null);
   assert.throws(() => getSpecDirectory([...files, { filename: "specs/other/spec.md" }]), /only one Spec directory/);
+});
+
+test("skips a legacy owner-approved Spec PR without a work-intake contract", async () => {
+  const legacy = {
+    number: 325,
+    merged_at: "2026-11-03T10:18:00Z",
+    merge_commit_sha: specSha,
+    merged_by: { login: "jboone1989" },
+    base: { ref: "develop", repo: { full_name: repo } },
+    head: { ref: "spec/provider-model-unified-setup", repo: { full_name: repo } },
+    labels: []
+  };
+  const api = {
+    request: async path => {
+      if (path.endsWith("/pulls/325")) return legacy;
+      throw new Error("Legacy PR must not request Issues or Work: " + path);
+    },
+    paginate: async path => {
+      if (path.includes("/pulls?state=closed")) return [legacy];
+      if (path.includes("/pulls/325/files")) return [
+        { filename: "specs/admin-provider-model-unification/spec.md" }
+      ];
+      throw new Error("Legacy PR must not request Issues or Work: " + path);
+    }
+  };
+  const result = await processMergedCommit({
+    api, repo, headSha: specSha,
+    readFileAtCommit: (_sha, path) => {
+      assert.equal(path, "specs/admin-provider-model-unification/spec.md");
+      return "# Unified provider and model setup\n\n## Owner approval (2026-11-03)\n";
+    },
+    readQueueState: async () => { throw new Error("Legacy Spec must not read queue state"); }
+  });
+  assert.equal(result.kind, "not-auto-intake-spec");
+});
+
+test("rejects a declared auto-intake Spec that omits tasks.md", async () => {
+  const approved = {
+    number: 500, merged_at: "2026-11-03T10:18:00Z", merge_commit_sha: specSha,
+    merged_by: { login: "jboone1989" },
+    base: { ref: "develop", repo: { full_name: repo } },
+    head: { ref: "spec/example", repo: { full_name: repo } }, labels: []
+  };
+  const api = {
+    request: async path => {
+      if (path.endsWith("/pulls/500")) return approved;
+      throw new Error("No Issue/Work request allowed: " + path);
+    },
+    paginate: async path => {
+      if (path.includes("/pulls?state=closed")) return [approved];
+      if (path.includes("/pulls/500/files")) return [
+        { filename: "specs/example/spec.md" }, { filename: "specs/example/plan.md" }
+      ];
+      throw new Error("No Issue/Work request allowed: " + path);
+    }
+  };
+  await assert.rejects(() => processMergedCommit({
+    api, repo, headSha: specSha,
+    readFileAtCommit: () => "**Status:** Owner-approved\n",
+    readQueueState: async () => { throw new Error("Incomplete Spec must not read queue state"); }
+  }), /requires the PR to change all three files: specs\/example\/tasks\.md/);
 });
 
 test("builds a native graph with policy-derived routing and completed Issue dependencies", () => {
