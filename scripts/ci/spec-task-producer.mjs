@@ -188,12 +188,21 @@ export function defaultWorkerRoute(queueState) {
   const profileName = pool.default_profile;
   const profile = pool.profiles?.[profileName];
   if (!profile || !profile.trust_domain) fail("Default Worker profile is missing its trust domain");
-  return { poolName, profileName, profile };
+  const deployment = queueState.deployments?.[poolName]?.[profileName];
+  const revision = deployment?.revisions?.[deployment.current_ref];
+  if (!deployment?.current_ref || !deployment.current_contract || revision?.available !== true) {
+    fail("Default Worker profile has no available installed deployment");
+  }
+  const limits = policy.limits;
+  if (!limits?.payload_bytes || !limits?.predecessors || !limits?.assignment_bytes) {
+    fail("Native Work Queue Policy is missing payload or dependency limits");
+  }
+  return { poolName, profileName, profile, limits };
 }
 
 export function buildWorkGraph({ tasks, issues, queueState, repo, repositoryId, specPath, specSha, specPrUrl, now = Date.now() }) {
   validateTaskGraph(tasks);
-  const { poolName, profileName, profile } = defaultWorkerRoute(queueState);
+  const { poolName, profileName, profile, limits } = defaultWorkerRoute(queueState);
   if (String(repositoryId) !== REPOSITORY_ID) fail("Repository ID does not match the approved EventGraph resource scope");
   const graphId = "spec-" + specSha;
   const effectContract = {
@@ -211,6 +220,9 @@ export function buildWorkGraph({ tasks, issues, queueState, repo, repositoryId, 
   };
   return tasks.map(task => {
     const issue = issueFor(task.id);
+    if (task.dependsOn.length > limits.predecessors) {
+      fail(task.id + " exceeds the native predecessor limit of " + limits.predecessors);
+    }
     const dependencies = task.dependsOn.map(dependencyId => {
       const predecessor = issueFor(dependencyId);
       return {
@@ -239,7 +251,10 @@ export function buildWorkGraph({ tasks, issues, queueState, repo, repositoryId, 
       effect_contract: effectContract,
       resource_scope: resourceScope
     };
-    return {
+    if (Buffer.byteLength(JSON.stringify(payload), "utf8") > limits.payload_bytes) {
+      fail(task.id + " payload exceeds the native " + limits.payload_bytes + "-byte limit");
+    }
+    const node = {
       kind: "Work",
       work_id: workId(graphId, task.id),
       graph_id: graphId,
@@ -254,6 +269,10 @@ export function buildWorkGraph({ tasks, issues, queueState, repo, repositoryId, 
       depends_on: dependencies,
       enqueued: now
     };
+    if (Buffer.byteLength(canonical(node), "utf8") > limits.assignment_bytes) {
+      fail(task.id + " normalized Work exceeds the native assignment byte limit");
+    }
+    return node;
   });
 }
 
