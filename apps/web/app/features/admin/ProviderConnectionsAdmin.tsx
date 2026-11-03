@@ -24,7 +24,7 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
  const {run,busy}=useAdminAction();
  const [search,setSearch]=useState(''),[page,setPage]=useState(1);
  const [editor,setEditor]=useState<Editor|null>(null);
- const [createdConnectionId,setCreatedConnectionId]=useState<string|null>(null);
+ const [connections,setConnections]=useState(data.providers);
  const [deleting,setDeleting]=useState<RegisteredModel|null>(null);
  const [problem,setProblem]=useState<Problem|null>(null),[notice,setNotice]=useState('');
  const [testing,setTesting]=useState<string|null>(null);
@@ -34,10 +34,10 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
   return run<T>(method,path,body,{onError:setProblem});
  };
  const open=(model:RegisteredModel|null,readOnly=false)=>{
-  setProblem(null);setCreatedConnectionId(null);setEditor({model,readOnly});
+  setProblem(null);setEditor({model,readOnly});
  };
  const filtered=data.models.filter(m=>{
-  const connection=data.providers.find(c=>c.id===m.providerId);
+  const connection=connections.find(c=>c.id===m.providerId);
   return (m.modelId+' '+(connection?.name??'')+' '+(connection?.vendor??'')).toLowerCase().includes(search.trim().toLowerCase());
  });
  const pages=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));
@@ -48,23 +48,18 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
   {problem.dependencies?.map(d=><p key={d.kind+d.id}>{d.name} 正在引用此模型</p>)}
  </div>;
 
- async function saveModel(input:ModelInput,reason:string,newConnection:ConnectionInput|null) {
-  let providerId=input.providerId;
-  if(newConnection) {
-   providerId=createdConnectionId??'';
-   if(!providerId){
-    const created=await command<ProviderConnection>('POST','/api/admin/providers',{...newConnection,reason:'新增模型连接：'+input.modelId});
-    if(!created)return;
-    providerId=created.id;
-    setCreatedConnectionId(providerId);
-   }
-  }
+ async function createConnection(input:ConnectionInput):Promise<ProviderConnection|null> {
+  const result=await command<ProviderConnection>('POST','/api/admin/providers',{...input,reason:'后台新增连接：'+input.name});
+  if(result){setConnections(old=>[...old,result]);setNotice('已保存连接：'+result.name);}
+  return result??null;
+ }
+ async function saveModel(input:ModelInput,reason:string) {
   const existing=editor?.model;
-  const path=existing?'/api/admin/provider-models/'+existing.id:'/api/admin/providers/'+providerId+'/models';
+  const path=existing?'/api/admin/provider-models/'+existing.id:'/api/admin/providers/'+input.providerId+'/models';
   const result=await command<RegisteredModel>(existing?'PATCH':'POST',path,{
-   ...input,providerId,reason,...(existing?{version:existing.version}:{})
+   ...input,reason,...(existing?{version:existing.version}:{})
   });
-  if(result){setEditor(null);setCreatedConnectionId(null);setNotice((existing?'已更新：':'已添加：')+input.modelId);}
+  if(result){setEditor(null);setNotice((existing?'已更新：':'已添加：')+input.modelId);}
  }
 
  async function testModel(m:RegisteredModel) {
@@ -90,7 +85,7 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
    <div className="mb-4 max-w-md"><Input aria-label="搜索模型" placeholder="搜索模型 ID 或厂商" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/></div>
    <DataTable rows={visible} rowKey={m=>m.id} empty="暂无模型，点击「新增模型」开始。" columns={[
     {key:'model',label:'模型 ID',render:m=><span className="break-all font-mono text-xs">{m.modelId}</span>},
-    {key:'provider',label:'厂商',render:m=><span className="text-xs">{data.providers.find(c=>c.id===m.providerId)?.name??'未知连接'}</span>},
+    {key:'provider',label:'连接 ID',render:m=><span className="text-xs">{connections.find(c=>c.id===m.providerId)?.name??'未知连接'}</span>},
     {key:'type',label:'类型',render:m=><span className="text-xs">{m.adapter}</span>},
     {key:'state',label:'状态',render:m=><Badge tone={m.enabled?'ok':'muted'}>{m.enabled?'启用':'停用'}</Badge>},
     {key:'actions',label:'操作',render:m=>{
@@ -113,8 +108,8 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
    </div>
   </Card>
   {editor&&<ModelDialog key={(editor.model?.id??'new')+(editor.readOnly?'view':'edit')} editor={editor}
-   providers={data.providers} busy={busy||testing!==null} problem={problem}
-   onClose={()=>setEditor(null)} onSave={saveModel}/>}
+   providers={connections} busy={busy||testing!==null} problem={problem}
+   onClose={()=>setEditor(null)} onSave={saveModel} onCreateConnection={createConnection}/>}
   {deleting&&<Modal title={'删除模型：'+deleting.modelId} busy={busy} onClose={()=>setDeleting(null)}>
    <p className="text-sm">确定删除这个模型吗？此操作不可撤销。已启用或被工作流引用的模型，后端会阻止删除。</p>
    {errors}
@@ -140,9 +135,10 @@ function Modal({title,busy,onClose,children}:{title:string;busy:boolean;onClose:
  </div>;
 }
 
-function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
+function ModelDialog({editor,providers,busy,problem,onClose,onSave,onCreateConnection}:{
  editor:Editor;providers:ProviderConnection[];busy:boolean;problem:Problem|null;
- onClose:()=>void;onSave:(input:ModelInput,reason:string,connection:ConnectionInput|null)=>Promise<void>;
+ onClose:()=>void;onSave:(input:ModelInput,reason:string)=>Promise<void>;
+ onCreateConnection:(input:ConnectionInput)=>Promise<ProviderConnection|null>;
 }) {
  const m=editor.model,readOnly=editor.readOnly;
  const [providerId,setProviderId]=useState(m?.providerId??providers[0]?.id??NEW_CONNECTION);
@@ -152,8 +148,18 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
  const [routeEnabled,setRouteEnabled]=useState(m?.routeEnabled??false);
  const [notes,setNotes]=useState(m?.notes??'');
  const [probeText,setProbeText]=useState(JSON.stringify(m?.probeSpec??probeFor(m?.adapter??'chat'),null,2));
- const [connectionName,setConnectionName]=useState(''),[vendor,setVendor]=useState('');
- const [baseUrl,setBaseUrl]=useState(''),[apiKey,setApiKey]=useState('');
+ const [connectionName,setConnectionName]=useState('');
+ const [vendor,setVendor]=useState('deepseek'),[customVendor,setCustomVendor]=useState('');
+ const [protocol,setProtocol]=useState<ConnectionInput['protocol']>('openai-compatible');
+ const defaultUrl=(v:string,p:ConnectionInput['protocol'])=>{
+  if(v==='deepseek')return p==='anthropic-compatible'?'https://api.deepseek.com/anthropic':'https://api.deepseek.com';
+  if(v==='openai')return 'https://api.openai.com/v1';
+  if(v==='anthropic')return 'https://api.anthropic.com';
+  if(v==='nvidia')return 'https://integrate.api.nvidia.com/v1';
+  return '';
+ };
+ const [baseUrl,setBaseUrl]=useState(defaultUrl('deepseek','openai-compatible')),[apiKey,setApiKey]=useState('');
+ const [savingConnection,setSavingConnection]=useState(false);
  const [error,setError]=useState('');
  const fieldError=(key:string)=>problem?.fieldErrors?.[key]&&<span role="alert" className="text-xs text-hot">{problem.fieldErrors[key]}</span>;
  const changeAdapter=(value:ModelInput['adapter'])=>{
@@ -163,9 +169,7 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
  async function save(){
   setError('');
   if(!modelId.trim()){setError('请输入模型 ID');return;}
-  if(providerId===NEW_CONNECTION&&(!connectionName.trim()||!vendor.trim()||!baseUrl.trim()||!apiKey.trim())){
-   setError('请填写新连接的名称、厂商、API 地址及 API Key');return;
-  }
+  if(providerId===NEW_CONNECTION){setError('请先保存连接，再保存模型');return;}
   try {
    const probeSpec=JSON.parse(probeText) as ModelInput['probeSpec'];
    const sameAdapter=!!m&&m.adapter===adapter;
@@ -178,16 +182,27 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
     documentationUrl:m?.documentationUrl??null,notes:notes||null,enabled,
     routeEnabled:enabled&&sameAdapter&&providerId===m?.providerId?routeEnabled:false
    };
-   const connection:ConnectionInput|null=providerId===NEW_CONNECTION?{
-    name:connectionName.trim(),vendor:vendor.trim(),protocol:'openai-compatible',
-    baseUrl:baseUrl.trim(),timeoutMs:60000,enabled:true,
-    credential:{action:'replace',value:apiKey}
-   }:null;
-   await onSave(input,(m?'后台编辑模型：':'后台新增模型：')+modelId.trim(),connection);
+   await onSave(input,(m?'后台编辑模型：':'后台新增模型：')+modelId.trim());
   }catch{setError('测试配置必须是有效 JSON 对象或 null');}
  }
- const disabled=busy||readOnly;
+ async function saveConnection(){
+  setError('');
+  const vendorId=vendor==='custom'?customVendor.trim():vendor;
+  if(!connectionName.trim()||!vendorId||!baseUrl.trim()||!apiKey.trim()){
+   setError('请填写连接 ID、厂商、API 地址和 API Key');return;
+  }
+  setSavingConnection(true);
+  try {
+   const created=await onCreateConnection({
+    name:connectionName.trim(),vendor:vendorId,protocol,baseUrl:baseUrl.trim(),
+    timeoutMs:60000,enabled:true,credential:{action:'replace',value:apiKey}
+   });
+   if(created){setApiKey('');setProviderId(created.id);}
+  }finally{setSavingConnection(false);}
+ }
+ const disabled=busy||savingConnection||readOnly;
  return <Modal title={(readOnly?'查看':m?'编辑':'新增')+'模型'} busy={busy} onClose={onClose}>
+  <h4 className="text-sm font-semibold">模型配置</h4>
   <label className="block space-y-1 text-sm">模型 ID
    <Input disabled={disabled} value={modelId} onChange={e=>setModelId(e.target.value)}/>
    {fieldError('modelId')}
@@ -200,11 +215,40 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
    {fieldError('providerId')}
   </label>
   {providerId===NEW_CONNECTION&&!m&&<div className="space-y-3 rounded-panel bg-bg-sunk p-3">
-   <p className="text-xs text-ink-3">此模型没有可用连接时，在这里配置一次即可。</p>
-   <label className="block space-y-1 text-sm">连接名称<Input disabled={disabled} value={connectionName} onChange={e=>setConnectionName(e.target.value)}/>{fieldError('name')}</label>
-   <label className="block space-y-1 text-sm">厂商名称<Input disabled={disabled} value={vendor} onChange={e=>setVendor(e.target.value)}/>{fieldError('vendor')}</label>
-   <label className="block space-y-1 text-sm">API Base URL<Input disabled={disabled} value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1"/>{fieldError('baseUrl')}</label>
-   <label className="block space-y-1 text-sm">API Key<Input type="password" autoComplete="new-password" disabled={disabled} value={apiKey} onChange={e=>setApiKey(e.target.value)}/>{fieldError('credential')}</label>
+   <p className="text-xs text-ink-3">先保存连接，再关联模型。一个连接可以复用多个模型。</p>
+   <label className="block space-y-1 text-sm">连接 ID
+    <Input disabled={disabled} value={connectionName} onChange={e=>setConnectionName(e.target.value)} placeholder="deepseek-main"/>
+    {fieldError('name')}
+   </label>
+   <label className="block space-y-1 text-sm">厂商
+    <Select disabled={disabled} value={vendor} onChange={e=>{setVendor(e.target.value);setBaseUrl(defaultUrl(e.target.value,protocol));}}>
+     <option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option>
+     <option value="anthropic">Anthropic</option><option value="nvidia">NVIDIA</option>
+     <option value="zhipu">智谱 AI</option><option value="custom">其他厂商</option>
+    </Select>
+   </label>
+   {vendor==='custom'&&<label className="block space-y-1 text-sm">厂商标识
+    <Input disabled={disabled} value={customVendor} onChange={e=>setCustomVendor(e.target.value)}/>
+   </label>}
+   <label className="block space-y-1 text-sm">API 协议
+    <Select disabled={disabled} value={protocol} onChange={e=>{
+     const p=e.target.value as ConnectionInput['protocol'];setProtocol(p);setBaseUrl(defaultUrl(vendor,p));
+    }}>
+     <option value="openai-compatible">OpenAI Compatible</option>
+     <option value="anthropic-compatible">Anthropic Compatible</option>
+    </Select>
+   </label>
+   <label className="block space-y-1 text-sm">API Base URL
+    <Input disabled={disabled} value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1"/>
+    {fieldError('baseUrl')}
+   </label>
+   <label className="block space-y-1 text-sm">API Key
+    <Input type="password" autoComplete="new-password" disabled={disabled} value={apiKey} onChange={e=>setApiKey(e.target.value)}/>
+    {fieldError('credential')}
+   </label>
+   {problem&&<p role="alert" className="text-sm text-hot">{problem.detail}</p>}
+   {error&&<p role="alert" className="text-sm text-hot">{error}</p>}
+   <Button disabled={disabled} onClick={saveConnection}>{savingConnection?'保存中…':'保存连接'}</Button>
   </div>}
   <label className="block space-y-1 text-sm">模型类型
    <Select disabled={disabled} value={adapter} onChange={e=>changeAdapter(e.target.value as ModelInput['adapter'])}>
@@ -229,6 +273,6 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
    {fieldError('probeSpec')}
   </details>
   {(error||problem)&&<p role="alert" className="text-sm text-hot">{error||problem?.detail}</p>}
-  {!readOnly&&<Button disabled={busy} onClick={save}>保存</Button>}
+  {!readOnly&&<Button disabled={disabled} onClick={save}>保存模型</Button>}
  </Modal>;
 }
