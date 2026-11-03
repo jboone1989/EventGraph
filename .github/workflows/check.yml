@@ -712,10 +712,10 @@ jobs:
           EVENTGRAPH_PREVIEW_URL: http://43.133.185.154
           EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.deploy_vm13_preview.outputs.release }}
         run: |
-          docker run --rm --init --ipc=host --network host \\
-            -v "$PWD:/work" -w /work \\
-            -e EVENTGRAPH_PREVIEW_URL -e EVENTGRAPH_PREVIEW_RELEASE \\
-            mcr.microsoft.com/playwright:v1.61.1-noble \\
+          docker run --rm --init --ipc=host --network host \
+            -v "$PWD:/work" -w /work \
+            -e EVENTGRAPH_PREVIEW_URL -e EVENTGRAPH_PREVIEW_RELEASE \
+            mcr.microsoft.com/playwright:v1.61.1-noble \
             sh scripts/ci/smoke-vm13.sh
 
   # Re-enter the official GH-AW queue only after this exact develop SHA has
