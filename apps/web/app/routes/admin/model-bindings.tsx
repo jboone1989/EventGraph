@@ -15,7 +15,6 @@ type Step=AdminModelBindings["steps"][number];
 type Choice=AdminModelBindings["choices"][number];
 
 function usable(choice:Choice,step:Step){
- if(choice.kind==="preset")return !step.vision||choice.vision;
  return choice.adapter==="chat"&&(step.vision?choice.visionReady:choice.textReady);
 }
 function titleFor(choice:Choice){
@@ -40,6 +39,7 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
    <Select aria-label={"为"+step.label.split("（")[0]+"选择模型"} value={selected}
     disabled={busy} onChange={e=>{setSelected(e.target.value);setError("");}}>
     <option value="">继承环境／系统默认</option>
+    {selected&&!chosen&&<option value={selected} disabled>{selected}（旧配置，仅保留当前值）</option>}
     {choices.map(choice=>{
      const ok=usable(choice,step);
      const suffix=!ok?(choice.adapter!=="chat"?"（非对话模型）":
@@ -52,7 +52,7 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
    <Button size="sm" disabled={busy||!canSave} onClick={save}>保存</Button>
   </div>
   {selected&&chosen&&!usable(chosen,step)&&<p className="text-xs text-amber">
-   模型尚不可用于此流程；请在厂商与模型页面测试该模型。
+   此模型不能用于当前流程：{chosen.reasons.join("；")||"模型类型或能力不兼容"}。请先到模型管理页测试并启用路由。
   </p>}
   {error&&<p role="alert" className="text-xs text-hot">{error}</p>}
  </div>;
@@ -87,7 +87,7 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
      key={s.key+":"+s.current.source+":"+s.current.model} step={s} choices={choices}/>},
    ]}/>
    <p className="mt-4 text-xs text-ink-4">
-    下拉列表包含新增模型。未通过测试或不可路由的模型会显示但不可选择；厂商页测试成功后自动开启可选路由。
+    下拉列表与模型管理页使用相同的已注册模型数据。未通过测试、未启用或不符合能力要求的模型会显示但不可绑定；旧系统预设仅保留为继承默认或当前配置。
    </p>
   </Card>
  </AdminPage>;

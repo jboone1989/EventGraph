@@ -1,4 +1,4 @@
-import {resolveModelReference,writeWorkflowModel,loadModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
+import {resolveModelReference,writeWorkflowModel,getRegisteredModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
 // Admin "模型与评测": the model each capability uses and where that choice comes from,
 // the prompt versions in use, quality / latency / cost of the last days per model, the switch history
 // and the SelectBench runs that compare models on the same batch. A switch is audited and applies to
@@ -117,11 +117,8 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
       key, label: c.label, vision: !!c.vision, current: sources[key]!,
     })),
     choices: [
-      ...Object.values(MODELS).map(m => ({
-        key: m.key, modelId: m.model || m.key, provider: m.service,
-        kind: 'preset' as const, adapter: 'chat', vision: !!m.vision,
-        textReady: true, visionReady: !!m.vision, reasons: [],
-      })),
+      // The explicit picker uses exactly the registered inventory shown by /admin/models.
+      // Deployment presets survive as inherited/current settings, not untested candidates.
       ...registered.map(m => ({
         key: 'model:' + m.id, modelId: m.modelId,
         provider: names.get(m.providerId) ?? m.providerId,
@@ -143,10 +140,17 @@ export async function switchModel(capability: string, model: string | null, reas
   let id:string|null=null;
   if(model!==null) {
     id=await resolveModelReference(model);
-    const registered=id?await loadModel(id):null;
+    const registered=id?await getRegisteredModel(id):null;
     const spec=registered?{vision:registered.capabilities.includes('vision')}:MODELS[model];
     if(!spec)throw Object.assign(new Error('unknown model'),{statusCode:400});
     if(!capabilityAcceptsModel(c,spec))throw Object.assign(new Error('this capability needs a vision model'),{statusCode:400});
+    if(registered){
+      const required=c.vision?'vision':'text';
+      if(registered.adapter!=='chat'||!registered.routing.eligibleCapabilities.includes(required))
+        throw Object.assign(new Error('Model is not eligible for this workflow: '+(
+          registered.routing.reasons.join('; ')||'adapter or capability mismatch')),
+          {statusCode:409});
+    }
   }
   const before=(await modelSources())[capability];
   await sql.begin(async tx=>{
