@@ -10,8 +10,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
  const data:AdminModelBindings={
   steps:[{key:"prefilter",label:"精选预筛（宽召回）",vision:false,
    current:{model:"default",source:"default"}}],
-  choices:[{key:"default",modelId:"default",provider:"llm",kind:"preset",adapter:"chat",
-   vision:false,textReady:true,visionReady:false,reasons:[]}],
+  choices:[],
  };
  let failure=false;
  const writes:Array<{path:string;body:{model:string|null;reason:string}}>= [];
@@ -42,13 +41,15 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   const picker=page.getByRole("combobox",{name:"为精选预筛选择模型"});
   await expect(page.getByText("工作流模型绑定",{exact:true}).first()).toBeVisible();
   await expect(picker).toHaveValue("");
+  await expect(picker.locator('option[value="default"]')).toHaveCount(0);
+  await expect(picker.locator('option')).toHaveCount(1);
   data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",kind:"registered",
    adapter:"chat",vision:false,textReady:false,visionReady:false,reasons:["No test"]});
   await page.getByRole("button",{name:"刷新模型"}).click();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeDisabled();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");
-  data.choices[1]!.textReady=true;
-  data.choices[1]!.reasons=[];
+  data.choices[0]!.textReady=true;
+  data.choices[0]!.reasons=[];
   await page.getByRole("button",{name:"刷新模型"}).click();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeEnabled();
   await picker.selectOption(modelKey);
