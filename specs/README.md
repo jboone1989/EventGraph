@@ -26,5 +26,6 @@ For a small fix, an Issue with concrete acceptance criteria is sufficient. Eithe
 
 - [GitHub-hosted autonomous development queue (012) — owner-approved, operational](012-github-hosted-agent-queue/spec.md)
 - [Multi-engine GH-AW Workers (013) — Owner-approved 2026-10-30; pending merge](013-projects-agent-workers/spec.md)
+- [Spec-driven GitHub Projects + native Work Queue intake (015) — Owner-approved 2026-11-03; pending merge](015-spec-task-intake/spec.md)
 
 The Explorer + Story documents remain **DRAFT** until explicitly approved. Spec 013 is owner-approved on 2026-10-30; implementation must pin its exact merged revision.
