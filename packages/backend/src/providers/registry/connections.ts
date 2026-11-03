@@ -188,7 +188,6 @@ export async function deleteConnection(id:string,version:number,reason:string,ac
   const dependencies:Dependency[]=models.map(m=>({kind:'model',id:m.id,name:m.model_id}));
   for(const m of models)dependencies.push(...await workflowDependencies(m.id,tx));
   if(dependencies.length)throw new ProviderConfigError('Move or delete the dependent models and workflow references first',undefined,409,dependencies);
-  if(old.enabled)throw new ProviderConfigError('Disable the connection before deletion','enabled',409);
   await tx`DELETE FROM provider_connections WHERE id=${id}::uuid`;
   await audit(actor,'provider.connection.delete',id,reason,connectionView(old),null,{db:tx});
   return {deleted:true as const};
