@@ -81,6 +81,7 @@ export default [
     route("admin/analytics", "routes/admin/analytics.tsx"),
     route("admin/runs", "routes/admin/runs.tsx"),
     route("admin/models", "routes/admin/models.tsx"),
+    route("admin/model-bindings", "routes/admin/model-bindings.tsx"),
     route("admin/settings", "routes/admin/settings.tsx"),
     route("admin/audit", "routes/admin/audit.tsx"),
     ...moduleAdminPages,

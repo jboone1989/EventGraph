@@ -1,5 +1,6 @@
 import {capabilities,modelSources} from '@aihot/backend/editorial/models';
 import type {FastifyInstance} from 'fastify';
+import {PROTOCOLS} from '@aihot/contracts/providers';
 import {actorOf} from '@aihot/backend/admin/auth';
 import {listConnections,loadConnection,connectionView,createConnection,updateConnection,deleteConnection,
  listRegisteredModels,createRegisteredModel,getRegisteredModel,updateRegisteredModel,deleteRegisteredModel} from '@aihot/backend/providers/registry/connections';
@@ -11,7 +12,7 @@ import {body,param} from './admin.ts';
 
 export function registerProviderConnections(app:FastifyInstance) {
  app.get('/api/admin/providers',adminHandler(async()=>{
-  const sources=await modelSources();return {providers:await listConnections(),models:await listRegisteredModels(),protocols:['openai-compatible'],
+  const sources=await modelSources();return {providers:await listConnections(),models:await listRegisteredModels(),protocols:[...PROTOCOLS],
    workflows:Object.entries(capabilities()).map(([key,c])=>({key,label:c.label,...sources[key]!}))};
  }));
  app.post('/api/admin/providers',adminHandler(async(req,_reply,admin)=>{

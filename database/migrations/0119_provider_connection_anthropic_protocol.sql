@@ -1,0 +1,1 @@
+ALTER TABLE provider_connections DROP CONSTRAINT IF EXISTS provider_connections_protocol_check;

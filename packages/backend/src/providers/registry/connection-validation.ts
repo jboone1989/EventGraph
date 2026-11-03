@@ -47,7 +47,7 @@ function safeJson(field:string,value:unknown,max:number):void {
  }
  visit(value);
 }
-export function checkModel(input:ModelInput,connection:Pick<ProviderConnection,'id'|'baseUrl'|'policy'>):void {
+export function checkModel(input:ModelInput,connection:Pick<ProviderConnection,'id'|'baseUrl'|'policy'> & Partial<Pick<ProviderConnection,'protocol'>>):void {
  const keys=new Set(['providerId','modelId','adapter','endpointOverride','timeoutOverrideMs','capabilities','requestDefaults','probeSpec','stream','complexity','documentationUrl','notes','enabled','routeEnabled']);
  if(!object(input)||Object.keys(input).some(k=>!keys.has(k)))fail('model','Unknown model configuration property');
  if(input.timeoutOverrideMs!=null&&(!Number.isInteger(input.timeoutOverrideMs)||input.timeoutOverrideMs<1000||input.timeoutOverrideMs>600000))fail('timeoutOverrideMs','Timeout must be between 1000 and 600000 ms');
@@ -55,8 +55,11 @@ export function checkModel(input:ModelInput,connection:Pick<ProviderConnection,'
  text('modelId',input.modelId,300);
  if(input.modelId!==input.modelId.trim()||/[\r\n\x00]/.test(input.modelId))fail('modelId','Model ID cannot have surrounding whitespace or control characters');
  if(!ADAPTERS.includes(input.adapter))fail('adapter','Unsupported adapter');
+ if(connection.protocol==='anthropic-compatible'&&input.adapter!=='chat')fail('adapter','Anthropic Messages connections currently support chat models only');
+ if(connection.protocol==='anthropic-compatible'&&input.stream)fail('stream','Streaming is not supported by the Anthropic-compatible adapter yet');
  if(!COMPLEXITIES.includes(input.complexity))fail('complexity','Invalid complexity');
  if(!Array.isArray(input.capabilities)||input.capabilities.length>CAPABILITIES.length||input.capabilities.some(c=>!CAPABILITIES.includes(c)))fail('capabilities','Invalid capabilities');
+ if(connection.protocol==='anthropic-compatible'&&input.capabilities.some(c=>!['text','reasoning'].includes(c)))fail('capabilities','Anthropic-compatible models currently support text/reasoning only');
  for(const field of ['stream','enabled','routeEnabled'] as const)if(typeof input[field]!=='boolean')fail(field,'Use a boolean');
  if(input.routeEnabled&&!input.enabled)fail('routeEnabled','Enable the model before enabling routing');
  if(input.stream&&!['chat','document','safety'].includes(input.adapter))fail('stream','This adapter does not support streaming');

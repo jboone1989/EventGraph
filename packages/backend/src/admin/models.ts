@@ -3,7 +3,7 @@ import {resolveModelReference,writeWorkflowModel,loadModel,listRegisteredModels,
 // the prompt versions in use, quality / latency / cost of the last days per model, the switch history
 // and the SelectBench runs that compare models on the same batch. A switch is audited and applies to
 // new work only.
-import type { AdminModels, BeforeJson } from "@aihot/contracts/admin";
+import type { AdminModels, AdminModelBindings, BeforeJson } from "@aihot/contracts/admin";
 import { sql } from "../db.ts";
 import { capabilities, capabilityAcceptsModel, invalidateModelCache, modelSources } from "../editorial/models.ts";
 import { MODELS } from "../providers/llm.ts";
@@ -104,6 +104,35 @@ export async function modelsOverview(days = 7): Promise<BeforeJson<AdminModels>>
   const choices = Object.values(MODELS).map((m) => ({ key: m.key, service: m.service, vision: !!m.vision }));
   choices.push(...registered.map(m=>({key:'model:'+m.id,service:connections.find(c=>c.id===m.providerId)?.name??m.providerId,vision:m.capabilities.includes('vision')})));
   return { days, capabilities: steps, choices, history, benches, nvidiaPool, providers };
+}
+
+/** Lightweight live registry used by the separate admin workflow-binding page. */
+export async function modelBindingsOverview(): Promise<AdminModelBindings> {
+  const [sources, registered, connections] = await Promise.all([
+    modelSources(), listRegisteredModels(), listConnections(),
+  ]);
+  const names = new Map(connections.map(c => [c.id, c.name]));
+  return {
+    steps: Object.entries(capabilities()).map(([key, c]) => ({
+      key, label: c.label, vision: !!c.vision, current: sources[key]!,
+    })),
+    choices: [
+      ...Object.values(MODELS).map(m => ({
+        key: m.key, modelId: m.model || m.key, provider: m.service,
+        kind: 'preset' as const, adapter: 'chat', vision: !!m.vision,
+        textReady: true, visionReady: !!m.vision, reasons: [],
+      })),
+      ...registered.map(m => ({
+        key: 'model:' + m.id, modelId: m.modelId,
+        provider: names.get(m.providerId) ?? m.providerId,
+        kind: 'registered' as const, adapter: m.adapter,
+        vision: m.capabilities.includes('vision'),
+        textReady: m.routing.eligibleCapabilities.includes('text'),
+        visionReady: m.routing.eligibleCapabilities.includes('vision'),
+        reasons: m.routing.reasons,
+      })),
+    ],
+  };
 }
 
 /** Switches a capability to another registered model (or back to the environment/default when null). */
