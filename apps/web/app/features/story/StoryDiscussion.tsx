@@ -1,5 +1,5 @@
-// Official giscus client: asynchronously load the discussion with a lazy iframe.
-import { useEffect, useRef } from "react";
+// Official giscus client: third-party code loads only after reader interaction.
+import { useEffect, useRef, useState } from "react";
 import { useUiLanguage, useText } from "../../components/LanguageSwitch";
 import { discussionTermFor } from "../../lib/discussions";
 import { resolvedTheme } from "../../lib/local-state";
@@ -44,6 +44,7 @@ function Embed({ term, lang }: { term: string; lang: "en" | "zh-CN" }) {
 }
 
 export function StoryDiscussion({ storyPublicId }: { storyPublicId: string | null | undefined }) {
+  const [expanded, setExpanded] = useState(false);
   const t = useText();
   const language = useUiLanguage();
   const term = discussionTermFor(storyPublicId);
@@ -55,7 +56,11 @@ export function StoryDiscussion({ storyPublicId }: { storyPublicId: string | nul
       {t("读者观点通过 GitHub Discussions 发布，发言需登录 GitHub；评论不等于已经核实的事实。",
         "Reader opinions are hosted on GitHub Discussions; posting requires a GitHub account. Comments are not verified facts.")}
     </p>
-    <div className="mt-4"><Embed term={term} lang={language === "en" ? "en" : "zh-CN"} /></div>
+    {!expanded && <button type="button" onClick={() => setExpanded(true)}
+      className="mt-3 rounded-control border border-line px-4 py-2 text-[13px] font-semibold text-accent hover:border-accent">
+      {t("加载讨论", "Load discussion")}
+    </button>}
+    {expanded && <div className="mt-4"><Embed term={term} lang={language === "en" ? "en" : "zh-CN"} /></div>}
     <a href={`https://github.com/${DISCUSSION_REPO}/discussions`} target="_blank" rel="noopener noreferrer"
       className="mt-3 inline-block text-[12px] text-accent hover:underline">
       {t("在 GitHub 打开讨论", "Open GitHub Discussions")}
