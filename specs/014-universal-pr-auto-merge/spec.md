@@ -1,65 +1,67 @@
-# Universal PR auto-merge after independent review
+# Universal PR auto-merge after required checks
 
 **Status:** Owner-approved direction, 2026-11-03  
 **Repository:** `jboone1989/EventGraph`  
-**Control-plane branch:** `main`  
-**Development branch:** `develop`
+**Development branch:** `develop`  
+**Release branch:** `main`
 
 ## 1. Goal
 
-Every eligible same-repository, non-draft PR targeting `develop` or `main` should be merged automatically after the existing independent GLM review and all target-branch-required CI checks succeed. A human must not need to click Merge or enable Auto-merge on each PR.
+Automatically enable GitHub native Auto-merge for every eligible same-repository, open, non-draft PR after its exact-head CI run succeeds. A human must not need to click Merge or enable Auto-merge on each PR.
 
-Use GitHub's native Auto-merge as the merge mechanism. Do not introduce a custom merge queue, scheduler, bot service, host process, timer, or parallel review pipeline.
+**Independent GLM Review is paused by owner instruction.** This Spec must not re-enable the GLM reviewer workflow, require `claude-review` on `develop`, or make GLM review a prerequisite for auto-merge.
 
-## 2. Existing capabilities to reuse
+Use GitHub's native Auto-merge and existing branch rulesets. Do not introduce a custom merge queue, scheduler, bot service, host process, timer, or parallel review pipeline.
+
+## 2. Current repository state
 
 - Repository-level GitHub Auto-merge is already enabled (`allow_auto_merge=true`).
-- The default-branch `.github/workflows/claude-pr-dispatch.yml` already dispatches the existing central GLM reviewer after a successful exact-SHA `Check`.
-- The central reviewer writes the `claude-review` commit status and binds its description to the exact target branch and base SHA.
-- GitHub rulesets remain authoritative for required checks and mergeability. Existing `check`, `docker`, and `e2e` requirements must not be weakened.
-- Main already requires `claude-review`. The active develop ruleset currently omits it and is named `develop / CI (Claude review paused)`; add `claude-review` as a required status check before treating independent review as a branch-protection requirement.
+- The active `develop` ruleset is named `develop / CI (Claude review paused)`. Its required checks are exactly `check`, `docker`, and `e2e`.
+- The `develop` ruleset has `required_approving_review_count: 0`; unresolved review threads must still be resolved.
+- The active `main` ruleset currently requires `check`, `docker`, and `claude-review`. The GLM reviewer is paused, so this is a stale/inconsistent gate for new PRs to `main`. This Spec must not silently restore GLM review or change the `main` ruleset. Until the owner separately decides whether to remove that stale requirement or resume review, GitHub native Auto-merge may remain queued for `main` PRs and must not bypass the rule.
+- Existing Check workflow jobs and branch rulesets remain the source of truth for required CI.
 
 ## 3. Required behavior
 
 1. Cover every same-repository, open, non-draft PR targeting `develop` or `main`. Do not require an `agent-work` label, an `agent/*` branch name, or a special workflow variable.
-2. Preserve the existing central GLM reviewer and exact-SHA preflight. The auto-merge job runs only after that reusable reviewer has completed successfully, or when preflight proves that a successful review already exists for the exact current tuple `(head SHA, base ref, live base SHA)`.
+2. After the existing `Check` workflow completes successfully for the exact current PR head, a trusted default-branch workflow revalidates the live PR and enables GitHub native Auto-merge using squash.
 3. Before enabling Auto-merge, revalidate:
-   - the original `Check` run completed successfully for the exact PR head SHA;
-   - the PR remains open, non-draft, same-repository, and targets `develop` or `main`;
-   - the PR head SHA has not changed;
-   - the target branch still points to the base SHA used by the review;
-   - the latest attributable `claude-review` status is `success`, created by `github-actions[bot]`, and its description starts with `base=<base ref>@<live base SHA>;`.
-4. If the review reports blocking findings, fails, is missing, is pending, is unattributable, or belongs to an older head/base, do not enable Auto-merge. A subsequent code push or target-base advancement must trigger a fresh Check and independent review.
-5. After successful review and exact-state validation, invoke GitHub native Auto-merge using the repository's normal squash merge method. Do not use administrative bypass or merge around required checks. GitHub waits for every remaining required status check and branch rule.
-6. Failed or cancelled checks, unresolved review threads, stale reviews, draft PRs, fork PRs, and unsupported target branches remain unmerged. When a blocker is fixed and the new exact head passes the normal pipeline, the workflow resumes automatically.
-7. Keep the workflow idempotent: repeated Check completions for the same successful `(head SHA, base ref, base SHA)` must not create duplicate review work or duplicate merge attempts.
-8. Preserve weekly release policy through the existing PR target branch and main ruleset. This change automates the merge of a PR only after its normal target-branch gates; it does not create a new production deployment path.
+   - the source Check run completed successfully and belongs to the current PR head SHA;
+   - the PR remains open, non-draft, same-repository, and targets a supported branch;
+   - the live PR head SHA still equals the successful Check run's head SHA;
+   - the PR base ref and base SHA are read live;
+   - no unresolved review threads or other branch-rule blockers are bypassed.
+4. Do not call the GLM reviewer, wait for `claude-review` on `develop`, create a synthetic `claude-review` status, or treat historical GLM statuses as current approval. Do not re-enable the paused workflow.
+5. Invoke GitHub native Auto-merge only; do not use administrative bypass or direct merge. GitHub waits for all required checks and branch rules. A missing or failing required check, stale head, draft/fork PR, unresolved thread, or unsupported target leaves the PR unmerged.
+6. A subsequent code push creates a new exact-head Check; only that successful run may enable Auto-merge for the new head. Repeated Check completions must be idempotent.
+7. Preserve weekly release policy through the existing PR target branch and main ruleset. This change does not create a new production deployment path.
+8. Keep the native queue continuation behavior currently triggered after an agent PR closes. Remove only the duplicate agent-only merge path after the universal path is proven; do not remove queue continuation.
 
 ## 4. Implementation boundary
 
-Extend the existing default-branch `.github/workflows/claude-pr-dispatch.yml` with one trusted job after `official-glm-review`. Reuse the outputs of `review_preflight` and the existing reusable review result; verify the exact `claude-review` status and live PR/base again before calling `gh pr merge --auto --squash`.
+Extend the existing default-branch workflow responsible for post-Check PR handling with one trusted Auto-merge job. Do not add a reviewer job. Do not call the reusable GLM workflow. Do not put the merge job in the model-facing agent workflow.
 
-Do not add a second reviewer or replace the reusable workflow with fire-and-forget dispatch. Do not put the auto-merge job in the model-facing agent workflow. Keep write permissions job-scoped to the native merge job.
+The merge job should use the GitHub native Auto-merge API or `gh pr merge --auto --squash`, with job-scoped write permissions. Preserve the original Check run ID, exact head SHA, PR identity, and live base validation. Keep GitHub branch protection authoritative.
 
-The develop-only `eventgraph-native-pr-closed.yml` currently has a special-case auto-merge job restricted to `agent/*` + `agent-work` and a feature flag. Retire that duplicate path once the universal default-branch path is active; retain its unrelated native queue continuation behavior.
+The develop-only `eventgraph-native-pr-closed.yml` currently has a special-case auto-merge job restricted to `agent/*` + `agent-work` and a feature flag. Retire that duplicate merge path once the universal default-branch path is active; retain its unrelated native queue continuation behavior.
 
 ## 5. Acceptance criteria
 
-- [ ] A normal PR to `develop` automatically receives the existing GLM review after its successful Check.
-- [ ] A normal PR to `main` automatically receives the same existing GLM review.
-- [ ] An exact-head GLM review success automatically enables native squash Auto-merge without a human click.
-- [ ] A PR with all CI checks green but no successful exact-head `claude-review` does not auto-merge.
-- [ ] A blocking GLM finding or failed required check prevents merge.
-- [ ] A new head SHA or advanced base SHA invalidates the previous review and requires a fresh review.
-- [ ] All existing required checks, Spec gates, thread-resolution rules, and no-bypass branch rules remain in force.
-- [ ] The develop ruleset requires `claude-review` alongside its existing required CI checks.
-- [ ] Existing queue continuation still runs after an agent PR closes; no duplicate queue or merge scheduler is introduced.
-- [ ] A real PR to develop and a real PR to main demonstrate automatic review-gated merge end to end.
+- [ ] Every eligible ordinary PR to `develop` is automatically queued for squash merge after exact-head `check`, `docker`, and `e2e` all succeed.
+- [ ] No `agent-work` label or `agent/*` branch name is required.
+- [ ] No GLM reviewer invocation, `claude-review` status, or GLM quota is required for PRs to `develop`.
+- [ ] A PR with failed, cancelled, pending, or stale required CI remains unmerged.
+- [ ] A new head SHA requires a new successful Check before Auto-merge is enabled.
+- [ ] Unresolved review threads and all other branch rules remain enforced; no admin bypass or direct merge.
+- [ ] The current `main` `claude-review` rule is documented as an explicit blocker; this implementation neither bypasses it nor silently changes it.
+- [ ] Existing native queue continuation still runs after an agent PR closes.
+- [ ] A real ordinary PR to `develop` demonstrates automatic native Auto-merge end to end.
 
 ## 6. Out of scope
 
-- Changing the central review model, provider, checklist, or review policy.
+- Re-enabling or repairing the independent GLM Review workflow.
+- Adding `claude-review` to the `develop` ruleset.
+- Changing the `main` ruleset without a separate owner decision.
 - Changing the CI test matrix or required check names.
-- Automatically merging PRs that have not received a successful independent review.
 - Bypassing branch rulesets, required checks, review-thread resolution, or Spec gates.
 - Changing application deployment cadence or production infrastructure.
