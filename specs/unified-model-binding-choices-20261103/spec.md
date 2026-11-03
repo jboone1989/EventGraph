@@ -14,3 +14,7 @@ The administration Model CRUD list and workflow binding dropdown currently disag
 ## Verification
 - Typecheck, relevant backend tests, browser smoke, docker and E2E pass before squash merge to develop.
 - VM13 deploy and online browser acceptance must pass, with no database or model registry mutation.
+
+## Owner clarification · 2026-11-03 (automatic freshness)
+
+"New models appear after refresh" does not meet the owner's intent. The registry is the sole source of truth. After creating, editing, or deleting a model in Model CRUD, the binding page must pick up the updated DB list on navigation, tab/window focus and in a bounded visible-page refresh (15 seconds). No stale preset cache and no manual "刷新模型" button. Retain unsaved user selections only while the corresponding model still exists; if removed, discard the stale unsaved selection. Never reset an existing saved binding automatically.

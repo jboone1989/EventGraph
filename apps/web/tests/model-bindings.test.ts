@@ -45,12 +45,12 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(picker.locator('option')).toHaveCount(1);
   data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",kind:"registered",
    adapter:"chat",vision:false,textReady:false,visionReady:false,reasons:["No test"]});
-  await page.getByRole("button",{name:"刷新模型"}).click();
+  await page.evaluate(()=>window.dispatchEvent(new Event("focus")));
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeDisabled();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");
   data.choices[0]!.textReady=true;
   data.choices[0]!.reasons=[];
-  await page.getByRole("button",{name:"刷新模型"}).click();
+  await page.evaluate(()=>window.dispatchEvent(new Event("focus")));
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeEnabled();
   await picker.selectOption(modelKey);
   await page.getByRole("button",{name:"保存"}).click();
@@ -65,7 +65,12 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await page.getByRole("button",{name:"保存"}).click();
   await expect(page.getByText("系统默认",{exact:true})).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,null);
+  // Model deletion in another tab must disappear on focus without a manual refresh.
+  data.choices.splice(0,1);
+  await page.evaluate(()=>window.dispatchEvent(new Event("focus")));
+  await expect(picker.locator('option[value="'+modelKey+'"]')).toHaveCount(0);
   await page.setViewportSize({width:390,height:844});
-  await expect(page.getByRole("button",{name:"刷新模型"})).toBeVisible();
+  await expect(page.getByRole("link",{name:"厂商与模型"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"刷新模型"})).toHaveCount(0);
  }finally{await browser?.close();await web.stop();}
 });

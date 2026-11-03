@@ -1,7 +1,7 @@
 import type {Route} from "./+types/model-bindings";
 import type {AdminModelBindings} from "@aihot/contracts/admin";
 import {SITE} from "@aihot/site";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import {useRevalidator} from "react-router";
 import {adminGet} from "../../lib/admin.server";
 import {useAdminAction} from "../../features/admin/action";
@@ -26,6 +26,11 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
  const [selected,setSelected]=useState(original);
  const [error,setError]=useState("");
  const chosen=choices.find(c=>c.key===selected);
+ // The inventory can change in another tab or session while this page is open.
+ // Reset only stale unsaved selections; never erase the active legacy binding.
+ useEffect(()=>{
+  if(selected&&selected!==original&&!chosen)setSelected(original);
+ },[selected,original,chosen]);
  const canSave=selected!==original&&(!selected||!!chosen&&usable(chosen,step));
  const save=async()=>{
   setError("");
@@ -60,18 +65,29 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
 
 export default function ModelBindings({loaderData}:Route.ComponentProps){
  const revalidator=useRevalidator();
+ // Always query the same live registry as model CRUD: when returning to the tab
+ // and periodically while visible, with no operator-driven refresh button.
+ useEffect(()=>{
+  const sync=()=>{
+   if(document.visibilityState==="visible"&&revalidator.state==="idle")revalidator.revalidate();
+  };
+  window.addEventListener("focus",sync);
+  document.addEventListener("visibilitychange",sync);
+  const poll=window.setInterval(sync,15_000);
+  return ()=>{
+   window.removeEventListener("focus",sync);
+   document.removeEventListener("visibilitychange",sync);
+   window.clearInterval(poll);
+  };
+ },[revalidator.revalidate,revalidator.state]);
  const choices=loaderData.choices;
  const display=(key:string)=>{
   const choice=choices.find(c=>c.key===key);
   return choice?titleFor(choice):key;
  };
  return <AdminPage title="工作流模型绑定"
-  subtitle="每个处理阶段可独立指定模型。新增模型后返回此页或刷新即可看到；切换仅影响后续任务。"
-  actions={<>
-   <ButtonLink to="/admin/models">厂商与模型</ButtonLink>
-   <Button disabled={revalidator.state!=="idle"} busy={revalidator.state!=="idle"}
-    onClick={()=>revalidator.revalidate()}>刷新模型</Button>
-  </>}>
+  subtitle="绑定模型与模型管理实时共享数据。新增或删除模型后，返回此页即自动同步；已打开的页面也会自动更新。"
+  actions={<ButtonLink to="/admin/models">厂商与模型</ButtonLink>}>
   <Card title={"处理阶段（"+loaderData.steps.length+"）"}>
    <DataTable rows={loaderData.steps} rowKey={s=>s.key} columns={[
     {key:"stage",label:"工作流阶段",render:s=><div className="max-w-xs">
