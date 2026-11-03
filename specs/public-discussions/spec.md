@@ -1,44 +1,45 @@
-# EventGraph · GitHub Discussions + giscus 公共讨论 Spec v0.1
+# EventGraph · GitHub Discussions + giscus 公共讨论 Spec v0.2
 
-> **最薄前端试验已开发，外部配置与实际验收未完成**。补回 2026-10-25—26 讨论：围绕一个公共事件保留读者观点，不自建评论系统。完整产品逻辑见 [产品纪要](../../docs/product-review-2026-10-25-26.md)；新闻解释见 [新闻解释草案](../news-explainer/spec.md)。
-> 2026-10-26 GitHub repo API 已核实 `has_discussions: true` 且仓库公开；**不代表** giscus 已安装或网站已启用评论。
+> **2026-11-03 读者体验规则变更**：每篇公开新闻及其事件页均应自动展示讨论，无需点击“加载讨论”。复用已接入的 giscus，不自建评论系统。第三方配置与真实评论写入仍须独立验收。
+> 2026-10-26 曾核实仓库公开并开启 Discussions，但这不等于已核实 giscus App 和分类配置。
 
-## 边界和事实归属
+## 边界与事实归属
 
-- 讨论作为 **观点交流区**，新闻/事实/原文、事件路线、证据更正仍保存在 EventGraph 的 publication/PostgreSQL/Graphiti 基础层，Discussion 内容不得自动被当成事实、事件、模型训练资料或编辑审定内容。
-- **复用现成 GitHub Discussions + [giscus](https://github.com/giscus/giscus)**，不增加用户注册/密码、评论数据库、实时推送、点赞服务或自建后台管理。
-- 正常读新闻无需 GitHub 账号；评论需要 GitHub 登录/授权。第三方无法加载时新闻、Story、SEO 和证据仍正常显示。
+- 讨论属于读者观点，不是已核实的事件事实；不得直接写入新闻事实层、知识图谱或模型训练材料。
+- 继续使用官方 [giscus](https://github.com/giscus/giscus) + GitHub Discussions，不增加自建用户、评论数据库、OAuth、消息队列、审核后台或模型调用。
+- 阅读文章无需 GitHub 账号；发表评论需要 GitHub 登录/授权。第三方被屏蔽、加载失败或断网均不能阻塞文章、导航、SEO 和证据链接。
 
-## 映射规则：同一事件、一个公共讨论
+## 页面与映射规则
 
-- 以 **稳定的 canonical Story publicId** 而不是页面 URL 或标题作为公共讨论键；一个 Story 相关的多篇新闻，以及 `/story/:id`、`/en/story/:id` 和相关的 `/items/:id`，应加载同一条 Discussion。
-- 优先试验 giscus 官方的 `specific term` 映射模式，使用命名空间化的 ID（如 `eventgraph:story:<publicId>`）；真实测试匹配唯一性、同事件中英两版一致性和自动创建行为。不要对同一事件的每条新闻按 pathname 分别创建讨论。
-- **尚未归组的文章**、Story 合并/重定向、撤回或不公开的内容，必须在实施 Spec/测试中确定链接行为：允许暂不显示讨论，不能胡乱映射、不应创建孤立无主讨论。
-- 讨论区应在进入有效 Story 页面后自动呈现，不要求点击“加载讨论”；嵌入不得遮盖新闻正文或手机导航，也不能因为第三方脚本或授权而阻塞首次阅读。giscus 脚本异步加载、讨论 iframe 懒加载，并保留跳转 GitHub Discussions 的出口。
+- **每篇公开新闻详情**（`/items/:id`、`/en/items/:id`、原文/译文）：均展示**该条新闻自己的讨论**，与是否属于 Story、是否已有其他报道、是否被选中无关。以现有稳定的 `SiteItemDetail.id` 为键，giscus `specific term` 为 `eventgraph:item:<itemId>`。
+- **同一篇新闻的各语言/正文变体**映射到同一 `eventgraph:item:<itemId>`；**不同新闻**即使归属同一 Story 也分别讨论，不能用 Story 的讨论代替新闻讨论。
+- **事件详情**（`/story/:id`、`/en/story/:id`）仍有独立的 `eventgraph:story:<canonicalPublicId>` 事件级讨论；同一事件双语保持一个事件讨论，不能与某篇新闻的讨论混淆。
+- 采用现有永久标识，不用标题或 pathname。只渲染已能正常访问的公开详情；非法/空标识不创建任意 Discussion，撤稿/失效页面维持现有不可访问行为。
+- Giscus 仅在有读者首次发言时按其实际机制创建对应 Discussion；**页面浏览本身不应批量创建空帖**。不主动预建每条新闻的 GitHub 帖子。
 
-## 权限与社区治理
+## 默认展现与性能
 
-- 使用 GitHub 原生 Discussion 分类、giscus App、GitHub 维护者审核工具，不允许无出处的“作者本人才能删除所有评论”权限承诺。
-- 维护者/管理员拥有删除、锁定和其他审核权限；读者可以管理自己有权限的内容。哪些人能删除或编辑哪些帖子必须以 GitHub 当前权限测试为准。
-- 讨论区包含读者自由观点，**与编辑核实的事实分离**。页面注明 GitHub 登录门槛，第三方服务规则和适当的隐私告知。
-- 任何展示广告的页面遵循现有 AdSense 与编辑政策，不将评论数、嵌入页字数冒充可收录的原创文章价值。
+- 不设置 `Load discussion / 加载讨论` 按钮：新闻和事件页面展示对应讨论区域并自动挂载 giscus。
+- 保留当前 giscus `async` 脚本与 `loading="lazy"` iframe；异步加载不阻塞新闻首屏，手机不遮挡正文或工具栏。页面上保留直接前往 GitHub Discussions 的链接。
+- 无有效 `VITE_GISCUS_CATEGORY_ID`、仓库 ID 或 giscus 配置时维持现有隐藏行为，不显示无法使用的空评论表单；不伪称已经完成外部配置。
+- 中英文切换、文章间导航、浅色/深色切换应正常更新相应讨论；不得把一个页面的评论留在另一个页面。
 
-## 建议验收（实施前需再次确认）
+## 治理与验收
+
+- 权限使用 GitHub 原生的评论作者与仓库管理员规则；不声称用户能执行未经验证的删除、锁定操作。
+- 继续遵守当前 AdSense 与事实/观点区分，不把第三方评论冒充编辑原创内容。
 
 | ID | 读者可观察要求 |
 | --- | --- |
-| D-01 | 同一 Story 的中文、英文、两篇相关公开新闻，进入**同一** GitHub Discussion；其它 Story 不串帖；合并后的 canonical 规则可复现。 |
-| D-02 | giscus 仅在具备有效、公开 Story 身份时嵌入；无 Story/撤稿内容不渲染错误讨论；无 GitHub 登录的读者仍能读新闻。 |
-| D-03 | GitHub 配置、App、category、Repo ID、category ID 真实核验；提交评论 / 回复 / 作者操作 / 管理员操作 / 举报或锁定按 GitHub 原生权限验证。 |
-| D-04 | 讨论关闭、GitHub 无响应、第三方加载缓慢不影响正常阅读、可索引内容、现有导航和移动端布局；不在站点运行服务器端 GitHub 账号 OAuth。 |
-| D-05 | 无新评论表、消息队列、讨论镜像入图、专有审核面板；引用原 GitHub Discussion，不把讨论当已证实证据。 |
-| D-06 | 在浏览器实际验证读者从新闻/Story 找到讨论的路径，语言切换保持讨论键；不对互动增长做无数据保证。 |
+| D-01 | 同 Story 两篇新闻分别有独立评论；新闻中英/原文版共享自己那一条评论；事件页独立于新闻。 |
+| D-02 | 无 Story 的公开新闻也自动展示讨论；非法 ID 或失效详情不创建孤立讨论。 |
+| D-03 | 页面无需点击按钮即可挂载 giscus；无评论时提供首评入口，已有评论时直接展示。 |
+| D-04 | 主题、语言切换、SPA 换文章不串帖；移动端阅读不被 iframe 挡住。 |
+| D-05 | GitHub/Giscus 不可用时正文可读，保留 GitHub 链接；无自建后端和自动预建空帖。 |
+| D-06 | 部署后真实核查 category/App、GitHub 登录、发言/回复/权限，桌面及 390px 手机页面；未经核查不得宣称验收通过。 |
 
-## 已调研官方资料
+## 参考
 
-- [giscus 官方 README](https://github.com/giscus/giscus)（GitHub Discussions 存储，特定 term / pathname 等映射，首评创建，需 GitHub 授权）
-- [giscus 页面与讨论配置](https://giscus.app/)
+- [giscus 官方](https://github.com/giscus/giscus)
+- [giscus 配置](https://giscus.app/)
 - [GitHub Discussions 管理](https://docs.github.com/en/discussions/managing-discussions-for-your-community)
-- [GitHub Discussions moderation](https://docs.github.com/en/discussions/managing-discussions-for-your-community/moderating-discussions)
-
-首次实现：在公开 Story 和具备 Story 上下文的新闻详情中共用 `eventgraph:story:<canonicalPublicId>`，进入页面后自动挂载官方 giscus（脚本异步、讨论 iframe 懒加载），不设置人工加载按钮。无有效 Story ID、或未配置 `VITE_GISCUS_CATEGORY_ID` 时不显示讨论入口。GitHub 仓库已确认公开且启用了 Discussions；节点 ID 为 `R_kgDOVHEeYA`。**尚须核对 Discussion 分类 ID、giscus App 安装、真实评论写入、权限与移动端浏览器**，D-03/D-06 不得写成已验收。
