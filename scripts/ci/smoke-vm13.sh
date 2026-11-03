@@ -1,11 +1,11 @@
 #!/bin/sh
-# Executed from the cn-dev smoke runner against VM13. Validates the
-# deployed release and read-only public site data without changing production state.
+# Run on a GitHub-hosted runner against VM13, independent of cn-dev.
+# Validate the deployed release and read-only public APIs without modifying data.
 set -eu
 : "${EVENTGRAPH_PREVIEW_URL:?missing VM13 preview URL}"
 : "${EVENTGRAPH_PREVIEW_RELEASE:?missing deployed release SHA}"
-cd /home/ubuntu/livingruntime-aihot
-[ -d node_modules/@playwright ] || { echo "dev host Playwright missing" >&2; exit 1; }
+cd "$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+[ -d node_modules/@playwright ] || { echo "Playwright dependency missing in checkout" >&2; exit 1; }
 node --input-type=module <<'NODE'
 import { chromium } from "@playwright/test";
 
