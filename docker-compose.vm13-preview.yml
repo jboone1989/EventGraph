@@ -21,6 +21,7 @@ services:
       API_PORT: "3001"
       AIHOT_DATA_DIR: /data
       AIHOT_RELEASE: ${EVENTGRAPH_PREVIEW_RELEASE:?Source commit required}
+      EVENTGRAPH_PREVIEW_READONLY: "true"
     volumes:
       - data:/data
     mem_limit: 768m
