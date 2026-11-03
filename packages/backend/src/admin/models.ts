@@ -1,11 +1,11 @@
-import {resolveModelReference,writeWorkflowModel,getRegisteredModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
+import {writeWorkflowModel,loadModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
 // Admin "模型与评测": the model each capability uses and where that choice comes from,
 // the prompt versions in use, quality / latency / cost of the last days per model, the switch history
 // and the SelectBench runs that compare models on the same batch. A switch is audited and applies to
 // new work only.
 import type { AdminModels, AdminModelBindings, BeforeJson } from "@aihot/contracts/admin";
 import { sql } from "../db.ts";
-import { capabilities, capabilityAcceptsModel, invalidateModelCache, modelSources } from "../editorial/models.ts";
+import { capabilities, invalidateModelCache, modelSources } from "../editorial/models.ts";
 import { MODELS } from "../providers/llm.ts";
 import { poolOverview } from "../providers/nvidia-pool.ts";
 import {listProviders} from "../providers/registry/repository.ts";
@@ -108,62 +108,51 @@ export async function modelsOverview(days = 7): Promise<BeforeJson<AdminModels>>
 
 /** Lightweight live registry used by the separate admin workflow-binding page. */
 export async function modelBindingsOverview(): Promise<AdminModelBindings> {
-  const [sources, registered, connections] = await Promise.all([
-    modelSources(), listRegisteredModels(), listConnections(),
-  ]);
-  const names = new Map(connections.map(c => [c.id, c.name]));
-  return {
-    steps: Object.entries(capabilities()).map(([key, c]) => ({
-      key, label: c.label, vision: !!c.vision, current: sources[key]!,
-    })),
-    choices: [
-      // The explicit picker uses exactly the registered inventory shown by /admin/models.
-      // Deployment presets survive as inherited/current settings, not untested candidates.
-      ...registered.map(m => ({
-        key: 'model:' + m.id, modelId: m.modelId,
-        provider: names.get(m.providerId) ?? m.providerId,
-        kind: 'registered' as const, adapter: m.adapter,
-        vision: m.capabilities.includes('vision'),
-        textReady: m.routing.eligibleCapabilities.includes('text'),
-        visionReady: m.routing.eligibleCapabilities.includes('vision'),
-        reasons: m.routing.reasons,
-      })),
-    ],
-  };
+ const [models,connections,bindings]=await Promise.all([
+  listRegisteredModels(),listConnections(),
+  sql<{setting_key:string;model_id:string}[]>`
+   SELECT setting_key,model_id FROM provider_workflow_models WHERE setting_key LIKE 'models.%'`,
+ ]);
+ const names=new Map(connections.map(c=>[c.id,c.name]));
+ const assigned=new Map(bindings.map(b=>[b.setting_key,b.model_id]));
+ return {
+  steps:Object.entries(capabilities()).map(([key,c])=>{
+   const id=assigned.get('models.'+key);
+   return {key,label:c.label,vision:!!c.vision,
+    current:id?{model:'model:'+id,source:'admin' as const}:{model:'',source:'default' as const}};
+  }),
+  choices:models.map(m=>({
+   key:'model:'+m.id,modelId:m.modelId,provider:names.get(m.providerId)??m.providerId,
+   adapter:m.adapter,vision:m.capabilities.includes('vision')
+  })),
+ };
 }
 
-/** Switches a capability to another registered model (or back to the environment/default when null). */
-export async function switchModel(capability: string, model: string | null, reason: string, actor: string) {
-  const c = capabilities()[capability];
-  if (!c) throw Object.assign(new Error("unknown capability"), { statusCode: 400 });
-  if (!reason.trim()) throw Object.assign(new Error("a reason is required"), { statusCode: 400 });
-  let id:string|null=null;
-  if(model!==null) {
-    id=await resolveModelReference(model);
-    const registered=id?await getRegisteredModel(id):null;
-    const spec=registered?{vision:registered.capabilities.includes('vision')}:MODELS[model];
-    if(!spec)throw Object.assign(new Error('unknown model'),{statusCode:400});
-    if(!capabilityAcceptsModel(c,spec))throw Object.assign(new Error('this capability needs a vision model'),{statusCode:400});
-    if(registered){
-      const required=c.vision?'vision':'text';
-      if(registered.adapter!=='chat'||!registered.routing.eligibleCapabilities.includes(required))
-        throw Object.assign(new Error('Model is not eligible for this workflow: '+(
-          registered.routing.reasons.join('; ')||'adapter or capability mismatch')),
-          {statusCode:409});
-    }
-  }
-  const before=(await modelSources())[capability];
-  await sql.begin(async tx=>{
-    if(id!==null||model===null)await writeWorkflowModel(tx,'models.'+capability,id,actor);
-    else {
-      // Built-in deployment presets have no normalized row; remove any prior FK binding atomically.
-      await tx`DELETE FROM provider_workflow_models WHERE setting_key=${'models.'+capability}`;
-      await tx`INSERT INTO settings(key,value,updated_by) VALUES (${'models.'+capability},${tx.json({model})},${actor})
-       ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
-    }
-    await audit(actor,'models.switch','capability:'+capability,reason,before??null,{model:id?'model:'+id:model},{db:tx});
-  });
-  invalidateModelCache();
-  const after = (await modelSources())[capability];
-  return { capability, before, after };
+/** One workflow → one model ID. Clearing a binding restores the deployment default. */
+export async function switchModel(capability:string,model:string|null,reason:string,actor:string){
+ const step=capabilities()[capability];
+ if(!step)throw Object.assign(new Error('unknown capability'),{statusCode:400});
+ if(!reason.trim())throw Object.assign(new Error('a reason is required'),{statusCode:400});
+ let id:string|null=null;
+ if(model!==null){
+  if(!model.startsWith('model:'))
+   throw Object.assign(new Error('Choose a model from Model Management'),{statusCode:400});
+  const selected=await loadModel(model.slice(6));
+  if(selected.adapter!=='chat')
+   throw Object.assign(new Error('This workflow needs a chat model'),{statusCode:400});
+  if(step.vision&&!selected.capabilities.includes('vision'))
+   throw Object.assign(new Error('This workflow needs a vision model'),{statusCode:400});
+  id=selected.id;
+ }
+ const settingKey='models.'+capability;
+ const [previous]=await sql<{model_id:string}[]>`
+  SELECT model_id FROM provider_workflow_models WHERE setting_key=${settingKey}`;
+ const before=previous?'model:'+previous.model_id:null;
+ await sql.begin(async tx=>{
+  await writeWorkflowModel(tx,settingKey,id,actor);
+  await audit(actor,'models.switch','capability:'+capability,reason,{model:before},{model:id?'model:'+id:null},{db:tx});
+ });
+ invalidateModelCache();
+ return {capability,before:{model:before??'',source:before?'admin':'default'},
+  after:{model:id?'model:'+id:'',source:id?'admin':'default'}};
 }

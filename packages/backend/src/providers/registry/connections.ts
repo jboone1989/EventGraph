@@ -251,10 +251,12 @@ export async function deleteRegisteredModel(id:string,version:number,reason:stri
   await tx`SELECT id FROM provider_connections WHERE id=${m.provider_id}::uuid FOR UPDATE`;
   const [old]=await tx<ModelRow[]>`SELECT * FROM registered_models WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Model');versionCheck(old.version,version);
-  const dependencies=await workflowDependencies(id,tx);
-  if(dependencies.length)throw new ProviderConfigError('Remove workflow references before deleting this model',undefined,409,dependencies);
-  if(old.enabled||old.route_enabled)throw new ProviderConfigError('Disable the model and routing before deletion','enabled',409);
   const before=await getRegisteredModel(id,tx);
+  // Remove bindings with the model, in the same transaction.
+  // Deleting the corresponding settings rows cascades to provider_workflow_models.
+  const bindings=await tx<{setting_key:string}[]>`
+   SELECT setting_key FROM provider_workflow_models WHERE model_id=${id}::uuid`;
+  for(const binding of bindings)await tx`DELETE FROM settings WHERE key=${binding.setting_key}`;
   await tx`DELETE FROM registered_models WHERE id=${id}::uuid`;
   await audit(actor,'provider.model.delete',id,reason,before,null,{db:tx});return {deleted:true as const};
  }) as Promise<{deleted:true}>;

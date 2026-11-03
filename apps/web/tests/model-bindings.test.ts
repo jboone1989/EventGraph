@@ -27,7 +27,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
    writes.push({path,body:parsed});
    if(failure){res.statusCode=409;return res.end(JSON.stringify({detail:"模型暂不可用"}));}
    data.steps[0]!.current=parsed.model?
-    {model:parsed.model,source:"admin"}:{model:"default",source:"default"};
+    {model:parsed.model,source:"admin"}:{model:"",source:"default"};
    return res.end(JSON.stringify({after:data.steps[0]!.current}));
   }
   res.statusCode=404;res.end("{}");
@@ -43,15 +43,11 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(picker).toHaveValue("");
   await expect(picker.locator('option[value="default"]')).toHaveCount(0);
   await expect(picker.locator('option')).toHaveCount(1);
-  data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",kind:"registered",
-   adapter:"chat",vision:false,textReady:false,visionReady:false,reasons:["No test"]});
-  await page.getByRole("button",{name:"刷新模型"}).click();
-  await expect(picker.locator('option[value="'+modelKey+'"]')).toBeDisabled();
-  await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");
-  data.choices[0]!.textReady=true;
-  data.choices[0]!.reasons=[];
-  await page.getByRole("button",{name:"刷新模型"}).click();
+  data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",
+   adapter:"chat",vision:false});
+  await page.reload();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeEnabled();
+  await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");
   await picker.selectOption(modelKey);
   await page.getByRole("button",{name:"保存"}).click();
   await expect(page.getByText("后台绑定")).toBeVisible();
@@ -63,9 +59,12 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(page.getByRole("alert")).toContainText("模型暂不可用");
   failure=false;
   await page.getByRole("button",{name:"保存"}).click();
-  await expect(page.getByText("系统默认",{exact:true})).toBeVisible();
+  await expect(page.getByText("未绑定",{exact:true}).first()).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,null);
+  data.choices.splice(0,1);
+  await page.reload();
+  await expect(picker.locator('option[value="'+modelKey+'"]')).toHaveCount(0);
   await page.setViewportSize({width:390,height:844});
-  await expect(page.getByRole("button",{name:"刷新模型"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"刷新模型"})).toHaveCount(0);
  }finally{await browser?.close();await web.stop();}
 });
