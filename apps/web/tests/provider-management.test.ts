@@ -46,6 +46,7 @@ test('provider-first setup saves credentials and models, then offers verified mo
    const model=data.models.find(m=>m.id===id)!;
    const {reason:_,version:__,...patch}=body;
    Object.assign(model,patch,{version:model.version+1});
+   if(patch.routeEnabled===true)model.routing={eligibleCapabilities:['text'],reasons:[]};
    return res.end(JSON.stringify(model));
   }
   if(path.startsWith('/api/admin/provider-models/')&&req.method==='DELETE'){
