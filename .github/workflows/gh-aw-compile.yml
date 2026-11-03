@@ -2,7 +2,7 @@ name: Compile GH-AW Work Queue
 
 on:
   push:
-    branches: [feat/gh-aw-work-queue-main-20261030]
+    branches: [feat/gh-aw-work-queue-main-20261030, fix/gh-aw-awf-positive-hard-cap-20261103]
     paths:
       - '.github/workflows/eventgraph-*.md'
       - '.github/workflows/aw.json'
