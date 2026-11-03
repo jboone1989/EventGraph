@@ -241,7 +241,7 @@ test("Spec intake uses the exact merge SHA and builds its graph", async () => {
         number: 500, merge_commit_sha: specSha, merged_at: mergedPr.merged_at,
         base: mergedPr.base, head: mergedPr.head
       }];
-      if (path.endsWith("/pulls/500/files")) return [
+      if (path.includes("/pulls/500/files")) return [
         { filename: "specs/example/spec.md" },
         { filename: "specs/example/plan.md" },
         { filename: "specs/example/tasks.md" }
