@@ -418,6 +418,11 @@ export async function processMergedCommit({
     return { kind: "not-auto-intake-spec", prNumber: pr.number, specPath };
   }
   const changedPaths = new Set(files.map(file => file.filename));
+  // A lightweight approved Spec with no task contract is not a Work Queue intake.
+  // If either task-intake file is present, still reject an incomplete triad.
+  if (!changedPaths.has(planPath) && !changedPaths.has(tasksPath)) {
+    return { kind: "lightweight-approved-spec", prNumber: pr.number, specPath };
+  }
   for (const required of [specPath, planPath, tasksPath]) {
     if (!changedPaths.has(required)) {
       fail("Approved Spec intake requires the PR to change all three files: " + required);
