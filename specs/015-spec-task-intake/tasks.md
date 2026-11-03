@@ -30,15 +30,15 @@
 - Use stable graph ID, Task ID node keys and GH-AW canonical Work IDs.
 - Derive pool, default Worker profile, logical contract and trust domain from the live Policy.
 - Include the exact Spec 012 version-1 effect contract and EventGraph resource scope in each code Work payload.
-- Represent predecessor tasks as external Issue dependencies with condition `completed`.
+- Resolve repository and predecessor Issue database IDs through GitHub API and represent dependencies with complete normalized Issue resources and condition `completed`.
 - Reject missing/paused/incompatible queue state and never submit a partial graph.
 
 ### T004 — Integrate Spec intake into the existing successful-develop continuation
-**Scope:** Extend the existing `resume_native_queue` job so it admits only a unique owner-merged, same-repository approved Spec PR after exact-SHA Check/E2E/publish success, then runs the existing Dispatcher path.
+**Scope:** Extend the existing `resume_native_queue` job to catch up merged PRs after Producer installation, admit qualifying owner-merged Specs after exact-current-head Check/E2E/publish success, and then run the existing Dispatcher path.
 **Depends on:** T003
 **Acceptance:**
-- Process only the exact current `develop` push SHA and the existing native-queue-enabled path.
-- Require one qualifying merged PR by `jboone1989` and exactly one Spec directory with all three required files.
+- Run only after the exact current `develop` head passes the existing native-queue-enabled Check path.
+- Scan first-parent merge commits since Producer installation in chronological order; process each unique same-repository PR, admitting only owner-merged Specs with all three required files.
 - Create Issues and submit Work before the existing queue dispatch step.
 - Do not add a timer, polling loop, second dispatcher or alternate queue.
 - Preserve existing exact-SHA, no-open-agent-PR and native queue stats gates.

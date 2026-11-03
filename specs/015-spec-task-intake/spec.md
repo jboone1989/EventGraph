@@ -71,18 +71,18 @@ Rules:
 
 Extend the existing `resume_native_queue` job in `.github/workflows/check.yml`; do not create a competing dispatch workflow.
 
-The Producer runs only when all of the following hold:
+The Producer runs only from the existing successful `resume_native_queue` continuation when all of the following hold:
 
-1. The existing Check workflow is processing a `develop` push, not an arbitrary branch or an unvalidated manual dispatch.
-2. Check, E2E and publish have succeeded, or the existing docs-only path has explicitly skipped E2E and publish.
+1. The current event is a `develop` push, not an arbitrary branch or an unvalidated manual dispatch.
+2. Check, E2E and publish have succeeded for the exact current `develop` head, or the existing docs-only path has explicitly skipped E2E and publish.
 3. `EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true'`.
-4. The exact push SHA is still the current `develop` head.
-5. The push SHA is associated with exactly one merged, same-repository PR targeting `develop`; the PR was merged by `jboone1989`.
-6. The PR changed `spec.md`, `plan.md` and `tasks.md` in exactly one `specs/<feature>/` directory, and the immutable Spec at the merge SHA states `Owner-approved`.
+4. The push SHA is still the current `develop` head.
+5. The Producer scans the first-parent commit range after the commit that installed the Producer. Each candidate merge commit must resolve to exactly one merged, same-repository PR targeting `develop`; direct pushes, fork PRs and unrelated commits are ignored.
+6. A Spec candidate must have been merged by `jboone1989`, must change `spec.md`, `plan.md` and `tasks.md` in exactly one `specs/<feature>/` directory, and the Spec at that candidate merge SHA must state `Owner-approved`.
 
-The merge commit SHA is the approved Spec SHA. The Producer MUST record that exact SHA, not a moving branch name or the PR head branch. The existing CI success and exact-head checks remain mandatory. A failed check, direct push without a qualifying merged PR, fork PR, non-owner merge, missing Spec file, or ambiguous Spec directory MUST produce no Issue and no Work.
+The candidate PR merge commit SHA is that Spec revision's approved SHA. The Producer MUST record that exact SHA, not a moving branch name or the PR head branch. The successful current-head Check is the gate for the entire catch-up scan; scanning the first-parent range prevents a cancelled or superseded older push run from losing a merged Spec. The native queue's stable graph/node identities make reprocessing previously admitted Specs idempotent. A failed current Check, direct push without an associated qualifying PR, fork PR, non-owner Spec merge, missing Spec file, or ambiguous Spec directory MUST produce no Issue and no Work.
 
-The Producer processes the Spec only after successful checks. If queue continuation ran before an Issue was closed or before the Producer completed, the same trusted job's final dispatch step runs after those operations; no separate polling or timer is needed.
+The Producer processes candidates in first-parent order. For a merged `agent-work` PR it verifies the task Issue provenance and closes the Issue with reason `completed` only after the current develop Check path succeeds. It submits any newly approved Spec graphs before the same trusted job's final Dispatcher step; no separate polling or timer is needed.
 
 ## 5. GitHub Issue creation and Project projection
 
@@ -111,7 +111,7 @@ After all task Issues exist, submit one complete native Work Graph atomically wi
 - Work routing fields (`pool`, `worker_profile`, `logical_contract`, `batch_trust_domain`) are read from the live installed Queue Policy; do not hardcode a model or Worker.
 - Each Work payload includes `task`, `task_id`, `issue_number`, `issue_url`, `spec_path`, `spec_sha`, `scope`, and the ordered `acceptance_criteria`.
 - Each Work declares the existing Spec 012 version-1 resource contract: exactly one repository-scoped `create_pull_request` safe output with `min: 1` and `max: 1`, and the canonical EventGraph repository resource scope (`github.com/jboone1989/EventGraph`, repository ID `1416699488`).
-- A task with no predecessors has an empty `depends_on` list. Each declared predecessor becomes an external Issue dependency with `kind: "issue"`, `condition: "completed"`, and the predecessor Issue number. The pinned native CLI resolves and verifies the repository/resource identities at admission.
+- A task with no predecessors has an empty `depends_on` list. Each declared predecessor becomes an external Issue dependency with `kind: "issue"`, `condition: "completed"`, and the predecessor Issue's immutable GitHub database ID, repository ID and Issue number. The Producer resolves these numeric identities through the GitHub API; the pinned native CLI validates the complete normalized resource at admission.
 - Do not use Work-to-Work completion edges for code tasks: a Worker may finish its Claim after safely creating a PR, before that PR is reviewed and merged.
 
 The graph identity makes repeated submissions of the same Spec revision idempotent. Do not submit a partial graph. If Issue creation or native admission fails, report the failure and do not dispatch.
