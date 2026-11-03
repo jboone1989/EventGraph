@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -488,6 +488,25 @@ export async function processDevelopRange({ api, repo, headSha, root = process.c
   return { kind: "develop-range", scanned: commits.length, graphs, results };
 }
 
+// The pinned GH-AW v1.0.1 CLI sometimes emits --json on stderr even on success.
+// The existing native-queue workflow handles this with 2>&1. Keep both streams
+// separate here so a nonzero command cannot be mistaken for a valid replay.
+export function readNativeQueueState(repo, spawn = spawnSync) {
+  const result = spawn("gh", ["aw", "work-queue", "--repo", repo, "replay", "--json"], {
+    encoding: "utf8", maxBuffer: 64 * 1024 * 1024
+  });
+  if (result.error || result.status !== 0) {
+    fail("Native GH-AW Work Queue replay failed; admission was not attempted");
+  }
+  const output = String(result.stdout ?? "").trim() || String(result.stderr ?? "").trim();
+  if (!output) fail("Native GH-AW Work Queue replay returned no JSON");
+  try {
+    return JSON.parse(output);
+  } catch {
+    fail("Native GH-AW Work Queue replay returned malformed JSON");
+  }
+}
+
 export async function runProducer({ env = process.env, api, root = process.cwd(), readQueueState } = {}) {
   if (env.GITHUB_EVENT_NAME !== "push" || env.GITHUB_REF_NAME !== "develop") {
     return { kind: "not-a-develop-push" };
@@ -498,12 +517,7 @@ export async function runProducer({ env = process.env, api, root = process.cwd()
   if (!api) api = createGitHubApi(env.GH_TOKEN);
   return processDevelopRange({
     api, repo, headSha, root,
-    readQueueState: readQueueState ?? (() => {
-      const output = execFileSync("gh", ["aw", "work-queue", "--repo", repo, "replay", "--json"], {
-        encoding: "utf8", maxBuffer: 64 * 1024 * 1024
-      });
-      return JSON.parse(output);
-    })
+    readQueueState: readQueueState ?? (() => readNativeQueueState(repo))
   });
 }
 
