@@ -15,6 +15,8 @@ Get the user's approval before implementing substantial behavior changes. Refere
 
 For a small fix, an Issue with concrete acceptance criteria is sufficient. Either ChatGPT or Claude can review against the approved version.
 
+For Specs intended for automatic Project #2 and native Work Queue intake, use the strict Work Items format in [docs/spec-review.md](../docs/spec-review.md) and [Spec 015](015-spec-task-intake/spec.md). The Producer creates Issues only after an owner-merged, owner-approved Spec PR reaches `develop`.
+
 ## Product specifications
 
 - [EventGraph Explorer + Story — Draft full product spec](eventgraph-explorer/spec.md)
@@ -23,3 +25,7 @@ For a small fix, an Issue with concrete acceptance criteria is sufficient. Eithe
 - [Agent handoff guide](eventgraph-explorer/handoff.md)
 
 The Explorer + Story documents are **DRAFT** until explicitly approved; implementation must pin the approved revision.
+
+## Agent operations specifications
+
+- [Spec-driven GitHub Projects + native Work Queue intake (015)](015-spec-task-intake/spec.md)
