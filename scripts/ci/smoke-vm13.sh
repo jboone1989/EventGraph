@@ -4,7 +4,7 @@
 set -eu
 : "${EVENTGRAPH_PREVIEW_URL:?missing VM13 preview URL}"
 : "${EVENTGRAPH_PREVIEW_RELEASE:?missing deployed release SHA}"
-cd /home/ubuntu/workspace/eventgraph
+cd /home/ubuntu/livingruntime-aihot
 [ -d node_modules/@playwright ] || { echo "dev host Playwright missing" >&2; exit 1; }
 node --input-type=module <<'NODE'
 import { chromium } from "@playwright/test";
