@@ -733,6 +733,11 @@ jobs:
             needs.e2e.result == 'skipped' && needs.publish.result == 'skipped') ||
            (needs.changes.outputs.docs_only != 'true' &&
             needs.e2e.result == 'success' && needs.publish.result == 'success')) }}
+    # Serialize Issue creation, Work admission and Dispatcher re-entry. The latest pending
+    # successful develop head catches up every first-parent merge since Producer installation.
+    concurrency:
+      group: eventgraph-native-queue-continuation
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
