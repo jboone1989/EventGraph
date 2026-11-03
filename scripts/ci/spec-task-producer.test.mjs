@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   buildWorkGraph, canonical, completeTaskIssue, ensureTaskIssues, getSpecDirectory,
-  issueBody, parseTasks, parseWorkerPRBody, taskMarker, workId, processMergedCommit, processDevelopRange
+  issueBody, parseTasks, parseWorkerPRBody, taskMarker, workId, processMergedCommit, processDevelopRange, readNativeQueueState
 } from "./spec-task-producer.mjs";
 
 const validTasks = [
@@ -58,6 +58,39 @@ const queueState = {
     }
   }
 };
+
+test("accepts official GH-AW replay JSON emitted on stderr", () => {
+  const projection = { policy: queueState.policy, works: {}, grants_paused: false };
+  let called = false;
+  const value = readNativeQueueState(repo, (command, args, options) => {
+    called = true;
+    assert.equal(command, "gh");
+    assert.deepEqual(args, ["aw", "work-queue", "--repo", repo, "replay", "--json"]);
+    assert.equal(options.encoding, "utf8");
+    return { status: 0, stdout: "", stderr: JSON.stringify(projection) };
+  });
+  assert.equal(called, true);
+  assert.deepEqual(value, projection);
+});
+
+test("accepts official GH-AW replay JSON emitted on stdout", () => {
+  const projection = { works: {}, admission_paused: false };
+  assert.deepEqual(readNativeQueueState(repo, () => ({
+    status: 0, stdout: JSON.stringify(projection), stderr: ""
+  })), projection);
+});
+
+test("fails closed for nonzero replay or missing JSON", () => {
+  assert.throws(() => readNativeQueueState(repo, () => ({
+    status: 1, stdout: "", stderr: "{ }"
+  })), /replay failed/);
+  assert.throws(() => readNativeQueueState(repo, () => ({
+    status: 0, stdout: "", stderr: ""
+  })), /returned no JSON/);
+  assert.throws(() => readNativeQueueState(repo, () => ({
+    status: 0, stdout: "", stderr: "not-json"
+  })), /malformed JSON/);
+});
 
 test("parses canonical task blocks and preserves dependency order", () => {
   const tasks = parseTasks(validTasks);
