@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: eventgraph-native-code-acceptance-300
@@ -32,6 +33,7 @@ jobs:
       - name: Admit one owner-authorized real code Work through the native queue
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          EVENTGRAPH_ISSUE_TOKEN: ${{ github.token }}
           TASK_ISSUE: '300'
           SPEC_SHA: a08bc27e15b188235f822edcb969f681d0a8ee15
           SPEC_PATH: specs/010-ci-change-scope/spec.md
@@ -77,10 +79,10 @@ jobs:
           # Official GH-AW API owns task idempotency, Claim, Result and retry.
           gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-work \
             --file "$RUNNER_TEMP/real-work.json" \
-            --worker-profile eventgraph-worker --priority 3 \
+            --worker-profile eventgraph-worker \
             --request-id "issue-$TASK_ISSUE"
           # Project is only a view; label after confirmed native submission.
-          gh issue edit "$TASK_ISSUE" --repo "$GITHUB_REPOSITORY" --add-label agent-work
+          GH_TOKEN="$EVENTGRAPH_ISSUE_TOKEN" gh issue edit "$TASK_ISSUE" --repo "$GITHUB_REPOSITORY" --add-label agent-work
           # Preserve the existing one-open-agent-PR serialization gate.
           open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq 'length')"
           if [[ "$open" != 0 ]]; then
