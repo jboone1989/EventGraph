@@ -30,7 +30,8 @@ assert(dailyIndex.items?.some(item => item.titleEn && !/[㐀-鿿]/u.test(item.ti
 
 // 3. Knowledge endpoints serve the production graph through the database tunnel.
 const stats = await (await fetch(root + "/api/site/knowledge/stats")).json();
-assert(stats.status === "ok" && stats.entities > 0, "knowledge stats not ok: " + JSON.stringify(stats));
+assert(Number.isInteger(stats.entities) && stats.entities > 0 && Number.isInteger(stats.relations) && stats.relations > 0,
+  "knowledge stats not ok: " + JSON.stringify(stats));
 const networkRes = await fetch(root + "/api/site/knowledge/network");
 const network = await networkRes.json();
 assert(networkRes.status === 200 && network.status !== "disabled" && network.nodes?.length > 0,
