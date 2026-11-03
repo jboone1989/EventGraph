@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const OWNER_LOGIN = "jboone1989";
@@ -176,8 +176,7 @@ export function parseWorkerPRBody(body, repo) {
   };
 }
 
-export function buildWorkGraph({ tasks, issues, queueState, repo, specPath, specSha, specPrUrl, now = Date.now() }) {
-  validateTaskGraph(tasks);
+export function defaultWorkerRoute(queueState) {
   if (queueState.grants_paused === true || queueState.admission_paused === true) {
     fail("Native Work Queue is paused; no Work was submitted");
   }
@@ -189,6 +188,12 @@ export function buildWorkGraph({ tasks, issues, queueState, repo, specPath, spec
   const profileName = pool.default_profile;
   const profile = pool.profiles?.[profileName];
   if (!profile || !profile.trust_domain) fail("Default Worker profile is missing its trust domain");
+  return { poolName, profileName, profile };
+}
+
+export function buildWorkGraph({ tasks, issues, queueState, repo, specPath, specSha, specPrUrl, now = Date.now() }) {
+  validateTaskGraph(tasks);
+  const { poolName, profileName, profile } = defaultWorkerRoute(queueState);
   const graphId = "spec-" + specSha;
   const effectContract = {
     version: 1,
@@ -352,8 +357,6 @@ export async function completeTaskIssue({ api, repo, pr }) {
 }
 
 export async function processMergedCommit({ api, repo, headSha, root = process.cwd(), readQueueState, now = Date.now() }) {
-  const current = await api.request("/repos/" + repo + "/branches/develop");
-  if (current.commit?.sha !== headSha) return { kind: "stale-develop-head" };
   const pr = await findMergedPRForCommit({ api, repo, headSha });
   if (!pr) return { kind: "no-associated-merged-pr" };
 
@@ -381,9 +384,43 @@ export async function processMergedCommit({ api, repo, headSha, root = process.c
   }
   const tasks = parseTasks(tasksText);
   const queueState = await readQueueState();
+  defaultWorkerRoute(queueState);
+  const graphId = "spec-" + headSha;
+  const workIds = tasks.map(task => workId(graphId, task.id));
+  const admitted = queueState.works ?? {};
+  if (workIds.every(id => Object.hasOwn(admitted, id))) {
+    return { kind: "already-admitted", prNumber: pr.number, specPath, specSha: headSha };
+  }
   const issues = await ensureTaskIssues({ api, repo, tasks, specPath, specSha: headSha, specPrUrl: pr.html_url });
   const graph = buildWorkGraph({ tasks, issues, queueState, repo, specPath, specSha: headSha, specPrUrl: pr.html_url, now });
   return { kind: "spec-intake", prNumber: pr.number, specPath, specSha: headSha, issueCount: issues.size, graph };
+}
+
+export async function processDevelopRange({ api, repo, headSha, root = process.cwd(), readQueueState, commitShas } = {}) {
+  const current = await api.request("/repos/" + repo + "/branches/develop");
+  if (current.commit?.sha !== headSha) return { kind: "stale-develop-head", graphs: [], results: [] };
+  const installSha = execFileSync("git", [
+    "log", "--first-parent", "--diff-filter=A", "-1", "--format=%H", "--", "scripts/ci/spec-task-producer.mjs"
+  ], { encoding: "utf8" }).trim();
+  if (!/^[0-9a-f]{40}$/.test(installSha)) fail("Could not locate the Producer installation commit");
+  const commits = commitShas ?? execFileSync("git", [
+    "rev-list", "--reverse", "--first-parent", installSha + ".." + headSha
+  ], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  let queueStatePromise;
+  const cachedQueueRead = () => {
+    if (!queueStatePromise) queueStatePromise = Promise.resolve(readQueueState());
+    return queueStatePromise;
+  };
+  const results = [];
+  const graphs = [];
+  for (const commitSha of commits) {
+    const result = await processMergedCommit({
+      api, repo, headSha: commitSha, root, readQueueState: cachedQueueRead
+    });
+    results.push(result);
+    if (result.graph) graphs.push(result);
+  }
+  return { kind: "develop-range", scanned: commits.length, graphs, results };
 }
 
 export async function runProducer({ env = process.env, api, root = process.cwd(), readQueueState } = {}) {
@@ -394,7 +431,7 @@ export async function runProducer({ env = process.env, api, root = process.cwd()
   const headSha = env.GITHUB_SHA;
   if (!repo || !/^[0-9a-f]{40}$/.test(headSha ?? "")) fail("Missing repository or exact develop SHA");
   if (!api) api = createGitHubApi(env.GH_TOKEN);
-  return processMergedCommit({
+  return processDevelopRange({
     api, repo, headSha, root,
     readQueueState: readQueueState ?? (() => {
       const output = execFileSync("gh", ["aw", "work-queue", "--repo", repo, "replay", "--json"], {
@@ -411,15 +448,16 @@ async function main() {
     console.log("Spec Producer skipped: only successful develop push continuations are eligible.");
     return;
   }
-  const outputPath = env.SPEC_WORK_GRAPH_FILE;
-  if (!outputPath) fail("SPEC_WORK_GRAPH_FILE is required");
+  const outputDirectory = env.SPEC_WORK_GRAPH_DIR;
+  if (!outputDirectory) fail("SPEC_WORK_GRAPH_DIR is required");
+  mkdirSync(outputDirectory, { recursive: true });
   const result = await runProducer();
-  if (result.graph) {
-    writeFileSync(outputPath, JSON.stringify(result.graph, null, 2) + "\n", "utf8");
-    console.log("Prepared " + result.graph.length + " Work nodes for Spec " + result.specSha);
-  } else {
-    console.log("Spec Producer result: " + result.kind);
+  for (const item of result.graphs ?? []) {
+    const outputPath = join(outputDirectory, item.specSha + ".json");
+    writeFileSync(outputPath, JSON.stringify(item.graph, null, 2) + "\n", "utf8");
+    console.log("Prepared " + item.graph.length + " Work nodes for Spec " + item.specSha);
   }
+  console.log("Spec Producer result: " + result.kind + "; scanned " + (result.scanned ?? 0) + " merged develop commits");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
