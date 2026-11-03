@@ -130,7 +130,8 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}) {
      {key:'model',label:'模型 ID',render:m=><span className="break-all font-mono text-xs">{m.modelId}</span>},
      {key:'state',label:'状态',render:m=><div className="flex flex-wrap gap-1">
       <Badge tone={m.enabled?'ok':'muted'}>{m.enabled?'启用':'停用'}</Badge>
-      <Badge tone={m.routeEnabled?'accent':'muted'}>{m.routeEnabled?'可用于工作流':'未启用路由'}</Badge>
+      <Badge tone={m.routing.eligibleCapabilities.length?'accent':m.routeEnabled?'warn':'muted'}>
+       {m.routing.eligibleCapabilities.length?'可用于工作流':m.routeEnabled?'需重新测试':'未启用路由'}</Badge>
      </div>},
      {key:'actions',label:'操作',render:m=>{
       const receipt=m.checks.find(x=>x.capability===m.probeSpec?.capability);
