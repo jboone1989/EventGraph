@@ -144,7 +144,7 @@ test("skips an owner-approved one-file Spec without tasks.md (PR #328)", async (
     paginate: async path => {
       if (path.includes("/pulls?state=closed")) return [approved];
       if (path.includes("/pulls/500/files")) return [
-        { filename: "specs/example/spec.md" }, { filename: "specs/example/plan.md" }
+        { filename: "specs/example/spec.md" }
       ];
       throw new Error("No Issue/Work request allowed: " + path);
     }
