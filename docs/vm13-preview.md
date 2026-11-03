@@ -37,7 +37,8 @@ Host identity checks are distinct:
 VM13 uses `EVENTGRAPH_PREVIEW_READONLY=false` and
 `EVENTGRAPH_PREVIEW_MODE=true`: the former permits PostgreSQL write
 transactions; the latter prevents the preview API from starting another
-heartbeat or worker watchdog. The preview runs **no** `migrate.ts`,
+heartbeat or worker watchdog. The preview API enables `MODEL_CALLS_ENABLED=true` solely to allow the administrator to explicitly test configured models against their upstream API; this can incur provider usage charges. No collector/worker runs on VM13, and a failed or missing credential is not treated as an ambiguous provider receipt.
+The preview runs **no** `migrate.ts`,
 `seed.ts` or worker. Schema changes belong only to the separately gated
 production release. Newly developed features requiring tables not yet present
 in production may remain unavailable until their production schema release.

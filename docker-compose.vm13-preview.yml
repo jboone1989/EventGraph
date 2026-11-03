@@ -17,6 +17,8 @@ services:
       NODE_ENV: production
       API_HOST: 0.0.0.0
       API_PORT: "3001"
+      # VM13 has no worker: allow only explicitly triggered admin model probes.
+      MODEL_CALLS_ENABLED: "true"
       AIHOT_DATA_DIR: /data
       AIHOT_RELEASE: ${EVENTGRAPH_PREVIEW_RELEASE:?Source commit required}
       EVENTGRAPH_PREVIEW_READONLY: "false"

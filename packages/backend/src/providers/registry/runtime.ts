@@ -77,6 +77,10 @@ export async function testRegisteredModel(id:string,capability:string,actor:stri
  const {m,c,fingerprint,snapshot}=await registeredRuntime(id);
  if(!m.probe_spec||m.probe_spec.capability!==capability||!m.capabilities.includes(capability as never))
   throw new ProviderConfigError('Configure a matching capability test request first','probeSpec');
+ // Fail before reserving a paid-request receipt: an inactive deployment or missing
+ // credential must never be reported as an uncertain upstream response.
+ if(!config.modelCallsEnabled)throw new ProviderConfigError('Model tests are disabled on this deployment (MODEL_CALLS_ENABLED=false)','connection',409);
+ if(!storedCredential(c))throw new ProviderConfigError('Configure the provider API key before testing','credential',409);
  const started=Date.now();let status='failed',detail='Response shape mismatch';
  try {
   const body={...m.request_defaults,...m.probe_spec.body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})};

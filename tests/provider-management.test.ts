@@ -12,6 +12,7 @@ import {switchModel} from '@aihot/backend/admin/models';
 import {modelFor,modelSources,invalidateModelCache,stepsOnService} from '@aihot/backend/editorial/models';
 import {chatJson} from '@aihot/backend/providers/llm';
 import type {ConnectionInput,ModelInput} from '@aihot/contracts/providers';
+import {ProviderConfigError} from '@aihot/backend/providers/registry/connection-types';
 import {buildApp} from '../apps/api/src/app.ts';
 const {MockAgent,getGlobalDispatcher,setGlobalDispatcher}=createRequire(new URL('../packages/backend/package.json',import.meta.url))('undici') as typeof import('undici');
 const prior={dispatcher:getGlobalDispatcher(),private:config.allowPrivateNetworkFetch,proxy:config.egressProxyUrl,admin:config.devAdmin};
@@ -58,6 +59,17 @@ test('display edits retain routing; model and connection changes save but block 
  assert.match((await getRegisteredModel(m.id)).routing.reasons.join(' '),/address/);
  await assert.rejects(requestRegisteredModel(m.id,'text',{}),/cannot route/);
  network.assertNoPendingInterceptors();
+});
+test('disabled deployment rejects a manual model test before reserving a receipt',async()=>{
+ const c=await createConnection(connection(),'test','test'),m=await createRegisteredModel(model(c.id),'test','test');
+ const previous=config.modelCallsEnabled;
+ config.modelCallsEnabled=false;
+ try {
+  await assert.rejects(testRegisteredModel(m.id,'text','test'),error=>
+   error instanceof ProviderConfigError&&/MODEL_CALLS_ENABLED=false/.test(error.message));
+  const [receipts]=await sql<{count:number}[]>\`SELECT count(*)::integer AS count FROM receipts WHERE subject=\${m.id+':text'}\`;
+  assert.equal(receipts!.count,0);
+ } finally {config.modelCallsEnabled=previous;}
 });
 test('test results authorize only their matching capability and configuration; stale in-flight tests do not restore routing',async()=>{
  const c=await createConnection(connection(),'test','test'),input=model(c.id,{capabilities:['text','vision']});
