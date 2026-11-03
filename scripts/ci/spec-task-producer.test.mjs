@@ -129,6 +129,33 @@ test("refuses a paused or incomplete native queue policy", () => {
   }), /default Worker pool/);
 });
 
+test("rejects unavailable Worker deployment and native payload overflow", () => {
+  const tasks = parseTasks(validTasks);
+  const unavailable = {
+    ...queueState,
+    deployments: {
+      default: {
+        "eventgraph-worker": {
+          current_ref: "c".repeat(40), current_contract: "d".repeat(64),
+          revisions: { ["c".repeat(40)]: { available: false } }
+        }
+      }
+    }
+  };
+  assert.throws(() => buildWorkGraph({
+    tasks, issues, queueState: unavailable, repo, repositoryId: "1416699488", specPath, specSha, specPrUrl
+  }), /no available installed deployment/);
+  const oversized = [{
+    id: "T001", title: "Large task", scope: "Large scope",
+    dependsOn: [], acceptanceCriteria: ["x".repeat(20000)]
+  }];
+  const largeIssues = new Map([["T001", issues.get("T001")]]);
+  assert.throws(() => buildWorkGraph({
+    tasks: oversized, issues: largeIssues, queueState, repo,
+    repositoryId: "1416699488", specPath, specSha, specPrUrl
+  }), /payload exceeds the native/);
+});
+
 test("creates stable Issue marker and full task body", () => {
   const task = parseTasks(validTasks)[0];
   const marker = taskMarker(specSha, specPath, task.id);
