@@ -149,6 +149,7 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
  const [modelId,setModelId]=useState(m?.modelId??'');
  const [adapter,setAdapter]=useState<ModelInput['adapter']>(m?.adapter??'chat');
  const [enabled,setEnabled]=useState(m?.enabled??true);
+ const [routeEnabled,setRouteEnabled]=useState(m?.routeEnabled??false);
  const [notes,setNotes]=useState(m?.notes??'');
  const [probeText,setProbeText]=useState(JSON.stringify(m?.probeSpec??probeFor(m?.adapter??'chat'),null,2));
  const [connectionName,setConnectionName]=useState(''),[vendor,setVendor]=useState('');
@@ -175,7 +176,7 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
     requestDefaults:m?.requestDefaults??{},probeSpec,
     stream:sameAdapter?(m?.stream??false):false,complexity:m?.complexity??'medium',
     documentationUrl:m?.documentationUrl??null,notes:notes||null,enabled,
-    routeEnabled:enabled&&sameAdapter&&providerId===m?.providerId?(m?.routeEnabled??false):false
+    routeEnabled:enabled&&sameAdapter&&providerId===m?.providerId?routeEnabled:false
    };
    const connection:ConnectionInput|null=providerId===NEW_CONNECTION?{
     name:connectionName.trim(),vendor:vendor.trim(),protocol:'openai-compatible',
@@ -217,6 +218,10 @@ function ModelDialog({editor,providers,busy,problem,onClose,onSave}:{
   <label className="flex items-center gap-2 text-sm">
    <input type="checkbox" disabled={disabled} checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> 启用模型
   </label>
+  {m&&<label className="flex items-center gap-2 text-sm">
+   <input type="checkbox" disabled={disabled||!enabled} checked={routeEnabled}
+    onChange={e=>setRouteEnabled(e.target.checked)}/> 允许工作流调用（需先通过模型测试）
+  </label>}
   <details className="text-sm">
    <summary className="cursor-pointer text-ink-3">测试配置（特殊模型可按需修改）</summary>
    <p className="mt-2 text-xs text-ink-3">普通对话和向量模型自动填入测试请求。其他类型可以填写专用请求，或保留 null。</p>

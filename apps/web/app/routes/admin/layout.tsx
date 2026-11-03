@@ -39,7 +39,8 @@ const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
       ...webModules().flatMap((m) => m.admin?.content ?? []),
     ] },
   { group: "模型服务", items: [
-      { to: "/admin/models", label: "Provider 与模型" },
+      { to: "/admin/models", label: "模型管理" },
+      { to: "/admin/model-bindings", label: "工作流模型绑定" },
     ] },
   { group: "效果", items: [
       { to: "/admin/analytics", label: "流量与效果" },

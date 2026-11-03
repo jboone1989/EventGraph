@@ -399,6 +399,13 @@ export interface AdminProviderProfile {
  version:number; updatedAt:string;
  checks:Array<{capability:string;status:string;verifiedAt:string|null;latencyMs:number|null}>;
 }
+/** Lightweight model choices for per-stage binding, refreshed from the registry on each request. */
+export interface AdminModelBindings {
+  steps: Array<{key:string;label:string;vision:boolean;current:{model:string;source:'admin'|'env'|'default'}}>;
+  choices: Array<{key:string;modelId:string;provider:string;kind:'preset'|'registered';adapter:string;
+    vision:boolean;textReady:boolean;visionReady:boolean;reasons:string[]}>;
+}
+
 export interface AdminModels {
   days: number;
   providers: AdminProviderProfile[];

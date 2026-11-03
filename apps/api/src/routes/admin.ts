@@ -8,7 +8,7 @@ import { actorOf } from "@aihot/backend/admin/auth";
 import { navCounts } from "@aihot/backend/admin/navigation";
 import { listAudit } from "@aihot/backend/audit";
 import { importSelectBenchRun, listSelectBenchRuns, selectBenchRun } from "@aihot/backend/admin/selectbench";
-import { modelsOverview, switchModel } from "@aihot/backend/admin/models";
+import { modelsOverview, modelBindingsOverview, switchModel } from "@aihot/backend/admin/models";
 import {listProviders,createProvider,updateProvider,deleteProvider} from "@aihot/backend/providers/registry/repository";
 import {isVerifiedFreeTrialProvider} from "@aihot/backend/providers/registry/types";
 import {probeConfiguredProvider} from "@aihot/backend/providers/registry/probe";
@@ -126,6 +126,7 @@ export function registerAdmin(app: FastifyInstance) {
 
 
   // Models and evaluation
+  app.get("/api/admin/model-bindings", adminHandler(async () => modelBindingsOverview()));
   app.get("/api/admin/models", adminHandler(async (req) => modelsOverview(Math.min(90, Number(q(req).days) || 7))));
   app.post("/api/admin/models/:capability", adminHandler(async (req, _reply, admin) => {
     const b = body<{ model: string | null; reason: string }>(req);
