@@ -140,7 +140,7 @@ test('a model without a probe still exposes test with actionable feedback',async
   const page=await browser.newPage();
   await page.goto(web.origin+'/admin/models');
   await page.getByRole('button',{name:'测试',exact:true}).click();
-  await expect(page.locator('p[role="status"]')).toContainText('尚未配置测试请求');
+  await expect(page.getByRole('status').filter({hasText:'尚未配置测试请求'})).toBeVisible();
   await expect(page.getByText('custom-model',{exact:true})).toBeVisible();
  }finally{await browser?.close();await web.stop();}
 });
