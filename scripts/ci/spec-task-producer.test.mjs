@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
   buildWorkGraph, canonical, completeTaskIssue, ensureTaskIssues, getSpecDirectory,
-  issueBody, parseTasks, parseWorkerPRBody, taskMarker, workId, processMergedCommit
+  issueBody, parseTasks, parseWorkerPRBody, taskMarker, workId, processMergedCommit, processDevelopRange
 } from "./spec-task-producer.mjs";
 
 const validTasks = [
@@ -251,6 +252,50 @@ test("does not re-close completed Issues and rejects unrelated closed Issues", a
   assert.equal((await completeTaskIssue({ api, repo, pr: { body } })).reason, "already-completed");
   const notPlanned = { ...completed, state_reason: "not_planned" };
   await assert.rejects(() => completeTaskIssue({ api: { request: async () => notPlanned }, repo, pr: { body } }), /other than completed/);
+});
+
+test("serial catch-up scans every first-parent commit after Producer installation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "eventgraph-range-"));
+  mkdirSync(join(root, "scripts", "ci"), { recursive: true });
+  execFileSync("git", ["-C", root, "init", "-q"]);
+  execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+  execFileSync("git", ["-C", root, "config", "user.name", "EventGraph Test"]);
+  writeFileSync(join(root, "scripts", "ci", "spec-task-producer.mjs"), "installed\n");
+  execFileSync("git", ["-C", root, "add", "."]);
+  execFileSync("git", ["-C", root, "commit", "-qm", "install producer"]);
+  writeFileSync(join(root, "README.md"), "first\n");
+  execFileSync("git", ["-C", root, "add", "."]);
+  execFileSync("git", ["-C", root, "commit", "-qm", "first develop commit"]);
+  writeFileSync(join(root, "README.md"), "second\n");
+  execFileSync("git", ["-C", root, "add", "."]);
+  execFileSync("git", ["-C", root, "commit", "-qm", "second develop commit"]);
+  const headSha = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  let closedPRLookups = 0;
+  let queueReads = 0;
+  const api = {
+    request: async path => {
+      assert.equal(path, "/repos/" + repo + "/branches/develop");
+      return { commit: { sha: headSha } };
+    },
+    paginate: async path => {
+      assert.ok(path.includes("/pulls?state=closed&base=develop"));
+      closedPRLookups++;
+      return [];
+    }
+  };
+  try {
+    const result = await processDevelopRange({
+      api, repo, headSha, root,
+      readQueueState: async () => { queueReads++; return queueState; }
+    });
+    assert.equal(result.scanned, 2);
+    assert.equal(result.results.length, 2);
+    assert.ok(result.results.every(item => item.kind === "no-associated-merged-pr"));
+    assert.equal(closedPRLookups, 1);
+    assert.equal(queueReads, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("Spec intake uses the exact merge SHA and builds its graph", async () => {
