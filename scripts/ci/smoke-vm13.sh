@@ -17,6 +17,7 @@ const assert = (condition, message) => { if (!condition) throw new Error(message
 const health = await (await fetch(root + "/api/health")).json();
 assert(health.ok === true && health.db === "ok", "VM13 health not ok: " + JSON.stringify(health));
 assert(health.release === release, `release ${health.release} != deployed ${release}`);
+assert(health.dbReadOnly === true, "VM13 PostgreSQL sessions are not read-only");
 
 // The preview points at production data, so login/notes-write probes are forbidden.
 // 2. The English archive should expose real English headlines in the API, not
