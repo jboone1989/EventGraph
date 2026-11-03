@@ -106,7 +106,7 @@ test('provider-first setup saves credentials and models, then offers verified mo
   await page.getByRole('dialog').getByRole('button',{name:'确认删除'}).click();
   await expect(page.getByText('deepseek-extra',{exact:true})).toHaveCount(0);
   await page.setViewportSize({width:390,height:844});
-  await expect(page.getByRole('button',{name:'工作流模型绑定'})).toBeVisible();
+  await expect(page.getByRole('link',{name:'工作流模型绑定'})).toBeVisible();
  }finally{await browser?.close();await web.stop();}
 });
 
