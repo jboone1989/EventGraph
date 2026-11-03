@@ -101,17 +101,18 @@ test('verification follows configuration fingerprints, including external creden
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.verifiedAt,null);
 });
 
-test('deletion reports concrete model/workflow dependencies and keeps enable separate',async()=>{
+test('deleting a bound model clears its workflow assignment and settings atomically',async()=>{
  const c=await createConnection(connection({enabled:false}),'test',actor);
  const m=await createRegisteredModel(model(c.id),'test',actor);
  const key='models.provider-test-'+randomUUID();
  await sql.begin(tx=>writeWorkflowModel(tx,key,m.id,actor));
- await assert.rejects(deleteRegisteredModel(m.id,m.version,'delete',actor),(e:unknown)=>
-  e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.kind==='workflow'&&d.id===key));
  await assert.rejects(deleteConnection(c.id,c.version,'delete',actor),(e:unknown)=>
   e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.kind==='model'&&d.id===m.id)&&e.dependencies.some(d=>d.id===key));
- await sql.begin(tx=>writeWorkflowModel(tx,key,null,actor));
  assert.deepEqual(await deleteRegisteredModel(m.id,m.version,'delete',actor),{deleted:true});
+ const [binding]=await sql`SELECT 1 FROM provider_workflow_models WHERE setting_key=${key}`;
+ const [setting]=await sql`SELECT 1 FROM settings WHERE key=${key}`;
+ assert.equal(binding,undefined);
+ assert.equal(setting,undefined);
  assert.deepEqual(await deleteConnection(c.id,c.version,'delete',actor),{deleted:true});
 });
 
