@@ -22,7 +22,7 @@ export const sql = postgres(config.databaseUrl, {
     jit: "off",
     // VM13 previews production data but must never write to it. The PostgreSQL
     // connection starts with read-only transactions; normal deployments are unchanged.
-    ...(process.env.EVENTGRAPH_PREVIEW_READONLY === "true" ? { default_transaction_read_only: "on" } : {}),
+    ...(process.env.EVENTGRAPH_PREVIEW_READONLY === "true" ? { default_transaction_read_only: true } : {}),
   },
   types: {
     int8: numberType(20),
