@@ -267,6 +267,7 @@ function ModelDialog({editor,busy,problem,onClose,onSave}:{
  const [modelId,setModelId]=useState(m?.modelId??'');
  const [adapter,setAdapter]=useState<ModelInput['adapter']>(m?.adapter??'chat');
  const [enabled,setEnabled]=useState(m?.enabled??true);
+ const [routeEnabled,setRouteEnabled]=useState(m?.routeEnabled??false);
  const [notes,setNotes]=useState(m?.notes??'');
  const [probeText,setProbeText]=useState(JSON.stringify(m?.probeSpec??probeFor(m?.adapter??'chat'),null,2));
  const [error,setError]=useState('');
@@ -287,7 +288,7 @@ function ModelDialog({editor,busy,problem,onClose,onSave}:{
    requestDefaults:m?.requestDefaults??{},probeSpec,
    stream:sameAdapter?(m?.stream??false):false,complexity:m?.complexity??'medium',
    documentationUrl:m?.documentationUrl??null,notes:notes||null,enabled,
-   routeEnabled:sameAdapter&&enabled?(m?.routeEnabled??false):false
+   routeEnabled:sameAdapter&&enabled?routeEnabled:false
   };
   await onSave(input,(m?'后台编辑模型：':'后台新增模型：')+modelId.trim());
  }
@@ -306,6 +307,8 @@ function ModelDialog({editor,busy,problem,onClose,onSave}:{
   </label>
   <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy}
    checked={enabled} onChange={e=>setEnabled(e.target.checked)}/> 启用模型</label>
+  {m&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy||!enabled}
+   checked={routeEnabled} onChange={e=>setRouteEnabled(e.target.checked)}/> 允许工作流使用（更换模型配置后需重新测试）</label>}
   <p className="text-xs text-ink-3">测试通过后，已启用的对话模型会自动允许在工作流绑定页面选择；不会自动修改现有绑定。</p>
   <details className="text-sm"><summary className="cursor-pointer text-ink-3">高级：模型测试配置</summary>
    <Textarea rows={5} disabled={busy} value={probeText} onChange={e=>setProbeText(e.target.value)}/>
