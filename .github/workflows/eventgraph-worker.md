@@ -56,7 +56,9 @@ safe-outputs:
     # push remains Claim-scoped and repository rules do not require signatures.
     signed-commits: false
 max-turns: 40
-max-ai-credits: -1
+# Pinned AWF v0.29.0 rejects the documented -1 disable sentinel at startup.
+# 10000 equals AWF's non-overridable hard cap, not an extra per-run limit.
+max-ai-credits: 10000
 timeout-minutes: 30
 jobs:
   agent:
