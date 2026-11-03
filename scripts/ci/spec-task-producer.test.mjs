@@ -29,8 +29,8 @@ const specSha = "a".repeat(40);
 const specPrUrl = "https://github.com/jboone1989/EventGraph/pull/500";
 const repo = "jboone1989/EventGraph";
 const issues = new Map([
-  ["T001", { number: 101, html_url: "https://github.com/" + repo + "/issues/101" }],
-  ["T002", { number: 102, html_url: "https://github.com/" + repo + "/issues/102" }]
+  ["T001", { id: 9001, number: 101, html_url: "https://github.com/" + repo + "/issues/101" }],
+  ["T002", { id: 9002, number: 102, html_url: "https://github.com/" + repo + "/issues/102" }]
 ]);
 const queueState = {
   grants_paused: false,
@@ -84,7 +84,7 @@ test("recognizes exactly one complete Spec directory from merged PR files", () =
 
 test("builds a native graph with policy-derived routing and completed Issue dependencies", () => {
   const tasks = parseTasks(validTasks);
-  const graph = buildWorkGraph({ tasks, issues, queueState, repo, specPath, specSha, specPrUrl, now: 1234 });
+  const graph = buildWorkGraph({ tasks, issues, queueState, repo, repositoryId: "1416699488", specPath, specSha, specPrUrl, now: 1234 });
   assert.equal(graph.length, 2);
   assert.equal(graph[0].worker_profile, "eventgraph-worker");
   assert.equal(graph[0].logical_contract, "b".repeat(64));
@@ -92,7 +92,10 @@ test("builds a native graph with policy-derived routing and completed Issue depe
   assert.deepEqual(graph[0].depends_on, []);
   assert.deepEqual(graph[1].depends_on, [{
     kind: "issue",
-    resource: { kind: "issue", host: "github.com", repository: repo, number: "101" },
+    resource: {
+      kind: "issue", host: "github.com", repository: repo,
+      repository_id: "1416699488", resource_id: "9001", number: "101"
+    },
     condition: "completed"
   }]);
   assert.deepEqual(graph[0].payload.effect_contract, {
@@ -229,10 +232,11 @@ test("Spec intake uses the exact merge SHA and builds its graph", async () => {
   const api = {
     request: async (path, options = {}) => {
       if (path.endsWith("/branches/develop")) return { commit: { sha: specSha } };
+      if (path === "/repos/" + repo) return { id: 1416699488 };
       if (path.endsWith("/pulls/500")) return mergedPr;
       if (path.endsWith("/issues") && options.method === "POST") {
         createdNumber++;
-        return { number: createdNumber, html_url: "https://github.com/" + repo + "/issues/" + createdNumber, body: options.body.body };
+        return { id: 9900 + createdNumber, number: createdNumber, html_url: "https://github.com/" + repo + "/issues/" + createdNumber, body: options.body.body };
       }
       throw new Error("Unexpected request: " + path);
     },
