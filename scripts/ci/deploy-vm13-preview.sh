@@ -65,8 +65,8 @@ image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")
 # egress path drops connections at peak, so both the address reads and the
 # host-key scan retry before giving up.
 # Pin the production host key for the tunnel: the runner verifies this
-# fingerprint (secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT) on its own hops, and the
-# same pin must authorize the VM13→production tunnel before the unit below
+# production fingerprint (secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT) separately, and the
+# dedicated pin must authorize the VM13→production tunnel before the unit below
 # connects. A known_hosts.prod written under the same pin stays valid — the
 # host key does not change between deploys, and re-scanning through the
 # peak-time egress window is exactly what failed a previous deploy — so an
