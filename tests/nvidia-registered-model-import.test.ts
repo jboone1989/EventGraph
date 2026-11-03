@@ -105,6 +105,7 @@ test('official smoke sync updates untouched bootstrap configurations and preserv
    WHERE provider_id=${CID}::uuid AND model_id='openai/gpt-oss-20b'`;
   const res=await importNvidiaModels();
   assert.equal(res.status,'already-reconciled');
+  assert.ok(res.smoke);
   assert.equal(res.smoke.status,'synced');
   assert.equal((res.smoke.summary as {updated:number}).updated,2);
   const changed=await sql<{model_id:string;adapter:string;probe_spec:{body:{max_tokens:number;reasoning_effort?:string}};timeout_override_ms:number;version:number}[]>`
@@ -119,6 +120,7 @@ test('official smoke sync updates untouched bootstrap configurations and preserv
   assert.equal(byId.get('openai/gpt-oss-20b')?.timeout_override_ms,60000);
   assert.equal(byId.get('openai/gpt-oss-20b')?.version,2);
   const repeat=await importNvidiaModels();
+  assert.ok(repeat.smoke);
   assert.equal(repeat.smoke.status,'already-synced');
  }finally{
   if(oldMode===undefined)delete process.env.EVENTGRAPH_PREVIEW_MODE;
