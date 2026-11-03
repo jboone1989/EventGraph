@@ -22,7 +22,7 @@ Inspected EventGraph `develop`, `main`, and the pinned upstream GH-AW v1.0.1 sou
 
 - `gh aw work-queue submit-graph --file <path>` atomically admits 1–256 complete normalized Work nodes: [work_command.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/cli/work_command.go).
 - Work identity is derived from canonical `graph_id` and `node_key`; normalized Work includes `depends_on`, routing fields, payload and enqueue time: [work_queue_graph.cjs](https://github.com/github/gh-aw/blob/0627fdb/actions/setup/js/work_queue_graph.cjs).
-- Admission resolves external Issue/PR references and verifies their repository/resource identity before committing the graph: [work_queue_dispatch.cjs](https://github.com/github/gh-aw/blob/0627fdb/actions/setup/js/work_queue_dispatch.cjs) and [work_queue_dependency_resolver.cjs](https://github.com/github/gh-aw/blob/0627fdb/actions/setup/js/work_queue_dependency_resolver.cjs).
+- GH-AW v1.0.1 accepts normalized external resources with repository and resource database IDs; the Producer resolves those IDs from GitHub REST before submission, and the native CLI/replayer validates them: [work_queue_graph.cjs](https://github.com/github/gh-aw/blob/0627fdb/actions/setup/js/work_queue_graph.cjs), [types.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/workqueue/types.go), and [dependencies.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/workqueue/dependencies.go).
 - Issue dependency condition `completed` is satisfied only when the Issue is closed with GitHub state reason `completed`; a generic close or `not_planned` does not satisfy it: [dependencies.go](https://github.com/github/gh-aw/blob/0627fdb/pkg/workqueue/dependencies.go).
 - GH-AW documents Issues as external dependency nodes, not queue storage: [Work Queue operations](https://github.com/github/gh-aw/blob/0627fdb/docs/src/content/docs/patterns/workqueue-ops.md).
 
@@ -32,16 +32,17 @@ Inspected EventGraph `develop`, `main`, and the pinned upstream GH-AW v1.0.1 sou
 
 Add `scripts/ci/spec-task-producer.mjs` and focused Node tests. Keep parsing, dependency validation, stable marker generation, idempotent Issue lookup/creation and normalized Work Graph construction in small pure functions with an injectable GitHub API client. Use Node built-ins only; add no package dependency and make no model call.
 
-The producer reads the exact approved merge SHA and the three Spec files from the checked-out `develop` tree. It validates the complete task graph before writing any Issue. It creates/reuses Issues using the stable `spec_sha + spec_path + task_id` marker and adds the existing `agent-work` label. It then reads the live GH-AW Queue Policy, builds normalized Work nodes using the installed default profile and submits the entire graph with the pinned CLI.
+The producer scans first-parent merge commits after its own installation commit and reads each candidate Spec file from that exact historical merge SHA using `git show`. It validates the complete task graph before writing any Issue. It creates/reuses Issues using the stable `spec_sha + spec_path + task_id` marker and adds the existing `agent-work` label. It then reads the live GH-AW Queue Policy, builds normalized Work nodes using the installed default profile and submits the entire graph with the pinned CLI.
 
 ### Existing Check continuation
 
 Extend `resume_native_queue` in `.github/workflows/check.yml`:
 
 1. Check out the exact SHA and install Node 24.
-2. On a successful `develop` push, identify the unique merged same-repository PR associated with the exact SHA. Run the Producer only for a qualifying owner-merged Spec PR.
-3. For a successful merged `agent-work` PR, validate the task Issue marker and close the Issue with reason `completed`.
-4. Retain the existing exact-current-head, no-open-agent-PR, native-queue-stats and one-dispatch checks.
+2. On a successful current-head `develop` push, scan first-parent merge commits since the Producer installation commit in chronological order. For each commit, resolve its unique merged same-repository PR; admit only qualifying owner-merged Spec PRs.
+3. Resolve repository and Issue database IDs through the GitHub API before constructing normalized external Issue dependencies. The native CLI validates the complete resource identities.
+4. For each merged `agent-work` PR in the scanned range, validate the task Issue marker and close the Issue with reason `completed`.
+5. Retain the existing exact-current-head, no-open-agent-PR, native-queue-stats and one-dispatch checks.
 
 Do not make the Producer run on arbitrary `workflow_dispatch` calls. Do not duplicate the Dispatcher or add scheduled triggers.
 
