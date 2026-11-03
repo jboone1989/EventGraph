@@ -1,9 +1,6 @@
 #!/bin/sh
 # Executed on the VM13 development host after the preview deployment. Accepts the
-# deployed release, the production-data backend (reached through the database
-# tunnel), admin availability, a non-destructive editorial-note write/read round
-# trip, and browser page checks. Every request goes to the VM13 preview URL or
-# the local Docker database; no other environment is contacted.
+# deployed release and read-only public site data without changing production state.
 set -eu
 : "${EVENTGRAPH_PREVIEW_URL:?missing VM13 preview URL}"
 : "${EVENTGRAPH_PREVIEW_RELEASE:?missing deployed release SHA}"
@@ -14,7 +11,15 @@ import { chromium } from "@playwright/test";
 
 const root = process.env.EVENTGRAPH_PREVIEW_URL.replace(/\/$/, "");
 const release = process.env.EVENTGRAPH_PREVIEW_RELEASE;
-// This smoke is strictly read-only: password login inserts sessions/audit rows.
+const adminPassword = process.env.EVENTGRAPH_ADMIN_PASSWORD;
+const assert = (condition, message) => { if (!condition) throw new Error(message); };
+
+// 1. Health with the deployed source SHA and a live database round trip.
+const health = await (await fetch(root + "/api/health")).json();
+assert(health.ok === true && health.db === "ok", "VM13 health not ok: " + JSON.stringify(health));
+assert(health.release === release, `release ${health.release} != deployed ${release}`);
+
+// The preview points at production data, so login/notes-write probes are forbidden.
 // 4. The English archive should expose real English headlines in the API, not
 // only the uniform date fallback. Source-original English titles are accepted.
 const dailyRes = await fetch(root + "/api/site/reports/daily?en=1");
@@ -63,10 +68,6 @@ try {
     }
   }
 
-} finally {
-      await context.close();
-    }
-  }
 } finally {
   await browser.close();
 }
