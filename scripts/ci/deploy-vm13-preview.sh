@@ -1,8 +1,7 @@
 #!/bin/sh
-# Deploy a tested develop digest to VM13 as development Web + API. The API reaches
-# the production PostgreSQL and knowledge service through an on-host SSH tunnel to
-# the production host. The development environment runs no worker or database of
-# its own: collection and judging happen only in the production stack.
+# Deploy the develop Web/API using the existing production database, including
+# explicit operator-approved admin writes. Keep production host/worker untouched,
+# with no preview worker, migration, seeding or second maintenance scheduler.
 set -eu
 : "${EVENTGRAPH_IMAGE:?immutable GHCR digest required}"
 : "${EVENTGRAPH_PREVIEW_RELEASE:?release SHA required}"
@@ -162,12 +161,13 @@ wait_for_db() {
 }
 wait_for_db || { echo "Database tunnel did not become ready" >&2; restore; }
 
-# Use the Compose file from this exact tested release, including the preview's
-# read-only database setting. Preserve the previous file for a failure rollback.
+# Use the exact tested Compose file. Keep the prior file for rollback.
 cp "$staged_compose" "$compose_file"
 
-# A development preview consumes production data read-only. Production migrations
-# and source seeding belong only to the separately gated production release.
+# Prove this database role can write without leaving production changes. The probe
+# INSERT and readback happen in one transaction that always rolls back. Production
+# migrations and source seeding still belong only to the production release.
+compose run --rm --no-deps api node scripts/ci/vm13-db-write-probe.ts || restore
 
 compose up -d --no-build --pull never --force-recreate --remove-orphans api web || restore
 for service in api web; do
@@ -183,6 +183,10 @@ i=0
 while [ "$i" -lt 40 ]; do
   if curl -fsS --max-time 8 http://127.0.0.1/api/health >/dev/null \
      && curl -fsS --max-time 8 -o /dev/null http://127.0.0.1/; then
+    # One-time, idempotent operator-approved import of the historical NVIDIA
+    # catalogue into registered_models. No schema migration and no workflow
+    # activation; a database transaction and completion marker prevent repeats.
+    compose run --rm --no-deps api node scripts/import-nvidia-registered-models.ts || restore
     printf '%s\n' "$EVENTGRAPH_IMAGE" > .eventgraph-vm13-last-good-image
     echo "VM13 preview updated: $EVENTGRAPH_IMAGE"
     exit 0

@@ -1,9 +1,13 @@
-# VM13 development preview · production data, read-only
+# VM13 development preview · production database, writable by administrator
 
-**Development preview, never a production deployment.** As of the operator's
-2026-11-02 topology change, VM13 runs only the develop Web and API; neither
-VM13 nor cn-dev runs a development database or collection worker. VM09 remains
-the production service host and is not updated by this workflow.
+**Development build, but REAL production data.** The operator explicitly approved
+admin writes from VM13 on 2026-11-03, rather than paying for a separate dev DB.
+VM13 hosts only the develop Web/API; it connects to the existing VM09 production
+PostgreSQL over the pinned private SSH tunnel. No extra VM, DB or preview worker
+is created. Changes made via the preview admin (providers, API credentials,
+model bindings, editorial notes and other mutable records) immediately affect
+**production data**. Preview code can differ from the production app, so do not
+experiment with destructive actions or unsupported schema in this interface.
 
 | Host | Responsibility |
 | --- | --- |
@@ -13,7 +17,7 @@ the production service host and is not updated by this workflow.
 
 Preview URL: http://43.133.185.154/.
 
-## Private data path and hard read-only boundary
+## Private data path and writable administration
 
 VM13 opens an SSH tunnel to the production data host; it binds PostgreSQL on
 VM13 loopback and the Docker bridge gateway only. The VM13 Compose service
@@ -30,14 +34,32 @@ Host identity checks are distinct:
   An absent or mismatched pin aborts the release; `ssh-keyscan` only retrieves
   candidates and does not establish trust.
 
-VM13's API sets `EVENTGRAPH_PREVIEW_READONLY=true`. Postgres.js starts its
-database sessions with `default_transaction_read_only`; the health endpoint
-reports the **live** session's `dbReadOnly`, which acceptance requires to be
-`true`. The preview omits database heartbeat/watchdog updates and analytics
-storage. It runs **no** `migrate.ts` or `seed.ts`, and the smoke check performs
-**no** login, note-write or other state-mutating probes against the production
-database. Schema changes and seeding are managed by production's separately
-gated release, not by the development preview.
+VM13 uses `EVENTGRAPH_PREVIEW_READONLY=false` and
+`EVENTGRAPH_PREVIEW_MODE=true`: the former permits PostgreSQL write
+transactions; the latter prevents the preview API from starting another
+heartbeat or worker watchdog. The preview runs **no** `migrate.ts`,
+`seed.ts` or worker. Schema changes belong only to the separately gated
+production release. Newly developed features requiring tables not yet present
+in production may remain unavailable until their production schema release.
+
+Before restarting Web/API, VM13 runs `scripts/ci/vm13-db-write-probe.ts`
+inside the exact image/container environment. This inserts a uniquely named
+settings row, reads it back, and **always ROLLBACKs**, leaving no record.
+Missing write permission or a read-only DB session fails deployment and rolls
+the preview services back. Public browser smoke requires
+`/api/health.dbReadOnly === false` plus the exact deployed SHA; it remains
+non-mutating. The DB tunnel and port exposure do not change.
+
+**Shared encryption-key requirement:** Provider API keys written to the shared
+production database must decrypt on the production worker as well as VM13.
+Set the **same** `MODEL_CREDENTIAL_ENCRYPTION_KEY` securely in both VM13
+`vm13.env` and VM09 production API/worker environments, and preserve it across
+restarts and backups. An automatically generated key on VM13's local /data
+volume is **not** automatically shared with VM09. Do not paste keys into the
+repository or GitHub logs. This setting is separate from PostgreSQL write
+permission; without a shared key, cross-host use of newly saved credentials
+is not verified. The preview URL currently uses HTTP; configure HTTPS before
+entering real production API secrets through a public network.
 
 The host-only `vm13.env` provides the database connection and existing API
 credentials; it is never committed. Do not add production credentials to the
@@ -53,14 +75,16 @@ repository or to cn-dev.
    It compares their image IDs against the published digest and checks health;
    on failure it restores the previous Compose and image.
 3. `e2e_vm13_preview` runs in GitHub-hosted Actions, using the pinned
-   Playwright image to check the deployed source SHA, `db: ok`, `dbReadOnly: true`, public daily archive and knowledge endpoints,
-   and Chromium zh/en desktop/mobile pages. This is intentionally read-only.
+   Playwright image to check the deployed source SHA, `db: ok`,
+   `dbReadOnly: false`, public daily archive and knowledge endpoints,
+   and Chromium zh/en desktop/mobile pages. The deploy already proved writes
+   through a rolled-back transaction.
 
-**Acceptance after the 2026-11-02 topology change:** the old Spec 008
-requirements for a private cn-dev database, VM13 migrations/seeding, password
-session creation, and admin notes write/readback are no longer valid for a
-production-backed preview. These checks would mutate production data; the
-non-mutating checks and live read-only assertion above supersede them.
+**Acceptance after the 2026-11-03 decision:** no separate cn-dev DB or worker;
+no preview migrations/seeding. The transactional write/readback/rollback probe
+replaces any earlier permanently mutating admin-note smoke. Do not infer that
+`develop` deploy has upgraded production schema, or that its admin edits are
+isolated from live operations.
 
 No cn-dev SSH connection, development database, or cn-dev Playwright installation is required.
 

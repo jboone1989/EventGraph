@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   buildWorkGraph, canonical, completeTaskIssue, ensureTaskIssues, getSpecDirectory,
-  issueBody, parseTasks, parseWorkerPRBody, taskMarker, workId, processMergedCommit, processDevelopRange
+  issueBody, parseTasks, parseWorkerPRBody, taskMarker, workId, processMergedCommit, processDevelopRange, readNativeQueueState
 } from "./spec-task-producer.mjs";
 
 const validTasks = [
@@ -58,6 +58,39 @@ const queueState = {
     }
   }
 };
+
+test("accepts official GH-AW replay JSON emitted on stderr", () => {
+  const projection = { policy: queueState.policy, works: {}, grants_paused: false };
+  let called = false;
+  const value = readNativeQueueState(repo, (command, args, options) => {
+    called = true;
+    assert.equal(command, "gh");
+    assert.deepEqual(args, ["aw", "work-queue", "--repo", repo, "replay", "--json"]);
+    assert.equal(options.encoding, "utf8");
+    return { status: 0, stdout: "", stderr: JSON.stringify(projection) };
+  });
+  assert.equal(called, true);
+  assert.deepEqual(value, projection);
+});
+
+test("accepts official GH-AW replay JSON emitted on stdout", () => {
+  const projection = { works: {}, admission_paused: false };
+  assert.deepEqual(readNativeQueueState(repo, () => ({
+    status: 0, stdout: JSON.stringify(projection), stderr: ""
+  })), projection);
+});
+
+test("fails closed for nonzero replay or missing JSON", () => {
+  assert.throws(() => readNativeQueueState(repo, () => ({
+    status: 1, stdout: "", stderr: "{ }"
+  })), /replay failed/);
+  assert.throws(() => readNativeQueueState(repo, () => ({
+    status: 0, stdout: "", stderr: ""
+  })), /returned no JSON/);
+  assert.throws(() => readNativeQueueState(repo, () => ({
+    status: 0, stdout: "", stderr: "not-json"
+  })), /malformed JSON/);
+});
 
 test("parses canonical task blocks and preserves dependency order", () => {
   const tasks = parseTasks(validTasks);
@@ -127,6 +160,37 @@ test("skips a legacy owner-approved Spec PR without a work-intake contract", asy
     readQueueState: async () => { throw new Error("Legacy Spec must not read queue state"); }
   });
   assert.equal(result.kind, "not-auto-intake-spec");
+});
+
+test("skips a lightweight owner-approved Spec with no plan or tasks without blocking develop", async () => {
+  const approved = {
+    number: 328, merged_at: "2026-11-03T10:40:00Z", merge_commit_sha: specSha,
+    merged_by: { login: "jboone1989" },
+    base: { ref: "develop", repo: { full_name: repo } },
+    head: { ref: "spec/vm13-writable-production-preview", repo: { full_name: repo } }, labels: []
+  };
+  const api = {
+    request: async path => {
+      if (path.endsWith("/pulls/328")) return approved;
+      throw new Error("Lightweight Spec must not request Issues or Work: " + path);
+    },
+    paginate: async path => {
+      if (path.includes("/pulls?state=closed")) return [approved];
+      if (path.includes("/pulls/328/files")) return [
+        { filename: "specs/vm13-writable-preview/spec.md" }
+      ];
+      throw new Error("Lightweight Spec must not request Issues or Work: " + path);
+    }
+  };
+  const result = await processMergedCommit({
+    api, repo, headSha: specSha,
+    readFileAtCommit: (_sha, path) => {
+      assert.equal(path, "specs/vm13-writable-preview/spec.md");
+      return "**Status:** Owner-approved (2026-11-03).\\n";
+    },
+    readQueueState: async () => { throw new Error("Lightweight Spec must not read queue state"); }
+  });
+  assert.equal(result.kind, "lightweight-approved-spec");
 });
 
 test("rejects a declared auto-intake Spec that omits tasks.md", async () => {

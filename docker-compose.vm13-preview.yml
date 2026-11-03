@@ -1,8 +1,7 @@
-# VM13: Web and API from the tested develop image; no worker or database here.
-# The API reads production data only through a pinned-host-key SSH tunnel.
-# devdb is the VM13 Docker gateway alias to the local 15432 tunnel endpoint;
-# it is NOT a separate development database on cn-dev. This preview's PostgreSQL
-# sessions are read-only and it never runs migrations or seeds.
+# VM13: develop Web/API using the existing production database over a private tunnel.
+# Administrative writes intentionally affect production data. No worker or database
+# runs on VM13, and preview deploys do not run migrations or seeds.
+# devdb is only the VM13 gateway alias to the production DB tunnel.
 # Configuration: docs/vm13-preview.md.
 name: eventgraph-vm13-preview
 services:
@@ -20,7 +19,8 @@ services:
       API_PORT: "3001"
       AIHOT_DATA_DIR: /data
       AIHOT_RELEASE: ${EVENTGRAPH_PREVIEW_RELEASE:?Source commit required}
-      EVENTGRAPH_PREVIEW_READONLY: "true"
+      EVENTGRAPH_PREVIEW_READONLY: "false"
+      EVENTGRAPH_PREVIEW_MODE: "true"
     volumes:
       - data:/data
     mem_limit: 768m
