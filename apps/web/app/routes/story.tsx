@@ -297,6 +297,8 @@ export default function StoryPage() {
   const entry = useLocation().key;
   const [filter, setFilter] = useState<Filter>(() => viewCache.peek(entry)?.filter ?? "all");
   const [order, setOrder] = useState<Order>(() => viewCache.peek(entry)?.order ?? "desc");
+  const [expandedRelatedId, setExpandedRelatedId] = useState<string | null>(null);
+  const relatedExpanded = expandedRelatedId === story.publicId;
   // A document the browser reloaded on back/forward gets the view back after hydration.
   useEffect(() => {
     if (viewCache.peek(entry) || isReload()) return;
@@ -445,6 +447,29 @@ export default function StoryPage() {
             )}
           </Panel>
 
+          {story.related.length > 0 && (
+            <Panel title={t("关联事件","Related events")} right={<span className="num">{story.related.length}</span>} className="order-2">
+              <ul className="-my-1 divide-y divide-line-soft">
+                {story.related.slice(0, relatedExpanded ? story.related.length : 3).map((r) => (
+                  <li key={r.publicId}>
+                    <Link viewTransition to={`${uiLang === "en" ? "/en" : ""}/story/${r.publicId}`} className="group flex items-baseline gap-3 py-3">
+                      <span className="shrink-0 text-[12px] text-ink-4">{r.relation === "storyline" ? t("同一故事线","Same storyline") : t("相关事件","Related event")}</span>
+                      <span className="min-w-0 flex-1 text-[14.5px] font-medium text-ink-2 transition-colors group-hover:text-accent">{uiLang === "en" ? (englishText(r.title) ?? "Related event") : r.title}</span>
+                      <IconChevronRight size={14} className="shrink-0 self-center text-ink-4" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              {story.related.length > 3 && (
+                <button type="button" aria-expanded={relatedExpanded}
+                  onClick={() => setExpandedRelatedId(relatedExpanded ? null : story.publicId)}
+                  className="mt-3 min-h-9 text-[13px] font-semibold text-accent hover:underline">
+                  {relatedExpanded ? t("收起关联事件", "Show fewer") : t(`查看更多（${story.related.length - 3}）`, `Show ${story.related.length - 3} more`)}
+                </button>
+              )}
+            </Panel>
+          )}
+
           {story.timeline.length > 0 && (
             <div className="order-2 rounded-panel border border-line-soft bg-bg-sunk/30 px-4 py-3">
               <Link to={`${uiLang === "en" ? "/en" : ""}/explore?story=${encodeURIComponent(story.publicId)}`}
@@ -513,21 +538,6 @@ export default function StoryPage() {
             </Panel>
           )}
 
-          {story.related.length > 0 && (
-            <Panel title={t("关联事件","Related events")} className="order-6">
-              <ul className="-my-1 divide-y divide-line-soft">
-                {story.related.map((r) => (
-                  <li key={r.publicId}>
-                    <Link viewTransition to={`/story/${r.publicId}`} className="group flex items-baseline gap-3 py-3">
-                      <span className="shrink-0 text-[12px] text-ink-4">{r.relation === "storyline" ? t("同一故事线","Same storyline") : t("相关事件","Related event")}</span>
-                      <span className="min-w-0 flex-1 text-[14.5px] font-medium text-ink-2 transition-colors group-hover:text-accent">{uiLang === "en" ? (englishText(r.title) ?? "Related event") : r.title}</span>
-                      <IconChevronRight size={14} className="shrink-0 self-center text-ink-4" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          )}
         </div>
 
         <aside className="order-6 flex min-w-0 flex-col gap-4 lg:order-none lg:gap-5">
