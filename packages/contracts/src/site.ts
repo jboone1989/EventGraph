@@ -204,6 +204,8 @@ export interface SiteItemDetail extends ItemSummary {
   /** Absent in answers cached before the explainer shipped; null while no explanation matches the current copy. */
   explanation?: ItemExplanation | null;
   hasTranslation: boolean;
+  /** This English-edition body is translated from the Chinese publisher original. */
+  englishBodyTranslated?: boolean;
   bodyLanguage: "zh" | "original";
 }
 

@@ -19,6 +19,8 @@ interface DetailRow extends ItemRow {
   body_status: string;
   tr_html: string | null;
   tr_complete: boolean | null;
+  en_tr_html: string | null;
+  en_tr_complete: boolean | null;
   topics: string[];
   story_id: number | null;
   explanation: ItemExplanation | null;
@@ -47,8 +49,10 @@ function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
 async function loadRow(id: string, language: "zh" | "original" = "zh", explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
+      en_tr.body_html AS en_tr_html, en_tr.complete AS en_tr_complete,
       st.id AS story_id, ${topicMembership()} AS topics, ie.content AS explanation
     ${ITEM_FROM}
+    LEFT JOIN translations en_tr ON en_tr.article_id = p.article_id AND en_tr.lang = 'en' AND en_tr.revision >= a.revision
     LEFT JOIN item_explanations ie ON ie.article_id = p.article_id AND ie.outcome = 'written' AND ie.inputs_hash = ${EXPLAIN_ITEM_INPUTS} AND ${EXPLAINABLE_PUBLICATION}
       AND ie.language = ${explanationLanguage}
     WHERE p.article_id = ${id}`;
@@ -137,16 +141,27 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     const post = xView(row, false, true);
     const text = String(row.x_post?.text ?? row.body_text ?? "");
     // A post's text is sent as written: its headings make the outline, without anchors.
-    if (post?.translation || text.trim()) reading = readingBody(language, post?.translation ? { html: textToHtml(post.translation), kind: "translation" } : null, text.trim() ? textToHtml(text) : null, true,
-      (html) => ({ html, outline: withOutline(html).outline }));
+    if (post?.translation || text.trim()) {
+      const englishEditionOfChinese = language === "original" && explanationLanguage === "en" && isChineseBody(row);
+      reading = readingBody(language,
+        post?.translation ? { html: textToHtml(post.translation), kind: "translation" } : null,
+        englishEditionOfChinese ? row.en_tr_html : text.trim() ? textToHtml(text) : null,
+        englishEditionOfChinese ? row.en_tr_complete ?? false : true,
+        (html) => ({ html, outline: withOutline(html).outline }));
+    }
     if (post) {
       const { text: _text, translation: _translation, ...shown } = post;
       x = shown;
     }
   } else if (row.body_mode === "full" && row.body_html) {
     const chinese = isChineseBody(row);
-    const zh = chinese ? { html: row.body_html, kind: "original" as const } : row.tr_html ? { html: row.tr_html, kind: "translation" as const } : null;
-    reading = readingBody(language, zh, chinese ? null : row.body_html, chinese ? true : row.tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
+    if (chinese && language === "original" && explanationLanguage === "en") {
+      reading = readingBody("original", null, row.en_tr_html, row.en_tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
+    } else {
+      const zh = chinese ? { html: row.body_html, kind: "original" as const } : row.tr_html ? { html: row.tr_html, kind: "translation" as const } : null;
+      reading = readingBody(language, zh, chinese ? (language === "original" ? row.body_html : null) : row.body_html,
+        chinese ? true : row.tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
+    }
   }
 
   let group: SiteItemDetail["group"] = null;
@@ -187,6 +202,7 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     storyContext: row.story_id ? await storyContextFor(row.story_id, now) : null,
     explanation: shownExplanation(row.explanation),
     hasTranslation: reading.hasTranslation,
+    englishBodyTranslated: language === "original" && explanationLanguage === "en" && isChineseBody(row) && !!row.en_tr_html,
     bodyLanguage: reading.bodyLanguage,
   };
   return { kind: "found", item, row };
