@@ -52,7 +52,7 @@ export async function modelsOverview(days = 7): Promise<BeforeJson<AdminModels>>
       WHERE a.started_at >= ${since} AND a.origin = 'live' AND a.model IS NOT NULL
       GROUP BY 1, 2, 3 ORDER BY 1, 4 DESC`,
     sql<{ service: string; model: string; currency: string; input_per_mtok: string | null; cached_per_mtok: string | null; output_per_mtok: string | null }[]>`
-      SELECT service, model, currency, input_per_mtok, cached_per_mtok, output_per_mtok FROM service_prices`,
+      SELECT service, model, currency, input_per_mtok, cached_per_mtok, output_per_mtok, updated_at FROM service_prices`,
     sql<BeforeJson<AdminModels["history"][number]>[]>`
       SELECT created_at AS at, actor, subject, reason, before, after FROM audit_log WHERE action = 'models.switch' ORDER BY created_at DESC LIMIT 30`,
     sql<{ id: string; label: string; sample_size: number; prompt_version: string | null; models: string[]; summary: unknown; created_at: Date }[]>`
