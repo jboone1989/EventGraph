@@ -7,6 +7,23 @@ A release uses **one** application image: push to `develop` (or validated exact-
 - A push to `main` runs `promote` only. Its `.github/production-image.env` pins both the successful develop SOURCE_SHA and digest; promotion requires successful `check`, `e2e`, `publish` results for that SHA, unchanged application inputs, and an existing digest. The main push never builds a second image.
 - The `deploy_production` job runs only if `EVENTGRAPH_PROD_AUTO_DEPLOY=true` is configured. It invokes the existing VM09 `scripts/deploy-prod.sh`. With no configured production SSH, run that script on VM09 through an authorized operator; **merging to main by itself does not deploy**.
 
+## Repository-owned PR review
+
+EventGraph owns its GLM review workflow (`.github/workflows/eventgraph-glm-review.yml`) and review rubric
+(`.github/review/claude-review-checklist.md`). The trusted `.github/workflows/claude-pr-dispatch.yml`
+runs after a successful PR-related Check and calls that workflow **inside EventGraph**, with
+`GLM_API_KEY` from EventGraph's own repository secrets. The reviewer verifies the exact
+successful Check run, current PR HEAD and live target branch, reads only source/diff, and
+posts the existing required `claude-review` status. A previously successful review may
+be reused only for the same HEAD and live base SHA.
+
+GitHub loads `workflow_run` definitions from the default branch (`main`): merging to
+`develop` stages this configuration but does **not** switch the live review pipeline.
+Enable it only through an explicit normal main promotion with production rollout controlled
+separately; do not delete the former central reviewer until the local job has run on a
+real PR and emitted the required `claude-review` status. Other repositories own their
+own review and release workflows.
+
 ## Selective checks by change scope
 
 A `changes` job classifies each change range with `scripts/ci/scope-changes.mjs`, which
