@@ -12,8 +12,13 @@ export const meta:Route.MetaFunction=()=>[{title:"模型管理 · "+SITE.name+" 
 export default function ModelsAdmin({loaderData}:Route.ComponentProps){
  const {run,busy}=useAdminAction();
  return <AdminPage title="模型管理" subtitle="模型 CRUD：模型 ID 关联厂商连接；每行单独测试。"
-  actions={<Button disabled={busy} onClick={()=>void run("POST","/api/admin/provider-models/cache/refresh",{},
-   {success:"已清空本服务的模型缓存"})}>刷新模型</Button>}>
+  actions={<div className="flex flex-wrap gap-2">
+   {loaderData.providers.filter(p=>p.vendor.toLowerCase()==="openrouter").map(p=>
+    <Button key={p.id} disabled={busy} onClick={()=>void run("POST","/api/admin/providers/"+p.id+"/openrouter-free/sync",{},
+     {success:"已同步 OpenRouter 免费模型（包含 openrouter/free）"})}>同步 OpenRouter 免费模型</Button>)}
+   <Button disabled={busy} onClick={()=>void run("POST","/api/admin/provider-models/cache/refresh",{},
+    {success:"已清空本服务的模型缓存"})}>刷新模型</Button>
+  </div>}>
   <RegisteredModelsAdmin data={loaderData}/>
  </AdminPage>;
 }

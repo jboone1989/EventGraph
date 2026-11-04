@@ -7,10 +7,13 @@ import {listConnections,loadConnection,connectionView,createConnection,updateCon
 import type {ConnectionInput,ModelInput} from '@aihot/backend/providers/registry/connection-types';
 import {discoverModels,testConnection,testRegisteredModel} from '@aihot/backend/providers/registry/runtime';
 import {importModels} from '@aihot/backend/providers/registry/import';
+import {syncOpenRouterFreeModels} from '@aihot/backend/providers/registry/openrouter-free-sync';
 import {adminHandler} from './admin-auth.ts';
 import {body,param} from './admin.ts';
 
 export function registerProviderConnections(app:FastifyInstance) {
+ app.post('/api/admin/providers/:id/openrouter-free/sync',adminHandler(async(req,_reply,admin)=>
+  syncOpenRouterFreeModels(param(req,'id'),actorOf(admin))));
  // Explicit operator refresh: no polling, notifications or automatic sync.
  app.post('/api/admin/provider-models/cache/refresh',adminHandler(async()=>{
   clearRegisteredModelCache();invalidateModelCache();
