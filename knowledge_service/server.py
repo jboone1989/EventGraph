@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
     nvidia_base = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
     llm_key = os.environ.get("GRAPHITI_LLM_API_KEY") or nvidia_key
     llm_base = os.environ.get("GRAPHITI_LLM_BASE_URL") or nvidia_base
-    model = os.environ.get("GRAPHITI_LLM_MODEL") or "openai/gpt-oss-20b"
+    model = os.environ.get("GRAPHITI_LLM_MODEL") or ("deepseek-chat" if llm_base != nvidia_base else "openai/gpt-oss-20b")
     llm = OpenAIGenericClient(config=LLMConfig(
         api_key=llm_key, base_url=llm_base, model=model, small_model=model, max_tokens=4096,
     ))
