@@ -128,7 +128,8 @@ async function effectiveChoice(c:Capability,admin?:string):Promise<{model:string
 export async function modelFor(capability: CapabilityKey | (string & {})): Promise<string> {
   const c = capabilities()[capability];
   if (!c) throw new Error(`unknown model step: ${capability}`);
-  const chosen=(await effectiveChoice(c,(await overrides())[capability])).model;
+  const saved=await overrides();
+  const chosen=(await effectiveChoice(c,saved[capability]??saved.default)).model;
   if(chosen.startsWith('model:')){await registeredRuntime(chosen.slice(6),c.vision?'vision':'text');return chosen;}
   if (process.env.NVIDIA_MODEL_POOL_ENABLED === "true") {
     const nvidiaChosen=MODELS[chosen]?.service==="nvidia" ||
@@ -149,6 +150,6 @@ export async function modelSources(): Promise<Record<string, { model: string; so
   const o = await overrides();
   const out: Record<string, { model: string; source: "admin" | "env" | "default" }> = {};
   for(const [key,c] of Object.entries(capabilities()))
-    out[key]=await effectiveChoice(c,o[key]);
+    out[key]=await effectiveChoice(c,o[key]??o.default);
   return out;
 }
