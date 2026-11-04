@@ -164,7 +164,7 @@ export async function createConnection(input:ConnectionInput,reason:string,actor
   const view=connectionView(row!);
   await audit(actor,'provider.connection.create',view.id,reason,null,view,{db:tx});
   return view;
- }) as Promise<ProviderConnection>;
+ });
  clearRegisteredModelCache();
  return result;
 }
@@ -189,7 +189,7 @@ export async function updateConnection(id:string,input:ConnectionInput,version:n
   const view=connectionView(row!);
   await audit(actor,'provider.connection.update',id,reason,connectionView(old),view,{db:tx});
   return view;
- }) as Promise<ProviderConnection>;
+ });
  clearRegisteredModelCache();
  return result;
 }
@@ -209,7 +209,7 @@ export async function deleteConnection(id:string,version:number,reason:string,ac
   await tx`DELETE FROM provider_connections WHERE id=${id}::uuid`;
   await audit(actor,'provider.connection.delete',id,reason,connectionView(old),null,{db:tx});
   return {deleted:true as const};
- }) as Promise<{deleted:true}>;
+ });
  clearRegisteredModelCache();
  return result;
 }
@@ -278,7 +278,7 @@ export async function deleteRegisteredModel(id:string,version:number,reason:stri
   for(const binding of bindings)await tx`DELETE FROM settings WHERE key=${binding.setting_key}`;
   await tx`DELETE FROM registered_models WHERE id=${id}::uuid`;
   await audit(actor,'provider.model.delete',id,reason,before,null,{db:tx});return {deleted:true as const};
- }) as Promise<{deleted:true}>;
+ });
  clearRegisteredModelCache();
  return result;
 }
