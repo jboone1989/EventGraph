@@ -96,12 +96,20 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
             {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">信源明细</a></p>}
           </div>}
         <div className="mt-3 flex flex-wrap gap-4 text-[12px]">
+          <a className="text-accent hover:underline" href="#runs-news" onClick={() => showSection("runs-news")}>新闻处理</a>
           <a className="text-accent hover:underline" href="#runs-issues" onClick={() => showSection("runs-issues")}>异常与恢复</a>
           <a className="text-accent hover:underline" href="#runs-models" onClick={() => showSection("runs-models")}>模型效果</a>
           <a className="text-accent hover:underline" href="#runs-queues" onClick={() => showSection("runs-queues")}>队列与任务</a>
           <a className="text-accent hover:underline" href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")}>诊断记录</a>
         </div>
       </Card>
+      <details id="runs-news" open={expanded.includes("runs-news")} className={sectionClass}>
+        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-news"); }}>
+          新闻处理明细 <span className="ml-2 text-[12px] font-normal text-ink-4">
+            24 小时新发现 {num(r.live24h.discovered)} · 已分析 {num(r.live24h.analyzed)} · 已归组 {num(r.live24h.grouped)}
+          </span>
+        </summary>
+        <div className="mt-4">
       <Card className="mb-5" title="新新闻处理链路 · 最近 24 小时"
         right={<span className="text-[11px]">不含历史回填和仅作热度信号的内容 · 最近发现 <Time at={r.live24h.newestAt} /></span>}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
@@ -121,6 +129,9 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           </span>
         </div>
       </Card>
+
+        </div>
+      </details>
 
       <details id="runs-issues" open={expanded.includes("runs-issues")} className={sectionClass}>
         <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-issues"); }}>异常与恢复<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.articleProcessing.failed)} 条失败文章 · {num(failedQueueJobs)} 次队列失败 · {num(unknownReceipts)} 条未知回执</span></summary>
