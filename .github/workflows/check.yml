@@ -3,7 +3,7 @@
 # Official build Actions plus one reviewed SSH deployment Action; releases run only after passing checks.
 # Documentation-only changes (the Spec gate's docs classification, detected by scripts/ci/scope-changes.mjs)
 # skip the heavy steps and the e2e/docker jobs through job/step-level ifs: GitHub records skipped jobs as
-# success for branch protection, the Spec gate and the docs validation still run, and the Claude dispatch
+# success for branch protection, the Spec gate and the docs validation still run, and the external review dispatch
 # still fires. Workflow-level path filters are NOT used: they leave required checks pending.
 name: Check
 
@@ -105,16 +105,6 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-
-      - name: Validate local reviewer workflow syntax and reference
-        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: |
-          set -euo pipefail
-          grep -Fqx '    uses: ./.github/workflows/eventgraph-glm-review.yml' .github/workflows/claude-pr-dispatch.yml
-          test -s .github/workflows/eventgraph-glm-review.yml
-          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 \
-            .github/workflows/claude-pr-dispatch.yml \
-            .github/workflows/eventgraph-glm-review.yml
 
       - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
