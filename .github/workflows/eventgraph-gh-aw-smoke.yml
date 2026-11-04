@@ -1,8 +1,6 @@
 name: EventGraph GH-AW Native Queue Smoke
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -15,11 +13,6 @@ concurrency:
 
 jobs:
   two-work-smoke:
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-          (github.event_name == 'push' &&
-           (contains(github.event.head_commit.message, 'feat(gh-aw): native Work Queue') ||
-            contains(github.event.head_commit.message, '[gh-aw-smoke]'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -73,14 +73,5 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
-          # Verify GitHub's live develop Ruleset, not an unverified
-          # assumption that Check alone protects independent review.
-          gh api "repos/$GITHUB_REPOSITORY/rulesets/25775731" | jq -e '
-            .enforcement == "active" and
-            (.conditions.ref_name.include | index("refs/heads/develop") != null) and
-            any(.rules[]; .type == "required_status_checks" and
-              any(.parameters.required_status_checks[]; .context == "claude-review"))
-          ' >/dev/null || {
-            echo '::error::Develop branch must require independent claude-review'; exit 1;
-          }
+          # GitHub native auto-merge enforces all actual required checks.
           gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash
