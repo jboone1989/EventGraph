@@ -90,7 +90,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
               tone={r.routingEffect.failed ? "warn" : undefined} hint="服务端拒绝或已判定失败" />
             <Stat label="结果未知" value={num(r.routingEffect.unknown)}
               tone={r.routingEffect.unknown ? "bad" : undefined} hint="不自动重发，以免重复调用" />
-            <Stat label="模型响应 P95" value={r.routingEffect.p95Ms == null ? "暂无数据" : duration(0,r.routingEffect.p95Ms)}
+            <Stat label="模型响应 P95" value={r.routingEffect.p95Ms == null ? "暂无数据" : num(r.routingEffect.p95Ms) + " ms"}
               hint="成功请求的响应耗时" />
           </div>
           <p className="mt-3 text-[12px] text-ink-4">
