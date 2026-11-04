@@ -109,7 +109,8 @@ jobs:
             .github/workflows/check.yml \
             .github/workflows/release-develop.yml \
             .github/workflows/release-main.yml \
-            .github/workflows/eventgraph-native-pr-closed.yml
+            .github/workflows/eventgraph-native-pr-closed.yml \
+            .github/workflows/eventgraph-native-queue-events.yml
 
       - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
@@ -397,82 +398,3 @@ jobs:
       source_sha: ${{ github.sha }}
     secrets: inherit
 
-  resume_native_queue:
-    needs: [changes, check, e2e, release_develop]
-    if: >-
-      ${{ always() && vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
-          (github.event_name == 'push' ||
-           (github.event_name == 'workflow_dispatch' &&
-            inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
-          github.ref_name == 'develop' &&
-          needs.check.result == 'success' &&
-          ((needs.changes.outputs.docs_only == 'true' &&
-            needs.e2e.result == 'skipped' && needs.release_develop.result == 'skipped') ||
-           (needs.changes.outputs.docs_only != 'true' &&
-            needs.e2e.result == 'success' && needs.release_develop.result == 'success')) }}
-    # Serialize Issue creation, Work admission and Dispatcher re-entry. The latest pending
-    # successful develop head catches up every first-parent merge since Producer installation.
-    concurrency:
-      group: eventgraph-native-queue-continuation
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout exact develop SHA for trusted task intake
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Setup Node.js for deterministic task intake
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          package-manager-cache: false
-      - name: Install official GH-AW Work Queue CLI
-        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
-        with:
-          version: v1.0.1
-      - name: Admit approved Spec tasks or complete a merged task Issue
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
-          SPEC_WORK_GRAPH_DIR: ${{ runner.temp }}/spec-work-graphs
-        run: |
-          set -euo pipefail
-          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
-          rm -rf "$SPEC_WORK_GRAPH_DIR"
-          mkdir -p "$SPEC_WORK_GRAPH_DIR"
-          node scripts/ci/spec-task-producer.mjs
-          shopt -s nullglob
-          for graph_file in "$SPEC_WORK_GRAPH_DIR"/*.json; do
-            gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-graph --file "$graph_file"
-          done
-      - name: Dispatch next native Work if still eligible
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
-          EXPECTED_HEAD: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
-          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
-          [[ "$current" == "$EXPECTED_HEAD" ]] || { echo 'Develop advanced; no dispatch'; exit 0; }
-          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq 'length')"
-          [[ "$open" == 0 ]] || { echo 'Open agent-work PR; serialization blocks dispatch'; exit 0; }
-          snapshot="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" stats --json 2>&1)"
-          jq -e '
-            (.grants_paused | type == "boolean") and
-            (.pools | type == "array") and
-            all(.pools[]; (.pool | type == "string") and (.scheduling_eligible | type == "number"))
-          ' <<< "$snapshot" >/dev/null || {
-            echo '::error::Native queue stats missing or malformed'; exit 1;
-          }
-          if ! jq -e '
-            .grants_paused == false and
-            ([.pools[] | select(.pool == "default") | .scheduling_eligible] | add // 0) > 0
-          ' <<< "$snapshot" >/dev/null; then
-            echo 'Queue paused or no eligible Work; no dispatch'
-            exit 0
-          fi
-          gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait

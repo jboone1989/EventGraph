@@ -12,7 +12,7 @@ A release uses **one** application image: push to `develop` (or validated exact-
 - `Check` validates PRs, develop pushes and immutable-SHA manual dispatch, preserving real `check`, `docker`, `e2e` and the Spec gate. Metadata-only edits no longer rerun heavy CI; manually re-dispatch Check on the current head when retargeting a base.
 - An executable successful develop Check invokes `release-develop.yml` **in the same run**; this reusable workflow publishes a pinned GHCR digest and optionally deploys/smoke-tests VM13. No independent `workflow_run` relay or automatic retry.
 - `release-main.yml` independently handles main pushes and explicit pinned-SHA releases. Governance-only pushes have no release intent. Real releases validate the immutable develop digest, exact successful Check/E2E/publish status and runtime equivalence. VM09 is guarded by `EVENTGRAPH_PROD_AUTO_DEPLOY=true`.
-- GH-AW Worker/Dispatcher and the official native Work Queue remain, including their engine and per-run usage artifacts. GH-AW smoke and strict compilation run only when explicitly requested.
+- GH-AW Worker/Dispatcher and the official native Work Queue remain, including their engine and per-run usage artifacts. The separate native queue continuation responds only to successful develop Check or successful Worker completion (or explicit manual dispatch); failed Workers cannot spawn an automatic retry loop. Failures are visible on that queue workflow, not as false CI failures. GH-AW smoke and strict compilation run only when explicitly requested.
 - **Retired:** standalone `claude-pr-dispatch.yml`, `eventgraph-glm-review.yml` and paid `claude-review` requirement. Auto-merge respects GitHub's current real required checks.
 
 ## Selective checks by change scope
