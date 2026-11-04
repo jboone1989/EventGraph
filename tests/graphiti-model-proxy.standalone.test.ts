@@ -3,6 +3,7 @@ import {test} from 'node:test';
 import Fastify from 'fastify';
 import {registerGraphitiModelProxy} from '../apps/api/src/routes/graphiti-model.ts';
 import {graphitiAuthorized,graphitiBody,vectorDimensions} from '@aihot/backend/providers/graphiti-proxy';
+import {matchesBearerToken} from '@aihot/backend/lib/bearer-auth';
 
 test('only a properly formatted strong matching internal token authorizes Graphiti',()=>{
  const secret='graphiti-internal-token-test-abcdefghijklmnopqrstuvwxyz';
@@ -62,4 +63,13 @@ test('Graphiti model proxy denies missing or invalid bearer before provider work
   if(prior===undefined)delete process.env.GRAPHITI_MODEL_PROXY_TOKEN;
   else process.env.GRAPHITI_MODEL_PROXY_TOKEN=prior;
  }
+});
+
+test('read-only search token accepts legacy header while Graphiti requires Bearer and strong secret',()=>{
+ const secret='graphiti-internal-token-test-abcdefghijklmnopqrstuvwxyz';
+ assert.equal(matchesBearerToken(secret,secret),true);
+ assert.equal(matchesBearerToken('Bearer '+secret,secret),true);
+ assert.equal(matchesBearerToken('Bearer '+secret,secret,{requireBearer:true,minSecretLength:32}),true);
+ assert.equal(matchesBearerToken(secret,secret,{requireBearer:true,minSecretLength:32}),false);
+ assert.equal(matchesBearerToken('Bearer wrong',secret),false);
 });
