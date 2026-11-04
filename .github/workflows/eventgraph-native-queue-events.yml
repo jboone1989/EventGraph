@@ -1,6 +1,7 @@
 # Queue continuation is independent of CI and release job results.
 # Failed Workers never self-dispatch another paid Agent attempt.
-name: EventGraph native queue continuation
+name: "Agent · 任务队列续办与 PR 生命周期"
+run-name: "Agent 队列 · ${{ github.event_name }}"
 
 on:
   workflow_run:
@@ -19,6 +20,7 @@ concurrency:
 
 jobs:
   resume:
+    name: "续办 GH-AW 任务队列"
     if: >-
       ${{ vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
           (github.event_name == 'workflow_dispatch' ||
@@ -113,6 +115,7 @@ jobs:
           gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
 
   enable_native_auto_merge:
+    name: "为 Agent PR 开启原生自动合并"
     if: >-
       ${{ github.event_name == 'pull_request' &&
           vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&

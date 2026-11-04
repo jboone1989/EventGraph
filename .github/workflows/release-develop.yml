@@ -1,5 +1,5 @@
 # Reusable only; a successful exact-SHA Check invokes this, not workflow_run.
-name: Release develop verified digest
+name: "开发发布 · GHCR 镜像与 VM13 预览"
 on:
   workflow_call:
     inputs:
@@ -11,6 +11,7 @@ permissions:
   packages: write
 jobs:
   publish:
+    name: "发布已验证的镜像"
     if: ${{ inputs.source_sha == github.sha && github.ref_name == 'develop' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -165,6 +166,7 @@ jobs:
           fi
 
   deploy_vm13_preview:
+    name: "部署 VM13 开发预览"
     needs: publish
     if: ${{ needs.publish.outputs.image_ref != '' && vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
     concurrency:
@@ -229,6 +231,7 @@ jobs:
   # Acceptance runs on GitHub-hosted Actions with the official Playwright image.
   # GitHub checks VM13 directly; there is no SSH or dependency on cn-dev.
   e2e_vm13_preview:
+    name: "验证 VM13 在线预览"
     needs: deploy_vm13_preview
     if: ${{ needs.deploy_vm13_preview.outputs.deployed == 'true' &&
              needs.deploy_vm13_preview.result == 'success' }}

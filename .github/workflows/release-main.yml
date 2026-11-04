@@ -1,5 +1,6 @@
 # Production is independent of PR CI, and uses only pinned develop digest.
-name: Release production
+name: "生产发布 · 镜像晋级与 VM09 部署"
+run-name: "生产发布 · ${{ github.ref_name }}"
 on:
   push:
     branches: [main]
@@ -16,6 +17,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   classify:
+    name: "识别本次是否需要生产发布"
     if: github.ref_name == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -46,6 +48,7 @@ jobs:
           [[ "$release" == true ]] || echo '::notice::Governance-only push; no production promotion'
 
   promote:
+    name: "验证并晋级已发布的镜像"
     needs: classify
     if: needs.classify.outputs.release == 'true' && github.ref_name == 'main'
     runs-on: ubuntu-latest
@@ -94,6 +97,7 @@ jobs:
 
   # VM09 production deployment is opt-in until host SSH credentials are configured.
   deploy_production:
+    name: "部署生产环境 VM09"
     needs: promote
     if: >-
       ${{ needs.promote.outputs.image_ref != '' &&

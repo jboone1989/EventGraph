@@ -1,6 +1,7 @@
 # Propose scheduled AIHOT updates, without CI review duplication.
 # Scheduled workflows run from the default branch (main), but changes target develop.
-name: Sync AIHOT upstream
+name: "维护 · 同步 AIHOT 上游"
+run-name: "上游同步 · ${{ github.event_name }}"
 
 on:
   schedule:
@@ -18,6 +19,7 @@ concurrency:
 
 jobs:
   propose:
+    name: "检查上游并创建同步 PR"
     if: github.repository == 'jboone1989/EventGraph'
     runs-on: ubuntu-latest
     timeout-minutes: 15
