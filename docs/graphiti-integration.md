@@ -27,8 +27,8 @@ across the event tree, full text and graph.
 
 Set `GRAPHITI_API_URL=http://knowledge:8000`,
 `GRAPHITI_INGEST_ENABLED=true`, `MODEL_CALLS_ENABLED=true`,
-`KNOWLEDGE_SEARCH_TOKEN=<random-strong-secret>`, `NVIDIA_API_KEY` and
-`NEO4J_PASSWORD` on the development deployment. Neo4j and Graphiti expose no
+`KNOWLEDGE_SEARCH_TOKEN=<random-strong-secret>`, `GRAPHITI_MODEL_PROXY_TOKEN=<another-random-strong-secret>` and
+`NEO4J_PASSWORD` on the deployment. Configure the Graphiti chat and embedding model bindings in the existing admin page; production API and Graphiti must share the same proxy token. Neo4j and Graphiti expose no
 public ports. Run all AIHot services and the graph services on the **same Compose
 project** and network:
 
