@@ -98,11 +98,11 @@ test("Graphiti embedding is an explicit embedding-only binding, never the chat d
 test("Graphiti registered chat is non-streaming upstream and reuses received receipts",async()=>{
  const require=createRequire(new URL("../packages/backend/package.json",import.meta.url));
  const {MockAgent,getGlobalDispatcher,setGlobalDispatcher}=require("undici") as typeof import("undici");
- const previous={dispatcher:getGlobalDispatcher(),private:config.allowPrivateNetworkFetch,proxy:config.egressProxyUrl,calls:config.modelCallsEnabled,secret:process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY,testKey:process.env.GRAPHITI_INTEGRATION_TEST_KEY};
+ const previous={dispatcher:getGlobalDispatcher(),private:config.allowPrivateNetworkFetch,proxy:config.egressProxyUrl,calls:config.modelCallsEnabled,secret:process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY,testKey:process.env.GRAPHITI_INTEGRATION_TEST_KEY,dim:process.env.GRAPHITI_EMBEDDING_DIM};
  const agent=new MockAgent();agent.disableNetConnect();setGlobalDispatcher(agent);
  config.allowPrivateNetworkFetch=true;config.egressProxyUrl=null;config.modelCallsEnabled=true;
  process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString("base64");
- const connectionId=randomUUID(),chatId=randomUUID(),modelId="graphiti-stream-"+chatId;
+ const connectionId=randomUUID(),chatId=randomUUID(),embeddingId=randomUUID(),modelId="graphiti-stream-"+chatId,embeddingModelId="graphiti-vector-"+embeddingId;
  process.env.GRAPHITI_INTEGRATION_TEST_KEY="test-key-"+connectionId;
  try{
   await sql`INSERT INTO provider_connections (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,credential_env,updated_by) VALUES (${connectionId}::uuid,'Graphiti stream test','custom','openai-compatible','https://graphiti-test.invalid/v1',60000,true,'none','GRAPHITI_INTEGRATION_TEST_KEY','test')`;
@@ -124,15 +124,29 @@ test("Graphiti registered chat is non-streaming upstream and reuses received rec
   assert.equal(requestBody.model,modelId);
   const [receipt]=await sql<{status:string;attempts:number}[]>`SELECT status,attempts FROM receipts WHERE purpose='graphiti_chat' AND model=${modelId} ORDER BY id DESC LIMIT 1`;
   assert.deepEqual([receipt?.status,receipt?.attempts],["received",1]);
+  await sql`INSERT INTO registered_models (id,provider_id,model_id,adapter,capabilities,enabled,route_enabled,stream,updated_by) VALUES (${embeddingId}::uuid,${connectionId}::uuid,${embeddingModelId},'embedding','["embedding"]'::jsonb,true,true,false,'test')`;
+  const em=await loadModel(embeddingId);
+  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,config_snapshot,status,verified_at) VALUES (${embeddingId}::uuid,'embedding',${configurationFingerprint(c,em)},${sql.json(configurationSnapshot(c,em))},'verified',now())`;
+  await switchModel("graphitiEmbedding","model:"+embeddingId,"verified embedding test","test");
+  process.env.GRAPHITI_EMBEDDING_DIM="3";
+  let vectorInput:Record<string,unknown>={};
+  agent.get("https://graphiti-test.invalid").intercept({path:"/v1/embeddings",method:"POST"}).reply(req=>{vectorInput=JSON.parse(String(req.body));return {statusCode:200,data:{data:[{index:0,embedding:[0.1,0.2]}]}};});
+  await assert.rejects(graphitiModelRequest("embedding",{input:["vector test"]}),/dimension mismatch/);
+  assert.equal(vectorInput.encoding_format,"float");
+  const [vectorReceipt]=await sql<{status:string}[]>`SELECT status FROM receipts WHERE purpose='graphiti_embedding' AND model=${embeddingModelId} ORDER BY id DESC LIMIT 1`;
+  assert.equal(vectorReceipt?.status,"failed","an unusable vector must reject its receipt");
  }finally{
   await sql`DELETE FROM provider_workflow_models WHERE setting_key='models.graphiti'`;
+  await sql`DELETE FROM provider_workflow_models WHERE setting_key='models.graphitiEmbedding'`;
+  await sql`DELETE FROM settings WHERE key='models.graphitiEmbedding'`;
   await sql`DELETE FROM settings WHERE key='models.graphiti'`;
-  await sql`DELETE FROM registered_models WHERE id=${chatId}::uuid`;
+  await sql`DELETE FROM registered_models WHERE id IN (${chatId}::uuid,${embeddingId}::uuid)`;
   await sql`DELETE FROM provider_connections WHERE id=${connectionId}::uuid`;
   clearRegisteredModelCache();
   setGlobalDispatcher(previous.dispatcher);config.allowPrivateNetworkFetch=previous.private;config.egressProxyUrl=previous.proxy;config.modelCallsEnabled=previous.calls;
   if(previous.secret===undefined)delete process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY;else process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY=previous.secret;
   if(previous.testKey===undefined)delete process.env.GRAPHITI_INTEGRATION_TEST_KEY;else process.env.GRAPHITI_INTEGRATION_TEST_KEY=previous.testKey;
+  if(previous.dim===undefined)delete process.env.GRAPHITI_EMBEDDING_DIM;else process.env.GRAPHITI_EMBEDDING_DIM=previous.dim;
   await agent.close();
  }
 });
