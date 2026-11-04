@@ -58,8 +58,8 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      # Preview deployment failures do not block GH-AW if core CI and publish succeeded.
-      - name: Verify develop Check results
+      # Failed VM13 preview must not block queue continuation after core CI passes.
+      - name: 核验 Check 核心任务与镜像发布
         id: check_gate
         if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
         env:
@@ -76,13 +76,14 @@ jobs:
           jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID/jobs?per_page=100" --jq '.jobs[] | [.name, .conclusion] | @tsv')"
           for name in check e2e 'release_develop / publish'; do
             if ! grep -Fxq "$(printf '%s\tsuccess' "$name")" <<< "$jobs"; then
-              echo "::notice::Required Check job did not succeed: $name"
+              echo "::notice::Core job missing or not successful: $name"
               echo 'eligible=false' >> "$GITHUB_OUTPUT"
               exit 0
             fi
           done
-          if ! grep -qE '^release_develop / (deploy_vm13_preview|e2e_vm13_preview)[[:space:]]+failure$' <<< "$jobs"; then
-            echo '::notice::Check failure was not caused by VM13 preview'
+          if ! grep -Fq "$(printf '%s\tfailure' 'release_develop / 部署 VM13 开发预览')" <<< "$jobs" &&
+             ! grep -Fq "$(printf '%s\tfailure' 'release_develop / 验证 VM13 在线预览')" <<< "$jobs"; then
+            echo '::notice::Failed Check is not a preview-only failure'
             echo 'eligible=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -115,96 +116,6 @@ jobs:
           done
       - name: Dispatch at most one eligible native Work
         if: github.event_name != 'workflow_run' || github.event.workflow_run.path != '.github/workflows/check.yml' || steps.check_gate.outputs.eligible == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
-          EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
-          CHECK_EVENT: ${{ github.event.workflow_run.path == '.github/workflows/check.yml' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
-          if [[ "$CHECK_EVENT" == true ]]; then
-            current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
-            [[ "$current" == "$EXPECTED_HEAD" ]] || {
-              echo '::notice::Superseded Check; skip dispatch'; exit 0;
-            }
-          fi
-          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq length)"
-          [[ "$open" == 0 ]] || { echo 'Open agent-work PR; no parallel dispatch'; exit 0; }
-          snapshot="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" stats --json 2>&1)"
-          jq -e '
-            (.grants_paused | type == "boolean") and
-            (.pools | type == "array") and
-            all(.pools[]; (.pool | type == "string") and (.scheduling_eligible | type == "number"))
-          ' <<< "$snapshot" >/dev/null || {
-            echo '::error::Malformed native Work Queue stats'; exit 1;
-          }
-          if ! jq -e '
-            .grants_paused == false and
-            ([.pools[] | select(.pool == "default") | .scheduling_eligible] | add // 0) > 0
-          ' <<< "$snapshot" >/dev/null; then
-            echo 'No eligible native Work'; exit 0
-          fi
-          gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
-
-  enable_native_auto_merge:
-    name: "为 Agent PR 开启原生自动合并"
-    if: >-
-      ${{ github.event_name == 'pull_request' &&
-          vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
-          (github.event.action == 'opened' || github.event.action == 'labeled') &&
-          github.event.pull_request.base.ref == 'develop' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          startsWith(github.event.pull_request.head.ref, 'agent/') &&
-          github.event.pull_request.draft == false &&
-          contains(github.event.pull_request.labels.*.name, 'agent-work') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Enable GitHub-native Auto-merge, respecting all required checks and review
-        env:
-          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
-          # GitHub native auto-merge enforces all actual required checks.
-          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash
- <<< "$jobs"; then
-            echo '::notice::Check failed for a reason other than VM13 preview'
-            echo 'eligible=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo 'eligible=true' >> "$GITHUB_OUTPUT"
-
-      - name: Install official pinned GH-AW CLI
-        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
-        with:
-          version: v1.0.1
-      - name: Admit approved Spec tasks only from current verified develop
-        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
-        env:
-          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
-          EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
-          SPEC_WORK_GRAPH_DIR: ${{ runner.temp }}/spec-work-graphs
-        shell: bash
-        run: |
-          set -euo pipefail
-          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
-          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
-          if [[ "$current" != "$EXPECTED_HEAD" ]]; then
-            echo '::notice::Stale develop Check; newer Check will admit tasks'
-            exit 0
-          fi
-          rm -rf "$SPEC_WORK_GRAPH_DIR"
-          mkdir -p "$SPEC_WORK_GRAPH_DIR"
-          node scripts/ci/spec-task-producer.mjs
-          shopt -s nullglob
-          for graph_file in "$SPEC_WORK_GRAPH_DIR"/*.json; do
-            gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-graph --file "$graph_file"
-          done
-      - name: Dispatch at most one eligible native Work
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
           EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
