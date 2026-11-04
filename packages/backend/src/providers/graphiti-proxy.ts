@@ -45,9 +45,10 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
  const body=graphitiBody(kind,value),stage=kind==='chat'?'graphiti':'graphitiEmbedding';
  const configured=await modelFor(stage);
  const automatic=kind==='chat'&&configured.startsWith('auto:');
+ const autoTier=automatic?(configured.split(':')[2]??stage):stage;
  const excluded=new Set<string>();
  for(let attempt=0;attempt<(automatic?8:1);attempt++){
-  const ref=automatic?await selectConfiguredProviderForStage(stage,false,excluded):configured;
+  const ref=automatic?await selectConfiguredProviderForStage(autoTier,false,excluded):configured;
   if(!ref.startsWith('model:'))throw new Error('Graphiti requires a registered model; configure its workflow binding');
   const id=ref.slice(6),capability=kind==='chat'?'text':'embedding';
   const {m,c,fingerprint}=await registeredRuntime(id,capability);
