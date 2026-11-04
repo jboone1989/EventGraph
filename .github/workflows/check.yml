@@ -99,15 +99,17 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Validate local reviewer workflow syntax and reference
+      - name: Validate new workflow syntax and absence of paid review
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
-          grep -Fqx '    uses: ./.github/workflows/eventgraph-glm-review.yml' .github/workflows/claude-pr-dispatch.yml
-          test -s .github/workflows/eventgraph-glm-review.yml
+          test ! -e .github/workflows/claude-pr-dispatch.yml
+          test ! -e .github/workflows/eventgraph-glm-review.yml
           docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 \
-            .github/workflows/claude-pr-dispatch.yml \
-            .github/workflows/eventgraph-glm-review.yml
+            .github/workflows/check.yml \
+            .github/workflows/release-develop.yml \
+            .github/workflows/release-main.yml \
+            .github/workflows/eventgraph-native-pr-closed.yml
 
       - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
