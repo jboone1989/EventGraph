@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
+import Fastify from 'fastify';
+import {registerGraphitiModelProxy} from '../apps/api/src/routes/graphiti-model.ts';
 import {graphitiAuthorized,graphitiBody,vectorDimensions} from '@aihot/backend/providers/graphiti-proxy';
 
 test('only a properly formatted strong matching internal token authorizes Graphiti',()=>{
@@ -35,4 +37,26 @@ test('vectors cannot silently change Graphiti Neo4j dimensions',()=>{
  assert.throws(()=>vectorDimensions({data:[{embedding:[1,2]}]},3),/dimension mismatch/);
  assert.throws(()=>vectorDimensions({data:[{embedding:[1,NaN,3]}]},3),/dimension mismatch/);
  assert.throws(()=>vectorDimensions({data:[]},3),/dimension mismatch/);
+});
+
+test('Graphiti model proxy denies missing or invalid bearer before provider work',async()=>{
+ const secret='graphiti-internal-token-test-abcdefghijklmnopqrstuvwxyz';
+ const prior=process.env.GRAPHITI_MODEL_PROXY_TOKEN;
+ process.env.GRAPHITI_MODEL_PROXY_TOKEN=secret;
+ const app=Fastify();
+ registerGraphitiModelProxy(app);
+ try{
+  for(const url of ['/api/internal/graphiti/v1/chat/completions','/api/internal/graphiti/v1/embeddings']){
+   const payload=url.endsWith('/embeddings')?{input:['test']}:{messages:[{role:'user',content:'test'}]};
+   for(const headers of [{},{authorization:'Bearer incorrect-token'}]){
+    const response=await app.inject({method:'POST',url,headers,payload});
+    assert.equal(response.statusCode,401);
+    assert.equal(response.json().error.type,'authentication_error');
+   }
+  }
+ }finally{
+  await app.close();
+  if(prior===undefined)delete process.env.GRAPHITI_MODEL_PROXY_TOKEN;
+  else process.env.GRAPHITI_MODEL_PROXY_TOKEN=prior;
+ }
 });
