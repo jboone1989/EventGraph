@@ -43,7 +43,7 @@ export const CAPABILITIES = {
   translate: { label: "精选全文翻译（含引用帖）", env: "TRANSLATE_MODEL", default: DEFAULTS.translate ?? "default", purposes: ["translate_body", "translate_quoted"] },
   english: { label: "英文版文字（公开报道的英文标题和摘要、精选报道的推荐理由，事件的英文概览）", env: "ENGLISH_MODEL", default: DEFAULTS.english ?? "default", purposes: ["english_copy", "english_digest"] },
   explain: { label: "新闻解读（5W1H、为什么重要、接下来看；只写来源能支撑的字段）", env: "EXPLAIN_MODEL", default: DEFAULTS.explain ?? "default", purposes: ["explain_item"] },
-  graphiti: { label: "Graphiti 知识抽取与关系复核（复用默认聊天模型，可单独覆盖）", env: "GRAPHITI_CHAT_MODEL", default: "auto", purposes: ["graphiti_chat"] },
+  graphiti: { label: "Graphiti 知识抽取与关系复核（复用默认聊天模型，可单独覆盖）", env: "GRAPHITI_CHAT_MODEL", default: DEFAULTS.graphiti ?? "default", purposes: ["graphiti_chat"] },
   graphitiEmbedding: { label: "Graphiti 向量生成（必须单独指定向量模型，维度与现有知识图谱一致）", env: "GRAPHITI_EMBEDDING_MODEL_REF", default: "", purposes: ["graphiti_embedding"], embedding: true },
 } satisfies Record<string, Capability>;
 
