@@ -87,6 +87,7 @@ export function invalidateModelCache() {
 
 /** Whether a registered model explicitly declares image input support. Unspecified means text-only. */
 export async function modelSupportsVision(model: string): Promise<boolean> {
+  if(model.startsWith('auto:'))return false;
   if(model.startsWith('model:'))return (await loadModel(model.slice(6))).capabilities.includes('vision');
   if (MODELS[model]) return MODELS[model].vision === true;
   // The healthy NVIDIA pool resolves a preset to its concrete service model ID.
@@ -101,6 +102,7 @@ export function capabilityAcceptsModel(capability: Capability, model: { vision?:
 
 /** An invalid or deleted admin reference must not suppress a valid environment choice. */
 async function validChoice(reference:string):Promise<boolean> {
+ if(reference==='auto'||/^auto:(light|medium|heavy)$/.test(reference))return true;
  if(MODELS[reference])return true;
  try {
   if(reference.startsWith('model:')){await loadModel(reference.slice(6));return true;}
@@ -128,7 +130,9 @@ async function effectiveChoice(c:Capability,admin?:string):Promise<{model:string
 export async function modelFor(capability: CapabilityKey | (string & {})): Promise<string> {
   const c = capabilities()[capability];
   if (!c) throw new Error(`unknown model step: ${capability}`);
-  const chosen=(await effectiveChoice(c,(await overrides())[capability])).model;
+  const saved=await overrides();
+  const chosen=(await effectiveChoice(c,saved[capability]??saved.default)).model;
+  if(chosen==='auto'||/^auto:(light|medium|heavy)$/.test(chosen))return 'auto:'+capability+(chosen==='auto'?'':':'+chosen.slice(5));
   if(chosen.startsWith('model:')){await registeredRuntime(chosen.slice(6),c.vision?'vision':'text');return chosen;}
   if (process.env.NVIDIA_MODEL_POOL_ENABLED === "true") {
     const nvidiaChosen=MODELS[chosen]?.service==="nvidia" ||
@@ -149,6 +153,6 @@ export async function modelSources(): Promise<Record<string, { model: string; so
   const o = await overrides();
   const out: Record<string, { model: string; source: "admin" | "env" | "default" }> = {};
   for(const [key,c] of Object.entries(capabilities()))
-    out[key]=await effectiveChoice(c,o[key]);
+    out[key]=await effectiveChoice(c,o[key]??o.default);
   return out;
 }

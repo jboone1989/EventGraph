@@ -106,21 +106,23 @@ export async function modelsOverview(days = 7): Promise<BeforeJson<AdminModels>>
   return { days, capabilities: steps, choices, history, benches, nvidiaPool, providers };
 }
 
-/** Lightweight live registry used by the separate admin workflow-binding page. */
+/** Registry choices and settings-based auto routes share the same admin page. */
 export async function modelBindingsOverview(): Promise<AdminModelBindings> {
- const [models,connections,bindings]=await Promise.all([
+ const [models,connections,rows]=await Promise.all([
   listRegisteredModels(),listConnections(),
-  sql<{setting_key:string;model_id:string}[]>`
-   SELECT setting_key,model_id FROM provider_workflow_models WHERE setting_key LIKE 'models.%'`,
+  sql<{key:string;value:{model?:string}}[]>`SELECT key,value FROM settings WHERE key LIKE 'models.%'`
  ]);
  const names=new Map(connections.map(c=>[c.id,c.name]));
- const assigned=new Map(bindings.map(b=>[b.setting_key,b.model_id]));
+ const saved=new Map(rows.map(r=>[r.key,r.value?.model??'']));
+ const selection=(key:string)=>{
+  const model=saved.get('models.'+key);
+  return model?{model,source:'admin' as const}:{model:'',source:'default' as const};
+ };
  return {
-  steps:Object.entries(capabilities()).map(([key,c])=>{
-   const id=assigned.get('models.'+key);
-   return {key,label:c.label,vision:!!c.vision,
-    current:id?{model:'model:'+id,source:'admin' as const}:{model:'',source:'default' as const}};
-  }),
+  defaultModel:selection('default'),
+  steps:Object.entries(capabilities()).map(([key,c])=>({
+   key,label:c.label,vision:!!c.vision,current:selection(key)
+  })),
   choices:models.map(m=>({
    key:'model:'+m.id,modelId:m.modelId,provider:names.get(m.providerId)??m.providerId,
    adapter:m.adapter,vision:m.capabilities.includes('vision')
@@ -128,13 +130,14 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
  };
 }
 
-/** One workflow → one model ID. Clearing a binding restores the deployment default. */
+/** A setting is either a fixed model reference or an automatic free routing policy. */
 export async function switchModel(capability:string,model:string|null,reason:string,actor:string){
- const step=capabilities()[capability];
+ const step=capability==='default'?{vision:false}:capabilities()[capability];
  if(!step)throw Object.assign(new Error('unknown capability'),{statusCode:400});
  if(!reason.trim())throw Object.assign(new Error('a reason is required'),{statusCode:400});
+ const automatic=model==='auto'||(model!==null&&/^auto:(light|medium|heavy)$/.test(model));
  let id:string|null=null;
- if(model!==null){
+ if(model!==null&&!automatic){
   if(!model.startsWith('model:'))
    throw Object.assign(new Error('Choose a model from Model Management'),{statusCode:400});
   const selected=await loadModel(model.slice(6));
@@ -144,15 +147,18 @@ export async function switchModel(capability:string,model:string|null,reason:str
    throw Object.assign(new Error('This workflow needs a vision model'),{statusCode:400});
   id=selected.id;
  }
- const settingKey='models.'+capability;
- const [previous]=await sql<{model_id:string}[]>`
-  SELECT model_id FROM provider_workflow_models WHERE setting_key=${settingKey}`;
- const before=previous?'model:'+previous.model_id:null;
+ const key='models.'+capability;
+ const [previous]=await sql<{value:{model?:string}}[]> `SELECT value FROM settings WHERE key=${key}`;
+ const before=previous?.value?.model??null;
  await sql.begin(async tx=>{
-  await writeWorkflowModel(tx,settingKey,id,actor);
-  await audit(actor,'models.switch','capability:'+capability,reason,{model:before},{model:id?'model:'+id:null},{db:tx});
+  if(automatic){
+   await tx`INSERT INTO settings(key,value,updated_by) VALUES (${key},${tx.json({model})},${actor})
+    ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
+   await tx`DELETE FROM provider_workflow_models WHERE setting_key=${key}`;
+  }else await writeWorkflowModel(tx,key,id,actor);
+  await audit(actor,'models.switch','capability:'+capability,reason,{model:before},{model:model},{db:tx});
  });
  invalidateModelCache();
  return {capability,before:{model:before??'',source:before?'admin':'default'},
-  after:{model:id?'model:'+id:'',source:id?'admin':'default'}};
+  after:{model:model??'',source:model?'admin':'default'}};
 }

@@ -242,6 +242,7 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
  const [providerId,setProviderId]=useState(model?.providerId??providers[0]?.id??"");
  const [modelId,setModelId]=useState(model?.modelId??"");
  const [adapter,setAdapter]=useState<ModelInput["adapter"]>(model?.adapter??"chat");
+ const [complexity,setComplexity]=useState<ModelInput["complexity"]>(model?.complexity??"medium");
  const [enabled,setEnabled]=useState(model?.enabled??true);
  const [routeEnabled,setRouteEnabled]=useState(model?.routeEnabled??false);
  const [vision,setVision]=useState(model?.capabilities.includes("vision")??false);
@@ -275,7 +276,7 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
     capabilities,requestDefaults:{},probeSpec,stream:false,complexity:"medium" as const,
     documentationUrl:null,notes:null,enabled,routeEnabled:false
    }),
-   providerId,modelId:modelId.trim(),adapter,enabled,routeEnabled:enabled&&routeEnabled,
+   providerId,modelId:modelId.trim(),adapter,complexity,enabled,routeEnabled:enabled&&routeEnabled,
    capabilities,probeSpec,endpointOverride:endpoint.trim()||null,
    timeoutOverrideMs:timeout?Number(timeout):null,notes:notes.trim()||null
   });
@@ -296,6 +297,14 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
   </label>
   {adapter==="chat"&&<label className="flex items-center gap-2 text-sm">
    <input type="checkbox" checked={vision} disabled={busy} onChange={e=>setVision(e.target.checked)}/>支持图像输入
+  </label>}
+  {adapter==="chat"&&<label className="block space-y-1 text-sm">模型能力等级
+   <Select aria-label="模型能力等级" disabled={busy} value={complexity}
+    onChange={e=>setComplexity(e.target.value as ModelInput["complexity"])}>
+    <option value="light">轻量 · 预筛、摘要、用词</option>
+    <option value="medium">标准 · 翻译、评分、事实抽取</option>
+    <option value="heavy">高级 · 深度理解、事件关系、日报</option>
+   </Select>
   </label>}
   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={enabled} disabled={busy}
    onChange={e=>setEnabled(e.target.checked)}/>启用模型</label>

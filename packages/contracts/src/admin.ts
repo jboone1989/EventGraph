@@ -311,7 +311,23 @@ export interface AdminDeliveryIssue {
   updated_at: Timestamp;
 }
 
+/** Only live receipt attempts explicitly marked as auto-routed, over the last 24 hours. */
+export interface AdminRoutingEffect {
+  hours: 24;
+  attempts: number;
+  successful: number;
+  failed: number;
+  unknown: number;
+  pending: number;
+  fallbackSuccess: number;
+  p95Ms: number | null;
+  providers: Array<{ provider: string; attempts: number; successful: number; failed: number; unknown: number }>;
+  stages: Array<{ stage: string; attempts: number; successful: number; failed: number; unknown: number; fallbackSuccess: number; p95Ms: number | null }>;
+}
+
 export interface AdminRuns {
+  /** Old API fixtures may omit this; production always includes it. */
+  routingEffect?: AdminRoutingEffect;
   checkedAt: Timestamp;
   processes: Array<{ role: string; pid: number; host: string; release: string; startedAt: Timestamp; at: Timestamp; alive: boolean }>;
   jobs: Array<{ job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null; failed_24h: number; runs_24h: number }>;
@@ -401,6 +417,7 @@ export interface AdminProviderProfile {
 }
 /** Lightweight model choices for per-stage binding, refreshed from the registry on each request. */
 export interface AdminModelBindings {
+  defaultModel: {model:string;source:'admin'|'default'};
   steps: Array<{key:string;label:string;vision:boolean;current:{model:string;source:'admin'|'default'}}>;
   choices: Array<{key:string;modelId:string;provider:string;adapter:string;vision:boolean}>;
 }
