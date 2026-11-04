@@ -2,7 +2,7 @@ import {createHash, timingSafeEqual} from 'node:crypto';
 import {modelFor} from '../editorial/models.ts';
 import {registeredRuntime,requestRegisteredModel} from './registry/runtime.ts';
 import {selectConfiguredProviderForStage,coolDownReference} from './registry/selection.ts';
-import {paidRequest,ProviderRejectedError,BudgetExceededError} from './receipts.ts';
+import {paidRequest,ProviderRejectedError,BudgetExceededError,rejectReceivedResponse} from './receipts.ts';
 import {stableJson} from '../lib/ids.ts';
 
 type Kind='chat'|'embedding';
@@ -29,10 +29,10 @@ export function graphitiBody(kind:Kind,value:unknown):Record<string,unknown> {
  }
  if(JSON.stringify(body).length>150000)return bad('Graphiti request exceeds input limit');
  const {model:_,...rest}=body;
- return {...rest,stream:false};
+ return kind==='chat'?{...rest,stream:false}:rest;
 }
 
-function vectorDimensions(response:Record<string,unknown>,expected:number):void {
+export function vectorDimensions(response:Record<string,unknown>,expected:number):void {
  const data=response.data;
  if(!Array.isArray(data)||!data.length||data.some(
    item=>!item||typeof item!=='object'||!Array.isArray(item.embedding)||
@@ -63,10 +63,14 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
     requestSummary:{kind,requestHash:hash,modelId:id,...(automatic?{routing:{stage:'graphiti'}}:{})},
    },async()=>{
     const {data,requestId}=await requestRegisteredModel(id,capability,payload,fingerprint);
-    if(kind==='embedding')vectorDimensions(data,Number(process.env.GRAPHITI_EMBEDDING_DIM??2048));
     return {response:data,requestId,usage:(data.usage as Record<string,unknown>)??null,cost:null};
    });
-   return receipt.response as Record<string,unknown>;
+   const response=receipt.response as Record<string,unknown>;
+   if(kind==='embedding'){
+    try{vectorDimensions(response,Number(process.env.GRAPHITI_EMBEDDING_DIM??2048));}
+    catch(error){await rejectReceivedResponse(receipt.receiptId,'Graphiti embedding dimension mismatch');throw error;}
+   }
+   return response;
   }catch(error){
    // Only a confirmed HTTP refusal is safe to retry with a different free model.
    if(!automatic||!(error instanceof ProviderRejectedError)||
