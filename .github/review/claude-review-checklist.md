@@ -1,6 +1,6 @@
 # EventGraph PR review checklist — repository-owned
 
-This checklist is loaded from the target branch's immutable base commit by the single `claude-review` job in `check.yml`, alongside the untrusted PR diff for read-only inspection. The PR cannot alter the standards used to review itself. It extends independent adversarial review, not replaces normal GitHub CI. Inspect **every applicable item** using the actual owning modules, callers, tests and deployment contracts; mark unrelated items N/A **in your reasoning**. Do not assume the PR description or green CI proves correctness.
+This checklist is loaded from the target branch's immutable base commit by the single `claude-review` job in `check.yml`, alongside the untrusted PR diff for read-only inspection. Only this checklist is pinned to the base commit; the workflow prompt and verdict logic remain subject to normal PR review. It extends independent adversarial review, not replaces normal GitHub CI. Inspect **every applicable item** using the actual owning modules, callers, tests and deployment contracts; mark unrelated items N/A **in your reasoning**. Do not assume the PR description or green CI proves correctness.
 
 ## Architecture, maintainability and necessity
 
