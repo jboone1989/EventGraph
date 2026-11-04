@@ -25,7 +25,8 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
  const [selected,setSelected]=useState(original);
  const [error,setError]=useState("");
  const chosen=choices.find(c=>c.key===selected);
- const canSave=selected!==original&&(!selected||!!chosen&&usable(chosen,step));
+ const isAuto=selected==='auto'||/^auto:(light|medium|heavy)$/.test(selected);
+ const canSave=selected!==original&&(!selected||isAuto||!!chosen&&usable(chosen,step));
  const save=async()=>{
   setError("");
   const result=await run("POST","/api/admin/models/"+encodeURIComponent(step.key),{
@@ -38,7 +39,11 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
    <Select aria-label={"为"+step.label.split("（")[0]+"选择模型"} value={selected}
     disabled={busy} onChange={e=>{setSelected(e.target.value);setError("");}}>
     <option value="">{step.key==="default"?"使用部署默认模型":"继承默认模型"}</option>
-    {selected&&!chosen&&<option value={selected} disabled>{selected}（旧配置，仅保留当前值）</option>}
+    <option value="auto">自动 · 免费优先（OpenRouter → NVIDIA）</option>
+    <option value="auto:light">自动 · 轻量模型</option>
+    <option value="auto:medium">自动 · 标准模型</option>
+    <option value="auto:heavy">自动 · 高级模型</option>
+    {selected&&!chosen&&!isAuto&&<option value={selected} disabled>{selected}（旧配置，仅保留当前值）</option>}
     {choices.map(choice=>{
      const ok=usable(choice,step);
      const suffix=!ok?(choice.adapter!=="chat"?"（非对话模型）":"（不支持图像）"):"";
@@ -61,13 +66,14 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
  const defaultStep:Step={key:"default",label:"默认模型",vision:false,current:loaderData.defaultModel};
  const display=(key:string)=>{
   const choice=choices.find(c=>c.key===key);
-  return choice?titleFor(choice):key||"部署默认";
+  const auto:Record<string,string>={auto:"自动 · 免费优先","auto:light":"自动 · 轻量","auto:medium":"自动 · 标准","auto:heavy":"自动 · 高级"};
+  return choice?titleFor(choice):auto[key]??(key||"部署默认");
  };
  return <AdminPage title="工作流模型绑定"
-  subtitle="先设置默认模型；高级设置可为某个工作流单独覆盖。"
+  subtitle="默认免费优先自动路由；高级设置可覆盖任务等级，或固定使用指定模型。"
   actions={<ButtonLink to="/admin/models">模型管理</ButtonLink>}>
   <Card title="默认模型">
-   <p className="mb-3 text-sm text-ink-4">所有未单独指定模型的工作流都使用这里的模型。</p>
+   <p className="mb-3 text-sm text-ink-4">建议选自动 · 免费优先。按任务等级选择模型；OpenRouter 无法使用时切 NVIDIA，绝不自动调用付费模型。</p>
    <ModelBinding key={"default:"+loaderData.defaultModel.model} step={defaultStep} choices={choices}/>
    <p className="mt-2 text-xs text-ink-4">当前：{display(loaderData.defaultModel.model)||"部署默认"}</p>
   </Card>

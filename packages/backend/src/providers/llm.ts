@@ -1,4 +1,6 @@
 import {normalizedRegistryActive,resolveModelReference} from './registry/connections.ts';
+import {selectConfiguredProviderForStage,coolDownReference} from './registry/selection.ts';
+import {ProviderConfigError} from './registry/connection-types.ts';
 import {registeredRuntime,requestRegisteredModel,modelEndpoint} from './registry/runtime.ts';
 import {storedCredential} from './registry/connection-secrets.ts';
 // OpenAI-compatible chat calls, always through receipts. One model is enough: `default` is whatever the
@@ -12,7 +14,7 @@ import {getProvider} from "./registry/repository.ts";
 import {ChatProvider,instantiateProvider,parseSseCompletion as parseProviderStream} from "./registry/adapter.ts";
 import { config, credential } from "../config.ts";
 import { sha256 } from "../lib/ids.ts";
-import { assertAccepted, paidRequest, ProviderRejectedError, rejectReceivedResponse } from "./receipts.ts";
+import { assertAccepted, paidRequest, ProviderRejectedError, BudgetExceededError, rejectReceivedResponse } from "./receipts.ts";
 
 export interface ModelSpec {
   key: string;
@@ -142,6 +144,31 @@ export const isNvidiaChatModel=(id:string)=>["text","vision"].includes(nvidiaCap
 function inputCapabilityFor(user:string|ContentPart[]):string {return Array.isArray(user)&&user.some(p=>p.type==='image_url')?'vision':'text';}
 
 export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): Promise<ChatJsonResult<z.infer<S>>> {
+  if (opts.model.startsWith('auto:')) {
+    const stage = opts.model.slice(5).split(':')[0]!;
+    const level = opts.model.slice(5).split(':')[1];
+    const excluded = new Set<string>();
+    const needsVision = Array.isArray(opts.user) && opts.user.some(p => p.type === 'image_url');
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const selected = await selectConfiguredProviderForStage(level ? level : stage, needsVision, excluded);
+      try {
+        return await chatJson({ ...opts, model: selected });
+      } catch (error) {
+        // A rejected HTTP request is known not to have been accepted. An unknown
+        // receipt, network timeout or schema failure is NEVER blindly replayed.
+        const refused = error instanceof ProviderRejectedError &&
+          (error.status === 429 || error.status === 502 || error.status === 503 || error.status === 504);
+        const staleProbe = error instanceof ProviderConfigError && error.statusCode === 409;
+        const quota = error instanceof BudgetExceededError;
+        if (!refused && !staleProbe && !quota) throw error;
+        if (!selected.startsWith('model:')) throw error;
+        excluded.add(selected.slice(6));
+        const accountWide = quota || (error instanceof ProviderRejectedError && error.status === 429);
+        await coolDownReference(selected, accountWide ? 60 : staleProbe ? 300 : 30, accountWide);
+      }
+    }
+    throw new BudgetExceededError('free-models', 'all_routes_rejected', 300);
+  }
   // A healthy model chosen by the NVIDIA monitor can be addressed directly by ID.
   // Dynamic routing only accepts compatible text model IDs on our NVIDIA endpoint.
   const normalizedId=opts.model.startsWith('model:')?opts.model.slice(6):

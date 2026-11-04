@@ -48,7 +48,9 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   const defaultPicker=page.getByRole("combobox",{name:"为默认模型选择模型"});
   await expect(defaultPicker).toHaveValue("");
   await expect(picker.locator('option[value="default"]')).toHaveCount(0);
-  await expect(picker.locator('option')).toHaveCount(1);
+  await expect(picker.locator('option')).toHaveCount(5);
+  await expect(picker.locator('option[value="auto"]')).toHaveText(/自动.*免费优先/);
+  await expect(picker.locator('option[value="auto:heavy"]')).toHaveText(/高级模型/);
   data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",
    adapter:"chat",vision:false});
   await page.reload();
