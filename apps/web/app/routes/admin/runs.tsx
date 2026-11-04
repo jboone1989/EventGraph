@@ -19,6 +19,15 @@ export const meta: Route.MetaFunction = () => [{ title: `运行 · ${SITE.name} 
 
 const STATE_LABEL: Record<string, string> = { created: "排队", retry: "等待重试", active: "执行中" };
 
+const ROUTING_STAGE_LABEL: Record<string, string> = {
+  prefilter: "精选预筛", score: "精选评分", understand: "内容理解",
+  summarize: "标题摘要", wording: "用词修正", structure: "结构抽取",
+  group: "事件归组", groupReview: "归组复核", digest: "事件综述",
+  report: "报告总述", translate: "全文翻译", english: "英文版文字", explain: "新闻解读",
+};
+const rate = (success: number, attempts: number) =>
+  attempts ? (success * 100 / attempts).toFixed(1) + "%" : "暂无数据";
+
 const PARTS = await loadParts((m) => m.admin?.runs);
 
 export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
@@ -66,6 +75,55 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           </span>
         </div>
       </Card>
+
+      {r.routingEffect && (
+        <Card className="mb-5" title="智能模型路由效果 · 最近 24 小时"
+          right={<Link className="text-[12px] text-accent hover:underline" to="/admin/model-bindings">调整工作流模型</Link>}>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            <Stat label="自动路由调用" value={num(r.routingEffect.attempts)} hint="真实 live 请求尝试数" />
+            <Stat label="模型响应成功率" value={rate(r.routingEffect.successful,r.routingEffect.attempts)}
+              tone={r.routingEffect.attempts && r.routingEffect.successful / r.routingEffect.attempts < 0.95 ? "warn" : undefined}
+              hint={num(r.routingEffect.successful)+" 次已收到有效 HTTP 响应"} />
+            <Stat label="切换后成功" value={num(r.routingEffect.fallbackSuccess)} tone="ok"
+              hint="明确拒绝后改用其他模型，并成功返回" />
+            <Stat label="明确失败" value={num(r.routingEffect.failed)}
+              tone={r.routingEffect.failed ? "warn" : undefined} hint="服务端拒绝或已判定失败" />
+            <Stat label="结果未知" value={num(r.routingEffect.unknown)}
+              tone={r.routingEffect.unknown ? "bad" : undefined} hint="不自动重发，以免重复调用" />
+            <Stat label="模型响应 P95" value={r.routingEffect.p95Ms == null ? "暂无数据" : num(r.routingEffect.p95Ms) + " ms"}
+              hint="成功请求的响应耗时" />
+          </div>
+          <p className="mt-3 text-[12px] text-ink-4">
+            只统计有自动路由标记的实际调用，旧记录及固定模型调用不混入。成功率分母包含失败、未知和执行中的请求；
+            尚有 {num(r.routingEffect.pending)} 次处理中。模型响应成功不等于新闻内容正确或新闻处理完成。
+          </p>
+          {r.routingEffect.attempts === 0
+            ? <p className="mt-3 text-[13px] text-ink-3">最近 24 小时暂无带自动路由标记的调用。启用自动工作流并实际处理新闻后，这里才会出现数据。</p>
+            : <details className="mt-4">
+              <summary className="cursor-pointer text-[13px] font-medium">查看厂商与工作流明细</summary>
+              <div className="mt-3 grid gap-4 xl:grid-cols-2">
+                <div>
+                  <p className="mb-2 text-[12px] font-medium">厂商请求分布</p>
+                  <DataTable dense rows={r.routingEffect.providers} rowKey={p=>p.provider} columns={[
+                    {key:"provider",label:"厂商",render:p=>p.provider},
+                    {key:"attempts",label:"请求",align:"right",render:p=>num(p.attempts)},
+                    {key:"success",label:"成功率",align:"right",render:p=>rate(p.successful,p.attempts)},
+                    {key:"failed",label:"失败/未知",align:"right",render:p=>num(p.failed+p.unknown)},
+                  ]}/>
+                </div>
+                <div>
+                  <p className="mb-2 text-[12px] font-medium">按工作流分类</p>
+                  <DataTable dense rows={r.routingEffect.stages} rowKey={p=>p.stage} columns={[
+                    {key:"stage",label:"工作流",render:p=>ROUTING_STAGE_LABEL[p.stage]??p.stage},
+                    {key:"attempts",label:"请求",align:"right",render:p=>num(p.attempts)},
+                    {key:"success",label:"成功率",align:"right",render:p=>rate(p.successful,p.attempts)},
+                    {key:"fallback",label:"切换后成功",align:"right",render:p=>num(p.fallbackSuccess)},
+                  ]}/>
+                </div>
+              </div>
+            </details>}
+        </Card>
+      )}
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat
