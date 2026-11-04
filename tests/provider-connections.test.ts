@@ -108,11 +108,13 @@ test('verification follows configuration fingerprints, including external creden
  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,status,verified_at)
   VALUES (${m.id}::uuid,'text',${fingerprint},'verified',now())`;
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
- // Even an exact legacy fingerprint cannot authorize checks older than 24 hours.
- const stale=routingState({...await loadModel(m.id),enabled:true,route_enabled:true},await loadConnection(c.id),
-  [{model_id:m.id,capability:'text',config_fingerprint:fingerprint,status:'legacy',
-    verified_at:new Date(Date.now()-25*60*60*1000),latency_ms:null}]);
- assert.deepEqual(stale.eligibleCapabilities,[]);
+ // A verified configuration remains routable until it changes or a new test fails.
+ // Deleting the old periodic probe must not stop every workflow after 24 hours.
+ const oldCheck={model_id:m.id,capability:'text',config_fingerprint:fingerprint,status:'verified',
+   verified_at:new Date(Date.now()-25*60*60*1000),latency_ms:null};
+ const routable={...await loadModel(m.id),enabled:true,route_enabled:true};
+ assert.deepEqual(routingState(routable,await loadConnection(c.id),[oldCheck]).eligibleCapabilities,['text']);
+ assert.deepEqual(routingState(routable,await loadConnection(c.id),[{...oldCheck,status:'failed'}]).eligibleCapabilities,[]);
  const renamed=await updateConnection(c.id,connection({name:'New display name'}),c.version,'display',actor);
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
  process.env.PROVIDER_TEST_KEY='rotated';
@@ -124,6 +126,17 @@ test('verification follows configuration fingerprints, including external creden
  const changed=await updateConnection(c.id,connection({baseUrl:'https://example.com/another/v1'}),renamed.version,'address',actor);
  assert.equal(changed.baseUrl,'https://example.com/another/v1');
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.verifiedAt,null);
+});
+
+test('an unchanged verified model can enable routing after its check is more than 24 hours old',async()=>{
+ const c=await createConnection(connection({name:'persistent-'+randomUUID(),credential:{action:'replace',value:'test-key'}}),'create',actor);
+ const m=await createRegisteredModel(model(c.id,{modelId:'persistent-model',enabled:true}),'create',actor);
+ const fingerprint=configurationFingerprint(await loadConnection(c.id),await loadModel(m.id));
+ await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,status,verified_at)
+   VALUES (${m.id}::uuid,'text',${fingerprint},'verified',now()-interval '26 hours')`;
+ const enabled=await updateRegisteredModel(m.id,model(c.id,{modelId:'persistent-model',enabled:true,routeEnabled:true}),
+   m.version,'enable after verification',actor);
+ assert.deepEqual(enabled.routing.eligibleCapabilities,['text']);
 });
 
 test('deleting a bound model clears its workflow assignment and settings atomically',async()=>{
