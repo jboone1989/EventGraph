@@ -1,20 +1,20 @@
-# Retire Claude Code from EventGraph GitHub automation, preserve GH-AW
+# Retire standalone Claude Code PR review; preserve GH-AW with attributable usage
 
-Status: Approved by repository owner on 2026-11-04. Owner explicitly clarified that GH-AW and its Work Queue must be kept.
+Status: Approved in chat 2026-11-04. Owner explicitly approved retaining GH-AW and its Claude Code execution engine if cost attribution is verifiable.
 
 ## Goal
-GitHub Actions must not run Claude Code for PR reviews or for code development. Keep native GitHub Agentic Workflows (GH-AW), their Work Queue, Specs-to-Work automation, Worker, Dispatcher and PR lifecycle.
+Keep GitHub Agentic Workflows (GH-AW), its native Work Queue, Worker, Dispatcher, Spec-to-Work tasks and PR lifecycle. Do not confuse Claude Code as a GH-AW runtime with the separate Claude Code Action PR-review pipeline.
 
 ## Scope
-- Remove the separate EventGraph Claude Code Action PR review and its Check-triggered dispatcher; remove central GitHub Actions Claude review, already retired in `jboone1989/livingruntime-remote`.
-- Preserve GH-AW Markdown source workflows, generated lock workflows, native queue continuation, Worker/Dispatcher, compile, smoke and route-deploy workflows.
-- Replace any GH-AW `engine: claude` with a supported non-Claude-Code engine rather than deleting GH-AW; compile regenerated locks before activation. If replacement credentials or runtime are unverified, keep dispatch paused, not silently run Claude Code.
-- Preserve native deterministic Check, Docker, E2E, Spec gate and deployment.
-- Remove required branch status `claude-review` without removing ordinary CI requirements.
-- Do not modify application runtime, model bindings, production deployment or GH-AW Work Queue records.
+- Retain GH-AW Worker / Dispatcher `engine: claude`, compiled locks, queue continuation, smoke, compile and route-deployment automation.
+- Retain the existing configured GLM model/provider for GH-AW. Do not silently substitute Pi/OpenRouter or remove GH-AW.
+- Remove the independent GitHub Actions Claude Code PR-review / repeated Check-to-review dispatch workflows, including the central `livingruntime-remote` reviewer. Keep normal check, docker, e2e, Spec gate and deployment checks.
+- Remove `claude-review` from required branch checks, while preserving deterministic CI requirements.
+- For any question about spend, inspect the exact GH-AW run's `usage` artifact, native `gh aw logs` / `gh aw audit`, and provider billing independently. Attribute each observed cost to repository, workflow, run ID, job, role, model, gateway, outcome, timestamp and source (CLI estimate vs actual provider charge). Empty usage and authentication failures must not be counted as successful paid inference.
+- Do not add a custom cost ledger that duplicates GH-AW's native audited usage.
 
 ## Acceptance
-1. No active GitHub workflow invokes `anthropics/claude-code-action`, self-hosted Claude CLI, or a GH-AW Worker/Dispatcher built with `engine: claude`.
-2. GH-AW code and queue workflows remain available, with eventual non-Claude engine validated and compiled.
-3. PRs can merge with required deterministic checks without `claude-review`.
-4. Existing standard CI and deployment remain intact.
+1. No separate Claude Code Action code-review workflows run or retry.
+2. GH-AW Claude engine, native queue, Worker and Dispatcher are preserved and unchanged.
+3. A user can follow an exact run ID to inspect model, tokens, AIC/CLI estimated cost and authentication failures in the official GH-AW artifacts; distinguish provider invoices from estimates.
+4. Normal CI status checks and deployment are unaffected.
