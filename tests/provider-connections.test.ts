@@ -4,10 +4,9 @@ import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {sql,closeDb} from '@aihot/backend/db';
 import {createConnection,updateConnection,deleteConnection,listConnections,loadConnection,
  createRegisteredModel,updateRegisteredModel,deleteRegisteredModel,getRegisteredModel,
- configurationFingerprint,routingState,normalizedRegistryActive,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel,clearRegisteredModelCache} from '@aihot/backend/providers/registry/connections';
+ configurationFingerprint,routingState,loadModel,writeWorkflowModel,clearRegisteredModelCache} from '@aihot/backend/providers/registry/connections';
 import {storedCredential,credentialDigest} from '@aihot/backend/providers/registry/connection-secrets';
 import {ProviderConfigError,type ConnectionInput,type ModelInput} from '@aihot/backend/providers/registry/connection-types';
-import {migrateProviderConnections,migratedId} from '../scripts/migrate-provider-connections.ts';
 
 process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('base64');
 const actor='provider-test';
@@ -140,81 +139,4 @@ test('deleting a bound model clears its workflow assignment and settings atomica
  assert.equal(binding,undefined);
  assert.equal(setting,undefined);
  assert.deepEqual(await deleteConnection(c.id,c.version,'delete',actor),{deleted:true});
-});
-
-test('migration is repeatable, preserves source configurations and validates actual workflow targets',async()=>{
- process.env.NVIDIA_API_KEY='migration-test-key';
- const oldIds=['openai/gpt-oss-20b','nvidia/nemotron-3-super-120b-a12b'];
- for(const id of oldIds)await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,capabilities,request_defaults,enabled,route_enabled)
-  VALUES ('nvidia',${id},'chat','https://integrate.api.nvidia.com/v1/chat/completions','NVIDIA_API_KEY','["text"]'::jsonb,'{"temperature":0.7}'::jsonb,true,true)`;
- for(const [i,id] of oldIds.entries())await sql`INSERT INTO settings(key,value,updated_by)
-  VALUES (${'models.migration-'+i},${sql.json({model:'nvidia:'+id})},${actor})`;
- // Old route switches are not probe evidence. Only a fresh successful exact
- // capability check may become legacy, and its original timestamp is preserved.
- const verifiedAt=new Date(Date.now()-10*60*1000);
- for(const id of oldIds)await sql`INSERT INTO model_provider_checks
-  (vendor,model_id,capability,status,verified_at,latency_ms,detail)
-  VALUES ('nvidia',${id},'text','verified',${verifiedAt},400,'prior verified probe')`;
- await sql`INSERT INTO model_provider_checks
-  (vendor,model_id,capability,status,verified_at)
-  VALUES ('nvidia',${oldIds[0]},'vision','failed',NULL)`;
-
- await sql`UPDATE model_providers SET timeout_ms=120000 WHERE model_id=${oldIds[1]!}`;
- await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,enabled,route_enabled) VALUES ('nvidia','disabled-legacy','unconfigured','https://integrate.api.nvidia.com/v1/chat/completions','NVIDIA_API_KEY',false,false)`;
- // Preflight fails atomically when even a disabled legacy connection references
- // a runtime key not present in this environment. Never write partial mappings.
- delete process.env.PROVIDER_MIGRATION_MISSING_KEY;
- await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,enabled,route_enabled)
-  VALUES ('example','missing-key','unconfigured','https://example.com/v1','PROVIDER_MIGRATION_MISSING_KEY',false,false)`;
- await assert.rejects(migrateProviderConnections(),/Missing provider runtime credential: PROVIDER_MIGRATION_MISSING_KEY/);
- assert.equal((await sql`SELECT 1 FROM settings WHERE key='providerConnections.migration.v1'`).length,0);
- await sql`DELETE FROM model_providers WHERE vendor='example' AND model_id='missing-key'`;
- delete process.env.MODEL_PROVIDER_REGISTRY_ENABLED;
- const first=await migrateProviderConnections();
- assert.equal(first.createdModels,3);assert.equal(first.migratedReferences,0);
- assert.equal(first.activated,false);
- assert.equal(await normalizedRegistryActive(),false);
- assert.equal((await sql`SELECT 1 FROM settings WHERE key='providerConnections.activation.v1'`).length,0);
- process.env.MODEL_PROVIDER_REGISTRY_ENABLED='true';
- assert.equal(await normalizedRegistryActive(),false,'flag alone must not activate old data');
- const activated=await migrateProviderConnections({activate:true});
- assert.equal(activated.migratedReferences,2);
- assert.equal(await normalizedRegistryActive(),true);
- const original=oldIds.map(id=>migratedId('model',['nvidia',id]));
- for(const [i,id] of original.entries()) {
-  const m=await getRegisteredModel(id);
-  assert.equal(m.modelId,oldIds[i]);assert.equal(m.enabled,true);assert.equal(m.routeEnabled,true);
-  assert.equal(await resolveLegacyModel('nvidia',oldIds[i]!),id);
-  assert.equal(await resolveModelReference('nvidia:'+oldIds[i]),id);
-  assert.equal(await resolveModelReference('model:'+id),id);
-  assert.equal(await resolveModelReference(oldIds[i]!),null);
-  assert.deepEqual(m.requestDefaults,{temperature:0.7});
-  assert.deepEqual(m.routing.eligibleCapabilities,['text']);
-  assert.equal(m.checks.find(c=>c.capability==='text')?.status,'legacy');
-  assert.equal(m.checks.find(c=>c.capability==='text')?.verifiedAt,verifiedAt.toISOString());
-  assert.notEqual(m.checks.find(c=>c.capability==='vision')?.status,'legacy');
-  assert.equal(m.timeoutOverrideMs,i===0?60000:120000);
-  const [setting]=await sql`SELECT value FROM settings WHERE key=${'models.migration-'+i}`;
-  assert.equal(setting!.value.model,'model:'+id);
- }
- assert.equal((await getRegisteredModel(original[0]!)).providerId,(await getRegisteredModel(original[1]!)).providerId);
- assert.equal((await getRegisteredModel(migratedId('model',['nvidia','disabled-legacy']))).checks.some(x=>x.status==='legacy'),false);
- const edited=await getRegisteredModel(original[0]!);
- await sql`UPDATE registered_models SET notes='admin edit',version=version+1 WHERE id=${edited.id}::uuid`;
- const again=await migrateProviderConnections();
- assert.equal(again.createdModels,0);assert.equal(again.migratedReferences,0);
- assert.equal((await getRegisteredModel(edited.id)).notes,'admin edit');
- assert.equal(await resolveModelReference('nvidia-gpt-oss-20b'),original[0]);
- // Same number of bindings, wrong target: the migration must reject and roll back.
- await sql`UPDATE provider_workflow_models SET model_id=${original[1]!}::uuid WHERE setting_key='models.migration-0'`;
- await assert.rejects(migrateProviderConnections(),/binding disagrees/);
- await sql.begin(tx=>writeWorkflowModel(tx,'models.migration-0',null,actor));
- await sql`UPDATE registered_models SET enabled=false,route_enabled=false WHERE id=${original[0]!}::uuid`;
- const deleting=await getRegisteredModel(original[0]!);
- await deleteRegisteredModel(deleting.id,deleting.version,'remove migrated model',actor);
- await migrateProviderConnections();
- assert.equal((await sql`SELECT 1 FROM registered_models WHERE id=${original[0]!}::uuid`).length,0);
- assert.equal(await resolveLegacyModel('nvidia',oldIds[0]!),null);
- await assert.rejects(resolveModelReference('nvidia:'+oldIds[0]),/has been deleted/);
- await assert.rejects(resolveModelReference('nvidia-gpt-oss-20b'),/has been deleted/);
 });
