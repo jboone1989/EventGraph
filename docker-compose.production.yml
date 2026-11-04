@@ -34,9 +34,6 @@ services:
     environment:
       GRAPHITI_API_URL: ${GRAPHITI_API_URL:-}
       MODEL_CALLS_ENABLED: ${MODEL_CALLS_ENABLED:?Set MODEL_CALLS_ENABLED explicitly in production .env}
-      NVIDIA_MODEL_POOL_ENABLED: ${NVIDIA_MODEL_POOL_ENABLED:?Set NVIDIA_MODEL_POOL_ENABLED explicitly in production .env}
-      NVIDIA_MODEL_DISCOVERY_PROBES_ENABLED: ${NVIDIA_MODEL_DISCOVERY_PROBES_ENABLED:-false}
-      NVIDIA_POOL_ROUTE_DEFAULT: ${NVIDIA_POOL_ROUTE_DEFAULT:-false}
       GRAPHITI_INGEST_ENABLED: ${GRAPHITI_INGEST_ENABLED:-false}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/site/knowledge/stats').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -52,9 +49,6 @@ services:
     environment:
       GRAPHITI_API_URL: ${GRAPHITI_API_URL:-}
       MODEL_CALLS_ENABLED: ${MODEL_CALLS_ENABLED:?Set MODEL_CALLS_ENABLED explicitly in production .env}
-      NVIDIA_MODEL_POOL_ENABLED: ${NVIDIA_MODEL_POOL_ENABLED:?Set NVIDIA_MODEL_POOL_ENABLED explicitly in production .env}
-      NVIDIA_MODEL_DISCOVERY_PROBES_ENABLED: ${NVIDIA_MODEL_DISCOVERY_PROBES_ENABLED:-false}
-      NVIDIA_POOL_ROUTE_DEFAULT: ${NVIDIA_POOL_ROUTE_DEFAULT:-false}
       GRAPHITI_INGEST_ENABLED: ${GRAPHITI_INGEST_ENABLED:-false}
 
   web:

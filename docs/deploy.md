@@ -1,19 +1,24 @@
 # 部署
 
-## Provider Connections 数据迁移（先在开发副本验证）
+## 当前厂商连接、模型及工作流路由（2026-11-04）
 
-新增的 `0107`–`0110` 是添加新表的结构迁移，**不会自动迁移历史 Provider 资格**。旧 API/worker 停止写入后，先对 PostgreSQL 做自有私有备份，再在数据库副本进行显式的数据转换：
+厂商连接、模型和工作流绑定统一从 PostgreSQL 的 `provider_connections`、`registered_models`、`provider_workflow_models` 以及 `settings` 读取。NVIDIA 只是一种普通厂商连接，**没有另一套独立的 NVIDIA 模型池**；旧的自动探测、导入和批量验证脚本已删除，不要执行 `scripts/migrate-provider-connections.ts` 或 `scripts/import-nvidia-registered-models.ts`。
 
-```bash
-# 使用部署环境真实的运行时环境文件，不能用空白、示例文件或测试凭据代替。
-# 文件需要包含 DATABASE_URL、MODEL_CREDENTIAL_ENCRYPTION_KEY，以及
-# 旧 model_providers.credential_env 指向的每一个提供商 API key。
-docker compose -f docker-compose.yml -f docker-compose.production.yml \
-  run --rm --no-deps api node scripts/migrate-provider-connections.ts
+发布前在目标生产库执行以下**只读检查**，确认默认值、全部实际启用的流程以及需要 vision/embedding 的流程都有预期模型，不能依靠旧 NVIDIA 的隐式默认路由：
+
+```sql
+SELECT key, value->>'model' AS model_reference
+FROM settings WHERE key LIKE 'models.%' ORDER BY key;
+SELECT b.setting_key, m.model_id, c.name AS connection_name
+FROM provider_workflow_models b
+JOIN registered_models m ON m.id = b.model_id
+JOIN provider_connections c ON c.id = m.provider_id
+ORDER BY b.setting_key;
 ```
 
-任何旧 `credential_env` 变量缺失时必须中止，不应留下部分转换结果。验证所有原先真正可路由的模型：逐能力检查 `routingState.eligibleCapabilities`；只有旧表对应能力存在 `verified` 且 `verified_at` 在最近 24 小时内，才允许以 `legacy` 过渡，时间戳必须保持原样。没有验证过的 vision/embedding 能力不可自动获得资格；过期能力必须重新测试。切到 `MODEL_PROVIDER_REGISTRY_ENABLED=true` 前，先核对副本库的旧路由资格与新路由资格的差异，不接受意外新增或失去的能力。正式切换需单独的迁移/回滚计划；本 PR 不改动生产启用状态。 数据导入完成**不会自动切换路由**。必须先在服务环境显式设置 `MODEL_PROVIDER_REGISTRY_ENABLED=true`，再在维护窗口执行 `docker compose -f docker-compose.yml -f docker-compose.production.yml run --rm --no-deps api node scripts/migrate-provider-connections.ts --activate`；只有 **环境开关和 `providerConnections.activation.v1` 标记同时成立** 才激活。启动前确认实际生产 Compose 文件组合、密钥注入路径与数据库服务健康，并核对能力探测续期任务，避免 24 小时后因失效导致请求失败。 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 需要作为受保护的持久密钥供各进程一致使用，不可在日志、CI 或文档里填写真实值。
+2026-11-04 在 VM09 生产库实测：`models.default` 为 `auto`，15 个工作流步骤均已设置模型（其中 Graphiti chat/embedding 是两个显式的 `model:<uuid>` 绑定），不需要旧默认路由。后续管理员可以改动这些设置，**每次发布仍以实时查询为准**。新环境必须先在后台配置默认模型并检查每项流程的绑定，尤其是图像输入与 Graphiti embedding 的独立资格，不能因为旧路由删除便默默改用无 vision 能力的模型。
 
+`MODEL_CREDENTIAL_ENCRYPTION_KEY` 是跨服务器一致的持久密钥，解密现有数据库密文必须使用原密钥；不要因为连接失败就重置 API Key 或重新生成加密密钥。
 
 ## 用 Docker（推荐）
 
@@ -102,18 +107,11 @@ docker compose run --rm setup && docker compose up -d
 
 一个新迁移 `0112_editor_notes.sql`（新表 `editor_notes`，不动已有数据）。按既有顺序更新：备份、停止旧 API 和 worker、`scripts/migrate.ts`、`scripts/seed.ts`、启动——种子会把 `site/editor-notes.ts` 里已写日期的手记插入一次（`ON CONFLICT DO NOTHING`，不覆盖后台编辑），此后手记全部在后台「内容 → 编辑手记」维护。镜像部署脚本的迁移一致性检查会拒绝带着未执行迁移的镜像，属预期保护：先在目标库跑迁移再部署新镜像。
 
-#### Provider 连接与模型管理
+#### EventGraph：移除旧 NVIDIA 模型池和历史模型管理（2026 年 11 月 4 日）
 
-`0106`–`0110` 只新增连接、模型、验证记录和引用映射表，不删除旧数据。新管理页、API、运行时和数据迁移必须一起交付。
+已安装的 Provider 连接、模型 CRUD、工作流绑定和单模型能力测试保持不变。旧 `NVIDIA_MODEL_POOL_ENABLED`、`NVIDIA_MODEL_DISCOVERY_PROBES_ENABLED`、`NVIDIA_POOL_ROUTE_DEFAULT` 以及旧 `/api/admin/model-providers*` 路由、5 分钟 NVIDIA 探测任务、一次性 Provider 数据导入脚本已移除。缺少工作流配置时**不得假设旧 NVIDIA 默认池会补位**；部署前按上面的只读 SQL 检查 `models.default` 与各 `models.<step>`，验证所选模型的 text/vision/embedding 能力；没有可用模型应在管理后台补齐设置。
 
-先在数据库副本上验证，再按维护窗口执行：备份、停止旧 API 和 worker、运行 `scripts/migrate.ts`，然后运行 `docker compose -f docker-compose.yml -f docker-compose.production.yml \
-  run --rm --no-deps api node scripts/migrate-provider-connections.ts`，核验结果后启动新版服务。不要在旧 worker 仍运行时单独迁移 `models.*` 引用。
-
-新凭据通过 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 加密；设置为随机 32 字节的 base64 值，并与数据库备份一起妥善保管。已有环境凭据引用由迁移保留，替换或清除只影响该连接。
-
-迁移保留模型级超时和现有引用。只有迁移前已经开启路由的模型取得当前配置的 `legacy` 资格；原先关闭的路由仍须测试通过才能开启。修改地址、凭据或调用配置会使旧资格失效，界面分别显示路由开关和实际可用性。没有可用模型时明确报错。
-
-完成标记、数据和引用在同一事务提交。重跑只核验，管理员后来删除的对象不会恢复。迁移后旧管理写接口返回 409，请使用新的连接与模型页面。[API 和兼容约定](provider-api.md)。
+数据库迁移 `0122_retire_legacy_model_pool.sql`、`0123_retire_legacy_service_prices.sql` 和 `0124_retire_legacy_model_check_detail.sql` **永久删除**历史 `model_provider_bulk_checks`、`service_prices` 两张表及 `model_provider_checks.detail` 列。2026-11-04 检查 VM09 生产库时两表及该旧字段中的记录均为 0；**其他部署/还原库不保证为空**。执行迁移前会锁定目标旧表并检查数据：表中仍有行，或待删 `detail` 列存在非空值时，迁移直接报错并回滚，不删数据也不记录成功；先备份、导出、核对并清理旧数据后才能继续升级。现有 `registered_models`、`provider_connections`、`provider_workflow_models`、`registered_model_checks`、Neo4j 图谱和 `graphiti_ingestions` 不在这些删除操作范围内。
 
 #### EventGraph：删除旧的本地知识图谱原型（2026 年 10 月 16 日）
 

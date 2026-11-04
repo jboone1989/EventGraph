@@ -66,26 +66,19 @@ Dependencies list `{kind:"model"|"workflow",id,name}`. Disabling and deleting ar
 Connections with models cannot be deleted, and models referenced by workflows cannot be deleted.
 The frontend must display field errors and dependencies alongside the relevant controls.
 
-## Migration and legacy inputs
+## Current records and retirement of the legacy model pool
 
-DDL 0106–0110 is additive and uses one online-safe statement per file. The separate data migration
-`scripts/migrate-provider-connections.ts` requires a maintenance window with the old API and worker
-stopped. It batches source reads, retains exact model configuration and shares a connection only
-when vendor, base URL and credential reference agree. Each original timeout becomes a model override. It does not delete old tables.
+The authoritative configuration is `provider_connections`, `registered_models`, `provider_workflow_models` and `models.*` settings. Registered models use UUID references (`model:<uuid>`) plus per-capability verified checks. The historical `provider_model_aliases` mapping exists to resolve already-stored identifiers; it does not create a second model pool.
 
-`provider_model_aliases` maps `(vendor, model_id)` to a deterministic model UUID. Known preset
-keys and `vendor:model_id` workflow settings become `model:<uuid>` plus an FK-backed binding in
-`provider_workflow_models`. Existing checks are retained as observations. Only models whose routing switch was already on receive migration-only `legacy` evidence for that exact configuration and declared capabilities. Disabled routes acquire no eligibility. API clients cannot create legacy evidence. Configuration changes invalidate both legacy and verified evidence, while notes and display edits preserve it. Switching a route from off to on requires a current successful test.
+One-time migration tools such as `scripts/migrate-provider-connections.ts` and the NVIDIA catalogue importer have been retired; do **not** instruct operators to run deleted scripts. The current admin CRUD and per-model test endpoints are the entry points. All automatic `auto:*` choices use the registered free-model selector, independent of the retired NVIDIA-only pool.
 
-A completion marker and the original identity manifest commit in the same transaction as all data and references. After completion, repeated migration only verifies surviving aliases and current workflow bindings; deleted objects are never recreated and administrator edits are never overwritten. It checks every alias target and every workflow binding against its setting, in addition
-to checking counts. A mismatch aborts the transaction. Future legacy API/import inputs must use
-the same alias resolver and workflow writer, rather than storing ambiguous upstream model IDs.
+Before release, query `models.default` and each actual workflow setting; confirm any vision/embedding workflow has an eligible model of that capability. Production was checked on 2026-11-04: default `auto`, 15 explicit workflow settings, including Graphiti chat and embedding. Those observations are time-specific and must be rechecked after admin edits. Details, SQL and historical-data removal from migrations 0122–0124 are documented in [deploy.md](deploy.md#当前厂商连接模型及工作流路由2026-11-04).
 
 ## Runtime and compatibility
 
 `model:<uuid>` resolves to the exact connection and model at call time, independently of the display vendor or upstream name. Runtime rechecks enabled flags, endpoint policy, credential availability and matching per-capability evidence immediately before transport. Configuration identity participates in receipt keys, so two connections with the same model name cannot reuse each other's receipts. Failed eligibility and unknown configured references raise explicit errors; no default-model fallback is used.
 
-Admin workflow switches resolve old preset and vendor-qualified references through the alias table and write settings plus their FK binding in one transaction. After the completion marker exists, old registry mutation and probe/bulk entrypoints reject writes with 409; use the new connection/model API. Legacy source tables remain for verification and rollback planning, never as a post-migration source of routing authority.
+Admin workflow switches write settings plus their FK binding in one transaction. Use the current connection/model CRUD and per-model test API; the retired provider-pool mutation and probe/bulk endpoints no longer exist. Do not rely on legacy source tables for model routing.
 
 All provider transport uses the existing guarded HTTP client, including connect-time DNS checks over actual resolved socket addresses, request deadlines, bounded bodies and zero redirects. NVIDIA domain recognition is broader than its approved API endpoint allowlist; unapproved NVIDIA domains are rejected rather than treated as unrestricted providers.
 

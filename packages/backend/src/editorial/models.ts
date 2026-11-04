@@ -9,8 +9,6 @@ import { DEFAULTS } from "@aihot/site/models";
 import { sql } from "../db.ts";
 import { serverModules } from "../modules.ts";
 import { MODELS } from "../providers/llm.ts";
-import { availableModel } from "../providers/nvidia-pool.ts";
-import {selectConfiguredProviderForStage} from "../providers/registry/selection.ts";
 import { nvidiaCapability } from "../providers/nvidia-catalog.ts";
 
 export interface Capability {
@@ -143,15 +141,6 @@ export async function modelFor(capability: CapabilityKey | (string & {})): Promi
   }
   if(chosen==='auto'||/^auto:(light|medium|heavy)$/.test(chosen))return 'auto:'+capability+(chosen==='auto'?'':':'+chosen.slice(5));
   if(chosen.startsWith('model:')){await registeredRuntime(chosen.slice(6),c.vision?'vision':'text');return chosen;}
-  if (process.env.NVIDIA_MODEL_POOL_ENABLED === "true") {
-    const nvidiaChosen=MODELS[chosen]?.service==="nvidia" ||
-      (chosen==="default"&&process.env.NVIDIA_POOL_ROUTE_DEFAULT==="true");
-    if(nvidiaChosen&&process.env.MODEL_PROVIDER_REGISTRY_ENABLED==="true")
-      return selectConfiguredProviderForStage(capability,!!c.vision);
-    if (MODELS[chosen]?.service === "nvidia") return availableModel(chosen);
-    if (chosen === "default" && process.env.NVIDIA_POOL_ROUTE_DEFAULT === "true")
-      return availableModel(c.vision ? "nvidia-glm-5.3-flash" : "nvidia-gpt-oss-20b");
-  }
   if(await normalizedRegistryActive()){const id=await resolveModelReference(chosen);if(id){await registeredRuntime(id,c.vision?'vision':'text');return 'model:'+id;}}
   if(!MODELS[chosen])throw new Error('Unknown configured model: '+chosen);
   return chosen;
