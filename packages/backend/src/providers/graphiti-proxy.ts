@@ -75,7 +75,7 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
     identity:{kind,hash,modelId:id,fingerprint},
     requestSummary:{kind,requestHash:hash,modelId:id,...(automatic?{routing:{stage:'graphiti'}}:{})},
    },async()=>{
-    const {data,requestId}=await requestRegisteredModel(id,capability,payload,fingerprint);
+    const {data,requestId}=await requestRegisteredModel(id,capability,payload,fingerprint,kind==='chat');
     return {response:data,requestId,usage:(data.usage as Record<string,unknown>)??null,cost:null};
    });
    const response=receipt.response as Record<string,unknown>;
