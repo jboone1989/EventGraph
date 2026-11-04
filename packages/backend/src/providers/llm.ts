@@ -1,5 +1,5 @@
 import {normalizedRegistryActive,resolveModelReference} from './registry/connections.ts';
-import {selectConfiguredProviderForStage,coolDownReference} from './registry/selection.ts';
+import {selectConfiguredProviderForStage,coolDownReference,stageComplexity} from './registry/selection.ts';
 import {ProviderConfigError} from './registry/connection-types.ts';
 import {registeredRuntime,requestRegisteredModel,modelEndpoint} from './registry/runtime.ts';
 import {storedCredential} from './registry/connection-secrets.ts';
@@ -76,6 +76,8 @@ export interface ChatJsonOptions<S extends z.ZodType> {
   maxTokens?: number;
   attemptTag?: string;
   timeoutMs?: number;
+  /** Internal annotation for measured automatic routing; never sent to the provider. */
+  routing?: { stage: string; tier: 'light' | 'medium' | 'heavy'; fallbackFrom?: string };
   /** false: the model answers in its own text format (no JSON mode); `parse` turns it into the schema's input. */
   json?: boolean;
   parse?: (content: string) => unknown;
@@ -145,23 +147,28 @@ function inputCapabilityFor(user:string|ContentPart[]):string {return Array.isAr
 
 export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): Promise<ChatJsonResult<z.infer<S>>> {
   if (opts.model.startsWith('auto:')) {
-    const stage = opts.model.slice(5).split(':')[0]!;
-    const level = opts.model.slice(5).split(':')[1];
+    const [stage, level] = opts.model.slice(5).split(':');
+    const tier = stageComplexity(level || stage!);
     const excluded = new Set<string>();
     const needsVision = Array.isArray(opts.user) && opts.user.some(p => p.type === 'image_url');
+    let rejectedModel: string | undefined;
     for (let attempt = 0; attempt < 8; attempt++) {
-      const selected = await selectConfiguredProviderForStage(level ? level : stage, needsVision, excluded);
+      const selected = await selectConfiguredProviderForStage(level || stage!, needsVision, excluded);
       try {
-        return await chatJson({ ...opts, model: selected });
+        return await chatJson({
+          ...opts, model: selected,
+          routing: { stage: stage!, tier, ...(rejectedModel ? { fallbackFrom: rejectedModel } : {}) },
+        });
       } catch (error) {
-        // A rejected HTTP request is known not to have been accepted. An unknown
-        // receipt, network timeout or schema failure is NEVER blindly replayed.
+        // Only a provider-declared HTTP rejection can prove a safe failover.
+        // Unknown outcomes (including network timeouts) retain their receipts.
         const refused = error instanceof ProviderRejectedError &&
           (error.status === 429 || error.status === 502 || error.status === 503 || error.status === 504);
         const staleProbe = error instanceof ProviderConfigError && error.statusCode === 409;
         const quota = error instanceof BudgetExceededError;
         if (!refused && !staleProbe && !quota) throw error;
         if (!selected.startsWith('model:')) throw error;
+        if (refused) rejectedModel = selected;
         excluded.add(selected.slice(6));
         const accountWide = quota || (error instanceof ProviderRejectedError && error.status === 429);
         await coolDownReference(selected, accountWide ? 60 : staleProbe ? 300 : 30, accountWide);
@@ -240,7 +247,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
       purpose: opts.purpose,
       subject: opts.subject,
       identity: { connectionModelId:normalizedId,configuration:normalized?.fingerprint,model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(userText), temperature, maxTokens, extra: spec.extra ?? null },
-      requestSummary: { promptVersion: opts.promptVersion, systemHash: sha256(opts.system), userHash: sha256(userText), userChars: userText.length, temperature, maxTokens },
+      requestSummary: { promptVersion: opts.promptVersion, systemHash: sha256(opts.system), userHash: sha256(userText), userChars: userText.length, temperature, maxTokens, ...(opts.routing ? { routing: opts.routing } : {}) },
       attemptTag: opts.attemptTag,
     },
     async () => {
