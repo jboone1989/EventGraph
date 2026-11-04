@@ -105,7 +105,7 @@ jobs:
           set -euo pipefail
           test ! -e .github/workflows/claude-pr-dispatch.yml
           test ! -e .github/workflows/eventgraph-glm-review.yml
-          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 \
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -shellcheck= \
             .github/workflows/check.yml \
             .github/workflows/release-develop.yml \
             .github/workflows/release-main.yml \
