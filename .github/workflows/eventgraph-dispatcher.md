@@ -6,20 +6,29 @@ permissions:
 env:
   GH_AW_SKIP_REFLECT: 'true'
 engine:
-  id: pi
-  model: openrouter/free
-  model-provider: openai
+  id: claude
+  model: glm-5.3
   env:
-    OPENAI_BASE_URL: https://openrouter.ai/api/v1
-    OPENAI_API_KEY: ${{ secrets.GLM_API_KEY }}
+    ANTHROPIC_BASE_URL: https://open.bigmodel.cn/api/anthropic
+    ANTHROPIC_API_KEY: ${{ secrets.GLM_API_KEY }}
 network:
   allowed:
     - github.com
-    - openrouter.ai
-# Keep upstream model IDs unchanged through the OpenRouter gateway.
+    - open.bigmodel.cn
+# Preserve the custom GLM model and avoid proxy-side token rewriting.
 sandbox:
   agent:
     token-steering: false
+models:
+  providers:
+    anthropic:
+      models:
+        glm-5.3:
+          cost:
+            input: 1.201435715680238e-6
+            output: 4.205025004880833e-6
+            cache_read: 3.003589289200595e-7
+            cache_write: 0
 tools:
   work-queue: true
 safe-outputs:
