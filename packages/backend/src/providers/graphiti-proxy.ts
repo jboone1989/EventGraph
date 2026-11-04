@@ -33,7 +33,9 @@ export function graphitiBody(kind:Kind,value:unknown):Record<string,unknown> {
  }
  if(JSON.stringify(body).length>150000)return bad('Graphiti request exceeds input limit');
  const {model:_,...rest}=body;
- return kind==='chat'?{...rest,stream:false}:rest;
+ // OpenAI Python clients may request base64 embeddings. Require numeric vectors for
+ // the Graphiti dimension check and the existing Neo4j graph.
+ return kind==='chat'?{...rest,stream:false}:{...rest,encoding_format:'float'};
 }
 
 export function vectorDimensions(response:Record<string,unknown>,expected:number):void {
