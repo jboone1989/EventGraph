@@ -25,7 +25,7 @@ test("every step takes a model that reads images; only a step that needs images 
     switchModel("understand", "qwen3-vl-flash", "disallow implicit preset", "test"),
     /Choose a model from Model Management/);
 
-  assert.equal(understand.vision, undefined);
+  assert.equal('vision' in understand, false);
 });
 
 test("runtime image attachment is explicit rather than probing presets with unspecified vision support", async () => {
