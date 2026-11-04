@@ -37,7 +37,7 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
   <div className="flex items-center gap-2">
    <Select aria-label={"为"+step.label.split("（")[0]+"选择模型"} value={selected}
     disabled={busy} onChange={e=>{setSelected(e.target.value);setError("");}}>
-    <option value="">不绑定（使用运行环境默认）</option>
+    <option value="">{step.key==="default"?"使用部署默认模型":"继承默认模型"}</option>
     {selected&&!chosen&&<option value={selected} disabled>{selected}（旧配置，仅保留当前值）</option>}
     {choices.map(choice=>{
      const ok=usable(choice,step);
@@ -58,30 +58,36 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
 
 export default function ModelBindings({loaderData}:Route.ComponentProps){
  const choices=loaderData.choices;
+ const defaultStep:Step={key:"default",label:"默认模型",vision:false,current:loaderData.defaultModel};
  const display=(key:string)=>{
   const choice=choices.find(c=>c.key===key);
-  return choice?titleFor(choice):key||"未绑定";
+  return choice?titleFor(choice):key||"部署默认";
  };
  return <AdminPage title="工作流模型绑定"
-  subtitle="直接选择模型管理中的模型；新增或删除后重新进入此页即可看到最新数据。"
+  subtitle="先设置默认模型；高级设置可为某个工作流单独覆盖。"
   actions={<ButtonLink to="/admin/models">模型管理</ButtonLink>}>
-  <Card title={"处理阶段（"+loaderData.steps.length+"）"}>
-   <DataTable rows={loaderData.steps} rowKey={s=>s.key} columns={[
-    {key:"stage",label:"工作流阶段",render:s=><div className="max-w-xs">
-     <div className="font-medium text-ink">{s.label.split("（")[0]}</div>
-     {s.label.includes("（")&&<div className="text-xs text-ink-4">{s.label.slice(s.label.indexOf("（"))}</div>}
-    </div>},
-    {key:"current",label:"绑定模型",render:s=><span className="block max-w-[200px] break-all font-mono text-xs">
-     {display(s.current.model)}</span>},
-    {key:"source",label:"来源",render:s=><Badge tone={s.current.source==="admin"?"accent":"muted"}>
-     {s.current.source==="admin"?"已绑定":"未绑定"}
-    </Badge>},
-    {key:"select",label:"更改绑定",render:s=><ModelBinding
-     key={s.key+":"+s.current.source+":"+s.current.model} step={s} choices={choices}/>},
-   ]}/>
-   <p className="mt-4 text-xs text-ink-4">
-    候选模型直接来自模型管理表。取消绑定后运行时使用环境默认值；能否实际调用取决于模型连接及启用状态。
-   </p>
+  <Card title="默认模型">
+   <p className="mb-3 text-sm text-ink-4">所有未单独指定模型的工作流都使用这里的模型。</p>
+   <ModelBinding key={"default:"+loaderData.defaultModel.model} step={defaultStep} choices={choices}/>
+   <p className="mt-2 text-xs text-ink-4">当前：{display(loaderData.defaultModel.model)||"部署默认"}</p>
   </Card>
+  <details className="mt-4" open={loaderData.steps.some(s=>s.current.source==="admin")}>
+   <summary className="cursor-pointer py-3 font-medium">高级设置 · 为各工作流单独指定模型（{loaderData.steps.length}）</summary>
+   <Card title="工作流覆盖设置">
+    <DataTable rows={loaderData.steps} rowKey={s=>s.key} columns={[
+     {key:"stage",label:"工作流阶段",render:s=><div className="max-w-xs">
+      <div className="font-medium text-ink">{s.label.split("（")[0]}</div>
+      {s.label.includes("（")&&<div className="text-xs text-ink-4">{s.label.slice(s.label.indexOf("（"))}</div>}
+     </div>},
+     {key:"current",label:"生效模型",render:s=><span className="block max-w-[200px] break-all font-mono text-xs">
+      {display(s.current.source==="admin"?s.current.model:loaderData.defaultModel.model)}</span>},
+     {key:"source",label:"来源",render:s=><Badge tone={s.current.source==="admin"?"accent":"muted"}>
+      {s.current.source==="admin"?"单独指定":"继承默认"}
+     </Badge>},
+     {key:"select",label:"更改绑定",render:s=><ModelBinding
+      key={s.key+":"+s.current.source+":"+s.current.model} step={s} choices={choices}/>},
+    ]}/>
+   </Card>
+  </details>
  </AdminPage>;
 }

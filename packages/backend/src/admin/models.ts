@@ -116,6 +116,9 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
  const names=new Map(connections.map(c=>[c.id,c.name]));
  const assigned=new Map(bindings.map(b=>[b.setting_key,b.model_id]));
  return {
+  defaultModel:assigned.has('models.default')
+   ?{model:'model:'+assigned.get('models.default'),source:'admin' as const}
+   :{model:'',source:'default' as const},
   steps:Object.entries(capabilities()).map(([key,c])=>{
    const id=assigned.get('models.'+key);
    return {key,label:c.label,vision:!!c.vision,
@@ -130,7 +133,7 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
 
 /** One workflow → one model ID. Clearing a binding restores the deployment default. */
 export async function switchModel(capability:string,model:string|null,reason:string,actor:string){
- const step=capabilities()[capability];
+ const step=capability==='default'?{vision:false}:capabilities()[capability];
  if(!step)throw Object.assign(new Error('unknown capability'),{statusCode:400});
  if(!reason.trim())throw Object.assign(new Error('a reason is required'),{statusCode:400});
  let id:string|null=null;
