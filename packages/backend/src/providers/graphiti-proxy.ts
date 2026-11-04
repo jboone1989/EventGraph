@@ -88,7 +88,7 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
    });
    const response=receipt.response as Record<string,unknown>;
    if(kind==='embedding'){
-    try{vectorDimensions(response,Number(process.env.GRAPHITI_EMBEDDING_DIM||2048),Array.isArray(payload.input)?payload.input.length:1);}
+    try{vectorDimensions(response,Number(process.env.GRAPHITI_EMBEDDING_DIM||2048),Array.isArray(body.input)?body.input.length:1);}
     catch(error){await rejectReceivedResponse(receipt.receiptId,'Graphiti embedding dimension mismatch');throw error;}
    }
    return response;
