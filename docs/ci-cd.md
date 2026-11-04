@@ -13,7 +13,7 @@ EventGraph owns its GLM review workflow (`.github/workflows/eventgraph-glm-revie
 (`.github/review/claude-review-checklist.md`). The trusted `.github/workflows/claude-pr-dispatch.yml`
 runs after a successful PR-related Check and calls that workflow **inside EventGraph**, with
 `GLM_API_KEY` from EventGraph's own repository secrets. The reviewer verifies the exact
-successful Check run, current PR HEAD and live target branch, reads only source/diff, and
+successful Check run, current PR HEAD and live target branch, inspects untrusted PR source/diff from an isolated directory, and
 posts the existing required `claude-review` status. A previously successful review may
 be reused only for the same HEAD and live base SHA.
 
