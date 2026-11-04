@@ -185,10 +185,14 @@ jobs:
           git show refs/remotes/origin/develop:scripts/ci/check-spec.mjs > "$RUNNER_TEMP/check-spec.mjs"
           test -s "$RUNNER_TEMP/check-spec.mjs"
           pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
-          export SPEC_PR_BODY="$(jq -r '.body // ""' <<< "$pr")"
-          export SPEC_PR_AUTHOR="$(jq -r '.user.login' <<< "$pr")"
-          export SPEC_HEAD_REF="$(jq -r '.head.ref' <<< "$pr")"
-          export SPEC_HEAD_REPO="$(jq -r '.head.repo.full_name // ""' <<< "$pr")"
+          SPEC_PR_BODY="$(jq -r '.body // ""' <<< "$pr")"
+          export SPEC_PR_BODY
+          SPEC_PR_AUTHOR="$(jq -r '.user.login' <<< "$pr")"
+          export SPEC_PR_AUTHOR
+          SPEC_HEAD_REF="$(jq -r '.head.ref' <<< "$pr")"
+          export SPEC_HEAD_REF
+          SPEC_HEAD_REPO="$(jq -r '.head.repo.full_name // ""' <<< "$pr")"
+          export SPEC_HEAD_REPO
           node "$RUNNER_TEMP/check-spec.mjs"
 
       - name: Require configured GLM key
