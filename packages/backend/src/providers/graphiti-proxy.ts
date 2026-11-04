@@ -1,4 +1,5 @@
-import {createHash, timingSafeEqual} from 'node:crypto';
+import {createHash} from 'node:crypto';
+import {matchesBearerToken} from '../lib/bearer-auth.ts';
 import {modelFor,invalidateModelCache} from '../editorial/models.ts';
 import {config} from '../config.ts';
 import {storedCredential} from './registry/connection-secrets.ts';
@@ -14,9 +15,7 @@ const bad=(message:string):never=>{throw Object.assign(new Error(message),{statu
 
 /** A distinct internal service credential. Provider API keys never leave the backend. */
 export function graphitiAuthorized(header:unknown,secret:string|undefined):boolean {
- if(typeof header!=='string'||!secret||secret.length<32||!header.startsWith('Bearer '))return false;
- const provided=Buffer.from(header.slice(7)),expected=Buffer.from(secret);
- return provided.length===expected.length&&timingSafeEqual(provided,expected);
+ return matchesBearerToken(header,secret,{requireBearer:true,minSecretLength:32});
 }
 
 export function graphitiBody(kind:Kind,value:unknown):Record<string,unknown> {
