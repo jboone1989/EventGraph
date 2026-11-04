@@ -30,7 +30,7 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
  const save=async()=>{
   setError("");
   const result=await run("POST","/api/admin/models/"+encodeURIComponent(step.key),{
-   model:selected||null,reason:"后台工作流模型绑定："+step.key+" → "+(selected||"继承默认")
+   model:selected||null,reason:"后台工作流模型绑定："+step.key+" → "+(selected||(step.embedding?"未绑定":"继承默认"))
   },{success:"已更新："+step.label.split("（")[0],onError:problem=>setError(problem.detail)});
   if(!result&& !error) return;
  };
