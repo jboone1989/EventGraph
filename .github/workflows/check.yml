@@ -434,6 +434,15 @@ jobs:
             . ':(exclude).github/workflows/*.lock.yml' > pr-review.diff
           test -s pr-review.diff
 
+      - name: 确认 GitHub Secret OPENROUTER_API_KEY 已配置
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::Missing OPENROUTER_API_KEY; set it in GitHub repository Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+
       - name: Claude Code Action · 单次代码评审
         id: reviewer
         uses: anthropics/claude-code-action@v1
@@ -443,6 +452,7 @@ jobs:
           ANTHROPIC_MODEL: ${{ vars.CLAUDE_REVIEW_MODEL }}
         with:
           anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          github_token: ${{ github.token }}
           prompt: |
             Review EventGraph PR #${{ github.event.pull_request.number }} at head
             ${{ github.event.pull_request.head.sha }} against base
