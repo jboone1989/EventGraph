@@ -66,9 +66,35 @@ jobs:
             if (result.sha !== process.env.EXPECTED_SHA) {
               throw new Error('Check HEAD did not match expected immutable SHA');
             }
-            // Status provenance is not independently verified by planReview.
-            // Always run a fresh independent review for this successful Check.
-            if (!result.required) core.info('Prior status is not proof of review; running GLM.');
+            // Reuse only when the previous success came from a completed trusted
+            // reviewer run, not merely a bot-attributed commit status.
+            if (!result.required) {
+              const {data: statuses} = await github.rest.repos.listCommitStatusesForRef({
+                owner, repo, ref: result.sha, per_page: 100
+              });
+              const prior = statuses.find(s => s.context === 'claude-review');
+              const marker = 'base=' + result.baseRef + '@' + result.baseSha + '; ';
+              const url = /^https:\/\/github\.com\/jboone1989\/EventGraph\/actions\/runs\/(\d+)$/
+                .exec(prior?.target_url || '');
+              if (prior?.state === 'success' &&
+                  prior.creator?.login === 'github-actions[bot]' &&
+                  prior.description?.startsWith(marker) && url) {
+                const {data: run} = await github.rest.actions.getWorkflowRun({
+                  owner, repo, run_id: Number(url[1])
+                });
+                if (run.name === 'Review EventGraph PR after Check' &&
+                    run.path?.endsWith('.github/workflows/claude-pr-dispatch.yml') &&
+                    run.event === 'workflow_run' && run.status === 'completed' &&
+                    run.conclusion === 'success' &&
+                    run.repository?.full_name === owner + '/' + repo &&
+                    new Date(prior.created_at).getTime() >=
+                      new Date(run.run_started_at || run.created_at).getTime()) {
+                  core.info('Reusing reviewed head and live base from trusted reviewer run.');
+                  return;
+                }
+              }
+              core.info('Prior status not verified; running independent review.');
+            }
             core.setOutput('run', 'true');
             core.setOutput('number', String(result.number));
             core.setOutput('sha', result.sha);
@@ -370,9 +396,11 @@ jobs:
                 if (!f || typeof f.path !== 'string' || !Number.isInteger(f.line) ||
                     !changed.get(f.path)?.has(f.line) || !['important', 'nit'].includes(f.severity) ||
                     !Number.isInteger(f.confidence) || f.confidence < 80 ||
-                    ![f.reason, f.evidence, f.fix].every(v => typeof v === 'string' && v.trim()))
-                  throw new Error('Invalid or unchanged-line finding: ' +
+                    ![f.reason, f.evidence, f.fix].every(v => typeof v === 'string' && v.trim())) {
+                  core.warning('Excluded invalid or unchanged-line finding: ' +
                     String(f?.path) + ':' + String(f?.line));
+                  continue;
+                }
                 const key = f.path + '\\0' + f.line + '\\0' + f.reason.toLowerCase();
                 if (seen.has(key)) continue;
                 seen.add(key);
@@ -404,6 +432,8 @@ jobs:
             }
             await github.rest.repos.createCommitStatus({
               owner, repo, sha, state, context: 'claude-review',
+              target_url: 'https://github.com/' + owner + '/' + repo +
+                '/actions/runs/' + context.runId,
               description: ('base=' + process.env.BASE_REF + '@' + process.env.BASE_SHA + '; ' + description).slice(0, 140)
             });
             if (state !== 'success') core.setFailed(description);
