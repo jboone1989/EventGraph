@@ -222,13 +222,13 @@ jobs:
           envcheck=importlib.util.module_from_spec(spec)
           spec.loader.exec_module(envcheck)
           prod=envcheck.read_env(Path("config/environments/production.flags.env.example"))
-          assert any("NVIDIA_API_KEY" in issue for issue in envcheck.errors(prod,"production"))
-          prod.update({"NVIDIA_API_KEY":"testing-only","NVIDIA_BASE_URL":"https://test.invalid"})
           assert not envcheck.errors(prod,"production")
           prod["MODEL_CALLS_ENABLED"]="false"
-          assert envcheck.errors(prod,"production")
+          assert any("Graphiti ingestion" in issue for issue in envcheck.errors(prod,"production"))
+          prod["GRAPHITI_INGEST_ENABLED"]="false"
+          assert not envcheck.errors(prod,"production")
           PY
-      - name: NVIDIA pool regression tests
+      - name: NVIDIA provider regression tests
         if: needs.changes.outputs.docs_only != 'true'
         run: node --import ./tests/standalone.ts --test tests/nvidia*.standalone.test.ts
       - name: Typecheck

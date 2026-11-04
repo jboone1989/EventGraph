@@ -9,8 +9,7 @@ import sys
 from pathlib import Path
 
 FEATURES = (
-    "COLLECT_ENABLED", "MODEL_CALLS_ENABLED", "NVIDIA_MODEL_POOL_ENABLED",
-    "NVIDIA_MODEL_DISCOVERY_PROBES_ENABLED", "NVIDIA_POOL_ROUTE_DEFAULT", "GRAPHITI_INGEST_ENABLED",
+    "COLLECT_ENABLED", "MODEL_CALLS_ENABLED", "GRAPHITI_INGEST_ENABLED",
     "ADSENSE_VERIFICATION_ENABLED",
 )
 def read_env(path: Path) -> dict[str, str]:
@@ -33,12 +32,6 @@ def errors(data: dict[str, str], role: str) -> list[str]:
             problems.append(f"{key} must be explicit in the production .env")
         elif key in data and data[key] not in ("true", "false"):
             problems.append(f"{key} must be true or false")
-    if data.get("NVIDIA_MODEL_POOL_ENABLED") == "true":
-        if data.get("MODEL_CALLS_ENABLED") != "true":
-            problems.append("NVIDIA_MODEL_POOL_ENABLED=true requires MODEL_CALLS_ENABLED=true")
-        for key in ("NVIDIA_BASE_URL", "NVIDIA_API_KEY"):
-            if not data.get(key):
-                problems.append(f"{key} is required when NVIDIA pool is enabled")
     if data.get("GRAPHITI_INGEST_ENABLED") == "true" and data.get("MODEL_CALLS_ENABLED") != "true":
         problems.append("Graphiti ingestion requires enabled model calls")
     if role == "production" and data.get("AIHOT_ENVIRONMENT", "production") != "production":
@@ -66,7 +59,7 @@ def main():
         for issue in faults:
             print("INVALID:", issue, file=sys.stderr)
         return 1
-    print(f"OK: {args.role} feature flags explicit/consistent; NVIDIA secrets present when required")
+    print(f"OK: {args.role} feature flags explicit/consistent")
     return 0
 
 if __name__ == "__main__":
