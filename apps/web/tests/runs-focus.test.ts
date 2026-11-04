@@ -48,7 +48,7 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     await page.locator('a[href="#runs-issues"]').first().click();
     await expect(problems).toHaveJSProperty("open", true);
     await expect(page.getByText("Provider HTTP 500")).toBeVisible();
-    await page.locator('a[href="#runs-queues"]').click();
+    await page.locator('a[href="#runs-queues"]').first().click();
     await expect(queue).toHaveJSProperty("open", true);
     await expect(page.getByText("cron.reports.compose").first()).toBeVisible();
     await page.clock.install();
