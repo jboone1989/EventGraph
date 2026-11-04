@@ -52,6 +52,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",
    adapter:"chat",vision:false});
   await page.reload();
+  await page.getByText(/高级设置 · 为各工作流单独指定模型/).click();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeEnabled();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");
   await defaultPicker.selectOption(modelKey);
@@ -66,7 +67,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   assert.match(writes.at(-1)!.body.reason,/prefilter/);
   await picker.selectOption("");
   failure=true;
-  await page.getByRole("button",{name:"保存"}).click();
+  await page.getByRole("button",{name:"保存"}).last().click();
   await expect(page.getByRole("alert")).toContainText("模型暂不可用");
   failure=false;
   await page.getByRole("button",{name:"保存"}).click();
