@@ -4,7 +4,7 @@ import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {sql,closeDb} from '@aihot/backend/db';
 import {createConnection,updateConnection,deleteConnection,listConnections,loadConnection,
  createRegisteredModel,updateRegisteredModel,deleteRegisteredModel,getRegisteredModel,
- configurationFingerprint,routingState,normalizedRegistryActive,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel} from '@aihot/backend/providers/registry/connections';
+ configurationFingerprint,routingState,normalizedRegistryActive,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel,clearRegisteredModelCache} from '@aihot/backend/providers/registry/connections';
 import {storedCredential,credentialDigest} from '@aihot/backend/providers/registry/connection-secrets';
 import {ProviderConfigError,type ConnectionInput,type ModelInput} from '@aihot/backend/providers/registry/connection-types';
 import {migrateProviderConnections,migratedId} from '../scripts/migrate-provider-connections.ts';
@@ -18,6 +18,20 @@ const model=(providerId:string,extra:Partial<ModelInput>={}):ModelInput=>({provi
  body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'},stream:false,complexity:'medium',
  documentationUrl:null,notes:null,enabled:false,routeEnabled:false,...extra});
 after(closeDb);
+test('runtime model cache hits until cleared, while CRUD invalidates it automatically',async()=>{
+ const c=await createConnection(connection({name:'cache-'+randomUUID()}),'create',actor);
+ const m=await createRegisteredModel(model(c.id,{modelId:'before'}),'create',actor);
+ assert.equal((await loadModel(m.id)).model_id,'before');
+ await sql`UPDATE registered_models SET model_id='after' WHERE id=${m.id}::uuid`;
+ assert.equal((await loadModel(m.id)).model_id,'before');
+ clearRegisteredModelCache();
+ assert.equal((await loadModel(m.id)).model_id,'after');
+ const edited=await updateRegisteredModel(m.id,model(c.id,{modelId:'edited'}),m.version,'edit',actor);
+ assert.equal((await loadModel(m.id)).model_id,'edited');
+ await deleteRegisteredModel(m.id,edited.version,'delete',actor);
+ await assert.rejects(loadModel(m.id),/Model not found/);
+});
+
 test('persisted credential fingerprint is keyed, never the offline SHA-256 of an API secret',()=>{
  const weak='weak-secret-for-test',plain=createHash('sha256').update(weak).digest('hex');
  assert.notEqual(credentialDigest(weak),plain);
