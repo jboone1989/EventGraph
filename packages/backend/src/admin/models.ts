@@ -1,4 +1,5 @@
 import {writeWorkflowModel,loadModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
+import {registeredRuntime} from '../providers/registry/runtime.ts';
 // Admin "模型与评测": the model each capability uses and where that choice comes from,
 // the prompt versions in use, quality / latency / cost of the last days per model, the switch history
 // and the SelectBench runs that compare models on the same batch. A switch is audited and applies to
@@ -145,6 +146,7 @@ export async function switchModel(capability:string,model:string|null,reason:str
   const selected=await loadModel(model.slice(6));
   if(selected.adapter!==(step.embedding?'embedding':'chat'))
    throw Object.assign(new Error(step.embedding?'This workflow needs an embedding model':'This workflow needs a chat model'),{statusCode:400});
+  if(step.embedding)await registeredRuntime(selected.id,'embedding');
   if(step.vision&&!selected.capabilities.includes('vision'))
    throw Object.assign(new Error('This workflow needs a vision model'),{statusCode:400});
   id=selected.id;

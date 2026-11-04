@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {after,test} from "node:test";
 import {closeDb,sql} from "@aihot/backend/db";
 import {modelBindingsOverview,switchModel} from "@aihot/backend/admin/models";
-import {listRegisteredModels,deleteRegisteredModel} from "@aihot/backend/providers/registry/connections";
+import {listRegisteredModels,deleteRegisteredModel,configurationFingerprint,configurationSnapshot,loadConnection,loadModel} from "@aihot/backend/providers/registry/connections";
 
 after(closeDb);
 test("model list and bindings use the same inventory and support CRUD",async()=>{
@@ -49,26 +49,34 @@ test("binding API accepts only registered chat models and rejects old presets",a
 
 test("Graphiti embedding is an explicit embedding-only binding, never the chat default",async()=>{
  const connectionId=randomUUID(),chatId=randomUUID(),embeddingId=randomUUID();
+ const priorKey=process.env.GRAPHITI_BINDING_TEST_KEY,priorEnv=process.env.GRAPHITI_EMBEDDING_MODEL_REF;
+ process.env.GRAPHITI_BINDING_TEST_KEY='test-key-'+connectionId;
+ delete process.env.GRAPHITI_EMBEDDING_MODEL_REF;
  // No prior graphitiEmbedding assignment: this test owns the setting and removes it.
  await sql`DELETE FROM provider_workflow_models WHERE setting_key='models.graphitiEmbedding'`;
  await sql`DELETE FROM settings WHERE key='models.graphitiEmbedding'`;
- await sql`INSERT INTO provider_connections (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,updated_by)
-   VALUES (${connectionId}::uuid,'Graphiti embedding binding test','custom','openai-compatible','https://model.example.org/v1',60000,true,'none','test')`;
+ await sql`INSERT INTO provider_connections (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,credential_env,updated_by)
+   VALUES (${connectionId}::uuid,'Graphiti embedding binding test','custom','openai-compatible','https://model.example.org/v1',60000,true,'none','GRAPHITI_BINDING_TEST_KEY','test')`;
  await sql`INSERT INTO registered_models (id,provider_id,model_id,adapter,capabilities,enabled,route_enabled,updated_by)
    VALUES (${chatId}::uuid,${connectionId}::uuid,'graphiti-chat-test','chat','["text"]'::jsonb,false,false,'test'),
-          (${embeddingId}::uuid,${connectionId}::uuid,'graphiti-embedding-test','embedding','["embedding"]'::jsonb,false,false,'test')`;
+          (${embeddingId}::uuid,${connectionId}::uuid,'graphiti-embedding-test','embedding','["embedding"]'::jsonb,true,true,'test')`;
  try{
   const {modelFor,invalidateModelCache}=await import('@aihot/backend/editorial/models');
   invalidateModelCache();
   await assert.rejects(modelFor('graphitiEmbedding'),/Configure a registered embedding model/);
   await assert.rejects(switchModel('graphitiEmbedding','auto','bad auto','test'),/specific embedding model/);
   await assert.rejects(switchModel('graphitiEmbedding','model:'+chatId,'wrong adapter','test'),/embedding model/);
-  await switchModel('graphitiEmbedding','model:'+embeddingId,'binding test','test');
+  await assert.rejects(switchModel('graphitiEmbedding','model:'+embeddingId,'untested model','test'),/Model cannot route embedding/);
+  const [unbound]=await sql`SELECT model_id FROM provider_workflow_models WHERE setting_key='models.graphitiEmbedding'`;
+  assert.equal(unbound,undefined,'an unverified model must not be saved');
+  const m=await loadModel(embeddingId),c=await loadConnection(connectionId);
+  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,config_snapshot,status,verified_at) VALUES (${embeddingId}::uuid,'embedding',${configurationFingerprint(c,m)},${sql.json(configurationSnapshot(c,m))},'verified',now())`;
+  await switchModel('graphitiEmbedding','model:'+embeddingId,'verified embedding binding','test');
   const [assignment]=await sql<{model_id:string}[]>`SELECT model_id FROM provider_workflow_models WHERE setting_key='models.graphitiEmbedding'`;
   assert.equal(assignment?.model_id,embeddingId);
   const view=await modelBindingsOverview();
   assert.equal(view.steps.find(s=>s.key==='graphitiEmbedding')?.current.model,'model:'+embeddingId);
-  await assert.rejects(modelFor('graphitiEmbedding'),/Model cannot route embedding/, 'an unverified model is not callable');
+  assert.equal(await modelFor('graphitiEmbedding'),'model:'+embeddingId,'only a verified embedding binding can run');
  }finally{
   await sql`DELETE FROM provider_workflow_models WHERE setting_key='models.graphitiEmbedding'`;
   await sql`DELETE FROM settings WHERE key='models.graphitiEmbedding'`;
@@ -76,5 +84,9 @@ test("Graphiti embedding is an explicit embedding-only binding, never the chat d
   await sql`DELETE FROM provider_connections WHERE id=${connectionId}::uuid`;
   const {invalidateModelCache}=await import('@aihot/backend/editorial/models');
   invalidateModelCache();
+  if(priorKey===undefined)delete process.env.GRAPHITI_BINDING_TEST_KEY;
+  else process.env.GRAPHITI_BINDING_TEST_KEY=priorKey;
+  if(priorEnv===undefined)delete process.env.GRAPHITI_EMBEDDING_MODEL_REF;
+  else process.env.GRAPHITI_EMBEDDING_MODEL_REF=priorEnv;
  }
 });
