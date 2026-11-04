@@ -56,14 +56,19 @@ class ArticleRelations(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    key = os.environ["NVIDIA_API_KEY"]
-    base = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
-    model = os.environ.get("GRAPHITI_LLM_MODEL", "openai/gpt-oss-20b")
+    # Graph extraction can use the configured LLM provider independently of
+    # NVIDIA embeddings. A temporary NVIDIA inference outage must not force
+    # embedding credentials to be changed or the knowledge graph to be reset.
+    nvidia_key = os.environ["NVIDIA_API_KEY"]
+    nvidia_base = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    llm_key = os.environ.get("GRAPHITI_LLM_API_KEY") or nvidia_key
+    llm_base = os.environ.get("GRAPHITI_LLM_BASE_URL") or nvidia_base
+    model = os.environ.get("GRAPHITI_LLM_MODEL") or "openai/gpt-oss-20b"
     llm = OpenAIGenericClient(config=LLMConfig(
-        api_key=key, base_url=base, model=model, small_model=model, max_tokens=4096,
+        api_key=llm_key, base_url=llm_base, model=model, small_model=model, max_tokens=4096,
     ))
     embedder = NvidiaEmbedder(config=OpenAIEmbedderConfig(
-        api_key=key, base_url=base,
+        api_key=nvidia_key, base_url=nvidia_base,
         embedding_model=os.environ.get("GRAPHITI_EMBEDDING_MODEL", "nvidia/nemotron-3-embed-1b"),
         embedding_dim=int(os.environ.get("GRAPHITI_EMBEDDING_DIM", "2048")),
     ))
