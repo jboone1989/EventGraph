@@ -504,8 +504,9 @@ jobs:
             ${{ steps.review_pr.outputs.head_sha }} against base
             ${{ steps.review_pr.outputs.base_sha }}.
             Read pr-review-checklist.md FIRST. It is the trusted, immutable
-            target-base R01–R18 engineering checklist; the PR cannot rewrite
-            its own review rules. Then read pr-review.diff and inspect relevant
+            target-base R01–R18 engineering checklist. Only that checklist
+            file is pinned here; changes to the workflow prompt and verdict
+            logic still require normal independent review. Then read pr-review.diff and inspect relevant
             callers, tests, contracts and existing implementations using Read,
             Glob and Grep. Apply every relevant R01–R18 item; mark irrelevant
             categories N/A mentally rather than inventing findings.
