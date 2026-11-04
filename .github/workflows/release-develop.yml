@@ -1,0 +1,264 @@
+# Reusable only; a successful exact-SHA Check invokes this, not workflow_run.
+name: "开发发布 · GHCR 镜像与 VM13 预览"
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        required: true
+        type: string
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    name: publish # 发布验证成功的 GHCR 镜像；供生产发布核验
+    if: ${{ inputs.source_sha == github.sha && github.ref_name == 'develop' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.ref.outputs.image_ref }}
+      source_sha: ${{ github.sha }}
+    steps:
+      - name: Checkout passing SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Skip superseded commits
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_BRANCH" == develop || "$SOURCE_BRANCH" == main ]]
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/$SOURCE_BRANCH" --jq '.commit.sha')"
+          if [[ "$current" != "$SOURCE_SHA" ]]; then
+            if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+              git fetch --unshallow origin "$current"
+            else
+              git fetch origin "$current"
+            fi
+          fi
+          # Supersession by content (specs/010): a documentation-only tip does not
+          # suppress this pending code release; any later executable change does.
+          # The release's own checkout decides and fails closed on any error.
+          release="$(SOURCE_SHA="$SOURCE_SHA" HEAD_SHA="$current" \
+            node scripts/ci/release-candidate.mjs | sed -n 's/^current=//p' | head -n1)"
+          if [[ "$release" == true ]]; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::A newer executable commit exists; skip obsolete build'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GHCR
+        if: steps.current.outputs.publish == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push immutable image
+        if: steps.current.outputs.publish == 'true'
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/jboone1989/eventgraph-app:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            VITE_GISCUS_CATEGORY_ID=${{ vars.EVENTGRAPH_GISCUS_CATEGORY_ID }}
+          cache-from: type=gha,scope=eventgraph-app
+          cache-to: type=gha,mode=max,scope=eventgraph-app
+
+      - name: Export immutable digest
+        if: steps.current.outputs.publish == 'true'
+        id: ref
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "image_ref=ghcr.io/jboone1989/eventgraph-app@$DIGEST" >> "$GITHUB_OUTPUT"
+
+      # The source checks do not cover the separately built GHCR digest.
+      - name: Node for published-image smoke check
+        if: steps.current.outputs.publish == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Smoke-test published digest with Compose (no rebuild)
+        if: steps.current.outputs.publish == 'true'
+        timeout-minutes: 12
+        env:
+          EVENTGRAPH_APP_IMAGE: ${{ steps.ref.outputs.image_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EVENTGRAPH_APP_IMAGE" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[a-f0-9]{64}$ ]]
+          node scripts/init-env.ts --llm-key ci-not-a-real-key
+          sed -i 's/^COLLECT_ENABLED=.*/COLLECT_ENABLED=false/; s/^MODEL_CALLS_ENABLED=.*/MODEL_CALLS_ENABLED=false/' .env
+          grep -qx 'COLLECT_ENABLED=false' .env
+          grep -qx 'MODEL_CALLS_ENABLED=false' .env
+          echo "MCP_ALLOWED_HOSTS=web" >> .env
+          cat > "$RUNNER_TEMP/ci-published-image.yml" <<'COMPOSE'
+          services:
+            setup:
+              image: ${EVENTGRAPH_APP_IMAGE:?}
+            api:
+              image: ${EVENTGRAPH_APP_IMAGE:?}
+            worker:
+              image: ${EVENTGRAPH_APP_IMAGE:?}
+            web:
+              image: ${EVENTGRAPH_APP_IMAGE:?}
+          COMPOSE
+          docker pull "$EVENTGRAPH_APP_IMAGE"
+          # --pull never applies to the PostgreSQL dependency too; preload its official image.
+          docker pull postgres:17-alpine
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" config --quiet
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" up -d --no-build --pull never
+          healthy=0
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null; then healthy=1; break; fi
+            sleep 2
+          done
+          if [[ "$healthy" -ne 1 ]]; then
+            echo '::error::Published image failed HTTP health check' >&2
+            exit 1
+          fi
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" ps
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" run --rm --no-deps --entrypoint node setup scripts/smoke.ts --base http://web:3000
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" exec -T db psql -U aihot -d aihot -Atc "select count(*) from sources" | grep -qx "$(node -p "require('./industry/sources.json').sources.length")"
+
+      - name: Published-image smoke logs
+        if: ${{ failure() && steps.current.outputs.publish == 'true' }}
+        env:
+          EVENTGRAPH_APP_IMAGE: ${{ steps.ref.outputs.image_ref }}
+        run: |
+          if test -f "$RUNNER_TEMP/ci-published-image.yml"; then
+            docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" logs --tail 80
+          fi
+
+      - name: Clean published-image smoke environment
+        if: ${{ always() && steps.current.outputs.publish == 'true' }}
+        env:
+          EVENTGRAPH_APP_IMAGE: ${{ steps.ref.outputs.image_ref }}
+        run: |
+          if test -f "$RUNNER_TEMP/ci-published-image.yml"; then
+            docker compose -f docker-compose.yml -f "$RUNNER_TEMP/ci-published-image.yml" down -v
+          fi
+
+  deploy_vm13_preview:
+    name: "部署 VM13 开发预览"
+    needs: publish
+    if: ${{ needs.publish.outputs.image_ref != '' && vars.EVENTGRAPH_DEV_AUTO_DEPLOY == 'true' }}
+    concurrency:
+      group: eventgraph-vm13-preview
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: development
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      deployed: ${{ steps.current.outputs.deploy }}
+      release: ${{ needs.publish.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish.outputs.source_sha }}
+          persist-credentials: false
+      - name: Skip superseded release
+        id: current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.publish.outputs.source_sha }}
+        shell: bash
+        run: |
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha' || true)"
+          if [[ -n "$current" && "$current" != "$SOURCE_SHA" ]]; then
+            if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+              git fetch --unshallow origin "$current" || true
+            else
+              git fetch origin "$current" || true
+            fi
+          fi
+          # Same content-based supersession as publish (specs/010): deploy the
+          # published release unless a later executable change exists; fail
+          # closed — an unreadable branch tip skips the deployment.
+          release="$({ SOURCE_SHA="$SOURCE_SHA" HEAD_SHA="$current" node scripts/ci/release-candidate.mjs || true; } \
+            | sed -n 's/^current=//p' | head -n1)"
+          if [[ "$release" == true ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::A newer executable or unreadable branch tip; skip release'
+          fi
+      - name: Deploy VM13 Web and API from immutable digest
+        if: steps.current.outputs.deploy == 'true'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
+          EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.publish.outputs.source_sha }}
+          EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+        with:
+          host: 43.133.185.154
+          username: ubuntu
+          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+          fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
+          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_PREVIEW_RELEASE,EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT
+          command_timeout: 12m
+          version: '1.8.2'
+          script_path: scripts/ci/deploy-vm13-preview.sh
+
+  # Acceptance runs on GitHub-hosted Actions with the official Playwright image.
+  # GitHub checks VM13 directly; there is no SSH or dependency on cn-dev.
+  e2e_vm13_preview:
+    name: "验证 VM13 在线预览"
+    needs: deploy_vm13_preview
+    if: ${{ needs.deploy_vm13_preview.outputs.deployed == 'true' &&
+             needs.deploy_vm13_preview.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: development
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.deploy_vm13_preview.outputs.release }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install browser test dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Verify deployed VM13 release directly from GitHub Actions
+        env:
+          EVENTGRAPH_PREVIEW_URL: http://43.133.185.154
+          EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.deploy_vm13_preview.outputs.release }}
+        run: |
+          docker run --rm --init --ipc=host --network host \
+            -v "$PWD:/work" -w /work \
+            -e EVENTGRAPH_PREVIEW_URL -e EVENTGRAPH_PREVIEW_RELEASE \
+            mcr.microsoft.com/playwright:v1.61.1-noble \
+            sh scripts/ci/smoke-vm13.sh
+
