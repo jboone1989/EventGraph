@@ -44,11 +44,13 @@ test('only tested and explicitly routed chat models are eligible',()=>{
 
 test('NVIDIA Ultra uses non-reasoning mode only for schema-constrained grouping', () => {
  const spec = { service: 'nvidia', model: 'nvidia/nemotron-3-ultra-550b-a55b', extra: { temperature: 0.5, reasoning_effort: 'high' } };
- for (const purpose of ['group_article', 'group_review', 'group_signal']) {
+ for (const purpose of ['group_article', 'group_review', 'group_signal', 'group_story', 'group_story_review']) {
   assert.deepEqual(requestExtrasForTask(spec, purpose), { temperature: 0.5, reasoning_effort: 'none' });
  }
  assert.deepEqual(requestExtrasForTask(spec, 'understand_article'), spec.extra);
  assert.deepEqual(requestExtrasForTask(spec, 'score_article'), spec.extra);
  assert.deepEqual(requestExtrasForTask({ ...spec, service: 'openrouter' }, 'group_article'), spec.extra);
  assert.deepEqual(requestExtrasForTask({ ...spec, model: 'nvidia/nemotron-3.5-super-vl-120b-a12b' }, 'group_article'), spec.extra);
+ assert.equal(requestExtrasForTask({ ...spec, extra: undefined }, 'group_article'), undefined);
+ assert.equal(requestExtrasForTask({ ...spec, extra: undefined }, 'score_article'), undefined);
 });
