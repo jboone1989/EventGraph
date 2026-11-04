@@ -1,19 +1,24 @@
 # 部署
 
-## Provider Connections 数据迁移（先在开发副本验证）
+## 当前厂商连接、模型及工作流路由（2026-11-04）
 
-新增的 `0107`–`0110` 是添加新表的结构迁移，**不会自动迁移历史 Provider 资格**。旧 API/worker 停止写入后，先对 PostgreSQL 做自有私有备份，再在数据库副本进行显式的数据转换：
+厂商连接、模型和工作流绑定统一从 PostgreSQL 的 `provider_connections`、`registered_models`、`provider_workflow_models` 以及 `settings` 读取。NVIDIA 只是一种普通厂商连接，**没有另一套独立的 NVIDIA 模型池**；旧的自动探测、导入和批量验证脚本已删除，不要执行 `scripts/migrate-provider-connections.ts` 或 `scripts/import-nvidia-registered-models.ts`。
 
-```bash
-# 使用部署环境真实的运行时环境文件，不能用空白、示例文件或测试凭据代替。
-# 文件需要包含 DATABASE_URL、MODEL_CREDENTIAL_ENCRYPTION_KEY，以及
-# 旧 model_providers.credential_env 指向的每一个提供商 API key。
-docker compose -f docker-compose.yml -f docker-compose.production.yml \
-  run --rm --no-deps api node scripts/migrate-provider-connections.ts
+发布前在目标生产库执行以下**只读检查**，确认默认值、全部实际启用的流程以及需要 vision/embedding 的流程都有预期模型，不能依靠旧 NVIDIA 的隐式默认路由：
+
+```sql
+SELECT key, value->>'model' AS model_reference
+FROM settings WHERE key LIKE 'models.%' ORDER BY key;
+SELECT b.setting_key, m.model_id, c.name AS connection_name
+FROM provider_workflow_models b
+JOIN registered_models m ON m.id = b.model_id
+JOIN provider_connections c ON c.id = m.provider_id
+ORDER BY b.setting_key;
 ```
 
-任何旧 `credential_env` 变量缺失时必须中止，不应留下部分转换结果。验证所有原先真正可路由的模型：逐能力检查 `routingState.eligibleCapabilities`；只有旧表对应能力存在 `verified` 且 `verified_at` 在最近 24 小时内，才允许以 `legacy` 过渡，时间戳必须保持原样。没有验证过的 vision/embedding 能力不可自动获得资格；过期能力必须重新测试。切到 `MODEL_PROVIDER_REGISTRY_ENABLED=true` 前，先核对副本库的旧路由资格与新路由资格的差异，不接受意外新增或失去的能力。正式切换需单独的迁移/回滚计划；本 PR 不改动生产启用状态。 数据导入完成**不会自动切换路由**。必须先在服务环境显式设置 `MODEL_PROVIDER_REGISTRY_ENABLED=true`，再在维护窗口执行 `docker compose -f docker-compose.yml -f docker-compose.production.yml run --rm --no-deps api node scripts/migrate-provider-connections.ts --activate`；只有 **环境开关和 `providerConnections.activation.v1` 标记同时成立** 才激活。启动前确认实际生产 Compose 文件组合、密钥注入路径与数据库服务健康，并核对能力探测续期任务，避免 24 小时后因失效导致请求失败。 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 需要作为受保护的持久密钥供各进程一致使用，不可在日志、CI 或文档里填写真实值。
+2026-11-04 在 VM09 生产库实测：`models.default` 为 `auto`，15 个工作流步骤均已设置模型（其中 Graphiti chat/embedding 是两个显式的 `model:<uuid>` 绑定），不需要旧默认路由。后续管理员可以改动这些设置，**每次发布仍以实时查询为准**。新环境必须先在后台配置默认模型并检查每项流程的绑定，尤其是图像输入与 Graphiti embedding 的独立资格，不能因为旧路由删除便默默改用无 vision 能力的模型。
 
+`MODEL_CREDENTIAL_ENCRYPTION_KEY` 是跨服务器一致的持久密钥，解密现有数据库密文必须使用原密钥；不要因为连接失败就重置 API Key 或重新生成加密密钥。
 
 ## 用 Docker（推荐）
 
@@ -102,18 +107,11 @@ docker compose run --rm setup && docker compose up -d
 
 一个新迁移 `0112_editor_notes.sql`（新表 `editor_notes`，不动已有数据）。按既有顺序更新：备份、停止旧 API 和 worker、`scripts/migrate.ts`、`scripts/seed.ts`、启动——种子会把 `site/editor-notes.ts` 里已写日期的手记插入一次（`ON CONFLICT DO NOTHING`，不覆盖后台编辑），此后手记全部在后台「内容 → 编辑手记」维护。镜像部署脚本的迁移一致性检查会拒绝带着未执行迁移的镜像，属预期保护：先在目标库跑迁移再部署新镜像。
 
-#### Provider 连接与模型管理
+#### EventGraph：移除旧 NVIDIA 模型池和历史模型管理（2026 年 11 月 4 日）
 
-`0106`–`0110` 只新增连接、模型、验证记录和引用映射表，不删除旧数据。新管理页、API、运行时和数据迁移必须一起交付。
+已安装的 Provider 连接、模型 CRUD、工作流绑定和单模型能力测试保持不变。旧 `NVIDIA_MODEL_POOL_ENABLED`、`NVIDIA_MODEL_DISCOVERY_PROBES_ENABLED`、`NVIDIA_POOL_ROUTE_DEFAULT` 以及旧 `/api/admin/model-providers*` 路由、5 分钟 NVIDIA 探测任务、一次性 Provider 数据导入脚本已移除。缺少工作流配置时**不得假设旧 NVIDIA 默认池会补位**；部署前按上面的只读 SQL 检查 `models.default` 与各 `models.<step>`，验证所选模型的 text/vision/embedding 能力；没有可用模型应在管理后台补齐设置。
 
-先在数据库副本上验证，再按维护窗口执行：备份、停止旧 API 和 worker、运行 `scripts/migrate.ts`，然后运行 `docker compose -f docker-compose.yml -f docker-compose.production.yml \
-  run --rm --no-deps api node scripts/migrate-provider-connections.ts`，核验结果后启动新版服务。不要在旧 worker 仍运行时单独迁移 `models.*` 引用。
-
-新凭据通过 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 加密；设置为随机 32 字节的 base64 值，并与数据库备份一起妥善保管。已有环境凭据引用由迁移保留，替换或清除只影响该连接。
-
-迁移保留模型级超时和现有引用。只有迁移前已经开启路由的模型取得当前配置的 `legacy` 资格；原先关闭的路由仍须测试通过才能开启。修改地址、凭据或调用配置会使旧资格失效，界面分别显示路由开关和实际可用性。没有可用模型时明确报错。
-
-完成标记、数据和引用在同一事务提交。重跑只核验，管理员后来删除的对象不会恢复。迁移后旧管理写接口返回 409，请使用新的连接与模型页面。[API 和兼容约定](provider-api.md)。
+数据库迁移 `0122_retire_legacy_model_pool.sql`、`0123_retire_legacy_service_prices.sql` 和 `0124_retire_legacy_model_check_detail.sql` **永久删除**历史 `model_provider_bulk_checks`、`service_prices` 两张表及 `model_provider_checks.detail` 列。2026-11-04 检查 VM09 生产库时两表及该旧字段中的记录均为 0；**其他部署/还原库不保证为空**，如需历史数据必须先备份或导出，之后再执行迁移。现有 `registered_models`、`provider_connections`、`provider_workflow_models`、`registered_model_checks`、Neo4j 图谱和 `graphiti_ingestions` 不在这些删除操作范围内。
 
 #### EventGraph：删除旧的本地知识图谱原型（2026 年 10 月 16 日）
 
@@ -230,110 +228,4 @@ MCP 的 `subscriptions/listen` 现在立即返回 HTTP 404 和 JSON-RPC `-32601 
 #### 升级到公开接口 4.0.0（2026 年 10 月 3 日）
 
 - **模型榜、Codex 重置监控和主题页的大事记不再是框架的一部分**，只留在 AIHOT 上。页面（`/leaderboard`、`/codex-reset`）、接口（`/api/v1/codex-resets`、`/api/v1/codex-resets/recent`、`/api/v1/agent/codex-resets`）和 MCP 工具 `<前缀>_get_codex_resets` 都去掉了，MCP 和 `/openapi-v1.json` 的版本号升到 4.0.0。迁移 `0053` 删掉它们的表（`lb_*`、`monitor_*`、`fx_rates`）和设置，定时任务及其执行队列在 worker 启动时自动撤掉，后台运行记录继续保留；要留这些数据的，升级前先备份。公司主题页的标志改成公司名的首字母。
-- **行业包有几处变化**，自己改过 `industry/` 的站，合并时对照新文件补上：
-  - `site.ts` 多了 `topicsTitle`、`feedbackExample`、`keywords`、`since`、`interfaceVersion`、`POLICY`（使用规则和隐私说明两页的名字与简介、X 帖子算不算全文）、`ABOUT.description`、`ABOUT.sourcesFallback`、`AGENT`、`REPORTS`、`ALERTS`、`SOURCE_DEFAULTS`、`COMMUNITY_FEEDS`、`CARDS`；作者块的两张二维码卡片加了 `kind`，`ABOUT.copyright` 改成反馈页链接前后的两段。
-  - 新增 `models.ts`：具名的模型和每一步默认用哪个，原来写在代码里。
-  - 网页左上角的标志从 `apps/web/app/components/Logo.tsx` 搬到 `industry/brand/Logo.tsx`（后来搬到 `site/` 下，见上方）。
-  - 新增 `public/`：`robots.txt`、`manifest.webmanifest` 原来在代码里生成，OpenAPI 说明原来在 `reference/`，现在都是这里的文件。原来填了 `contactEmail` 就会生成的 `/.well-known/security.txt`，现在要自己放一份 `public/.well-known/security.txt`（后来搬到 `site/` 下，见上方）。
-  - 删掉了 `features.ts`、`chronicle.ts` 和 `chronicles/`；`topics.json` 里的 `orgNames`、`leaderboardProvider`、`chronicleTerms` 不再使用，可以删掉。
-  - `taxonomy.ts` 的类别可以写 `feedLabel`（分类 RSS 标题里的名字，示例站用“AI 模型”这样的说法）；`ENTITIES` 加了几家公司。当时类别上还可以写 `publicAs`，让它在公开接口里并进另一类；这个字段后来删掉了，改成 `site/site.ts` 的 `PUBLIC_CATEGORIES.merge`（见上方），再写 `publicAs` 通不过类型检查。
-- **推送接口的限流可以设置**：`/api/ingest/items` 每个客户端每分钟最多推几次由 `INGEST_RATE_LIMIT` 决定，`docker compose` 默认 10，和以前一样；不用 Docker 时默认不限，前面没有代理限流的话在 `.env` 里设上。
-- **不再使用的环境变量**：`ARTIFICIAL_ANALYSIS_API_KEY`、`MONITOR_MODEL`，可以从 `.env` 删掉。
-
-#### 升级到公开接口 3.0.0（2026 年 10 月 3 日）
-
-- **安全阀默认关**：`COLLECT_ENABLED`、`MODEL_CALLS_ENABLED` 只有写成 `true` 才打开，没写就是关。用 `scripts/init-env.ts` 生成的 `.env` 已经有这两行；自己写的 `.env` 没有的话要补上，否则升级后不再采集、不再调用模型。
-- **周报月报接口换了形状**：`/api/v1/weeklies`、`/api/v1/monthlies` 的列表和每一期都带 `periodStart`、`periodEnd`，正文改成 `sections[]`（每栏 `label`、`summary`、`items`），不再有 `title`、`themes`，列表的 `limit` 最多 60。读这两个接口的程序要跟着改；MCP 和 `/openapi-v1.json` 的版本号随之升到 3.0.0。
-- **精选的机器出口每条新闻一条**：API 的 `mode=selected`、同步接口和精选 RSS 里，同一条新闻只留代表报道，其他报道以 `remove` 出现在同步的变更里（`mode=all` 里还在）。升级前已经入选的旧报道不会被重新整理，等这条新闻再有报道发布时才归并。
-- **精选要等去重确认**：分数够了的资料，要等归组确认它不是精选里已有新闻的重复、带来了新信息，才进精选；确认之前只在“全部动态”。归组用的模型回答不合格式时会停在那里，后台“运行”页能看到。
-- **一手只看分级**：`T1` 就是一手，`first_party` 不再单独设置；以前单独标成一手的 `T1_5`、`T2` 信源不再算一手，要算就改成 `T1`。
-- **行业包多了几项**：`taxonomy.ts` 新增 `RELEASE`、`PLAIN_TERMS`，评论类的类别标 `commentary: true`，`ENTITIES` 可以写 `otherNames`，`CATEGORY_BY_ITEM_TYPE` 不再使用。已经换成别的行业的站，合并时对照 [把它改成你的行业](customize.md) 补上。
-- **主题只读 `industry/topics.json`**：迁移会删掉数据库里的 `topics` 表。只改过数据库、没改文件的主题，升级前先写进文件。公司主题只看 `entityId`，`related` 不再使用。
-- **日报不再调用模型**：日报按规则编排，周报月报从日报汇编，模型只写总述和栏目导读；已经出过的各期不重写。
-- **提示词有改动**：`industry/prompts/` 里的 `structure.md`、`group-*.md`、`story-digest.md`、`report-period.md` 换成了新的写法，`report-daily-lead.md` 删掉了，新加了 `report-period-sections.md`。改过这些提示词的，对照着把自己的改动搬过去。
-- **删掉的脚本**：`scripts/delete-sources.ts`、`scripts/regroup-events.ts`、`scripts/enqueue-analysis.ts`。不要的信源在后台暂停；单篇的重新评估、重新归组在后台“内容诊断”里打开这一篇操作。
-- **管理员会话绑定登录方式**（迁移 `0041`）：从还没有会话绑定的版本升级后，未绑定的旧会话需要重新登录。此前已试用会话绑定迁移的数据库可直接升级，已有列和绑定会被保留，无需手动修改迁移记录。之后的规则见下方“管理员会话与配置变更”。
-- **3.x 的 `/agent` 默认打开 Agent Markdown**，MCP 的接入说明在 `/agent?tab=mcp`；当前接入页见上方“站点文件搬进 `site/`”。
-- **飞书内容群只推 `T1`、`T1_5` 信源的精选。**
-
-### 备份
-
-在 `.env` 里配置 `DB_BACKUP_STORE_*`（任何 S3 兼容的对象存储），每天 04:10 自动备份到那里。`DB_BACKUP_STORE_SECRET_ID`、`DB_BACKUP_STORE_SECRET_KEY`、`DB_BACKUP_STORE_BUCKET`、`DB_BACKUP_STORE_REGION` 四项都要填；不填 `DB_BACKUP_STORE_DOMAIN` 时按腾讯云 COS 拼地址（`<桶名>.cos.<地域>.myqcloud.com`），用其他 S3 兼容存储时，把这个存储桶的访问域名（含桶名，例如 AWS S3 的 `<桶名>.s3.<地域>.amazonaws.com`）填进 `DB_BACKUP_STORE_DOMAIN`。
-
-一次完整备份包含同一时间戳的数据库 `.dump` 和文件包 `.tar.gz`，文件名取自数据库名：Docker 里数据库叫 `aihot`，所以是 `aihot-<时间>.dump` 和 `aihot-files-<时间>.tar.gz`。文件包保留 `uploads/` 以及仍存本地的 `feedback-screenshots/`，不包含图片缓存或本地备份目录。已经转发到飞书的图片只保留数据库中的外部引用，文件包不保存飞书上的图片。
-
-恢复时同时取回这一对文件：使用与数据库版本兼容的 `pg_restore` 将 `.dump` 恢复到空数据库，再把文件包解压到数据目录根目录（Docker 中为 `/data`，非 Docker 使用 `AIHOT_DATA_DIR`，默认 `.data`），保留包内的子目录结构，并确保运行进程可读取这些文件。只恢复数据库不能找回仍由 `local:` 引用的反馈截图；旧备份中没有包含的文件也无法凭数据库引用恢复。
-
-下面的手动导出只包含数据库，不包含上述附件目录：
-
-```bash
-docker compose exec -T db pg_dump -U aihot aihot | gzip > myhot-$(date +%F).sql.gz
-```
-
-数据都在三个 Docker 卷里：`db`（数据库）、`data`（上传的图片、图片缓存、本地备份）、`caddy`（证书）。`docker compose down` 不会删除它们；`docker compose down -v` 会。
-
-### 看日志
-
-```bash
-docker compose logs -f --tail 100 api worker web
-```
-
-后台的“运行”页能看到每个定时任务最近的结果，“信源”页能看到每个信源的抓取状况。
-
-### 管理员会话与配置变更
-
-会话绑定登录方式、登录时的管理员凭据或飞书身份。修改管理员密码、飞书管理员名单或会话密钥后，应重启所有 API 进程，使它们加载相同的新配置；只编辑配置文件不代表正在运行的进程已生效，混用旧代码或旧配置的进程不能提供统一撤权。
-
-有效配置改变后，密码会话不再接受旧密码的授权，飞书会话按登录时实际取得的 union ID 或邮箱检查当前名单（两者任一仍获授权即可）。停用飞书登录应用或更换应用 ID 会使飞书会话失效；只轮换同一应用的 secret 不会使仍获授权的飞书会话退出。轮换或移除 `SESSION_SECRET` 会使两种会话都失效。
-
-鉴权时确认失效的会话会被删除，恢复旧配置也不会让它复活。系统不记录全局凭据变更历史：某次配置变化若从未被进程加载，或在恢复前从未被会话检查观察到，不能据此追溯撤销会话。
-
-## 花多少钱
-
-- **模型**：每条新资料先预筛一次；过了预筛的再评两次分、做一次结构化、写一次标题摘要，然后归组（有相近的报道时才调用），另外还有事件综述、周报月报的总述和精选的全文翻译。空正文、纯链接的 X 帖子不调用写作或翻译模型。日报按规则编排，不调用模型。我们用示范信源在本地试跑，第一次导入的 152 条资料一共用了大约 930 次模型调用。之后每天用多少，取决于你的信源每天更新多少条。后台“模型与评测”页能看到每一步的调用次数和输入输出 token 数。
-- **付费采集**（X、公众号、Jina）：按请求计费，默认不启用，填了 key 才会用。
-- 所有付费服务都有每分钟、每小时、每天的调用上限（后台“设置 → 付费请求上限”），超过就暂停，不会一夜之间刷爆账单。填 0 表示立即停用这个服务。
-
-## 不用 Docker
-
-需要 Node.js 24.11 以上和 PostgreSQL 16 或 17，系统用 Linux 或 macOS；Windows 上请在 WSL2 里运行，或者用上面的 Docker 方式。
-
-```bash
-npm ci
-node scripts/init-env.ts --llm-key <你的模型 API Key>
-createdb myhot
-```
-
-在 `.env` 里加上：
-
-```bash
-DATABASE_URL=postgres://你的用户名@127.0.0.1:5432/myhot
-API_BASE_URL=http://127.0.0.1:3001
-```
-
-然后：
-
-```bash
-node --env-file=.env scripts/migrate.ts
-node --env-file=.env scripts/seed.ts
-npm run build -w @aihot/web
-
-NODE_ENV=production node --env-file=.env apps/api/src/main.ts          # 接口，3001 端口
-NODE_ENV=production node --env-file=.env apps/worker/src/main.ts       # 后台任务
-cd apps/web && NODE_ENV=production node --env-file=../../.env server.ts   # 网页，3000 端口
-```
-
-三个进程都要带 `NODE_ENV=production`。api 和 worker 不带它就按开发环境运行：启动时不检查生产密钥和管理员密码，`DEV_AUTH_ROLE` 免登录也会生效。
-
-三个进程要一直运行，生产环境用 systemd 或 pm2 守护（守护配置里同样设 `NODE_ENV=production`）。停止 worker 时至少给它 210 秒（systemd 的 `TimeoutStopSec`、pm2 的 `kill_timeout`），让进行中的付费调用收尾；被提前杀掉的调用结果不明，要等至少半小时自动放行后才会重试。
-
-开发时用带热更新的方式：`npm run dev:api`、`npm run dev:worker`、`npm run dev:web`。开发时想免登录进后台，在 `.env` 里设 `DEV_AUTH_ROLE=admin`（生产环境会拒绝启动）。
-
-
-### 可选公共事件讨论（GitHub Discussions / giscus）
-
-**每篇公开新闻详情都有独立的讨论区**，无论它有没有归属事件；新闻的中文、英文、原文版本共用该新闻的 Discussion。事件详情另有独立的事件级 Discussion。配置好讨论分类后，进入页面自动显示官方 giscus（脚本异步加载、讨论 iframe 懒加载），不需要点击“加载讨论”。未配置分类时隐藏讨论区，不安装评论服务器或账号系统。只有读者首次发表评论时才按 giscus 的机制建立讨论帖，浏览文章不会批量创建空帖。
-
-在已启用 GitHub Discussions 的**公开仓库**安装 giscus App，创建或选定一个适合的 Discussion 分类；到 [giscus 官方配置页](https://giscus.app/) 核对该仓库的分类 ID。仓库身份由 `site/site.ts` 的 `SITE.discussions.repo/repoId` 提供，其他部署需在此调整。将真实分类 ID 填入 `VITE_GISCUS_CATEGORY_ID` 后**重新构建 Web 镜像**；这是 Vite 构建时变量，在运行中的容器里仅设置环境变量不会生效。标准 Compose 使用根 `.env` 传入 Docker build arg；GitHub GHCR 工作流使用仓库变量 `EVENTGRAPH_GISCUS_CATEGORY_ID`。未配置分类时整块讨论入口隐藏，不得填写猜测的 ID。
-
-实际发布前核对 giscus App 安装、分类唯一映射、中英文同一 Story 和相关新闻的讨论、撤稿/合并后的行为、GitHub 登录/删除/锁定权限、390px 手机布局和阻断第三方脚本时新闻仍可阅读。读者观点不进入事实层。参见 `specs/public-discussions/spec.md`。
+- **行业包有几处变化**，自己改过 `industry/` 的站，合并�
