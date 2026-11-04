@@ -66,10 +66,9 @@ jobs:
             if (result.sha !== process.env.EXPECTED_SHA) {
               throw new Error('Check HEAD did not match expected immutable SHA');
             }
-            if (!result.required) {
-              core.info('Existing successful review matches exact head and base; no model call.');
-              return;
-            }
+            // Status provenance is not independently verified by planReview.
+            // Always run a fresh independent review for this successful Check.
+            if (!result.required) core.info('Prior status is not proof of review; running GLM.');
             core.setOutput('run', 'true');
             core.setOutput('number', String(result.number));
             core.setOutput('sha', result.sha);
