@@ -1,0 +1,38 @@
+name: Deploy GH-AW code Worker route
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/eventgraph-worker.md'
+      - '.github/workflows/eventgraph-worker.lock.yml'
+      - '.github/workflows/eventgraph-worker-route-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eventgraph-native-worker-route-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Install pinned official GH-AW CLI
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Deploy verified main-branch Worker route to the native Work Queue
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN is missing'; exit 1; }
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" deploy --from-config \
+            --worker-profile eventgraph-worker \
+            --request-id "worker-route-${GITHUB_SHA}" --json
