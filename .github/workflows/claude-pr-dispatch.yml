@@ -16,8 +16,13 @@ permissions:
 
 jobs:
   official-glm-review:
-    # Every completed Check reaches central preflight. It checks the real source
-    # run ID + event + success + exact HEAD before exposing the model secret.
+    # Failed/cancelled push and unrelated Check runs must not start the costly
+    # central reviewer. Keep workflow_dispatch for GH-AW's exact-SHA PR checks;
+    # the central preflight still verifies the current PR and immutable SHA.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          (github.event.workflow_run.event == 'pull_request' ||
+           github.event.workflow_run.event == 'workflow_dispatch') }}
     uses: jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml@main
     with:
       check_sha: ${{ github.event.workflow_run.head_sha }}
