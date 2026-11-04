@@ -14,8 +14,6 @@ let boss: PgBoss | null = null;
 let starting: Promise<PgBoss> | null = null;
 
 export interface JobData {
-  "model.provider.dispatch": {runId:string};
-  "model.provider.verify": {runId:string;vendor:string;modelId:string;capability:string};
   "content.analyze": { articleId: string; attemptTag?: string };
   "content.extract-body": { articleId: string };
   "events.group": { articleId: string; signalOnly?: boolean };
@@ -30,8 +28,6 @@ export interface JobData {
 export type QueueName = keyof JobData;
 
 export const QUEUES = {
-  providerVerify:"model.provider.verify",
-  providerDispatch:"model.provider.dispatch",
   analyze: "content.analyze",
   extractBody: "content.extract-body",
   group: "events.group",
@@ -48,8 +44,6 @@ export type QueueOptions = NonNullable<Parameters<PgBoss["createQueue"]>[1]>;
 
 /** Queue definitions in one place; created on first use by any process. */
 const QUEUE_OPTIONS: Record<QueueName, QueueOptions> = {
-  [QUEUES.providerVerify]:{policy:"short",retryLimit:1,expireInSeconds:86400},
-  [QUEUES.providerDispatch]:{policy:"short",retryLimit:3,expireInSeconds:86400},
   [QUEUES.analyze]: { policy: "short", retryLimit: 4, retryDelay: 30, retryBackoff: true, expireInSeconds: 600 },
   [QUEUES.extractBody]: { policy: "short", retryLimit: 2, retryDelay: 120, expireInSeconds: 300 },
   [QUEUES.group]: { policy: "short", retryLimit: 4, retryDelay: 20, retryBackoff: true, expireInSeconds: 600 },

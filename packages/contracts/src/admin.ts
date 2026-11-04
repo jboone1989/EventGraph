@@ -406,37 +406,11 @@ export interface AdminModelUsage {
   estimate: { amount: number; currency: string } | null;
 }
 
-export interface AdminProviderProfile {
- vendor:string; modelId:string; adapter:"chat"|"embedding"|"document"|"safety"|"special"|"unconfigured";
- endpoint:string|null; credentialEnv:string; capabilities:string[]; requestDefaults:Record<string,unknown>;
- probeSpec:{capability:string;body:Record<string,unknown>;response:"chat"|"embedding"|"json";source?:string}|null;
- timeoutMs:number; stream:boolean; complexity:"light"|"medium"|"heavy";
- documentationUrl:string|null; notes:string|null; enabled:boolean; routeEnabled:boolean;
- version:number; updatedAt:string;
- checks:Array<{capability:string;status:string;verifiedAt:string|null;latencyMs:number|null}>;
-}
 /** Lightweight model choices for per-stage binding, refreshed from the registry on each request. */
 export interface AdminModelBindings {
   defaultModel: {model:string;source:'admin'|'default'};
   steps: Array<{key:string;label:string;vision:boolean;embedding?:boolean;current:{model:string;source:'admin'|'default'};effective:{model:string;source:'admin'|'env'|'default'}}>;
   choices: Array<{key:string;modelId:string;provider:string;adapter:string;vision:boolean}>;
-}
-
-export interface AdminModels {
-  days: number;
-  providers: AdminProviderProfile[];
-  nvidiaPool: {
-    catalogCount: number;
-    catalogAt: string | null;
-    candidates: number;
-    probes: number;
-    inventory: Record<string, { total: number; healthy: number }>;
-    models: Array<{ model: string; capability: string; status: string; latencyMs: number | null; reason: string | null; checkedAt: string | null }>;
-  };
-  capabilities: Array<{ key: string; label: string; env: string; defaultModel: string; vision: boolean; current: { model: string; source: "admin" | "env" | "default" }; usage: AdminModelUsage[] }>;
-  choices: Array<{ key: string; service: string; vision: boolean }>;
-  history: Array<{ at: Timestamp; actor: string; subject: string; reason: string | null; before: { model: string; source: string } | null; after: { model: string; source: string } | null }>;
-  benches: Array<{ id: string; label: string; sample_size: number; prompt_version: string | null; models: string[]; created_at: Timestamp }>;
 }
 
 export interface AdminSelectBenchRun {

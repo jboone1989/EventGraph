@@ -183,10 +183,6 @@ i=0
 while [ "$i" -lt 40 ]; do
   if curl -fsS --max-time 8 http://127.0.0.1/api/health >/dev/null \
      && curl -fsS --max-time 8 -o /dev/null http://127.0.0.1/; then
-    # One-time, idempotent operator-approved import of the historical NVIDIA
-    # catalogue into registered_models. No schema migration and no workflow
-    # activation; a database transaction and completion marker prevent repeats.
-    compose run --rm --no-deps api node scripts/import-nvidia-registered-models.ts || restore
     printf '%s\n' "$EVENTGRAPH_IMAGE" > .eventgraph-vm13-last-good-image
     echo "VM13 preview updated: $EVENTGRAPH_IMAGE"
     exit 0

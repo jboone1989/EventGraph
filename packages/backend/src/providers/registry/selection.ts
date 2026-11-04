@@ -1,7 +1,5 @@
-import { normalizedRegistryActive, listConnections, listRegisteredModels } from './connections.ts';
+import { listConnections, listRegisteredModels } from './connections.ts';
 import { BudgetExceededError } from '../receipts.ts';
-import { listProviders } from './repository.ts';
-import type { ProviderProfile } from './types.ts';
 import { isVerifiedFreeTrialProvider } from './types.ts';
 import type { RegisteredModel, ProviderConnection } from '@aihot/contracts/providers';
 
@@ -31,19 +29,6 @@ function tierPenalty(actual: Complexity, target: Complexity): number {
   return delta < 0 ? -delta * 150 : delta * 70;
 }
 
-/** Legacy NVIDIA path stays available when the normalized registry is disabled. */
-export function rankStageProviders(rows: ProviderProfile[], stage: string, now = Date.now(), needsVision = false): ProviderProfile[] {
-  const target = stageComplexity(stage), capability = needsVision ? 'vision' : 'text';
-  return rows.filter(p => p.vendor === 'nvidia' && isVerifiedFreeTrialProvider(p.modelId) &&
-    p.enabled && p.routeEnabled && p.endpoint && p.adapter === 'chat' && p.capabilities.includes(capability) &&
-    p.checks.some(c => c.capability === capability && c.status === 'verified' && c.verifiedAt &&
-      now - Date.parse(c.verifiedAt) < 86400000))
-    .sort((a, b) => tierPenalty(a.complexity, target) - tierPenalty(b.complexity, target) ||
-      (a.checks.find(c => c.capability === capability)?.latencyMs ?? 120000) -
-      (b.checks.find(c => c.capability === capability)?.latencyMs ?? 120000) ||
-      a.modelId.localeCompare(b.modelId));
-}
-
 function isFree(m: RegisteredModel, c: ProviderConnection): boolean {
   if (c.vendor.toLowerCase() === 'openrouter') return m.modelId.endsWith(':free') || m.modelId === 'openrouter/free';
   return c.vendor.toLowerCase() === 'nvidia' && c.policy === 'nvidia-free-trial' && isVerifiedFreeTrialProvider(m.modelId);
@@ -71,18 +56,13 @@ export function rankFreeModels(models: RegisteredModel[], connections: ProviderC
   });
 }
 
-/** Rank on every call, not once on worker startup. Never route an unknown or paid model automatically. */
+/** A single authoritative selector for every automatic workflow, without legacy NVIDIA fallback. */
 export async function selectConfiguredProviderForStage(stage: string, needsVision = false,
   excluded: ReadonlySet<string> = new Set()): Promise<string> {
-  if (await normalizedRegistryActive()) {
-    const [connections, models] = await Promise.all([listConnections(), listRegisteredModels()]);
-    const candidates = rankFreeModels(models, connections, stage, Date.now(), needsVision, excluded);
-    if (!candidates.length) throw new BudgetExceededError('free-models', 'waiting_for_free_provider', 300);
-    return 'model:' + candidates[0]!.id;
-  }
-  const eligible = rankStageProviders(await listProviders(), stage, Date.now(), needsVision);
-  if (!eligible.length) throw new BudgetExceededError('nvidia', 'waiting_for_verified_provider', 300);
-  return 'nvidia:' + eligible[0]!.modelId;
+  const [connections, models] = await Promise.all([listConnections(), listRegisteredModels()]);
+  const candidates = rankFreeModels(models, connections, stage, Date.now(), needsVision, excluded);
+  if (!candidates.length) throw new BudgetExceededError('free-models', 'waiting_for_free_provider', 300);
+  return 'model:' + candidates[0]!.id;
 }
 
 export async function coolDownReference(reference: string, seconds = 60, accountWide = false): Promise<void> {
