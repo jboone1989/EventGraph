@@ -2,7 +2,7 @@ name: Compile GH-AW Work Queue
 
 on:
   push:
-    branches: [feat/gh-aw-work-queue-main-20261030]
+    branches: [feat/gh-aw-work-queue-main-20261030, chore/retire-claude-github-actions-20261104]
     paths:
       - '.github/workflows/eventgraph-*.md'
       - '.github/workflows/aw.json'
