@@ -67,11 +67,11 @@ async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<strin
   throw new ProviderConfigError('Provider network or destination-policy error (no valid response)','baseUrl',502);
  }
 }
-export async function requestRegisteredModel(id:string,capability:string,body:Record<string,unknown>,expectedFingerprint?:string) {
+export async function requestRegisteredModel(id:string,capability:string,body:Record<string,unknown>,expectedFingerprint?:string,forceNonStreaming=false) {
  // Re-read immediately before transport: a selection made before an edit is not authorization.
  const {m,c,fingerprint}=await registeredRuntime(id,capability);
  if(expectedFingerprint&&fingerprint!==expectedFingerprint)throw new ProviderConfigError('Configuration changed before request; retry selection','model',409);
- return transport(c,m,{...m.request_defaults,...body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})});
+ return transport(c,m,{...m.request_defaults,...body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:forceNonStreaming?false:m.stream})});
 }
 export async function discoverModels(id:string) {
  const c=await loadConnection(id),{data}=await transport(c,undefined);

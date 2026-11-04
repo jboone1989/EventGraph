@@ -106,7 +106,7 @@ test("connections, models and workflow bindings stay in independent CRUD pages",
   await page.goto(web.origin+"/admin/connections");
   await page.getByRole("button",{name:"删除"}).click();
   await page.getByRole("dialog").getByRole("button",{name:"确认删除"}).click();
-  assert.equal(data.providers.length,0);
+  await expect.poll(()=>data.providers.length).toBe(0);
   await page.setViewportSize({width:390,height:844});
   await expect(page.getByRole("heading",{name:"厂商连接",exact:true})).toBeVisible();
  }finally{await browser?.close();await web.stop();}

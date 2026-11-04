@@ -22,6 +22,8 @@ export interface Capability {
   purposes: string[];
   /** The step needs a model that reads images. */
   vision?: boolean;
+  /** Embedding stages do not inherit the default chat model. */
+  embedding?: boolean;
   /** The step has nothing to do on this site, so a service's outage does not stop it. */
   idle?: () => boolean;
 }
@@ -41,6 +43,8 @@ export const CAPABILITIES = {
   translate: { label: "精选全文翻译（含引用帖）", env: "TRANSLATE_MODEL", default: DEFAULTS.translate ?? "default", purposes: ["translate_body", "translate_quoted"] },
   english: { label: "英文版文字（公开报道的英文标题和摘要、精选报道的推荐理由，事件的英文概览）", env: "ENGLISH_MODEL", default: DEFAULTS.english ?? "default", purposes: ["english_copy", "english_digest"] },
   explain: { label: "新闻解读（5W1H、为什么重要、接下来看；只写来源能支撑的字段）", env: "EXPLAIN_MODEL", default: DEFAULTS.explain ?? "default", purposes: ["explain_item"] },
+  graphiti: { label: "Graphiti 知识抽取与关系复核（复用默认聊天模型，可单独覆盖）", env: "GRAPHITI_CHAT_MODEL", default: DEFAULTS.graphiti ?? "default", purposes: ["graphiti_chat"] },
+  graphitiEmbedding: { label: "Graphiti 向量生成（必须单独指定向量模型，维度与现有知识图谱一致）", env: "GRAPHITI_EMBEDDING_MODEL_REF", default: "", purposes: ["graphiti_embedding"], embedding: true },
 } satisfies Record<string, Capability>;
 
 export type CapabilityKey = keyof typeof CAPABILITIES;
@@ -131,7 +135,12 @@ export async function modelFor(capability: CapabilityKey | (string & {})): Promi
   const c = capabilities()[capability];
   if (!c) throw new Error(`unknown model step: ${capability}`);
   const saved=await overrides();
-  const chosen=(await effectiveChoice(c,saved[capability]??saved.default)).model;
+  const chosen=(await effectiveChoice(c,saved[capability]??(c.embedding?undefined:saved.default))).model;
+  if(c.embedding){
+    if(!chosen.startsWith('model:'))throw new Error('Configure a registered embedding model for '+capability);
+    await registeredRuntime(chosen.slice(6),'embedding');
+    return chosen;
+  }
   if(chosen==='auto'||/^auto:(light|medium|heavy)$/.test(chosen))return 'auto:'+capability+(chosen==='auto'?'':':'+chosen.slice(5));
   if(chosen.startsWith('model:')){await registeredRuntime(chosen.slice(6),c.vision?'vision':'text');return chosen;}
   if (process.env.NVIDIA_MODEL_POOL_ENABLED === "true") {
@@ -153,6 +162,6 @@ export async function modelSources(): Promise<Record<string, { model: string; so
   const o = await overrides();
   const out: Record<string, { model: string; source: "admin" | "env" | "default" }> = {};
   for(const [key,c] of Object.entries(capabilities()))
-    out[key]=await effectiveChoice(c,o[key]??o.default);
+    out[key]=await effectiveChoice(c,o[key]??(c.embedding?undefined:o.default));
   return out;
 }

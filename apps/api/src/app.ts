@@ -18,6 +18,7 @@ import { registerStatic } from "./routes/static.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { registerMarket } from "./routes/market.ts";
 import { registerKnowledge } from "./routes/knowledge.ts";
+import { registerGraphitiModelProxy } from "./routes/graphiti-model.ts";
 import { registerAnalytics } from "./routes/analytics.ts";
 import { sendProblem } from "./http/respond.ts";
 
@@ -105,6 +106,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerMcp(app);
   registerMarket(app);
   registerKnowledge(app);
+  registerGraphitiModelProxy(app);
   registerAnalytics(app);
   for (const m of serverModules()) m.http?.(app);
   registerV1Fallbacks(app);
