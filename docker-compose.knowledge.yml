@@ -33,7 +33,7 @@ services:
       # Dedicated GRAPHITI_LLM_* values may override these independently.
       GRAPHITI_LLM_API_KEY: ${GRAPHITI_LLM_API_KEY:-${LLM_API_KEY:-}}
       GRAPHITI_LLM_BASE_URL: ${GRAPHITI_LLM_BASE_URL:-${LLM_BASE_URL:-}}
-      GRAPHITI_LLM_MODEL: ${GRAPHITI_LLM_MODEL:-deepseek-chat}
+      GRAPHITI_LLM_MODEL: ${GRAPHITI_LLM_MODEL:-}
       GRAPHITI_EMBEDDING_MODEL: ${GRAPHITI_EMBEDDING_MODEL:-nvidia/nemotron-3-embed-1b}
       GRAPHITI_EMBEDDING_DIM: ${GRAPHITI_EMBEDDING_DIM:-2048}
     depends_on:
