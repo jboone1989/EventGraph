@@ -1,48 +1,94 @@
-import {normalizedRegistryActive,listConnections,listRegisteredModels} from './connections.ts';
-import {BudgetExceededError} from "../receipts.ts";
-import {listProviders} from "./repository.ts";
-import type {ProviderProfile} from "./types.ts";
-import {isVerifiedFreeTrialProvider} from "./types.ts";
-type Stage="prefilter"|"score"|"understand"|"summarize"|"wording"|"structure"|"group"|"groupReview"|"digest"|"report"|"translate"|"english"|string;
-const weights:Record<string,"light"|"medium"|"heavy">={
- prefilter:"light",score:"medium",understand:"medium",summarize:"light",wording:"light",
- structure:"light",group:"medium",groupReview:"heavy",digest:"heavy",
- report:"heavy",translate:"medium",english:"medium",
+import { normalizedRegistryActive, listConnections, listRegisteredModels } from './connections.ts';
+import { BudgetExceededError } from '../receipts.ts';
+import { listProviders } from './repository.ts';
+import type { ProviderProfile } from './types.ts';
+import { isVerifiedFreeTrialProvider } from './types.ts';
+import type { RegisteredModel, ProviderConnection } from '@aihot/contracts/providers';
+
+export type Complexity = 'light' | 'medium' | 'heavy';
+const weights: Record<string, Complexity> = {
+  prefilter: 'light', score: 'medium', understand: 'heavy', summarize: 'light',
+  wording: 'light', structure: 'medium', group: 'heavy', groupReview: 'heavy',
+  digest: 'heavy', report: 'heavy', translate: 'medium', english: 'medium', explain: 'heavy',
 };
-const levels={light:0,medium:1,heavy:2};
-/** Pure choice across independent providers; URL, params and auth stay with the chosen row. */
-export function rankStageProviders(rows:ProviderProfile[],stage:Stage,now=Date.now(),needsVision=false):ProviderProfile[]{
- const intended=levels[weights[stage]??"medium"];
- const wanted=needsVision?"vision":"text";
- const eligible=rows.filter(p=>p.vendor==="nvidia"&&isVerifiedFreeTrialProvider(p.modelId)&&p.enabled&&p.routeEnabled&&p.endpoint&&p.adapter==="chat"&&
-   p.capabilities.includes(wanted)&&p.checks.some(c=>c.capability===wanted&&
-     c.status==="verified"&&c.verifiedAt&&now-Date.parse(c.verifiedAt)<86400000));
- return eligible.sort((a,b)=>{
-  const score=(p:ProviderProfile)=>{
-   const diff=levels[p.complexity]-intended;
-   // For cheap tasks prefer smaller; deep tasks prefer enough complexity.
-   const tier=intended===0?levels[p.complexity]*100:diff<0?Math.abs(diff)*150:diff*70;
-   const latency=p.checks.find(c=>c.capability===wanted)?.latencyMs??120000;
-   return tier+latency/1000;
-  };
-  return score(a)-score(b)||a.modelId.localeCompare(b.modelId);
- });
+const levels: Record<Complexity, number> = { light: 0, medium: 1, heavy: 2 };
+const cooling = new Map<string, number>();
+const accountCooling = new Map<string, number>();
+
+export function stageComplexity(stage: string): Complexity {
+  return stage === 'light' || stage === 'medium' || stage === 'heavy' ? stage : weights[stage] ?? 'medium';
 }
-export async function selectConfiguredProviderForStage(stage:Stage,needsVision=false):Promise<string>{
- if(await normalizedRegistryActive()) {
-  const connections=await listConnections(),wanted=needsVision?'vision':'text';
-  const enabled=new Map(connections.filter(c=>c.enabled&&c.credential.configured).map(c=>[c.id,c]));
-  // routeEnabled is the operator's explicit opt-in. A registered paid model can be a
-  // fallback when the NVIDIA free-trial pool is unhealthy, without a second routing engine.
-  const candidates=(await listRegisteredModels()).filter(m=>enabled.has(m.providerId)&&m.adapter==='chat'&&m.routing.eligibleCapabilities.includes(wanted));
-  const intended=levels[weights[stage]??'medium'];
-  candidates.sort((a,b)=>
-    (enabled.get(a.providerId)!.policy==='nvidia-free-trial'?0:1)-(enabled.get(b.providerId)!.policy==='nvidia-free-trial'?0:1)||
-    Math.abs(levels[a.complexity]-intended)-Math.abs(levels[b.complexity]-intended)||a.id.localeCompare(b.id));
-  if(!candidates[0])throw new BudgetExceededError('llm','waiting_for_verified_provider',300);
-  return 'model:'+candidates[0].id;
- }
- const eligible=rankStageProviders(await listProviders(),stage,Date.now(),needsVision);
- if(!eligible[0])throw new BudgetExceededError("nvidia","waiting_for_verified_provider",300);
- return "nvidia:"+eligible[0].modelId;
+
+/** A 429 may represent an account-wide quota. Do not flood other models using the same key. */
+export function coolDownModel(id: string, providerId: string, seconds = 60, accountWide = false) {
+  const until = Date.now() + Math.max(1, seconds) * 1000;
+  cooling.set(id, until);
+  if (accountWide) accountCooling.set(providerId, until);
+}
+
+function tierPenalty(actual: Complexity, target: Complexity): number {
+  const delta = levels[actual] - levels[target];
+  return delta < 0 ? -delta * 150 : delta * 70;
+}
+
+/** Legacy NVIDIA path stays available when the normalized registry is disabled. */
+export function rankStageProviders(rows: ProviderProfile[], stage: string, now = Date.now(), needsVision = false): ProviderProfile[] {
+  const target = stageComplexity(stage), capability = needsVision ? 'vision' : 'text';
+  return rows.filter(p => p.vendor === 'nvidia' && isVerifiedFreeTrialProvider(p.modelId) &&
+    p.enabled && p.routeEnabled && p.endpoint && p.adapter === 'chat' && p.capabilities.includes(capability) &&
+    p.checks.some(c => c.capability === capability && c.status === 'verified' && c.verifiedAt &&
+      now - Date.parse(c.verifiedAt) < 86400000))
+    .sort((a, b) => tierPenalty(a.complexity, target) - tierPenalty(b.complexity, target) ||
+      (a.checks.find(c => c.capability === capability)?.latencyMs ?? 120000) -
+      (b.checks.find(c => c.capability === capability)?.latencyMs ?? 120000) ||
+      a.modelId.localeCompare(b.modelId));
+}
+
+function isFree(m: RegisteredModel, c: ProviderConnection): boolean {
+  if (c.vendor.toLowerCase() === 'openrouter') return m.modelId.endsWith(':free') || m.modelId === 'openrouter/free';
+  return c.vendor.toLowerCase() === 'nvidia' && c.policy === 'nvidia-free-trial' && isVerifiedFreeTrialProvider(m.modelId);
+}
+
+export function rankFreeModels(models: RegisteredModel[], connections: ProviderConnection[], stage: string,
+  now = Date.now(), needsVision = false, excluded: ReadonlySet<string> = new Set()): RegisteredModel[] {
+  const owners = new Map(connections.map(c => [c.id, c]));
+  const capability = needsVision ? 'vision' : 'text', target = stageComplexity(stage);
+  return models.filter(m => {
+    const c = owners.get(m.providerId);
+    return !!c && c.enabled && c.credential.configured && isFree(m, c) &&
+      m.enabled && m.routeEnabled && m.adapter === 'chat' &&
+      m.routing.eligibleCapabilities.includes(capability) && levels[m.complexity] >= levels[target] && !excluded.has(m.id) &&
+      (cooling.get(m.id) ?? 0) <= now && (accountCooling.get(c.id) ?? 0) <= now;
+  }).sort((a, b) => {
+    const ca = owners.get(a.providerId)!, cb = owners.get(b.providerId)!;
+    const vendor = (ca.vendor.toLowerCase() === 'openrouter' ? 0 : 1) -
+      (cb.vendor.toLowerCase() === 'openrouter' ? 0 : 1);
+    // Match the required tier before preferring a vendor: do not waste heavy
+    // OpenRouter capacity on a light task if a light NVIDIA model is healthy.
+    return tierPenalty(a.complexity, target) - tierPenalty(b.complexity, target) || vendor ||
+      (a.checks.find(c => c.capability === capability)?.latencyMs ?? 120000) -
+      (b.checks.find(c => c.capability === capability)?.latencyMs ?? 120000) || a.id.localeCompare(b.id);
+  });
+}
+
+/** Rank on every call, not once on worker startup. Never route an unknown or paid model automatically. */
+export async function selectConfiguredProviderForStage(stage: string, needsVision = false,
+  excluded: ReadonlySet<string> = new Set()): Promise<string> {
+  if (await normalizedRegistryActive()) {
+    const [connections, models] = await Promise.all([listConnections(), listRegisteredModels()]);
+    const candidates = rankFreeModels(models, connections, stage, Date.now(), needsVision, excluded);
+    if (!candidates.length) throw new BudgetExceededError('free-models', 'waiting_for_free_provider', 300);
+    return 'model:' + candidates[0]!.id;
+  }
+  const eligible = rankStageProviders(await listProviders(), stage, Date.now(), needsVision);
+  if (!eligible.length) throw new BudgetExceededError('nvidia', 'waiting_for_verified_provider', 300);
+  return 'nvidia:' + eligible[0]!.modelId;
+}
+
+export async function coolDownReference(reference: string, seconds = 60, accountWide = false): Promise<void> {
+  if (!reference.startsWith('model:')) return;
+  const id = reference.slice(6);
+  const models = await listRegisteredModels();
+  const m = models.find(item => item.id === id);
+  if (m) coolDownModel(id, m.providerId, seconds, accountWide);
 }
