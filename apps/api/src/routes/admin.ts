@@ -8,11 +8,7 @@ import { actorOf } from "@aihot/backend/admin/auth";
 import { navCounts } from "@aihot/backend/admin/navigation";
 import { listAudit } from "@aihot/backend/audit";
 import { importSelectBenchRun, listSelectBenchRuns, selectBenchRun } from "@aihot/backend/admin/selectbench";
-import { modelsOverview, modelBindingsOverview, switchModel } from "@aihot/backend/admin/models";
-import {listProviders,createProvider,updateProvider,deleteProvider} from "@aihot/backend/providers/registry/repository";
-import {isVerifiedFreeTrialProvider} from "@aihot/backend/providers/registry/types";
-import {probeConfiguredProvider} from "@aihot/backend/providers/registry/probe";
-import {startBulkRun,latestBulkRun} from "@aihot/backend/providers/registry/bulk";
+import { modelBindingsOverview, switchModel } from "@aihot/backend/admin/models";
 import { contentChain, curatePending, overrideFields, rerun, searchContent, setSeoIndexed, setSeoIndexedBatch, setVisibility } from "@aihot/backend/admin/content";
 import { listNotes, saveNote } from "@aihot/backend/admin/notes";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
@@ -127,38 +123,9 @@ export function registerAdmin(app: FastifyInstance) {
 
   // Models and evaluation
   app.get("/api/admin/model-bindings", adminHandler(async () => modelBindingsOverview()));
-  app.get("/api/admin/models", adminHandler(async (req) => modelsOverview(Math.min(90, Number(q(req).days) || 7))));
   app.post("/api/admin/models/:capability", adminHandler(async (req, _reply, admin) => {
     const b = body<{ model: string | null; reason: string }>(req);
     return switchModel(param(req, "capability"), b.model ?? null, String(b.reason ?? ""), actorOf(admin));
-  }));
-
-  // Individual model-provider configurations (same CSRF/auth/audit path as all other admin changes).
-  app.get("/api/admin/model-providers",adminHandler(async ()=>({providers:(await listProviders()).filter(p=>p.vendor==="nvidia"&&isVerifiedFreeTrialProvider(p.modelId))})));
-  app.post("/api/admin/model-providers",adminHandler(async (req,_reply,admin)=>{
-    const data=body<{vendor:string;modelId:string}>(req);
-    return createProvider(data.vendor,data.modelId,actorOf(admin));
-  }));
-  app.patch("/api/admin/model-providers",adminHandler(async (req,_reply,admin)=>{
-    const data=body<{vendor:string;modelId:string;version:number;reason:string;changes:import("@aihot/backend/providers/registry/types").ProviderChanges}>(req);
-    return updateProvider(data.vendor,data.modelId,data.changes,data.version,data.reason,actorOf(admin));
-  }));
-
-  app.delete("/api/admin/model-providers",adminHandler(async(req,_reply,admin)=>{
-    const data=body<{vendor:string;modelId:string;version:number;reason:string}>(req);
-    return deleteProvider(data.vendor,data.modelId,data.version,data.reason,actorOf(admin));
-  }));
-
-  app.get("/api/admin/model-providers/bulk-checks",adminHandler(async(req)=>{
-    const requested=q(req).runId;
-    return {run:await latestBulkRun(requested)};
-  }));
-  app.post("/api/admin/model-providers/bulk-checks",adminHandler(async(_req,_reply,admin)=>{
-    return {run:await startBulkRun(actorOf(admin))};
-  }));
-  app.post("/api/admin/model-providers/probe",adminHandler(async(req,_reply,admin)=>{
-    const data=body<{vendor:string;modelId:string;capability:string}>(req);
-    return probeConfiguredProvider(data.vendor,data.modelId,data.capability,actorOf(admin),{allowInactive:true});
   }));
 
   // SelectBench
