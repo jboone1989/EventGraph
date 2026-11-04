@@ -63,7 +63,7 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
 
 export default function ModelBindings({loaderData}:Route.ComponentProps){
  const choices=loaderData.choices;
- const defaultStep:Step={key:"default",label:"默认模型",vision:false,current:loaderData.defaultModel};
+ const defaultStep:Step={key:"default",label:"默认模型",vision:false,current:loaderData.defaultModel,effective:loaderData.defaultModel};
  const display=(key:string)=>{
   const choice=choices.find(c=>c.key===key);
   const auto:Record<string,string>={auto:"自动 · 免费优先","auto:light":"自动 · 轻量","auto:medium":"自动 · 标准","auto:heavy":"自动 · 高级"};
