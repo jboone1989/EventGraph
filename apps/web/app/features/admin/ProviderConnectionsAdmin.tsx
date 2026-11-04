@@ -2,6 +2,7 @@ import {useState} from "react";
 import type {ProviderManagement,ProviderConnection,RegisteredModel,ConnectionInput,ModelInput} from "@aihot/contracts/providers";
 import {Button,ButtonLink,Input,Select,Textarea,Card,Badge,DataTable} from "./ui";
 import {useAdminAction} from "./action";
+import {modelPrice,priceLabel,priceDetail} from "./model-pricing";
 
 type Problem={detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>};
 type TestResult={status:string;elapsedMs:number;detail:string};
@@ -209,6 +210,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
     {key:"id",label:"模型 ID",render:m=><span className="break-all font-mono text-xs">{m.modelId}</span>},
     {key:"provider",label:"厂商连接",render:m=>names.get(m.providerId)??m.providerId},
     {key:"adapter",label:"类型",render:m=>m.adapter},
+    {key:"price",label:"费用",render:m=>{const info=modelPrice(m,data.providers.find(c=>c.id===m.providerId));return <div className="space-y-1"><Badge tone={info.kind==="free"?"ok":info.kind==="paid"?"warn":"muted"}>{priceLabel(info)}</Badge><div className="text-xs text-ink-3">{priceDetail(info)}</div></div>;}},
     {key:"status",label:"状态",render:m=><Badge tone={m.enabled?"ok":"muted"}>{m.enabled?"启用":"停用"}</Badge>},
     {key:"ops",label:"操作",render:m=>{
      const latest=testResults[m.id],record=m.checks.find(c=>c.capability===m.probeSpec?.capability);

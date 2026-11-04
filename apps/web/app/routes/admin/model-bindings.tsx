@@ -17,15 +17,16 @@ function usable(choice:Choice,step:Step){
  return choice.adapter==="chat"&&(!step.vision||choice.vision);
 }
 function titleFor(choice:Choice){
- return choice.modelId+" · "+choice.provider;
+ return choice.modelId+" · "+choice.provider+" · "+({free:"免费",paid:"收费",trial:"免费试用",unknown:"费用未知"}[choice.priceKind]);
 }
 function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
  const {run,busy}=useAdminAction();
  const original=step.current.source==="admin"?step.current.model:"";
  const [selected,setSelected]=useState(original);
  const [error,setError]=useState("");
+ const [freeOnly,setFreeOnly]=useState(false);
  const chosen=choices.find(c=>c.key===selected);
- const canSave=selected!==original&&(!selected||!!chosen&&usable(chosen,step));
+ const canSave=selected!==original&&(!selected||!!chosen&&usable(chosen,step)&&(!freeOnly||chosen.priceKind==="free"));
  const save=async()=>{
   setError("");
   const result=await run("POST","/api/admin/models/"+encodeURIComponent(step.key),{
@@ -39,8 +40,8 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
     disabled={busy} onChange={e=>{setSelected(e.target.value);setError("");}}>
     <option value="">不绑定（使用运行环境默认）</option>
     {selected&&!chosen&&<option value={selected} disabled>{selected}（旧配置，仅保留当前值）</option>}
-    {choices.map(choice=>{
-     const ok=usable(choice,step);
+    {choices.filter(choice=>!freeOnly||choice.priceKind==="free"||choice.key===selected).map(choice=>{
+     const ok=usable(choice,step)&&(!freeOnly||choice.priceKind==="free");
      const suffix=!ok?(choice.adapter!=="chat"?"（非对话模型）":"（不支持图像）"):"";
      return <option key={choice.key} value={choice.key} disabled={!ok}>
       {titleFor(choice)}{suffix}
@@ -49,6 +50,7 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
    </Select>
    <Button size="sm" disabled={busy||!canSave} onClick={save}>保存</Button>
   </div>
+  <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={freeOnly} onChange={e=>setFreeOnly(e.target.checked)}/>仅筛选已确认免费的模型（免费试用不计入）</label>
   {selected&&chosen&&!usable(chosen,step)&&<p className="text-xs text-amber">
    此模型不支持当前工作流需要的输入类型。
   </p>}
