@@ -71,7 +71,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(page.getByRole("alert")).toContainText("模型暂不可用");
   failure=false;
   await page.getByRole("button",{name:"保存"}).last().click();
-  await expect(page.getByText("继承默认",{exact:true}).first()).toBeVisible();
+  await expect(page.getByText("继承默认",{exact:true}).first()).toHaveText("继承默认");
   assert.equal(writes.at(-1)?.body.model,null);
   data.choices.splice(0,1);
   await page.reload();
