@@ -57,6 +57,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await defaultPicker.selectOption(modelKey);
   await page.getByRole("button",{name:"保存"}).first().click();
   assert.equal(writes.at(-1)?.path,"/api/admin/models/default");
+  assert.match(writes.at(-1)!.body.reason,/default/);
   assert.equal(writes.at(-1)?.body.model,modelKey);
   await picker.selectOption(modelKey);
   await page.getByRole("button",{name:"保存"}).last().click();
