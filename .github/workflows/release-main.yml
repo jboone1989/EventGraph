@@ -76,14 +76,10 @@ jobs:
           node scripts/ci/promotion-source-equivalence.mjs "$SOURCE_SHA" HEAD
           gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100" \
             --jq '.check_runs[] | select(.conclusion == "success") | .name' > "$RUNNER_TEMP/develop-checks"
-          for check in check e2e; do
-            grep -Fxq "$check" "$RUNNER_TEMP/develop-checks" || { echo "::error::Missing successful develop $check"; exit 1; }
-          done
-          if ! grep -Fxq 'publish' "$RUNNER_TEMP/develop-checks" &&
-             ! grep -Fxq 'release_develop / publish' "$RUNNER_TEMP/develop-checks"; then
-            echo '::error::Missing successful develop publish'
+          grep -Fxq 'release_develop / publish' "$RUNNER_TEMP/develop-checks" || {
+            echo '::error::Pinned source must have passed the current develop publish job'
             exit 1
-          fi
+          }
           echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR (read only)
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3

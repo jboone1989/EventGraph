@@ -6,6 +6,8 @@ on:
   workflow_run:
     workflows: [Check, EventGraph GH-AW Worker]
     types: [completed]
+  pull_request:
+    types: [opened, labeled, closed]
   workflow_dispatch:
 
 permissions:
@@ -20,6 +22,12 @@ jobs:
     if: >-
       ${{ vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
           (github.event_name == 'workflow_dispatch' ||
+           (github.event_name == 'pull_request' &&
+            github.event.action == 'closed' &&
+            github.event.pull_request.merged == false &&
+            github.event.pull_request.base.ref == 'develop' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            contains(github.event.pull_request.labels.*.name, 'agent-work')) ||
            (github.event_name == 'workflow_run' &&
             github.event.workflow_run.head_repository.full_name == github.repository &&
             github.event.workflow_run.conclusion == 'success' &&
@@ -103,3 +111,27 @@ jobs:
             echo 'No eligible native Work'; exit 0
           fi
           gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
+
+  enable_native_auto_merge:
+    if: >-
+      ${{ github.event_name == 'pull_request' &&
+          vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
+          (github.event.action == 'opened' || github.event.action == 'labeled') &&
+          github.event.pull_request.base.ref == 'develop' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          startsWith(github.event.pull_request.head.ref, 'agent/') &&
+          github.event.pull_request.draft == false &&
+          contains(github.event.pull_request.labels.*.name, 'agent-work') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enable GitHub-native Auto-merge, respecting all required checks and review
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          # GitHub native auto-merge enforces all actual required checks.
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash

@@ -1,4 +1,5 @@
-# Trusted CI only; same-SHA develop publishing is a reusable workflow.\n# No standalone model PR reviewer or external review relay.\nname: Check
+# CI tests on PRs; one verified develop release call after successful tests.
+name: Check
 
 on:
   push:
@@ -99,17 +100,13 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Validate new workflow syntax and absence of paid review
+      - name: Lint workflow definitions
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         run: |
-          set -euo pipefail
-          test ! -e .github/workflows/claude-pr-dispatch.yml
-          test ! -e .github/workflows/eventgraph-glm-review.yml
           docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -shellcheck= \
             .github/workflows/check.yml \
             .github/workflows/release-develop.yml \
             .github/workflows/release-main.yml \
-            .github/workflows/eventgraph-native-pr-closed.yml \
             .github/workflows/eventgraph-native-queue-events.yml
 
       - name: Test Spec gate and scope detectors

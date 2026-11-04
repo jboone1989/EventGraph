@@ -12,8 +12,8 @@ A release uses **one** application image: push to `develop` (or validated exact-
 - `Check` validates PRs, develop pushes and immutable-SHA manual dispatch, preserving real `check`, `docker`, `e2e` and the Spec gate. Metadata-only edits no longer rerun heavy CI; manually re-dispatch Check on the current head when retargeting a base.
 - An executable successful develop Check invokes `release-develop.yml` **in the same run**; this reusable workflow publishes a pinned GHCR digest and optionally deploys/smoke-tests VM13. No independent `workflow_run` relay or automatic retry.
 - `release-main.yml` independently handles main pushes and explicit pinned-SHA releases. Governance-only pushes have no release intent. Real releases validate the immutable develop digest, exact successful Check/E2E/publish status and runtime equivalence. VM09 is guarded by `EVENTGRAPH_PROD_AUTO_DEPLOY=true`.
-- GH-AW Worker/Dispatcher and the official native Work Queue remain, including their engine and per-run usage artifacts. The separate native queue continuation responds only to successful develop Check or successful Worker completion (or explicit manual dispatch); failed Workers cannot spawn an automatic retry loop. Failures are visible on that queue workflow, not as false CI failures. GH-AW smoke and strict compilation run only when explicitly requested.
-- **Retired:** standalone `claude-pr-dispatch.yml`, `eventgraph-glm-review.yml` and paid `claude-review` requirement. Auto-merge respects GitHub's current real required checks.
+- GH-AW Worker/Dispatcher and the official native Work Queue remain, including their engine and per-run usage artifacts. The native queue continuation responds to successful develop Check, successful Worker completion, eligible Agent PR close, or explicit manual dispatch; failed Workers cannot spawn an automatic retry loop. Failures are visible on that queue workflow, not as false CI failures. GH-AW compiled locks are maintained using the official CLI, without separate smoke or compile Actions. GitHub's built-in auto-delete merged branches handles branch cleanup.
+- **Retired:** standalone `claude-pr-dispatch.yml`, `eventgraph-glm-review.yml`, manual GH-AW smoke/compile Actions, one-shot Work acceptance and custom branch pruning; no paid `claude-review` is currently required. Auto-merge respects GitHub's current real required checks.
 
 ## Selective checks by change scope
 
@@ -80,6 +80,13 @@ gates fetch complete ancestry on a changed tip before testing git ancestry.
 This avoids silently dropping the most recent code release without extending
 or changing production deployment permissions.
 
+
+
+## Future Claude Review (not enabled)
+
+Add one `review` job **inside `.github/workflows/check.yml`** with `needs: [changes, check, docker, e2e]`, limited to normal `pull_request` code events. The job invokes the selected Claude review model once for the exact PR head and live base after all three existing checks succeeded; it reports its own `claude-review` status. Do not use `workflow_run: Check`, standalone dispatchers or GH-AW Worker for reviewing. Do not install a required review status in branch rules until the reviewer is configured, activated and verified. Configuration is not hard-coded in the GH-AW engine.
+
+For GH-AW source edits, compile with `gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update`, commit the generated lock files and let normal PR CI validate them. For queue diagnostics use `gh aw work-queue --repo jboone1989/EventGraph stats --json`; no smoke workflow is needed.
 
 ## Operation and recovery
 
