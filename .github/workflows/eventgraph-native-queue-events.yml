@@ -58,9 +58,8 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      # VM13 preview is not an Agent queue prerequisite. If Check failed, admit
-      # work only when the core tests and immutable image publication succeeded.
-      - name: Verify develop Check prerequisites independently of VM13 preview
+      # Preview deployment failures do not block GH-AW if core CI and publish succeeded.
+      - name: Verify develop Check results
         id: check_gate
         if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
         env:
@@ -74,16 +73,21 @@ jobs:
             echo 'eligible=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID/jobs?per_page=100" \
-            --jq '.jobs[] | [.name, .conclusion] | @tsv')"
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID/jobs?per_page=100" --jq '.jobs[] | [.name, .conclusion] | @tsv')"
           for name in check e2e 'release_develop / publish'; do
             if ! grep -Fxq "$(printf '%s\tsuccess' "$name")" <<< "$jobs"; then
-              echo "::notice::Core Check or image publish did not succeed: $name"
+              echo "::notice::Required Check job did not succeed: $name"
               echo 'eligible=false' >> "$GITHUB_OUTPUT"
               exit 0
             fi
           done
-          if ! grep -Eq '^release_develop / (deploy_vm13_preview|e2e_vm13_preview)[[:space:]]+failure
+          if ! grep -qE '^release_develop / (deploy_vm13_preview|e2e_vm13_preview)[[:space:]]+failure$' <<< "$jobs"; then
+            echo '::notice::Check failure was not caused by VM13 preview'
+            echo 'eligible=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'eligible=true' >> "$GITHUB_OUTPUT"
+      - name: Install official pinned GH-AW CLI
         uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
         with:
           version: v1.0.1
