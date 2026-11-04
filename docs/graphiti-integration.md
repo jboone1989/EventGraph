@@ -61,3 +61,28 @@ worker ingests an article.
 Avoid deploying to production until all acceptance cases are demonstrated.
 Do not remove the historical AIHot event tree, story grouping, or production
 article corpus.
+
+## Dynamic workflow models (2026-11-04)
+
+Graphiti does not own a provider key or model catalogue. Its OpenAI-compatible client
+uses the internal `api:3001/api/internal/graphiti/v1` proxy. The EventGraph API
+authenticates `GRAPHITI_MODEL_PROXY_TOKEN` (a distinct random token, at least 32
+characters) and routes calls using the **existing** provider connections, model CRUD,
+verified capabilities, receipts and workflow binding settings. Configure the same token
+in the API's production `.env` and the Graphiti Compose service; never expose it in
+public endpoints or a browser. The legacy `NVIDIA_API_KEY` and `GRAPHITI_LLM_MODEL`
+are no longer read by the Graphiti service.
+
+In **工作流模型绑定**, the `graphiti` chat stage inherits `models.default`, or can
+be overridden. `graphitiEmbedding` requires an explicit *embedding* model with a
+successful capability test. It does not inherit a chat default. Its vector output
+must have precisely `GRAPHITI_EMBEDDING_DIM` dimensions (2048 by default); changing
+dimensions requires a separate explicit Neo4j migration rather than silent truncation.
+The embedding provider is selected on each request and no provider key is sent to
+Graphiti. Existing graph nodes and ingestions are retained.
+
+Deploy the app/API image first, configure the distinct internal token and the
+registered Graphiti chat/embedding bindings, then build/restart the **separate**
+`knowledge` service from the new source (preserve `knowledge-neo4j` and its
+volume). Verify at least one real successful `/episodes` ingestion before re-enabling
+a sustained ingest load. Do not bulk requeue unknown provider outcomes.
