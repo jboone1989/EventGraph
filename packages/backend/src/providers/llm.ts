@@ -146,13 +146,12 @@ export const isNvidiaChatModel=(id:string)=>["text","vision"].includes(nvidiaCap
 function inputCapabilityFor(user:string|ContentPart[]):string {return Array.isArray(user)&&user.some(p=>p.type==='image_url')?'vision':'text';}
 
 /** Short, schema-constrained grouping should not spend Ultra's output budget on hidden reasoning. */
-export function requestExtrasForTask(spec: Pick<ModelSpec, 'service' | 'model' | 'extra'>, purpose: string): Record<string, unknown> {
-  const defaults = spec.extra ?? {};
+export function requestExtrasForTask(spec: Pick<ModelSpec, 'service' | 'model' | 'extra'>, purpose: string): Record<string, unknown> | undefined {
   if (spec.service === 'nvidia' && spec.model === 'nvidia/nemotron-3-ultra-550b-a55b' &&
-      (purpose === 'group_article' || purpose === 'group_review' || purpose === 'group_signal')) {
-    return { ...defaults, reasoning_effort: 'none' };
+      ['group_article', 'group_review', 'group_signal', 'group_story', 'group_story_review'].includes(purpose)) {
+    return { ...spec.extra, reasoning_effort: 'none' };
   }
-  return defaults;
+  return spec.extra;
 }
 
 export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): Promise<ChatJsonResult<z.infer<S>>> {
@@ -257,7 +256,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
       model: spec.model,
       purpose: opts.purpose,
       subject: opts.subject,
-      identity: { connectionModelId:normalizedId,configuration:normalized?.fingerprint,model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(userText), temperature, maxTokens, extra: requestExtras },
+      identity: { connectionModelId:normalizedId,configuration:normalized?.fingerprint,model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(userText), temperature, maxTokens, extra: requestExtras ?? null },
       requestSummary: { promptVersion: opts.promptVersion, systemHash: sha256(opts.system), userHash: sha256(userText), userChars: userText.length, temperature, maxTokens, ...(opts.routing ? { routing: opts.routing } : {}) },
       attemptTag: opts.attemptTag,
     },
