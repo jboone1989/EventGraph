@@ -25,7 +25,11 @@ async function graphiti<T>(path: string, options?: { method?: string; body?: unk
     body: options?.body === undefined ? undefined : JSON.stringify(options.body),
     signal: AbortSignal.timeout(options?.timeoutMs ?? 8000),
   });
-  if (!response.ok) throw new Error("Graphiti HTTP " + response.status);
+  if (!response.ok) {
+    // Keep the upstream failure class; never log request headers or credentials.
+    const detail = (await response.text().catch(() => "")).slice(0, 500);
+    throw new Error(`Graphiti HTTP ${response.status}${detail ? ": " + detail : ""}`);
+  }
   return await response.json() as T;
 }
 
