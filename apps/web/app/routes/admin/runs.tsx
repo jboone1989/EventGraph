@@ -63,13 +63,13 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const failedQueueJobs = r.failedJobs.reduce((sum, j) => sum + j.failed, 0);
   const attentionCount = Number(!worker?.alive) + Number(r.live24h.stalled > 0) +
     Number(r.articleProcessing.failed > 0) + Number(unknownReceipts > 0) +
-    Number(unknownDeliveries > 0) + Number(failedQueueJobs > 0) + Number(r.lagging.length > 0);
+    Number(unknownDeliveries > 0) + Number(failedQueueJobs > 0) + Number(r.lagging.length > 0) + Number(failing.length > 0);
   const sectionClass = "mb-4 rounded-panel border border-line bg-surface px-4 py-3";
   const summaryClass = "cursor-pointer text-[14px] font-medium text-ink hover:text-accent";
 
   return (
     <AdminPage title="运行与积压" subtitle={<>先看系统状态与需要处理的问题，展开下方区域查看明细。每 20 秒自动刷新 · 更新于 {bj(r.checkedAt)}</>}>
-      <Card className="mb-5" title="运行概览 · 最近 24 小时"
+      <Card className="mb-5" title="运行概览"
         right={<span className="text-[12px] text-ink-4">根据运行记录汇总</span>}>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label="Worker" value={<span className="inline-flex items-center gap-2 text-[18px]">
@@ -88,9 +88,10 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           ? <p className="text-[13px] text-ink-3">未发现本页跟踪的重点异常。仍可展开下方区域检查诊断记录。</p>
           : <div className="space-y-2 text-[13px]">
             {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")} className="ml-2 text-accent hover:underline">进程明细</a></p>}
-            {r.live24h.stalled > 0 && <p><Badge tone="bad">超时 {num(r.live24h.stalled)}</Badge> 新新闻等待超过 15 分钟。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">查看异常</a></p>}
+            {r.live24h.stalled > 0 && <p><Badge tone="bad">超时 {num(r.live24h.stalled)}</Badge> 新新闻等待超过 15 分钟。<a href="#runs-news" onClick={() => showSection("runs-news")} className="ml-2 text-accent hover:underline">查看新闻处理</a></p>}
             {r.articleProcessing.failed > 0 && <p><Badge tone="bad">文章失败 {num(r.articleProcessing.failed)}</Badge> 可按原因分批恢复。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">处理入口</a></p>}
             {failedQueueJobs > 0 && <p><Badge tone="warn">队列失败 {num(failedQueueJobs)}</Badge> 最近 24 小时失败任务。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">任务明细</a></p>}
+            {failing.length > 0 && <p><Badge tone="bad">定时任务失败 {num(failing.length)}</Badge> 最近一次运行失败。<a href="#runs-queues" onClick={() => showSection("runs-queues")} className="ml-2 text-accent hover:underline">定时任务</a></p>}
             {unknownReceipts > 0 && <p><Badge tone="bad">回执待核对 {num(unknownReceipts)}</Badge> 避免重复模型调用。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">核对回执</a></p>}
             {unknownDeliveries > 0 && <p><Badge tone="warn">投递待核实 {num(unknownDeliveries)}</Badge> 先确认是否送达。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">核实投递</a></p>}
             {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">信源明细</a></p>}
