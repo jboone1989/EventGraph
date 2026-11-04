@@ -27,7 +27,7 @@ export function registerGraphitiModelProxy(app:FastifyInstance) {
    try {
     return reply.send(await graphitiModelRequest(kind,req.body));
    }catch(error){
-    req.log.warn({kind,errorType:error instanceof Error?error.constructor.name:'unknown',...(error instanceof ProviderConfigError?{message:error.message}:{})},'graphiti model request failed');
+    req.log.warn({kind,errorType:error instanceof Error?error.constructor.name:'unknown',...(error instanceof Error?{message:error.message.slice(0,300)}:{})},'graphiti model request failed');
     return errorReply(reply,error);
    }
   });

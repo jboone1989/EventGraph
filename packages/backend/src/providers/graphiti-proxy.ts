@@ -37,12 +37,20 @@ export function graphitiBody(kind:Kind,value:unknown):Record<string,unknown> {
  return kind==='chat'?{...rest,stream:false}:{...rest,encoding_format:'float'};
 }
 
-export function vectorDimensions(response:Record<string,unknown>,expected:number):void {
+export function vectorDimensions(response:Record<string,unknown>,expected:number,inputCount?:number):void {
  const data=response.data;
- if(!Array.isArray(data)||!data.length||data.some(
+ if(!Array.isArray(data)||!data.length||(inputCount!==undefined&&data.length!==inputCount)||data.some(
    item=>!item||typeof item!=='object'||!Array.isArray(item.embedding)||
      item.embedding.length!==expected||item.embedding.some((v:unknown)=>typeof v!=='number'||!Number.isFinite(v))))
   throw new Error('Graphiti embedding dimension mismatch: expected '+expected);
+ // Some providers omit indices, but explicit indices must be complete and unique.
+ if(data.some(item=>item.index!==undefined)){
+  const indices=data.map(item=>item.index);
+  if(indices.some(index=>!Number.isInteger(index)||index<0||index>=data.length)||
+     new Set(indices).size!==data.length)
+   throw new Error('Graphiti embedding dimension mismatch: invalid vector indices');
+  response.data=[...data].sort((a,b)=>a.index-b.index);
+ }
 }
 
 /** Select by the existing default/overrides and use the same registered request/receipt path. */
@@ -80,7 +88,7 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
    });
    const response=receipt.response as Record<string,unknown>;
    if(kind==='embedding'){
-    try{vectorDimensions(response,Number(process.env.GRAPHITI_EMBEDDING_DIM||2048));}
+    try{vectorDimensions(response,Number(process.env.GRAPHITI_EMBEDDING_DIM||2048),Array.isArray(payload.input)?payload.input.length:1);}
     catch(error){await rejectReceivedResponse(receipt.receiptId,'Graphiti embedding dimension mismatch');throw error;}
    }
    return response;

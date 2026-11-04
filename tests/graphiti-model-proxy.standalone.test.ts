@@ -41,6 +41,11 @@ test('vectors cannot silently change Graphiti Neo4j dimensions',()=>{
  assert.throws(()=>vectorDimensions({data:[{embedding:[1,2]}]},3),/dimension mismatch/);
  assert.throws(()=>vectorDimensions({data:[{embedding:[1,NaN,3]}]},3),/dimension mismatch/);
  assert.throws(()=>vectorDimensions({data:[]},3),/dimension mismatch/);
+ assert.throws(()=>vectorDimensions({data:[{embedding:[1,2,3]}]},3,2),/dimension mismatch/);
+ const outOfOrder={data:[{index:1,embedding:[3,2,1]},{index:0,embedding:[1,2,3]}]};
+ vectorDimensions(outOfOrder,3,2);
+ assert.deepEqual(outOfOrder.data.map(item=>item.index),[0,1]);
+ assert.throws(()=>vectorDimensions({data:[{index:0,embedding:[1,2,3]},{index:0,embedding:[3,2,1]}]},3,2),/dimension mismatch/);
 });
 
 test('Graphiti model proxy denies missing or invalid bearer before provider work',async()=>{
