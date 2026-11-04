@@ -6,7 +6,7 @@ import {storedCredential} from './registry/connection-secrets.ts';
 import {ProviderConfigError} from './registry/connection-types.ts';
 import {clearRegisteredModelCache} from './registry/connections.ts';
 import {registeredRuntime,requestRegisteredModel} from './registry/runtime.ts';
-import {selectConfiguredProviderForStage,coolDownReference} from './registry/selection.ts';
+import {selectConfiguredRegisteredModelForStage,coolDownReference} from './registry/selection.ts';
 import {paidRequest,ProviderRejectedError,BudgetExceededError,rejectReceivedResponse} from './receipts.ts';
 import {stableJson} from '../lib/ids.ts';
 
@@ -65,7 +65,7 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
  const autoTier=automatic?(configured.split(':')[2]??stage):stage;
  const excluded=new Set<string>();
  for(let attempt=0;attempt<(automatic?8:1);attempt++){
-  const ref=automatic?await selectConfiguredProviderForStage(autoTier,false,excluded):configured;
+  const ref=automatic?await selectConfiguredRegisteredModelForStage(autoTier,false,excluded):configured;
   if(!ref.startsWith('model:'))throw new Error('Graphiti requires a registered model; configure its workflow binding');
   const id=ref.slice(6),capability=kind==='chat'?'text':'embedding';
   const {m,c,fingerprint}=await registeredRuntime(id,capability);
