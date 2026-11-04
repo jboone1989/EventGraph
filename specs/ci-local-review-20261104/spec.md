@@ -4,9 +4,9 @@ Status: **Draft** until independent review and merge to `develop`; implementatio
 Owner direction: 2026-11-04 — each GitHub repository owns its own CI, review and deployment; no cross-repository review orchestration. Recorded in the PR discussion for this Spec.
 
 ## Existing behavior
-- EventGraph runs its own Check, Docker and E2E but forwards every completed Check run through `.github/workflows/claude-pr-dispatch.yml` to the reusable `livingruntime-remote` GLM reviewer.
+- Before migration, EventGraph's `develop` caller forwarded **only successful `pull_request` or `workflow_dispatch` Check runs** to the reusable `livingruntime-remote` reviewer; the older default-branch `main` caller triggered on every completed Check. The develop caller used a job-level `if` to reject failed, cancelled or unrelated Checks before the external workflow started.
 - **Live branch-ruleset check (2026-11-04):** EventGraph develop ruleset 25775731 currently requires `check`, `docker`, `e2e`, and `claude-review`, despite its historical name `Claude review paused` and the older Spec 014 description. Treat GitHub's current ruleset as authoritative. `.github/workflows/eventgraph-native-pr-closed.yml` also expects `claude-review`, so the migration must preserve that actual existing gate; reconciliation of obsolete Spec 014 descriptions is separate.
-- The current central reviewer skips failed, cancelled and unrelated Checks before model invocation. `workflow_run` uses the **default branch's** trusted workflow definition; merging only to develop stages, but does not activate, the change.
+- In the develop caller, the job-level `if` excludes failed, cancelled and non-PR/non-dispatch Check runs; the central reviewer separately revalidates the source Check and immutable PR HEAD. `workflow_run` uses the **default branch's** trusted workflow definition; merging only to develop stages, but does not activate, the change.
 
 ## Supersedes and reuses
 - Replaces **only the cross-repository reviewer ownership** in `specs/012-github-hosted-agent-queue/spec.md` requirements 7–8 and 11 and `specs/013-projects-agent-workers/plan.md` item 2. Their existing synchronous `official-glm-review` job contract, required `claude-review` status, exact SHA/base identity, GH-AW Worker flow and PR merge gates **remain unchanged**.
