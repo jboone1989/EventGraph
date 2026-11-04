@@ -1,6 +1,6 @@
-# EventGraph forwards only a successful Check's exact PR HEAD to the central reviewer.
+# EventGraph reviews a successful Check's exact PR HEAD with its own trusted reusable workflow.
 # GitHub branch protection and native PR actions own merge decisions; this workflow does not auto-merge.
-name: Forward PR to central GLM review
+name: Review EventGraph PR after Check
 
 on:
   workflow_run:
@@ -16,9 +16,14 @@ permissions:
 
 jobs:
   official-glm-review:
-    # Every completed Check reaches central preflight. It checks the real source
-    # run ID + event + success + exact HEAD before exposing the model secret.
-    uses: jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml@main
+    # Failed/cancelled push and unrelated Check runs must not start the costly
+    # EventGraph reviewer. Keep workflow_dispatch for GH-AW's exact-SHA PR checks;
+    # the local preflight still verifies the current PR and immutable SHA.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' &&
+          (github.event.workflow_run.event == 'pull_request' ||
+           github.event.workflow_run.event == 'workflow_dispatch') }}
+    uses: ./.github/workflows/eventgraph-glm-review.yml
     with:
       check_sha: ${{ github.event.workflow_run.head_sha }}
       check_run_id: ${{ github.event.workflow_run.id }}
