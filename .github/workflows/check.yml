@@ -449,7 +449,7 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ vars.CLAUDE_REVIEW_BASE_URL || 'https://openrouter.ai/api' }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
-          ANTHROPIC_MODEL: ${{ vars.CLAUDE_REVIEW_MODEL }}
+          ANTHROPIC_MODEL: ${{ vars.CLAUDE_REVIEW_MODEL || 'anthropic/claude-haiku-5.5' }}
         with:
           anthropic_api_key: ${{ secrets.OPENROUTER_API_KEY }}
           github_token: ${{ github.token }}
@@ -469,6 +469,7 @@ jobs:
             Return a JSON object with summary and findings. Empty findings
             means the review found no actionable blockers.
           claude_args: >-
+            --model ${{ vars.CLAUDE_REVIEW_MODEL || 'anthropic/claude-haiku-5.5' }}
             --tools Read,Glob,Grep
             --disallowedTools mcp__*
             --json-schema '{"type":"object","properties":{"summary":{"type":"string"},"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"issue":{"type":"string"}},"required":["file","line","issue"]}}},"required":["summary","findings"]}'
