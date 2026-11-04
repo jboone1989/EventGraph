@@ -28,6 +28,9 @@ test('embedding requests do not leak chat stream or static model identity',()=>{
  assert.equal('model' in body,false);
  assert.equal('stream' in body,false);
  assert.equal(body.input_type,'passage');
+ assert.equal(body.encoding_format,'float');
+ assert.equal(graphitiBody('embedding',{input:['test']}).encoding_format,'float');
+ assert.equal(graphitiBody('embedding',{input:['test'],encoding_format:'base64'}).encoding_format,'float');
  assert.throws(()=>graphitiBody('embedding',{input:[]}),/Invalid embedding input/);
  assert.throws(()=>graphitiBody('embedding',{input:['']}),/Invalid embedding input/);
 });
