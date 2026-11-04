@@ -4,25 +4,16 @@ A release uses **one** application image: push to `develop` (or validated exact-
 
 - Feature PRs (including promotion PRs targeting `main`) still run the repository's required `check`, `docker` and browser checks.
 - A push to `develop` or a validated exact-SHA post-merge `workflow_dispatch` on `develop` builds and publishes `ghcr.io/jboone1989/eventgraph-app@sha256:...`; documentation-only changes do not publish.
-- A push to `main` runs `promote` only. Its `.github/production-image.env` pins both the successful develop SOURCE_SHA and digest; promotion requires successful `check`, `e2e`, `publish` results for that SHA, unchanged application inputs, and an existing digest. The main push never builds a second image.
+- Only main pushes with release intent run standalone promotion. Its `.github/production-image.env` pins both the successful develop SOURCE_SHA and digest; promotion requires successful `check`, `e2e` and published-image results for that SHA, unchanged application inputs, and an existing digest. The main push never builds a second image.
 - The `deploy_production` job runs only if `EVENTGRAPH_PROD_AUTO_DEPLOY=true` is configured. It invokes the existing VM09 `scripts/deploy-prod.sh`. With no configured production SSH, run that script on VM09 through an authorized operator; **merging to main by itself does not deploy**.
 
-## Repository-owned PR review
+## GitHub-native workflow ownership (2026-11-04)
 
-EventGraph owns its GLM review workflow (`.github/workflows/eventgraph-glm-review.yml`) and review rubric
-(`.github/review/claude-review-checklist.md`). The trusted `.github/workflows/claude-pr-dispatch.yml`
-runs after a successful PR-related Check and calls that workflow **inside EventGraph**, with
-`GLM_API_KEY` from EventGraph's own repository secrets. The reviewer verifies the exact
-successful Check run, current PR HEAD and live target branch, inspects untrusted PR source/diff from an isolated directory, and
-posts the existing required `claude-review` status. A previously successful review may
-be reused only for the same HEAD and live base SHA.
-
-GitHub loads `workflow_run` definitions from the default branch (`main`): merging to
-`develop` stages this configuration but does **not** switch the live review pipeline.
-Enable it only through an explicit normal main promotion with production rollout controlled
-separately; do not delete the former central reviewer until the local job has run on a
-real PR and emitted the required `claude-review` status. Other repositories own their
-own review and release workflows.
+- `Check` validates PRs, develop pushes and immutable-SHA manual dispatch, preserving real `check`, `docker`, `e2e` and the Spec gate. Metadata-only edits no longer rerun heavy CI; manually re-dispatch Check on the current head when retargeting a base.
+- An executable successful develop Check invokes `release-develop.yml` **in the same run**; this reusable workflow publishes a pinned GHCR digest and optionally deploys/smoke-tests VM13. No independent `workflow_run` relay or automatic retry.
+- `release-main.yml` independently handles main pushes and explicit pinned-SHA releases. Governance-only pushes have no release intent. Real releases validate the immutable develop digest, exact successful Check/E2E/publish status and runtime equivalence. VM09 is guarded by `EVENTGRAPH_PROD_AUTO_DEPLOY=true`.
+- GH-AW Worker/Dispatcher and the official native Work Queue remain, including their engine and per-run usage artifacts. The native queue continuation responds to successful develop Check, successful Worker completion, eligible Agent PR close, or explicit manual dispatch; failed Workers cannot spawn an automatic retry loop. Failures are visible on that queue workflow, not as false CI failures. GH-AW compiled locks are maintained using the official CLI, without separate smoke or compile Actions. GitHub's built-in auto-delete merged branches handles branch cleanup.
+- **Retired:** standalone `claude-pr-dispatch.yml`, `eventgraph-glm-review.yml`, manual GH-AW smoke/compile Actions, one-shot Work acceptance and custom branch pruning; Claude Review is a single conditional CI Job, not an independent workflow. Auto-merge respects GitHub's current real required checks.
 
 ## Selective checks by change scope
 
@@ -32,8 +23,7 @@ documentation, the heavy `check` steps, `e2e` and `docker` are skipped through
 job/step-level `if:` conditions. That keeps every required check reported — GitHub
 records a skipped job as success for branch protection — while documentation PRs still
 run the real Spec gate plus `scripts/ci/check-docs.mjs` (offline relative-link and
-anchor validation of the changed Markdown) and still receive the independent Claude
-review, because the Claude dispatch fires whenever the Check run succeeds. Scope
+anchor validation of the changed Markdown) and never trigger the paid Claude Review job. Scope
 detection uses the base branch's copy of the detector (the Spec gate's trust model) and
 fails closed: any error, empty diff, or any non-documentation file — CI scripts,
 workflows, `Dockerfile`, dependencies, `industry/` data, application code — runs the
@@ -89,3 +79,17 @@ executable change. Because checkout defaults to shallow Git history, those
 gates fetch complete ancestry on a changed tip before testing git ancestry.
 This avoids silently dropping the most recent code release without extending
 or changing production deployment permissions.
+
+
+
+## Claude Review (one job inside Check)
+
+- `claude-review` runs only for same-repo code PRs after `check`, `docker` and `e2e` succeeded; documentation-only PRs never invoke a paid model. There is no second AI verification round or separate reviewer workflow. The reviewer output is one structured verdict: concrete blockers are commented on the PR and the review job fails.
+- Provider: official `anthropics/claude-code-action@v1` using the OpenRouter Anthropic endpoint `https://openrouter.ai/api` (override via repository variable `CLAUDE_REVIEW_BASE_URL`). Store the API key in GitHub Actions secret `OPENROUTER_API_KEY` (the API key stored in EventGraph's model-management database is not a GitHub secret); choose the model using optional variable `CLAUDE_REVIEW_MODEL`. Do not use the old GLM default or GH-AW engine configuration for this review.
+- Once a successful reviewer execution is verified, add `claude-review` to each target branch's required status checks. The existing required job IDs remain `check`, `docker`, `e2e`, even though workflow runs now have descriptive names. GitHub branch rules, not an external review bot, remain the merge authority.
+
+For GH-AW source edits, compile with `gh aw compile eventgraph-worker eventgraph-dispatcher --strict --approve --no-check-update`, commit the generated lock files and let normal PR CI validate them. For queue diagnostics use `gh aw work-queue --repo jboone1989/EventGraph stats --json`; no smoke workflow is needed.
+
+## Operation and recovery
+
+To re-run CI after editing only PR metadata or retargeting its base, dispatch GitHub `Check` on the current PR branch with the exact 40-character `expected_sha`. To re-release a verified develop SHA, dispatch that same pinned Check on develop. `Release production` accepts only an exact main SHA and never bypasses digest validation or environment gates.
