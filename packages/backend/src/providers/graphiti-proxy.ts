@@ -1,5 +1,6 @@
 import {createHash, timingSafeEqual} from 'node:crypto';
-import {modelFor} from '../editorial/models.ts';
+import {modelFor,invalidateModelCache} from '../editorial/models.ts';
+import {clearRegisteredModelCache} from './registry/connections.ts';
 import {registeredRuntime,requestRegisteredModel} from './registry/runtime.ts';
 import {selectConfiguredProviderForStage,coolDownReference} from './registry/selection.ts';
 import {paidRequest,ProviderRejectedError,BudgetExceededError,rejectReceivedResponse} from './receipts.ts';
@@ -42,6 +43,10 @@ export function vectorDimensions(response:Record<string,unknown>,expected:number
 
 /** Select by the existing default/overrides and use the same registered request/receipt path. */
 export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Record<string,unknown>> {
+ // Admin writes may originate on VM13 while this API runs on the production host.
+ // Read the shared DB on each model call instead of trusting another process's cache.
+ invalidateModelCache();
+ clearRegisteredModelCache();
  const body=graphitiBody(kind,value),stage=kind==='chat'?'graphiti':'graphitiEmbedding';
  const configured=await modelFor(stage);
  const automatic=kind==='chat'&&configured.startsWith('auto:');
