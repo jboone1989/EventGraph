@@ -30,6 +30,7 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
  catch {throw new ProviderConfigError('Invalid OpenRouter catalog JSON','providerId',502);}
  if(!Array.isArray(payload.data)||payload.data.length===0)
   throw new ProviderConfigError('OpenRouter returned an empty or invalid model catalog','providerId',502);
+ // Both token prices must be zero; a free input price alone does not make a model free.
  const freeIds=new Set(payload.data.filter(isFreeChat).map(m=>m.id));
  freeIds.add('openrouter/free');
  const timestamp=new Date().toISOString();
