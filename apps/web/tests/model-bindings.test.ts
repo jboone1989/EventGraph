@@ -41,6 +41,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   browser=await chromium.launch({channel:"chromium"});
   const page=await browser.newPage();
   await page.goto(web.origin+"/admin/model-bindings");
+  await page.getByText(/高级设置 · 为各工作流单独指定模型/).click();
   const picker=page.getByRole("combobox",{name:"为精选预筛选择模型"});
   await expect(page.getByText("工作流模型绑定",{exact:true}).first()).toBeVisible();
   await expect(picker).toHaveValue("");
