@@ -51,6 +51,6 @@ test('NVIDIA Ultra uses non-reasoning mode only for schema-constrained grouping'
  assert.deepEqual(requestExtrasForTask(spec, 'score_article'), spec.extra);
  assert.deepEqual(requestExtrasForTask({ ...spec, service: 'openrouter' }, 'group_article'), spec.extra);
  assert.deepEqual(requestExtrasForTask({ ...spec, model: 'nvidia/nemotron-3.5-super-vl-120b-a12b' }, 'group_article'), spec.extra);
- assert.equal(requestExtrasForTask({ ...spec, extra: undefined }, 'group_article'), undefined);
+ assert.deepEqual(requestExtrasForTask({ ...spec, extra: undefined }, 'group_article'), { reasoning_effort: 'none' });
  assert.equal(requestExtrasForTask({ ...spec, extra: undefined }, 'score_article'), undefined);
 });
