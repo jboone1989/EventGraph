@@ -12,7 +12,7 @@ env:
   GH_AW_SKIP_REFLECT: 'true'
 engine:
   id: pi
-  model: openrouter/openrouter/free
+  model: openrouter/free
   model-provider: openai
   env:
     OPENAI_BASE_URL: https://openrouter.ai/api/v1
