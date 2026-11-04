@@ -57,6 +57,11 @@ export async function routingEffectOverview(): Promise<NonNullable<Runs['routing
     FROM tagged
     GROUP BY GROUPING SETS ((), (stage), (provider))
   `;
+  return summarizeRoutingRows(rows);
+}
+
+/** Pure aggregation: preserve zeros and no-data explicitly without inventing observations. */
+export function summarizeRoutingRows(rows: RoutingRow[]): NonNullable<Runs['routingEffect']> {
   const overall = rows.find(row => row.kind === 'total');
   return {
     hours: 24,
