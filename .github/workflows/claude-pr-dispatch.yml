@@ -27,6 +27,5 @@ jobs:
     with:
       check_sha: ${{ github.event.workflow_run.head_sha }}
       check_run_id: ${{ github.event.workflow_run.id }}
-      pr_number: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
     secrets:
       GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
