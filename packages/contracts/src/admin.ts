@@ -401,6 +401,7 @@ export interface AdminProviderProfile {
 }
 /** Lightweight model choices for per-stage binding, refreshed from the registry on each request. */
 export interface AdminModelBindings {
+  defaultModel: {model:string;source:'admin'|'default'};
   steps: Array<{key:string;label:string;vision:boolean;current:{model:string;source:'admin'|'default'}}>;
   choices: Array<{key:string;modelId:string;provider:string;adapter:string;vision:boolean}>;
 }
