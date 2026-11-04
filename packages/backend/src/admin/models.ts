@@ -108,9 +108,10 @@ export async function modelsOverview(days = 7): Promise<BeforeJson<AdminModels>>
 
 /** Registry choices and settings-based auto routes share the same admin page. */
 export async function modelBindingsOverview(): Promise<AdminModelBindings> {
- const [models,connections,rows]=await Promise.all([
+ const [models,connections,rows,effective]=await Promise.all([
   listRegisteredModels(),listConnections(),
-  sql<{key:string;value:{model?:string}}[]>`SELECT key,value FROM settings WHERE key LIKE 'models.%'`
+  sql<{key:string;value:{model?:string}}[]>`SELECT key,value FROM settings WHERE key LIKE 'models.%'`,
+  modelSources(),
  ]);
  const names=new Map(connections.map(c=>[c.id,c.name]));
  const saved=new Map(rows.map(r=>[r.key,r.value?.model??'']));
@@ -121,7 +122,7 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
  return {
   defaultModel:selection('default'),
   steps:Object.entries(capabilities()).map(([key,c])=>({
-   key,label:c.label,vision:!!c.vision,embedding:!!c.embedding,current:selection(key)
+   key,label:c.label,vision:!!c.vision,embedding:!!c.embedding,current:selection(key),effective:effective[key]!
   })),
   choices:models.map(m=>({
    key:'model:'+m.id,modelId:m.modelId,provider:names.get(m.providerId)??m.providerId,
@@ -136,7 +137,7 @@ export async function switchModel(capability:string,model:string|null,reason:str
  if(!step)throw Object.assign(new Error('unknown capability'),{statusCode:400});
  if(!reason.trim())throw Object.assign(new Error('a reason is required'),{statusCode:400});
  const automatic=model==='auto'||(model!==null&&/^auto:(light|medium|heavy)$/.test(model));
- if(step.embedding&&automatic)throw Object.assign(new Error('Choose a specific tested embedding model'),{statusCode:400});
+ if(step.embedding&&automatic)throw Object.assign(new Error('Choose a specific embedding model'),{statusCode:400});
  let id:string|null=null;
  if(model!==null&&!automatic){
   if(!model.startsWith('model:'))
