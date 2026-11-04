@@ -71,15 +71,20 @@ export function rankFreeModels(models: RegisteredModel[], connections: ProviderC
   });
 }
 
+/** Internal Graphiti proxy always needs a registered model ID, independent of global legacy routing. */
+export async function selectConfiguredRegisteredModelForStage(stage: string, needsVision = false,
+  excluded: ReadonlySet<string> = new Set()): Promise<string> {
+  const [connections, models] = await Promise.all([listConnections(), listRegisteredModels()]);
+  const candidates = rankFreeModels(models, connections, stage, Date.now(), needsVision, excluded);
+  if (!candidates.length) throw new BudgetExceededError('free-models', 'waiting_for_free_provider', 300);
+  return 'model:' + candidates[0]!.id;
+}
+
 /** Rank on every call, not once on worker startup. Never route an unknown or paid model automatically. */
 export async function selectConfiguredProviderForStage(stage: string, needsVision = false,
   excluded: ReadonlySet<string> = new Set()): Promise<string> {
-  if (await normalizedRegistryActive()) {
-    const [connections, models] = await Promise.all([listConnections(), listRegisteredModels()]);
-    const candidates = rankFreeModels(models, connections, stage, Date.now(), needsVision, excluded);
-    if (!candidates.length) throw new BudgetExceededError('free-models', 'waiting_for_free_provider', 300);
-    return 'model:' + candidates[0]!.id;
-  }
+  if (await normalizedRegistryActive())
+    return selectConfiguredRegisteredModelForStage(stage, needsVision, excluded);
   const eligible = rankStageProviders(await listProviders(), stage, Date.now(), needsVision);
   if (!eligible.length) throw new BudgetExceededError('nvidia', 'waiting_for_verified_provider', 300);
   return 'nvidia:' + eligible[0]!.modelId;
