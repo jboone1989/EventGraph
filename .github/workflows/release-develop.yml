@@ -11,7 +11,7 @@ permissions:
   packages: write
 jobs:
   publish:
-    name: "发布已验证的镜像"
+    name: publish # 发布验证成功的 GHCR 镜像；供生产发布核验
     if: ${{ inputs.source_sha == github.sha && github.ref_name == 'develop' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45

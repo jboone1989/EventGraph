@@ -383,7 +383,7 @@ jobs:
         run: docker compose down -v
 
   release_develop:
-    name: "开发发布 · 已通过 CI 的镜像与 VM13 预览"
+    name: release_develop # 开发发布调用入口；保持生产镜像核验所用的状态名称
     needs: [changes, check, e2e]
     if: >-
       ${{ (github.event_name == 'push' ||
