@@ -1,15 +1,13 @@
 import type {FastifyInstance} from "fastify";
 
 import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,publicEvidenceBundle,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
-import {timingSafeEqual} from "node:crypto";
+import {matchesBearerToken} from "@aihot/backend/lib/bearer-auth";
 import {parseGraphTime} from "@aihot/backend/publication/knowledge";
 
 export function registerKnowledge(app:FastifyInstance){
   app.get<{Querystring:{q?:string;limit?:string}}>("/api/v1/knowledge/search",async(req,reply)=>{
-    const expected=process.env.KNOWLEDGE_SEARCH_TOKEN;
-    const presented=req.headers.authorization?.replace(/^Bearer /,"");
-    if(!expected || !presented || presented.length!==expected.length ||
-       !timingSafeEqual(Buffer.from(presented),Buffer.from(expected)))
+    // This read-only search endpoint also accepts the legacy raw-token header.
+    if(!matchesBearerToken(req.headers.authorization,process.env.KNOWLEDGE_SEARCH_TOKEN))
       return reply.code(401).header("Cache-Control","no-store").send({error:"unauthorized"});
     const q=req.query.q?.trim()??"";
     const limit=Number(req.query.limit??10);

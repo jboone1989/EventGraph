@@ -10,7 +10,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
  const data:AdminModelBindings={
   defaultModel:{model:"",source:"default"},
   steps:[{key:"prefilter",label:"精选预筛（宽召回）",vision:false,
-   current:{model:"default",source:"default"}}],
+   current:{model:"default",source:"default"},effective:{model:"default",source:"default"}}],
   choices:[],
  };
  let failure=false;
