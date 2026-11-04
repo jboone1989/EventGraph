@@ -18,6 +18,14 @@ export interface ModelRow {
  enabled:boolean;route_enabled:boolean;upstream_metadata:Record<string,unknown>;version:number;updated_at:Date;
 }
 export type CheckRow={model_id:string;capability:string;config_fingerprint:string;config_snapshot?:Record<string,string>|null;status:string;verified_at:Date|null;latency_ms:number|null};
+// Per-process runtime cache. Admin CRUD and the manual Refresh Models action clear it.
+// Transactions bypass the cache so edits always see their locked database rows.
+const connectionCache=new Map<string,ConnectionRow>();
+const modelCache=new Map<string,ModelRow>();
+export function clearRegisteredModelCache():void {
+ connectionCache.clear();
+ modelCache.clear();
+}
 const missing=(kind:string):never=>{throw new ProviderConfigError(`${kind} not found`,undefined,404);};
 function uuid(value:unknown,field:string):asserts value is string {
  if(typeof value!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value))
@@ -87,13 +95,19 @@ export function modelView(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[]):Regis
 }
 export async function loadConnection(id:string,db:Db=sql):Promise<ConnectionRow> {
  uuid(id,'providerId');
+ if(db===sql&&connectionCache.has(id))return connectionCache.get(id)!;
  const [row]=await db<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${id}::uuid`;
- return row??missing('Connection');
+ if(!row)return missing('Connection');
+ if(db===sql)connectionCache.set(id,row);
+ return row;
 }
 export async function loadModel(id:string,db:Db=sql):Promise<ModelRow> {
  uuid(id,'id');
+ if(db===sql&&modelCache.has(id))return modelCache.get(id)!;
  const [row]=await db<ModelRow[]>`SELECT * FROM registered_models WHERE id=${id}::uuid`;
- return row??missing('Model');
+ if(!row)return missing('Model');
+ if(db===sql)modelCache.set(id,row);
+ return row;
 }
 export async function listConnections():Promise<ProviderConnection[]> {
  return (await sql<ConnectionRow[]>`SELECT * FROM provider_connections ORDER BY name,id`).map(connectionView);
@@ -142,7 +156,7 @@ export async function createConnection(input:ConnectionInput,reason:string,actor
  reasonCheck(reason);checkConnection(input);
  checkConnectionPolicy(input.baseUrl,connectionPolicy(input.baseUrl));
  const key=changedCredential(input);
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   const [row]=await tx<ConnectionRow[]>`INSERT INTO provider_connections
    (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,credential_secret,credential_env,credential_version,updated_by)
    VALUES (${randomUUID()}::uuid,${input.name.trim()},${input.vendor.trim()},${input.protocol},${input.baseUrl},
@@ -151,10 +165,12 @@ export async function createConnection(input:ConnectionInput,reason:string,actor
   await audit(actor,'provider.connection.create',view.id,reason,null,view,{db:tx});
   return view;
  }) as Promise<ProviderConnection>;
+ clearRegisteredModelCache();
+ return result;
 }
 export async function updateConnection(id:string,input:ConnectionInput,version:number,reason:string,actor:string):Promise<ProviderConnection> {
  uuid(id,'id');reasonCheck(reason);checkConnection(input);
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   const [old]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Connection');versionCheck(old.version,version);
   // Never preserve an API key when changing to an unrelated host.
@@ -174,6 +190,8 @@ export async function updateConnection(id:string,input:ConnectionInput,version:n
   await audit(actor,'provider.connection.update',id,reason,connectionView(old),view,{db:tx});
   return view;
  }) as Promise<ProviderConnection>;
+ clearRegisteredModelCache();
+ return result;
 }
 export async function workflowDependencies(id:string,db:Db=sql):Promise<Dependency[]> {
  const rows=await db<{setting_key:string}[]>`SELECT setting_key FROM provider_workflow_models WHERE model_id=${id}::uuid`;
@@ -181,7 +199,7 @@ export async function workflowDependencies(id:string,db:Db=sql):Promise<Dependen
 }
 export async function deleteConnection(id:string,version:number,reason:string,actor:string):Promise<{deleted:true}> {
  uuid(id,'id');reasonCheck(reason);
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   const [old]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Connection');versionCheck(old.version,version);
   const models=await tx<{id:string;model_id:string}[]>`SELECT id,model_id FROM registered_models WHERE provider_id=${id}::uuid`;
@@ -192,6 +210,8 @@ export async function deleteConnection(id:string,version:number,reason:string,ac
   await audit(actor,'provider.connection.delete',id,reason,connectionView(old),null,{db:tx});
   return {deleted:true as const};
  }) as Promise<{deleted:true}>;
+ clearRegisteredModelCache();
+ return result;
 }
 function duplicate(error:unknown):never {
  if((error as {code?:string}).code==='23505')throw new ProviderConfigError('This model ID already exists on this connection','modelId',409);
@@ -218,18 +238,18 @@ function writeValues(input:ModelInput,db:Db) {
 }
 export async function createRegisteredModel(input:ModelInput,reason:string,actor:string):Promise<RegisteredModel> {
  uuid(input?.providerId,'providerId');reasonCheck(reason);
- try{return await sql.begin(async tx=>{
+ try{const result=await sql.begin(async tx=>{
   const [connection]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${input.providerId}::uuid FOR UPDATE`;
   if(!connection)return missing('Connection');checkModel(input,connectionView(connection));
   const id=randomUUID();await requireRouteEvidence(input,id,connection,tx);
   await tx`INSERT INTO registered_models ${tx({id,...writeValues(input,tx),updated_by:actor})}`;
   const view=await getRegisteredModel(id,tx);
   await audit(actor,'provider.model.create',id,reason,null,view,{db:tx});return view;
- }) as RegisteredModel;}catch(error){return duplicate(error);}
+ }) as RegisteredModel;clearRegisteredModelCache();return result;}catch(error){return duplicate(error);}
 }
 export async function updateRegisteredModel(id:string,input:ModelInput,version:number,reason:string,actor:string):Promise<RegisteredModel> {
  uuid(id,'id');uuid(input?.providerId,'providerId');reasonCheck(reason);
- try{return await sql.begin(async tx=>{
+ try{const result=await sql.begin(async tx=>{
   const previous=await loadModel(id,tx);
   const connections=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id IN (${previous.provider_id}::uuid,${input.providerId}::uuid) ORDER BY id FOR UPDATE`;
   const connection=connections.find(c=>c.id===input.providerId);
@@ -241,11 +261,11 @@ export async function updateRegisteredModel(id:string,input:ModelInput,version:n
   await tx`UPDATE registered_models SET ${tx({...writeValues(input,tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
   const view=await getRegisteredModel(id,tx);
   await audit(actor,'provider.model.update',id,reason,before,view,{db:tx});return view;
- }) as RegisteredModel;}catch(error){return duplicate(error);}
+ }) as RegisteredModel;clearRegisteredModelCache();return result;}catch(error){return duplicate(error);}
 }
 export async function deleteRegisteredModel(id:string,version:number,reason:string,actor:string):Promise<{deleted:true}> {
  uuid(id,'id');reasonCheck(reason);
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   const m=await loadModel(id,tx);
   await tx`SELECT id FROM provider_connections WHERE id=${m.provider_id}::uuid FOR UPDATE`;
   const [old]=await tx<ModelRow[]>`SELECT * FROM registered_models WHERE id=${id}::uuid FOR UPDATE`;
@@ -259,6 +279,8 @@ export async function deleteRegisteredModel(id:string,version:number,reason:stri
   await tx`DELETE FROM registered_models WHERE id=${id}::uuid`;
   await audit(actor,'provider.model.delete',id,reason,before,null,{db:tx});return {deleted:true as const};
  }) as Promise<{deleted:true}>;
+ clearRegisteredModelCache();
+ return result;
 }
 /** Use this in every workflow-setting write, including legacy API and configuration imports. */
 export async function writeWorkflowModel(tx:Tx,key:string,id:string|null,actor:string):Promise<void> {
