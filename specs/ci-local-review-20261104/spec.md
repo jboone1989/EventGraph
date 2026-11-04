@@ -4,12 +4,13 @@ Status: **Draft** until independent review and merge to `develop`; implementatio
 Owner direction: 2026-11-04 — each GitHub repository owns its own CI, review and deployment; no cross-repository review orchestration. Recorded in the PR discussion for this Spec.
 
 ## Existing behavior
-- EventGraph runs its own Check, Docker and E2E but forwards successful Check completions through `.github/workflows/claude-pr-dispatch.yml` to the reusable `livingruntime-remote` GLM reviewer.
-- EventGraph's develop branch requires `check`, `docker`, `e2e`, `claude-review` success; main has separate release controls.
-- `workflow_run` uses the **default branch's** trusted workflow definition; merging only to develop stages, but does not activate, the change.
+- EventGraph runs its own Check, Docker and E2E but forwards every completed Check run through `.github/workflows/claude-pr-dispatch.yml` to the reusable `livingruntime-remote` GLM reviewer.
+- **Live branch-ruleset check (2026-11-04):** EventGraph develop ruleset 25775731 currently requires `check`, `docker`, `e2e`, and `claude-review`, despite its historical name `Claude review paused` and the older Spec 014 description. Treat GitHub's current ruleset as authoritative. `.github/workflows/eventgraph-native-pr-closed.yml` also expects `claude-review`, so the migration must preserve that actual existing gate; reconciliation of obsolete Spec 014 descriptions is separate.
+- The current central reviewer skips failed, cancelled and unrelated Checks before model invocation. `workflow_run` uses the **default branch's** trusted workflow definition; merging only to develop stages, but does not activate, the change.
 
 ## Supersedes and reuses
 - Replaces **only the cross-repository reviewer ownership** in `specs/012-github-hosted-agent-queue/spec.md` requirements 7–8 and 11 and `specs/013-projects-agent-workers/plan.md` item 2. Their existing synchronous `official-glm-review` job contract, required `claude-review` status, exact SHA/base identity, GH-AW Worker flow and PR merge gates **remain unchanged**.
+- **Owner's newer instruction supersedes the pause** in `specs/014-universal-pr-auto-merge/spec.md` §1 and §3(4), §4, §5 (no GLM prerequisite), and §6 (GLM out of scope) **only regarding repository-owned review**. Keep native auto-merge, exact-head check gates, and other behavior in Spec 014. Owner approval is recorded in [EventGraph PR #372 discussion](https://github.com/jboone1989/EventGraph/pull/372) and [the explicit recorded architecture decision](https://github.com/jboone1989/EventGraph/pull/372#issuecomment-6626824212).
 - Reuse the existing `scripts/ci/review-preflight.mjs` and `scripts/ci/review-preflight.test.mjs` rather than implementing another deduplication routine. The trusted default-branch reviewer invokes that existing preflight before checkout or exposing secrets.
 - The official `anthropics/claude-code-action@v1` is **currently invoked by** [the external reusable review workflow](https://github.com/jboone1989/livingruntime-remote/blob/main/.github/workflows/eventgraph-glm-review.yml). This change brings the same reviewed invocation into EventGraph, not a new reviewer engine.
 
