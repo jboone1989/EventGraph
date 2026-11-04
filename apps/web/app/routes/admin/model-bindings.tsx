@@ -86,9 +86,9 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
       {s.label.includes("（")&&<div className="text-xs text-ink-4">{s.label.slice(s.label.indexOf("（"))}</div>}
      </div>},
      {key:"current",label:"生效模型",render:s=><span className="block max-w-[200px] break-all font-mono text-xs">
-      {display(s.current.source==="admin"?s.current.model:s.embedding?"":loaderData.defaultModel.model)}</span>},
+      {display(s.effective.model)}</span>},
      {key:"source",label:"来源",render:s=><Badge tone={s.current.source==="admin"?"accent":"muted"}>
-      {s.current.source==="admin"?"单独指定":s.embedding?"需单独指定":"继承默认"}
+      {s.current.source==="admin"?"单独指定":s.effective.source==="env"?"环境变量":s.embedding&&!s.effective.model?"需单独指定":"继承默认"}
      </Badge>},
      {key:"select",label:"更改绑定",render:s=><ModelBinding
       key={s.key+":"+s.current.source+":"+s.current.model} step={s} choices={choices}/>},
