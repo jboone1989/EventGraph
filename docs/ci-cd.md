@@ -9,6 +9,9 @@ A release uses **one** application image: push to `develop` (or validated exact-
 
 ## Repository-owned PR review
 
+The required `claude-review` status is tied to an immutable PR HEAD and live target branch commit.
+
+
 EventGraph owns its GLM review workflow (`.github/workflows/eventgraph-glm-review.yml`) and review rubric
 (`.github/review/claude-review-checklist.md`). The trusted `.github/workflows/claude-pr-dispatch.yml`
 runs after a successful PR-related Check and calls that workflow **inside EventGraph**, with
