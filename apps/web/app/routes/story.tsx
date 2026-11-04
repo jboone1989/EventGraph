@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { IntentLink } from "../components/ui/IntentLink";
-import { Link, useLoaderData, useLocation } from "react-router";
+import { Link, redirect, useLoaderData, useLocation } from "react-router";
 import type { Route } from "./+types/story";
 import type { StoryDetail, StoryReportView, StoryRoute } from "@aihot/contracts/site";
 import { SITE } from "@aihot/site";
@@ -9,13 +9,17 @@ import { pageReuse } from "../lib/page-reuse";
 import { breadcrumbLd, localized, pageMeta, storyLd, titled } from "../lib/seo";
 import { beijingDate, beijingTime } from "@aihot/contracts/time";
 import { localizedMonthDay, localizedMonthDayTime, relativeTime } from "../lib/format";
-import { EventExplorer } from "../features/story/EventExplorer";
 import { HeatChart } from "../features/story/HeatChart";
 import { EventPrices, type StoryMarket } from "../features/story/EventPrices";
-import { englishText } from "../lib/english";
+import { StoryDiscussion } from "../features/story/StoryDiscussion";
+import { englishText, localizedSourceName, enTopicName } from "../lib/english";
+import { isEnglishPath } from "../lib/edition";
 import { sessionCache } from "../lib/session-cache";
 import { isReload } from "../lib/restore";
 import { Badge, SelectedBadge } from "../components/ui/Badge";
+import { LayerBadge, StationEvidenceDrawer } from "../features/story/StationEvidence";
+import { displayableStationReports, stationLayer } from "../features/story/impact-layers";
+import { reportProvenance, type ReportProvenance } from "../features/story/report-provenance";
 import { PillTabs } from "../components/ui/Tabs";
 import { Select } from "../components/ui/Controls";
 import { IconArrowLeft, IconChevronRight, IconClock, IconDoc, IconUsers } from "../components/icons";
@@ -35,6 +39,10 @@ export async function loader({ params, request }: Route.LoaderArgs) {
   // The story route is derived from the story itself; its absence hides one panel, not the page.
   const routePromise = apiGet<StoryRoute>(`/api/site/stories/${encodeURIComponent(params.publicId)}/route`, { signal: request.signal, timeoutMs: 4_000 }).catch(() => null);
   const [story, market, route] = await Promise.all([storyPromise, marketPromise, routePromise]);
+  // A quick note (a single short-digest source) has no event page of its own (specs/004-editorial-ops
+  // FR-003): its one report's page carries everything, so the address forwards there, 302 to stay reversible.
+  const note = story.note && story.reportCount === 1 ? story.timeline[0] ?? null : null;
+  if (note) throw redirect(`${isEnglishPath(new URL(request.url).pathname) ? "/en" : ""}/items/${encodeURIComponent(note.id)}`);
   return cachedPage(120, { story, market, route });
 }
 
@@ -155,7 +163,7 @@ function useActiveSection(keys: SectionKey[]): [SectionKey, (k: SectionKey) => v
 }
 
 /** One report on the story timeline: time, source and marks, title, a summary that opens on demand. */
-function TimelineRow({ r }: { r: StoryReportView }) {
+function TimelineRow({ r, provenance }: { r: StoryReportView; provenance?: ReportProvenance }) {
   const lang = useUiLanguage();
   const t = useText();
   const title = lang === "en" ? (englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
@@ -174,12 +182,17 @@ function TimelineRow({ r }: { r: StoryReportView }) {
       </time>
       <div className="min-w-0">
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[12px] leading-[20px] text-ink-4 lg:mt-0">
-          <span className="min-w-0 truncate">{r.source.name}</span>
+          <span className="min-w-0 truncate">{localizedSourceName(r.source.name, lang, r.originalUrl)}</span>
           {r.selected && <SelectedBadge />}
+          {r.source.firstParty && <span className="rounded border border-line-soft px-1.5">{t("一手资料", "First-party source")}</span>}
+          {provenance?.singleSourceFact && <span className="rounded border border-line-soft px-1.5">{t("相关事实仅单一来源", "Related fact: single source")}</span>}
+          {provenance?.reportTimeOnly && <span className="rounded border border-line-soft px-1.5">{t("事实发生时间未证实", "Fact occurrence time unverified")}</span>}
+          {provenance?.revised && <span className="rounded border border-line-soft px-1.5">{t("原始报道有修订", "Source report revised")}</span>}
         </div>
         <IntentLink viewTransition to={lang === "en" ? `/en/items/${r.id}` : `/items/${r.id}`} className="mt-1 block text-[16px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent lg:text-[15.5px]">
           {title}
         </IntentLink>
+        {r.discoveredAt && <p className="mt-1 text-[11.5px] text-ink-4">{t("本站收录于", "Report first recorded")} {localizedMonthDayTime(r.discoveredAt, lang)}</p>}
         {summary && (
           <>
             <p ref={ref} className={`mt-1 text-[14px] leading-[1.75] text-ink-3 ${open ? "" : "line-clamp-2"}`}>
@@ -191,6 +204,11 @@ function TimelineRow({ r }: { r: StoryReportView }) {
               </button>
             )}
           </>
+        )}
+        {r.originalUrl && /^https?:\/\//i.test(r.originalUrl) && (
+          <a href={r.originalUrl} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open" className="mt-1 inline-block text-[12.5px] font-medium text-accent hover:underline">
+            {t("核对原始报道", "Read original source")} ↗
+          </a>
         )}
       </div>
     </li>
@@ -211,6 +229,10 @@ function StoryRoutePanel({ route, storyPublicId }: { route: StoryRoute; storyPub
   const when = (iso: string) => localizedMonthDayTime(iso, uiLang);
   const prefix = uiLang === "en" ? "/en" : "";
   const badge = "rounded border border-line-soft px-1.5 py-0.5";
+  const visibleStations = route.status === "ok" ? route.stations.flatMap(station => {
+    const reports = displayableStationReports(station);
+    return reports.length ? [{ ...station, reports }] : [];
+  }) : [];
   return (
     <Panel title={t("Story 路线","Story route")}
       sub={t("从第一份公开证据到最新进展的逐站路线；每一站都带着自己的证据和不确定性。","A station-by-station route from the first public evidence onward; every station carries its own evidence and uncertainty.")}
@@ -221,36 +243,46 @@ function StoryRoutePanel({ route, storyPublicId }: { route: StoryRoute; storyPub
         </p>
       ) : (
         <>
-          <ol className="border-l border-line-soft pl-4">
-            {route.stations.map((s, i) => (
-              <li key={s.factId} className="pb-4 last:pb-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-4">
-                  <span className="num font-semibold text-ink-3">{i + 1}</span>
-                  <span className="num">{when(s.timeEffective ?? s.timeRecorded)}</span>
-                  {s.timeEffective && <span className="num">{t("收录于","recorded")} {when(s.timeRecorded)}</span>}
-                  {s.uncertainty.singleSource && <span className={badge}>{t("单一来源","single source")}</span>}
-                  {s.uncertainty.occurredAtMissing && <span className={badge}>{t("时间来自报道","report-time only")}</span>}
-                  {s.uncertainty.revised && <span className={badge}>{t("有修订","revised")}</span>}
-                </div>
-                <p className="mt-1 text-[14px] font-semibold leading-[1.6] text-ink">{s.title}</p>
-                {s.reports[0] && /^https?:\/\//i.test(s.reports[0].url) && (
-                  <a href={s.reports[0].url} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open"
-                    className="mt-1 inline-block text-[12.5px] text-accent hover:underline">
-                    {t("核对原始报道","Read original source")} ↗ {s.reports[0].source}
-                  </a>
-                )}
-                <Link to={`${prefix}/explore?story=${encodeURIComponent(storyPublicId)}&clock=known&asOf=${encodeURIComponent(s.timeRecorded)}`}
-                  className="mt-1.5 inline-flex items-center gap-0.5 text-[12.5px] font-medium text-accent hover:underline">
-                  {t("在探索工作台回到这个时点","Replay this moment in the explorer")} <IconChevronRight size={13} />
-                </Link>
-              </li>
-            ))}
-          </ol>
-          <p className="mt-2 text-[12px] leading-[1.6] text-ink-4">
-            {route.limits.truncated
-              ? t("路线有截断；完整证据以探索工作台和证据包为准。","The route is truncated; the explorer and the evidence bundle carry the full evidence.")
-              : t("不确定性标注指出需要核对原文的地方，不是已证实的因果。","Uncertainty marks flag where to check the sources; they are not proven causation.")}
-          </p>
+          {visibleStations.length ? (
+            <>
+              <ol className="border-l border-line-soft pl-4">
+                {visibleStations.map((s, i) => (
+                  <li key={s.factId} className="pb-4 last:pb-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-4">
+                      <span className="num font-semibold text-ink-3">{i + 1}</span>
+                      <LayerBadge layer={stationLayer(s)} />
+                      <span className="num">{when(s.timeEffective ?? s.timeRecorded)}</span>
+                      {s.timeEffective && <span className="num">{t("收录于","recorded")} {when(s.timeRecorded)}</span>}
+                      {s.uncertainty.singleSource && <span className={badge}>{t("单一来源","single source")}</span>}
+                      {s.uncertainty.occurredAtMissing && <span className={badge}>{t("时间来自报道","report-time only")}</span>}
+                      {s.uncertainty.revised && <span className={badge}>{t("有修订","revised")}</span>}
+                    </div>
+                    <p className="mt-1 text-[14px] font-semibold leading-[1.6] text-ink">{s.title}</p>
+                    {s.reports[0] && /^https?:\/\//i.test(s.reports[0].url) && (
+                      <a href={s.reports[0].url} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open"
+                        className="mt-1 inline-block text-[12.5px] text-accent hover:underline">
+                        {t("核对原始报道","Read original source")} ↗ {localizedSourceName(s.reports[0].source, uiLang, s.reports[0].url)}
+                      </a>
+                    )}
+                    <Link to={`${prefix}/explore?story=${encodeURIComponent(storyPublicId)}&clock=known&asOf=${encodeURIComponent(s.timeRecorded)}`}
+                      className="mt-1.5 inline-flex items-center gap-0.5 text-[12.5px] font-medium text-accent hover:underline">
+                      {t("在探索工作台回到这个时点","Replay this moment in the explorer")} <IconChevronRight size={13} />
+                    </Link>
+                    <StationEvidenceDrawer station={s} />
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-2 text-[12px] leading-[1.6] text-ink-4">
+                {route.limits.truncated
+                  ? t("路线有截断；完整证据以探索工作台和证据包为准。","The route is truncated; the explorer and the evidence bundle carry the full evidence.")
+                  : t("不确定性标注指出需要核对原文的地方，不是已证实的因果。","Uncertainty marks flag where to check the sources; they are not proven causation.")}
+              </p>
+            </>
+          ) : (
+            <p className="text-[13.5px] leading-[1.7] text-ink-4">
+              {t("当前没有同时具备原文链接、发布时间和收录时间的事实站。","No fact stations have a safe source URL and both publication and discovery times.")}
+            </p>
+          )}
         </>
       )}
     </Panel>
@@ -265,6 +297,8 @@ export default function StoryPage() {
   const entry = useLocation().key;
   const [filter, setFilter] = useState<Filter>(() => viewCache.peek(entry)?.filter ?? "all");
   const [order, setOrder] = useState<Order>(() => viewCache.peek(entry)?.order ?? "desc");
+  const [expandedRelatedId, setExpandedRelatedId] = useState<string | null>(null);
+  const relatedExpanded = expandedRelatedId === story.publicId;
   // A document the browser reloaded on back/forward gets the view back after hydration.
   useEffect(() => {
     if (viewCache.peek(entry) || isReload()) return;
@@ -279,8 +313,6 @@ export default function StoryPage() {
   }, [entry, filter, order]);
   const status = STATUS[story.status];
   const displayTitle = uiLang === "en" ? (story.english?.title ?? englishText(story.englishTitle) ?? englishText(story.title) ?? "Event timeline") : story.title;
-  const reportTitle = (r: StoryReportView) => uiLang === "en" ? (englishText(r.english?.title) ?? englishText(r.originalTitle) ?? englishText(r.title) ?? "Original-language report — open source") : r.title;
-  const visibleSummary = (text: string | null | undefined, r?: StoryReportView) => uiLang === "zh" ? text : (r?.english?.summary ?? englishText(text));
   const reportPath = (id: string) => uiLang === "en" ? `/en/items/${id}` : `/items/${id}`;
   // A settled story nobody watched (history pages) has no heat to explain or chart.
   const observed = story.status !== "settled" || story.heat.length > 0 || story.whyHot.participants48h > 0 || story.whyHot.rank !== null;
@@ -291,8 +323,12 @@ export default function StoryPage() {
     official: story.timeline.filter((r) => r.source.firstParty).length,
     selected: story.timeline.filter((r) => r.selected).length,
   };
+  // A saved filter can outlive the Story that supplied its reports.
+  // Do not leave readers on an empty, no-longer-available source category.
+  const activeFilter: Filter = counts[filter] > 0 ? filter : "all";
+  const evidence = useMemo(() => reportProvenance(route), [route]);
   const days = useMemo(() => {
-    const list = story.timeline.filter((r) => (filter === "official" ? r.source.firstParty : filter === "selected" ? r.selected : true));
+    const list = story.timeline.filter((r) => (activeFilter === "official" ? r.source.firstParty : activeFilter === "selected" ? r.selected : true));
     const sorted = [...list].sort((a, b) => (order === "desc" ? Date.parse(b.publishedAt) - Date.parse(a.publishedAt) : Date.parse(a.publishedAt) - Date.parse(b.publishedAt)));
     const out: Array<{ day: string; rows: StoryReportView[] }> = [];
     for (const r of sorted) {
@@ -302,7 +338,7 @@ export default function StoryPage() {
       else out.push({ day: d, rows: [r] });
     }
     return out;
-  }, [story.timeline, filter, order]);
+  }, [story.timeline, activeFilter, order]);
   const newest = story.latestReport;
   const latestText = uiLang === "en" ? (englishText(story.timeline.find((r) => r.id === newest?.id)?.english?.title) ?? englishText(story.latest)) : story.latest;
   const overview = uiLang === "en"
@@ -318,10 +354,6 @@ export default function StoryPage() {
       : story.excerpt
         ? { label: "报道摘要", text: story.excerpt.text, note: `摘自 ${story.excerpt.sourceName}` }
         : null;
-  const showOfficial = () => {
-    setFilter("official");
-    goSection("reports");
-  };
 
 
   return (
@@ -356,6 +388,13 @@ export default function StoryPage() {
               {uiLang === "en" ? `${new Date(story.latestAt).toLocaleDateString("en-US", {timeZone:"UTC"})} updated` : `${relativeTime(story.latestAt)}更新`}
             </span>
           )}
+          {story.curatedAt && (
+            <span className="inline-flex items-center gap-1.5">
+              <IconDoc size={15} className="text-ink-4" />
+              {t("编辑策展于", "Curated by the editor on")}
+              <time dateTime={story.curatedAt} className="mono font-semibold text-ink">{story.curatedAt.slice(0, 10)}</time>
+            </span>
+          )}
         </div>
       </header>
 
@@ -377,7 +416,7 @@ export default function StoryPage() {
       <div className="mt-5 grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:mt-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-6 2xl:grid-cols-[minmax(0,1fr)_340px]">
         {/* On phones the main column dissolves so the rail's cards can sit between its sections. */}
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-6">
-          <Panel id={SECTIONS.overview} title={t("当前事件综述（非历史快照）","Current overview (not historical)")} right={overview?.label} className="order-2">
+          <Panel id={SECTIONS.overview} title={t("当前事件综述（非历史快照）","Current overview (not historical)")} right={overview?.label} className="order-1">
             {overview ? (
               <>
                 <p className="whitespace-pre-line text-[15px] leading-[1.85] text-ink-2">{overview.text}</p>
@@ -408,48 +447,46 @@ export default function StoryPage() {
             )}
           </Panel>
 
-          {story.timeline.length > 0 && (
-            <Panel title={t("事件探索工作台","EventGraph Explorer")}
-              sub={t("同一时点联动报道、关系与证据。","One time cutoff for reports, relations and evidence.")}
-              className="order-1">
-              <EventExplorer key={story.publicId} story={story}/>
+          {story.related.length > 0 && (
+            <Panel title={t("关联事件","Related events")} right={<span className="num">{story.related.length}</span>} className="order-2">
+              <ul className="-my-1 divide-y divide-line-soft">
+                {story.related.slice(0, relatedExpanded ? story.related.length : 3).map((r) => (
+                  <li key={r.publicId}>
+                    <Link viewTransition to={`${uiLang === "en" ? "/en" : ""}/story/${r.publicId}`} className="group flex items-baseline gap-3 py-3">
+                      <span className="shrink-0 text-[12px] text-ink-4">{r.relation === "storyline" ? t("同一故事线","Same storyline") : t("相关事件","Related event")}</span>
+                      <span className="min-w-0 flex-1 text-[14.5px] font-medium text-ink-2 transition-colors group-hover:text-accent">{uiLang === "en" ? (englishText(r.title) ?? "Related event") : r.title}</span>
+                      <IconChevronRight size={14} className="shrink-0 self-center text-ink-4" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              {story.related.length > 3 && (
+                <button type="button" aria-expanded={relatedExpanded}
+                  onClick={() => setExpandedRelatedId(relatedExpanded ? null : story.publicId)}
+                  className="mt-3 min-h-9 text-[13px] font-semibold text-accent hover:underline">
+                  {relatedExpanded ? t("收起关联事件", "Show fewer") : t(`查看更多（${story.related.length - 3}）`, `Show ${story.related.length - 3} more`)}
+                </button>
+              )}
             </Panel>
           )}
 
-          {route && <StoryRoutePanel route={route} storyPublicId={story.publicId}/>}
-
-          {/* Evidence is grouped by provenance, never synthesized into invented consensus. */}
-          <Panel title={t("完整来源索引（截至目前）","Full source archive (current)")} sub={t("目前公开的报道索引，不属于历史回放。","Current public reports; outside the historical replay.")} className="order-2">
-            <div className="grid gap-4 md:grid-cols-2">
-              {([
-                { key: "official", label: t("一手资料","First-party sources"), rows: story.timeline.filter(r => r.source.firstParty) },
-                { key: "independent", label: t("第三方报道","Independent coverage"), rows: story.timeline.filter(r => !r.source.firstParty) },
-              ] as const).map(group => (
-                <div key={group.key} className="rounded-panel border border-line-soft bg-bg-sunk/40 p-4">
-                  <h3 className="text-[13px] font-semibold text-ink">{group.label} · {group.rows.length} {t("篇","reports")}</h3>
-                  {group.rows.length ? (
-                    <ul className="mt-2 divide-y divide-line-soft">
-                      {group.rows.slice(0, 4).map(report => (
-                        <li key={report.id} className="py-3">
-                          <div className="text-[11.5px] text-ink-4">{report.source.name} · {when(report.publishedAt)}</div>
-                          <Link to={reportPath(report.id)} className="mt-1 block text-[13.5px] font-semibold leading-[1.55] text-ink hover:text-accent">{reportTitle(report)}</Link>
-                          {visibleSummary(report.summary, report) && <p className="mt-1 line-clamp-3 text-[12.5px] leading-[1.7] text-ink-3">{visibleSummary(report.summary, report)}</p>}
-                          {report.originalUrl && /^https?:\/\//i.test(report.originalUrl) &&
-                            <a href={report.originalUrl} target="_blank" rel="noopener noreferrer" data-analytics-event="source_open"
-                              className="mt-2 inline-block text-[12.5px] font-medium text-accent hover:underline">{t("核对原始报道","Read original source")} ↗</a>}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : <p className="mt-3 text-[12.5px] leading-[1.7] text-ink-4">{t("目前尚未收录这一类可核实资料，不能把单方说法当作多方证据。","No verifiable reports in this group yet.")}</p>}
-                </div>
-              ))}
+          {story.timeline.length > 0 && (
+            <div className="order-2 rounded-panel border border-line-soft bg-bg-sunk/30 px-4 py-3">
+              <Link to={`${uiLang === "en" ? "/en" : ""}/explore?story=${encodeURIComponent(story.publicId)}`}
+                className="inline-flex items-center gap-1 text-[13.5px] font-semibold text-accent hover:underline">
+                {t("深入探索：历史回放、关系与证据", "Explore the timeline, relations and evidence")} <IconChevronRight size={15} />
+              </Link>
             </div>
-            <p className="mt-3 text-[12px] leading-[1.6] text-ink-4">
-              {t("不同报道并不自动代表观点冲突；阅读原文核对事实、条件和发布日期。后续来源加入后此处会自动更新。","Different reports do not necessarily disagree. Check original sources and publication dates.")}
-            </p>
-          </Panel>
+          )}
 
-
+          {route && (
+            <details className="order-3 rounded-panel border border-line-soft bg-bg-sunk/20 p-3">
+              <summary className="cursor-pointer px-2 py-1 text-[13.5px] font-medium text-ink">
+                {t("逐项查看事实路线与来源依据", "Expand the detailed fact route and sources")}
+              </summary>
+              <div className="mt-3"><StoryRoutePanel route={route} storyPublicId={story.publicId}/></div>
+            </details>
+          )}
           <Panel
             id={SECTIONS.reports}
             title={t("报道时间线","Report timeline")}
@@ -466,12 +503,12 @@ export default function StoryPage() {
               size="xs"
               layoutId="story-report-filter"
               label={t("报道筛选","Filter reports")}
-              active={filter}
+              active={activeFilter}
               onSelect={(k) => setFilter(k as Filter)}
               items={[
                 { key: "all", label: t("全部报道","All reports"), count: counts.all },
-                { key: "official", label: t("官方一手","First-party"), count: counts.official },
-                { key: "selected", label: t("精选报道","Selected"), count: counts.selected },
+                ...(counts.official ? [{ key: "official", label: t("官方一手","First-party"), count: counts.official }] : []),
+                ...(counts.selected ? [{ key: "selected", label: t("精选报道","Selected"), count: counts.selected }] : []),
               ]}
             />
             {days.length === 0 ? (
@@ -482,7 +519,7 @@ export default function StoryPage() {
                   <div className="pb-0.5 pt-5 text-[14px] font-semibold text-ink">{localizedMonthDay(day, uiLang)}</div>
                   <ol>
                     {rows.map((r) => (
-                      <TimelineRow key={r.id} r={r} />
+                      <TimelineRow key={r.id} r={r} provenance={evidence.get(r.id)} />
                     ))}
                   </ol>
                 </div>
@@ -501,24 +538,9 @@ export default function StoryPage() {
             </Panel>
           )}
 
-          {story.related.length > 0 && (
-            <Panel title={t("关联事件","Related events")} className="order-6">
-              <ul className="-my-1 divide-y divide-line-soft">
-                {story.related.map((r) => (
-                  <li key={r.publicId}>
-                    <Link viewTransition to={`/story/${r.publicId}`} className="group flex items-baseline gap-3 py-3">
-                      <span className="shrink-0 text-[12px] text-ink-4">{r.relation === "storyline" ? t("同一故事线","Same storyline") : t("相关事件","Related event")}</span>
-                      <span className="min-w-0 flex-1 text-[14.5px] font-medium text-ink-2 transition-colors group-hover:text-accent">{uiLang === "en" ? (englishText(r.title) ?? "Related event") : r.title}</span>
-                      <IconChevronRight size={14} className="shrink-0 self-center text-ink-4" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </Panel>
-          )}
         </div>
 
-        <aside className="order-2 flex min-w-0 flex-col gap-4 lg:order-none lg:gap-5">
+        <aside className="order-6 flex min-w-0 flex-col gap-4 lg:order-none lg:gap-5">
           <EventPrices market={market} />
           {observed && (
             <RailCard title={t("为什么热","Why trending")}>
@@ -540,33 +562,12 @@ export default function StoryPage() {
               </p>
             </RailCard>
           )}
-          {story.officialReports.length > 0 && (
-            <RailCard title={t("官方一手","First-party sources")} right={`${counts.official || story.officialReports.length} ${t("篇","reports")}`}>
-              <p className="text-[12px] text-ink-4">{t("直接了解当事方的说法","Read the original statements")}</p>
-              <ul className="mt-1 divide-y divide-line-soft">
-                {story.officialReports.slice(0, 5).map((r) => (
-                  <li key={r.id} className="py-3">
-                    <div className="truncate text-[11.5px] text-ink-4">{r.source.name}</div>
-                    <Link viewTransition to={reportPath(r.id)} className="group mt-1 block text-[13.5px] font-semibold leading-[1.6] text-ink transition-colors hover:text-accent">
-                      {reportTitle(r)}
-                      <IconChevronRight size={13} className="ml-0.5 inline -translate-y-px text-ink-4 transition-transform group-hover:translate-x-0.5" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-              {counts.official > 0 && (
-                <button type="button" onClick={showOfficial} className="text-[12px] text-ink-4 transition-colors hover:text-accent">
-                  {t("在时间线筛选全部官方报道","Filter first-party reports in timeline")}
-                </button>
-              )}
-            </RailCard>
-          )}
           {story.topics.length > 0 && (
             <RailCard title={t("相关主题","Related topics")}>
               <div className="flex flex-wrap gap-1.5">
-                {story.topics.map((t) => (
-                  <Link viewTransition key={t.slug} to={`/topics/${t.slug}`} className="chip">
-                    {t.name}
+                {story.topics.filter(topic => uiLang === "zh" || !!enTopicName(topic)).map((topic) => (
+                  <Link viewTransition key={topic.slug} to={`${uiLang === "en" ? "/en" : ""}/topics/${topic.slug}`} className="chip">
+                    {uiLang === "en" ? enTopicName(topic) : topic.name}
                   </Link>
                 ))}
               </div>
@@ -595,6 +596,7 @@ export default function StoryPage() {
           </RailCard>
         </aside>
       </div>
+      <StoryDiscussion key={story.publicId} storyPublicId={story.publicId} />
     </div>
   );
 }

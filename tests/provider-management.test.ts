@@ -6,12 +6,14 @@ import {z} from 'zod';
 import {sql,closeDb} from '@aihot/backend/db';
 import {config} from '@aihot/backend/config';
 import {createConnection,createRegisteredModel,updateRegisteredModel,updateConnection,getRegisteredModel,loadConnection,loadModel,configurationFingerprint,configurationSnapshot,writeWorkflowModel} from '@aihot/backend/providers/registry/connections';
-import {registeredRuntime,requestRegisteredModel,discoverModels,testRegisteredModel,embedRegisteredModel} from '@aihot/backend/providers/registry/runtime';
+import {registeredRuntime,requestRegisteredModel,discoverModels,testRegisteredModel,diagnoseProbeFailure,embedRegisteredModel} from '@aihot/backend/providers/registry/runtime';
 import {importModels} from '@aihot/backend/providers/registry/import';
 import {switchModel} from '@aihot/backend/admin/models';
 import {modelFor,modelSources,invalidateModelCache,stepsOnService} from '@aihot/backend/editorial/models';
 import {chatJson} from '@aihot/backend/providers/llm';
 import type {ConnectionInput,ModelInput} from '@aihot/contracts/providers';
+import {ProviderConfigError} from '@aihot/backend/providers/registry/connection-types';
+import {ProviderRejectedError,ReceiptUnknownError,BudgetExceededError} from '@aihot/backend/providers/receipts';
 import {buildApp} from '../apps/api/src/app.ts';
 const {MockAgent,getGlobalDispatcher,setGlobalDispatcher}=createRequire(new URL('../packages/backend/package.json',import.meta.url))('undici') as typeof import('undici');
 const prior={dispatcher:getGlobalDispatcher(),private:config.allowPrivateNetworkFetch,proxy:config.egressProxyUrl,admin:config.devAdmin};
@@ -58,6 +60,17 @@ test('display edits retain routing; model and connection changes save but block 
  assert.match((await getRegisteredModel(m.id)).routing.reasons.join(' '),/address/);
  await assert.rejects(requestRegisteredModel(m.id,'text',{}),/cannot route/);
  network.assertNoPendingInterceptors();
+});
+test('disabled deployment rejects a manual model test before reserving a receipt',async()=>{
+ const c=await createConnection(connection(),'test','test'),m=await createRegisteredModel(model(c.id),'test','test');
+ const previous=config.modelCallsEnabled;
+ config.modelCallsEnabled=false;
+ try {
+  await assert.rejects(testRegisteredModel(m.id,'text','test'),error=>
+   error instanceof ProviderConfigError&&/MODEL_CALLS_ENABLED=false/.test(error.message));
+  const [receipts]=await sql<{count:number}[]>`SELECT count(*)::integer AS count FROM receipts WHERE subject=${m.id+':text'}`;
+  assert.equal(receipts!.count,0);
+ } finally {config.modelCallsEnabled=previous;}
 });
 test('test results authorize only their matching capability and configuration; stale in-flight tests do not restore routing',async()=>{
  const c=await createConnection(connection(),'test','test'),input=model(c.id,{capabilities:['text','vision']});
@@ -121,7 +134,7 @@ test('normalized embedding adapter uses configured prefix and receipt budget',as
  const c=await createConnection(connection(),'test','test');
  const input=model(c.id,{adapter:'embedding',capabilities:['embedding'],probeSpec:{capability:'embedding',body:{input:'sample'},response:'embedding'}});
  const m=await createRegisteredModel(input,'test','test');await certify(m.id,'embedding');await updateRegisteredModel(m.id,{...input,routeEnabled:true},m.version,'route','test');
- network.get('https://provider.invalid').intercept({path:'/prefix/v4/embeddings',method:'POST',body:b=>!String(b).includes('stream')}).reply(200,{data:[{embedding:[1,2,3]}]});
+ network.get('https://provider.invalid').intercept({path:'/prefix/v4/embeddings',method:'POST',body:b=>!String(b).includes('stream')}).reply(200,{data:[{index:0,embedding:[1,2,3]}]});
  assert.deepEqual((await embedRegisteredModel(m.id,'hi','embedding-test',m.id)).vectors,[[1,2,3]]);
 });
 test('HTTP CRUD enforces auth and CSRF, exposes field errors and returns deletion dependencies',async()=>{
@@ -143,4 +156,35 @@ test('HTTP CRUD enforces auth and CSRF, exposes field errors and returns deletio
   const stale=await app.inject({method:'PATCH',url:'/api/admin/providers/'+c.id,headers,payload:{...connection(),reason:'stale',version:99}});assert.equal(stale.statusCode,409);
   config.devAdmin=null;assert.equal((await app.inject({url:'/api/admin/providers'})).statusCode,401);
  } finally {config.devAdmin={displayName:'Test admin'};await app.close();}
+});
+
+test('model probes identify upstream HTTP failures and preserve known preflight error causes',()=>{
+ assert.deepEqual(diagnoseProbeFailure(new ProviderRejectedError('Provider HTTP 401',401,false)),
+  {status:'failed',detail:'Provider HTTP 401'});
+ const unknown=new ReceiptUnknownError(17,'wrapped',{cause:new ProviderConfigError('Provider DNS resolution failed','baseUrl',502)});
+ assert.deepEqual(diagnoseProbeFailure(unknown),{status:'unknown',detail:'Provider DNS resolution failed'});
+ assert.match(diagnoseProbeFailure(new ProviderRejectedError('410',410,false)).detail,/retired or unavailable/);
+ assert.match(diagnoseProbeFailure(new ProviderRejectedError('429',429,true)).detail,/rate limit/);
+ const budget=diagnoseProbeFailure(new BudgetExceededError('nvidia','day',3600));
+ assert.equal(budget.status,'failed');assert.match(budget.detail,/Budget for nvidia exhausted/);
+});
+test('NVIDIA non-free model test fails explicitly before reserving a paid receipt',async()=>{
+ const c=await createConnection(connection({vendor:'nvidia',baseUrl:'https://integrate.api.nvidia.com/v1',
+  credential:{action:'replace',value:'test-only-secret'}}),'test','test');
+ const m=await createRegisteredModel(model(c.id,{modelId:'ibm/granite-3.0-3b-a800m-instruct',
+  requestDefaults:{},enabled:false,routeEnabled:false}),'test','test');
+ await assert.rejects(testRegisteredModel(m.id,'text','test'),/not on the verified NVIDIA Free Endpoint list/);
+ const [count]=await sql<{count:number}[]>`SELECT count(*)::integer AS count FROM receipts WHERE subject=${m.id+':text'}`;
+ assert.equal(count!.count,0);
+});
+test('a reasoning-only response is reported as output-budget exhaustion, not generic shape mismatch',async()=>{
+ const c=await createConnection(connection({baseUrl:'https://reasoning.invalid/v1'}),'test','test');
+ const m=await createRegisteredModel(model(c.id,{modelId:'reasoning-only',requestDefaults:{},
+  probeSpec:{capability:'text',body:{messages:[{role:'user',content:'OK'}],max_tokens:128},response:'chat'}}),'test','test');
+ network.get('https://reasoning.invalid').intercept({path:'/v1/chat/completions',method:'POST'})
+  .reply(200,{choices:[{message:{content:null,reasoning_content:'thinking'},finish_reason:'length'}]});
+ const out=await testRegisteredModel(m.id,'text','test');
+ assert.equal(out.status,'failed');
+ assert.match(out.detail,/Output token limit reached/);
+ network.assertNoPendingInterceptors();
 });

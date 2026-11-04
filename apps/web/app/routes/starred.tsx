@@ -7,7 +7,7 @@ import { edgeTtl } from "../lib/api.server";
 import { pageMeta } from "../lib/seo";
 import { exportBundle, importBundle, removeStar, useStarred, type ImportReport } from "../lib/local-state";
 import { localizedDateTime } from "../lib/format";
-import { englishText } from "../lib/english";
+import { englishText, localizedSourceName } from "../lib/english";
 import { englishPath } from "../lib/edition";
 import { IconBookmark, IconDownload, IconClose } from "../components/icons";
 import { readSnapshot, restoreAnchor, useSaveOnLeave } from "../lib/restore";
@@ -164,7 +164,7 @@ export default function StarredPage() {
             return (
               <li key={s.id} data-card-key={s.id} className={`relative border-b border-line-soft py-4 lg:card lg:px-[18px] lg:py-[15px] ${unavailable ? "opacity-70" : "lg:card-hover"}`}>
                 <div className="flex items-center gap-2 text-[12.5px] text-ink-4">
-                  <span className="min-w-0 truncate text-ink-3">{current?.sourceName ?? s.sourceName}</span>
+                  <span className="min-w-0 truncate text-ink-3">{localizedSourceName(current?.sourceName ?? s.sourceName, language)}</span>
                   {s.publishedAt && <span className="num shrink-0">· {localizedDateTime(s.publishedAt, language)}</span>}
                   <span className="ml-auto hidden shrink-0 sm:inline">
                     {t("收藏于", "Saved")} <span className="num">{localizedDateTime(s.savedAt, language)}</span>

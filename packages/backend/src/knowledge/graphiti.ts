@@ -91,15 +91,26 @@ export async function graphForStory(publicId: string, time?: GraphTime): Promise
   if (!process.env.GRAPHITI_API_URL) return emptyGraph("disabled");
   const articles = await sql<{ id: string; revision: number }[]>`
     SELECT DISTINCT a.id,
-      coalesce(
+      CASE WHEN ${time?.clock === "known"} THEN historical.revision
+      ELSE coalesce(
         (SELECT g.revision FROM graphiti_ingestions g WHERE g.article_id=a.id AND g.revision=a.revision),
         (SELECT max(g.revision) FROM graphiti_ingestions g WHERE g.article_id=a.id),
-        a.revision) AS revision
+        a.revision)
+      END AS revision
     FROM articles a
+    -- The historical known clock must select the revision that was ingested
+    -- by asOf. Keep existing current/valid behavior for un-ingested mock or
+    -- temporarily unavailable Graphiti episodes.
+    LEFT JOIN LATERAL (
+      SELECT g.revision FROM graphiti_ingestions g
+      WHERE g.article_id=a.id AND g.ingested_at <= ${time?.asOf ?? null}::timestamptz
+      ORDER BY g.revision DESC, g.ingested_at DESC LIMIT 1
+    ) historical ON TRUE
     JOIN fact_articles fa ON fa.article_id=a.id
     JOIN facts f ON f.id=fa.fact_id
     JOIN stories st ON st.id=f.story_id
     WHERE st.public_id=${publicId}::uuid
+      AND (${time?.clock !== "known"} OR historical.revision IS NOT NULL)
       AND (${time?.asOf ?? null}::timestamptz IS NULL OR
         (${time?.clock === "known"} AND a.discovered_at <= ${time?.asOf ?? null}) OR
         (${time?.clock === "valid"} AND coalesce(a.published_at, a.discovered_at) <= ${time?.asOf ?? null}))
@@ -127,7 +138,11 @@ export async function graphForEntity(uuid: string, time?: GraphTime) {
       "/entities/" + encodeURIComponent(uuid) + query);
     // Same contract as the story graph: an older knowledge service ignores the time query and
     // answers with the current graph, which must never pass as a historical read.
-    return supportsTemporalGraph(result, time) ? result : { entity: null, edges: [], status: "unavailable" };
+    if (!supportsTemporalGraph(result, time)) return { entity: null, edges: [], status: "unavailable" };
+    // Compatibility guard for older Graphiti services which label a response
+    // bitemporal but still include the mutable present-day entity summary.
+    if (time && result.entity) result.entity.summary = null;
+    return result;
   } catch (error) {
     console.error("graphiti_entity_lookup_failed", error);
     return { entity: null, edges: [], status: "unavailable" };

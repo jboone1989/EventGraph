@@ -1,0 +1,13 @@
+# Minimal implementation plan
+
+Research first:
+- Current `develop`: `apps/web/app/routes/feed-layout.tsx` runs overview queries even when filters hide them; `apps/web/app/routes/report-latest.tsx` awaits an optional graph query after retrieving the report.
+- Existing `pageReuse` and desktop/mobile link prefetch are already present. Do not replace.
+- React Router 7 supports streaming unresolved loader promises with `<Suspense><Await/></Suspense>`, allowing report prose to render ahead of auxiliary graph content (https://reactrouter.com/how-to/suspense).
+- Cloudflare requires an explicit Cache Rule for HTML; broad Cache Everything may cache private HTML (https://developers.cloudflare.com/cache/how-to/cache-rules/examples/cache-everything/).
+
+Changes:
+1. Classify the shared feed frame by a single predicate: `overview` (graph, stats, site, hot, daily, optional lead story graph), `search` (hot/Trending, daily), and `filtered` (daily). Make a small extension to the **existing** `pageReuse` and `hasFreshPage`, not a new cache: three distinct frame keys; a fresh overview frame can satisfy search/filtered, and a fresh search frame can satisfy filtered, but never the reverse. Explicit same-address revalidation must skip all fallbacks for that request. Align `hasFreshPage`/`IntentLink` with the same key lookup and the independently cached child route so a warm frame does not suppress prefetch of an uncached list. The loader writes only under its own view key. **Never reuse degraded results as a superset**: preserve the original page TTL (offline revisit), record whether the hot and daily requests succeeded, and let a narrower page use a broader snapshot only when every field it needs was successfully fetched. A successful empty result is valid, a failed result is not. A forced revalidation bypasses both the own key and fallback keys.
+2. Stream only optional daily graph changes, using existing endpoint and timeout; keep the report/index data resolved normally.
+3. Do not change Cloudflare zone rules in this PR. Public HTML remains DYNAMIC. A future edge-cache change requires separate validation of degraded hot/daily no-store, protected routes and bounded query cache keys.
+4. Regression tests must cover cold/warm overview, q-only search and filtered navigation in both directions, the deliberate retry/re-tap bypass of warm fallback, and `hasFreshPage` plus `IntentLink` distinguishing a warm frame from a stale child list, with a test that hot/daily API errors never produce a reusable 60-second fallback. Assert q-only never requests hidden knowledge/site endpoints; preserve Trending. Test the optional report graph at 1 s success vs >2 s timeout/error before deployment. No new service, library or database changes.

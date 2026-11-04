@@ -1,14 +1,30 @@
 // Public pages already rendered in this document can be revisited until their server deadline.
 // Nothing persists across a document reload; list snapshots separately own the reader's position.
 import type { ClientLoaderFunctionArgs, ShouldRevalidateFunction } from 'react-router';
+import { feedFrameKey, feedFrameFallbackKeys, feedFrameScope } from "./seo.ts";
 
 const pages = new Map<string, unknown>();
 const MAX_PAGES = 16;
 const addressOf = (url: URL) => url.pathname + url.search;
 const deadlineOf = (value: unknown) => (value as { expiresAt?: number } | null)?.expiresAt ?? 0;
+/** A fallback must include the target view's successfully loaded optional fields. */
+const canReuseFrame = (value: unknown, target: URL): boolean => {
+  const frame = value as { hotOk?: boolean; dailyOk?: boolean } | null;
+  const scope = feedFrameScope(target);
+  return scope === "search" ? frame?.hotOk === true && frame?.dailyOk === true
+    : scope === "filtered" ? frame?.dailyOk === true : true;
+};
 
-export function hasFreshPage(url: URL): boolean {
-  return deadlineOf(pages.get(addressOf(url))) > Date.now();
+/** Prefetch and clientLoader consult the same cache keys for each matched route. */
+export function hasFreshPage(url: URL, routeId?: string): boolean {
+  if (routeId === "feed-layout") {
+    return [feedFrameKey(url), ...feedFrameFallbackKeys(url)]
+      .some((k, i) => deadlineOf(pages.get(k)) > Date.now() && (i === 0 || canReuseFrame(pages.get(k), url)));
+  }
+  const own = deadlineOf(pages.get(addressOf(url))) > Date.now();
+  if (routeId || (url.pathname !== "/" && url.pathname !== "/all" && url.pathname !== "/en")) return own;
+  // A warm frame alone does not mean the list child loader is warm.
+  return own && hasFreshPage(url, "feed-layout");
 }
 
 /**
@@ -17,14 +33,27 @@ export function hasFreshPage(url: URL): boolean {
  * that result (the tabs of a page that reads the same data) and only the first read asks the server.
  * By default every address has its own.
  */
-export function pageReuse<T>(key: (url: URL) => string = addressOf) {
+export function pageReuse<T>(key: (url: URL) => string = addressOf, fallbackKeys?: (url: URL) => string[]) {
+  const forceFetch = new Set<string>();
   async function clientLoader({ request, serverLoader }: ClientLoaderFunctionArgs) {
-    const held = key(new URL(request.url));
+    const url = new URL(request.url);
+    const held = key(url);
+    const force = forceFetch.delete(held);
     const previous = pages.get(held);
     pages.delete(held);
-    if (deadlineOf(previous) > Date.now()) {
+    if (!force && deadlineOf(previous) > Date.now()) {
       pages.set(held, previous);
       return previous as Awaited<ReturnType<typeof serverLoader<T>>>;
+    }
+    // Explicit same-address revalidation must reach the server, not a warm superset.
+    if (!force) for (const fallback of fallbackKeys?.(url) ?? []) {
+      const value = pages.get(fallback);
+      if (deadlineOf(value) > Date.now() && canReuseFrame(value, url)) {
+        // Reading a superset counts as using it; preserve the existing LRU eviction order.
+        pages.delete(fallback);
+        pages.set(fallback, value);
+        return value as Awaited<ReturnType<typeof serverLoader<T>>>;
+      }
     }
     // On hydration this is the HTML's own result, without another HTTP request.
     const result = await serverLoader<T>();
@@ -38,7 +67,11 @@ export function pageReuse<T>(key: (url: URL) => string = addressOf) {
 
   const shouldRevalidate: ShouldRevalidateFunction = ({ currentUrl, nextUrl, defaultShouldRevalidate }) => {
     // Revalidator/retry, or tapping the current page again: ask for its data normally.
-    if (defaultShouldRevalidate && addressOf(currentUrl) === addressOf(nextUrl)) pages.delete(key(nextUrl));
+    if (defaultShouldRevalidate && addressOf(currentUrl) === addressOf(nextUrl)) {
+      const held = key(nextUrl);
+      pages.delete(held);
+      forceFetch.add(held);
+    }
     // Moving between addresses that share a result still runs the loader, which keeps the result while it is fresh.
     return defaultShouldRevalidate || key(currentUrl) === key(nextUrl);
   };

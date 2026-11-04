@@ -1,6 +1,7 @@
 // RSS 2.0 / Atom / RDF feeds.
 import { XMLParser } from "fast-xml-parser";
 import { fetchListing } from "./listing-fetch.ts";
+import { parseLooseDate } from "./dates.ts";
 import { collapseWhitespace, escapeXml, stripTags } from "../lib/text.ts";
 import { sanitizeBody } from "../content/sanitize.ts";
 import { identityKeyFor } from "../content/materials.ts";
@@ -58,12 +59,27 @@ function mediaDescription(entry: Record<string, any>): string | null {
   return null;
 }
 
-function parseDate(v: string): Date | null {
+/** Zone names Date.parse rejects (RFC 822 allows only the US set); feeds print them unabbreviated. */
+const ALPHA_ZONES: Record<string, string> = {
+  CEST: "+02:00", CET: "+01:00", EEST: "+03:00", EET: "+02:00", MSK: "+03:00", HKT: "+08:00",
+  SGT: "+08:00", JST: "+09:00", KST: "+09:00", AEST: "+10:00", AEDT: "+11:00",
+};
+
+function parseDate(v: string, utcOffset?: string): Date | null {
   if (!v) return null;
-  const t = Date.parse(v);
-  if (Number.isFinite(t)) return new Date(t);
+  // Use an explicit source offset for wall-clock RSS dates; preserve timezone-bearing RFC dates.
+  if (utcOffset) {
+    const zoned = parseLooseDate(v, utcOffset);
+    if (zoned) return zoned;
+  }
+  // A named zone Date.parse rejects (UN feeds print "16:53:37 CEST") becomes its offset.
+  const v2 = v.replace(/\b([A-Z]{3,4})\s*$/,(m0, z: string) => ALPHA_ZONES[z] ? ` ${ALPHA_ZONES[z].replace(":", "")}` : m0);
+  for (const value of v === v2 ? [v] : [v2, v]) {
+    const t = Date.parse(value);
+    if (Number.isFinite(t)) return new Date(t);
+  }
   // RFC 822 variants with Chinese weekday or odd zones
-  const cleaned = v.replace(/星期[一二三四五六日天]/, "").replace(/\s+/g, " ").trim();
+  const cleaned = v2.replace(/星期[一二三四五六日天]/, "").replace(/\s+/g, " ").trim();
   const t2 = Date.parse(cleaned);
   return Number.isFinite(t2) ? new Date(t2) : null;
 }
@@ -169,6 +185,7 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
     throw new FetchError(`feed parse error: ${String(e).slice(0, 200)}`);
   }
   const summaryIsBody = source.config.summaryIsBody === true;
+  const utcOffset = typeof source.config.publishedAtUtcOffset === "string" ? source.config.publishedAtUtcOffset : undefined;
   const out: Candidate[] = [];
 
   const channel = doc.rss?.channel ?? doc["rdf:RDF"];
@@ -200,7 +217,7 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
         ...(mediaFile ? { identityKey: identityKeyFor({ sourceId: source.id, url: guid, title, via: "fetch" }) } : {}),
         title,
         author: text(it["dc:creator"]) || text(it.author) || null,
-        publishedAt: parseDate(text(it.pubDate) || text(it["dc:date"]) || text(it.published)),
+        publishedAt: parseDate(text(it.pubDate) || text(it["dc:date"]) || text(it.published) || text(it["a10:updated"]), utcOffset),
         ...feedText(bodyHtml, description ? stripTags(description) : null, source, !mediaFile && !video),
         ...(videoExcerpt ? { excerpt: videoExcerpt } : {}),
         media: media.slice(0, 6),
@@ -231,8 +248,8 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean } = {}
         url: entryUrl,
         title,
         author: text(arr(e.author)[0]?.name) || null,
-        publishedAt: parseDate(text(e.published) || text(e.updated)),
-        sourceUpdatedAt: parseDate(text(e.updated)),
+        publishedAt: parseDate(text(e.published) || text(e.updated), utcOffset),
+        sourceUpdatedAt: parseDate(text(e.updated), utcOffset),
         ...feedText(bodyHtml, summary, source, !video, plainBody),
         ...(videoExcerpt ? { excerpt: videoExcerpt } : {}),
         media: bodyHtmlRaw ? imagesFrom(bodyHtmlRaw, entryUrl) : [],

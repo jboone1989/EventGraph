@@ -1,10 +1,8 @@
 # EventGraph forwards only a successful Check's exact PR HEAD to the central reviewer.
+# GitHub branch protection and native PR actions own merge decisions; this workflow does not auto-merge.
 name: Forward PR to central GLM review
 
 on:
-  pull_request:
-    branches: [develop, main]
-    types: [synchronize, closed, converted_to_draft]
   workflow_run:
     workflows: [Check]
     types: [completed]
@@ -17,67 +15,13 @@ permissions:
   statuses: write
 
 jobs:
-  cancel_superseded_review:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    permissions: {}
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    concurrency:
-      group: glm-current-pr-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
-    steps:
-      - run: echo 'Superseded PR review cancelled through native Actions concurrency.'
-
-  review_preflight:
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-      statuses: read
-    if: >-
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    outputs:
-      eligible: ${{ steps.plan.outputs.eligible }}
-      required: ${{ steps.plan.outputs.required }}
-      number: ${{ steps.plan.outputs.number }}
-      base_ref: ${{ steps.plan.outputs.baseRef }}
-      base_sha: ${{ steps.plan.outputs.baseSha }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/github-script@v7
-        id: plan
-        env:
-          CHECK_RUN_ID: ${{ github.event.workflow_run.id }}
-        with:
-          script: |
-            const { pathToFileURL } = require('node:url');
-            const { planReview } = await import(pathToFileURL(process.env.GITHUB_WORKSPACE + '/scripts/ci/review-preflight.mjs').href);
-            const plan = await planReview(github, { ...context.repo, runId: Number(process.env.CHECK_RUN_ID) });
-            for (const [key, value] of Object.entries(plan)) core.setOutput(key, String(value));
-            core.info(JSON.stringify(plan));
-
   official-glm-review:
-    needs: review_preflight
-    if: needs.review_preflight.outputs.eligible == 'true' && needs.review_preflight.outputs.required == 'true'
-    concurrency:
-      group: glm-current-pr-${{ needs.review_preflight.outputs.number }}
-      cancel-in-progress: true
     # Every completed Check reaches central preflight. It checks the real source
     # run ID + event + success + exact HEAD before exposing the model secret.
     uses: jboone1989/livingruntime-remote/.github/workflows/eventgraph-glm-review.yml@main
     with:
       check_sha: ${{ github.event.workflow_run.head_sha }}
-      check_run_id: ${{ github.event.workflow_run.id || 0 }}
-      pr_number: ${{ needs.review_preflight.outputs.number }}
-      base_ref: ${{ needs.review_preflight.outputs.base_ref }}
-      base_sha: ${{ needs.review_preflight.outputs.base_sha }}
+      check_run_id: ${{ github.event.workflow_run.id }}
+      pr_number: ${{ github.event.workflow_run.pull_requests[0].number || '' }}
     secrets:
       GLM_API_KEY: ${{ secrets.GLM_API_KEY }}

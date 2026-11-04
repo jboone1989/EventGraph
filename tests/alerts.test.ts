@@ -30,8 +30,8 @@ before(async () => {
   // One left over from yesterday: it outlives this episode, so it must not be what dates it.
   const { articleId: straggler } = await upsertMaterial({ sourceId: SOURCE, url: `https://example.com/${T}-old`, title: "stuck since yesterday", bodyStatus: "none", via: "fetch" });
   stuckIds.push(straggler);
-  await sql`UPDATE articles SET discovered_at = now() - interval '3 hours', processing_state = 'new' WHERE id IN ${sql(stuckIds)}`;
-  await sql`UPDATE articles SET discovered_at = now() - interval '40 hours' WHERE id = ${straggler}`;
+  await sql`UPDATE articles SET discovered_at = now() - interval '3 hours', updated_at = now() - interval '3 hours', processing_state = 'new' WHERE id IN ${sql(stuckIds)}`;
+  await sql`UPDATE articles SET discovered_at = now() - interval '40 hours', updated_at = now() - interval '40 hours' WHERE id = ${straggler}`;
 });
 after(async () => {
   await stopBoss();
@@ -207,8 +207,8 @@ test("selected identity delays show reader impact, recovery state and the affect
   const source = "grouping-alert-source";
   const make = async (id: string, age: number, state: "pending" | "failed" | "complete", candidate = true, visibility = "public") => {
     const at = new Date(now - age * 60_000);
-    await sql`INSERT INTO articles(id,source_id,identity_key,url,title,published_at,discovered_at,timeline_at,grouping_status,grouping_error)
-      VALUES(${id},${source},${id},${`https://example.com/${id}`},${id},${at},${at},${at},${state},${state === "failed" ? "identity provider timed out" : null})`;
+    await sql`INSERT INTO articles(id,source_id,identity_key,url,title,published_at,discovered_at,timeline_at,updated_at,grouping_status,grouping_error)
+      VALUES(${id},${source},${id},${`https://example.com/${id}`},${id},${at},${at},${at},${at},${state},${state === "failed" ? "identity provider timed out" : null})`;
     await sql`INSERT INTO publications(article_id,source_id,title,summary,eligible,selected,selection_candidate,visibility,
       selected_ready_at,discovered_at,timeline_at,sort_at,url,category,channel)
       VALUES(${id},${source},${`新闻 ${id}`},'摘要',true,false,${candidate},${visibility},${at},${at},${at},${at},${`https://example.com/${id}`},'industry','news')`;
@@ -221,6 +221,7 @@ test("selected identity delays show reader impact, recovery state and the affect
     await make("group-alert-revision", 48 * 60, "pending");
     await sql`INSERT INTO article_revisions(article_id,revision,title,created_at)
       VALUES('group-alert-revision',1,'current material revision',${new Date(now)})`;
+    await sql`UPDATE articles SET updated_at = ${new Date(now)} WHERE id = 'group-alert-revision'`;
     await make("group-alert-done", 30, "complete");
     await make("group-alert-rejected", 30, "failed", false);
     await make("group-alert-withdrawn", 30, "failed", true, "withdrawn");
@@ -234,7 +235,8 @@ test("selected identity delays show reader impact, recovery state and the affect
     assert.match(warning!.heals!, /人工|处理后/);
     assert.match(warning!.detail!, /group-alert-failed/);
     const runs = await runsOverview();
-    assert.equal(runs.grouping.waiting, 3, "the runs page includes normal waits but no false candidates");
+    assert.equal(runs.grouping.waiting, 3, "revised old news remains live alongside recent pending items");
+    assert.ok(runs.grouping.items.some((item) => item.articleId === "group-alert-revision"), "recent revision restores its bounded grouping window");
     assert.equal(runs.grouping.needsAttention, 1);
     assert.ok(runs.grouping.items.some((item) => item.articleId === "group-alert-failed" && item.recovery === "manual"));
 

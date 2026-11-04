@@ -2,6 +2,8 @@ import { Card, Stat } from "./ui";
 
 export type Report<T> = { state: "unconfigured" | "ready" | "empty" | "error"; data: T | null; refreshedAt: string | null; message?: string };
 type SearchRow = { clicks: number; impressions: number; ctr: number; position: number };
+type LandingKind = "news" | "story" | "topic" | "daily" | "other";
+const kindLabels: Record<LandingKind, string> = { news: "新闻详情", story: "事件详情", topic: "主题页", daily: "日报/周报/月报", other: "其他页面" };
 export type ExternalAnalyticsData = {
   posthog: Report<{
     pageViews: number; sessions: number; events: number;
@@ -14,6 +16,10 @@ export type ExternalAnalyticsData = {
     daily: Array<SearchRow & { day: string }>;
     queries: Array<SearchRow & { query: string }>;
     pages: Array<SearchRow & { page: string }>;
+    pageTypes: Array<{ kind: LandingKind; pages: number; clicks: number; impressions: number; ctr: number; position: number | null }>;
+    opportunities: Array<SearchRow & { page: string }>;
+    pageRows: number;
+    pagesTruncated: boolean;
   }>;
 };
 const n = (v: number) => v.toLocaleString("zh-CN");
@@ -38,7 +44,27 @@ export function ExternalAnalytics({ posthog: ph, searchConsole: sc }: ExternalAn
         <div className="mt-3 space-y-1 text-[12px]">{sc.data.daily.map(r => <div key={r.day} className="flex justify-between"><span>{r.day}</span><span>{n(r.clicks)} 点击 / {n(r.impressions)} 曝光</span></div>)}</div>
         <h3 className="mt-4 text-[13px] font-medium">搜索词 Top 10</h3>
         <div className="space-y-1 text-[12px]">{sc.data.queries.map(r => <div key={r.query} className="flex justify-between gap-3"><span className="min-w-0 truncate">{r.query}</span><span className="shrink-0">{n(r.clicks)} 点击 / {n(r.impressions)} 曝光</span></div>)}</div>
-        <h3 className="mt-4 text-[13px] font-medium">搜索落地页 Top 10</h3>
+        <h3 className="mt-4 text-[13px] font-medium">搜索落地页 · 按页面类型</h3>
+        <p className="mb-2 text-[12px] text-ink-4">下表仅汇总 Google 返回的 {n(sc.data.pageRows)} 条页面记录{sc.data.pagesTruncated ? "（达到 1000 行上限，可能不完整）" : ""}；不是独立查询的全站总量。</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[12px]">
+            <thead><tr className="border-b border-line text-ink-4"><th className="py-2">页面类型</th><th className="py-2 text-right">URL</th><th className="py-2 text-right">曝光</th><th className="py-2 text-right">点击</th><th className="py-2 text-right">CTR</th></tr></thead>
+            <tbody>{sc.data.pageTypes.map(r => <tr key={r.kind} className="border-b border-line-soft last:border-0">
+              <td className="py-2">{kindLabels[r.kind]}</td><td className="py-2 text-right num">{n(r.pages)}</td>
+              <td className="py-2 text-right num">{n(r.impressions)}</td><td className="py-2 text-right num">{n(r.clicks)}</td>
+              <td className="py-2 text-right num">{r.impressions ? (r.ctr * 100).toFixed(2) + "%" : "—"}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <h3 className="mt-4 text-[13px] font-medium">已有搜索曝光的新闻页（优先检查）</h3>
+        <p className="mb-2 text-[12px] text-ink-4">按返回样本中的曝光降序，不代表排名下降或需要自动改标题。</p>
+        <div className="space-y-1 text-[12px]">{sc.data.opportunities.length
+          ? sc.data.opportunities.map(r => <div key={r.page} className="flex justify-between gap-3">
+            <a className="min-w-0 truncate text-accent hover:underline" title={r.page} href={r.page} target="_blank" rel="noopener noreferrer">{r.page}</a>
+            <span className="shrink-0 num">{n(r.impressions)} 曝光 / {n(r.clicks)} 点击</span>
+          </div>)
+          : <p className="text-ink-4">本窗口暂无有曝光的新闻页。</p>}</div>
+        <h3 className="mt-4 text-[13px] font-medium">搜索落地页 Top 10（按 Google 返回顺序）</h3>
         <div className="space-y-1 text-[12px]">{sc.data.pages.map(r => <div key={r.page} className="flex justify-between gap-3"><span className="min-w-0 truncate" title={r.page}>{r.page}</span><span className="shrink-0">{n(r.clicks)} 点击 / {n(r.impressions)} 曝光</span></div>)}</div>
         <p className="mt-3 text-[12px] text-ink-4">搜索词受匿名化和排名截断影响，其合计不代表全站总量。新资源首批数据可能仍在处理。</p>
       </>}

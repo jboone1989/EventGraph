@@ -1,14 +1,13 @@
 import { SITE } from "@aihot/site";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { CATEGORY_KEYS, CATEGORY_LABELS } from "@aihot/contracts/taxonomy";
+import { CATEGORY_LABELS } from "@aihot/contracts/taxonomy";
 import type { Route } from "./+types/content-item";
 import type { AdminContentChain } from "@aihot/contracts/admin";
 import { adminGet } from "../../lib/admin.server";
-import { useAdminAction } from "../../features/admin/action";
 import { bj, money } from "../../features/admin/format";
 import { KIND_LABEL, MODE_LABEL, VISIBILITY_LABEL } from "../../features/admin/labels";
-import { AdminPage, Badge, Button, Card, Empty, Field, Input, Json, KV, ReasonDialog, Select, Textarea } from "../../features/admin/ui";
+import { AdminPage, Badge, Card, Empty, Json, KV } from "../../features/admin/ui";
 
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -32,37 +31,12 @@ function Step({ title, meta, children, tone = "accent", last }: { title: ReactNo
   );
 }
 
-type Dialog = null | "visibility" | "seo" | "override" | "analyze" | "extract" | "group" | "detach" | "merge";
-
 export default function ContentItem({ loaderData }: Route.ComponentProps) {
   const c = loaderData;
   const a = c.article;
   const p = c.publication;
-  const { run, pending } = useAdminAction();
-  const [dialog, setDialog] = useState<Dialog>(null);
-  const [visibility, setVisibility] = useState<string>(p?.visibility ?? "public");
-  const [fields, setFields] = useState({ title: "", summary: "", reason: "", category: "", tags: "", scoreMode: "", score: "", selected: "", silent: "" });
-  const [mergeInto, setMergeInto] = useState("");
-  const version = c.override?.version ?? 0;
-  const base = `/api/admin/content/${encodeURIComponent(a.id)}`;
   const story = c.membership[0];
   const title = p?.title ?? a.title;
-
-  const openOverride = () => {
-    const f = (c.override?.fields ?? {}) as Record<string, unknown>;
-    setFields({
-      title: String(f.title ?? ""),
-      summary: String(f.summary ?? ""),
-      reason: String(f.reason ?? ""),
-      category: String(f.category ?? ""),
-      tags: Array.isArray(f.tags) ? (f.tags as string[]).join(", ") : "",
-      scoreMode: f.score === null ? "none" : typeof f.score === "number" ? "value" : "",
-      score: typeof f.score === "number" ? String(f.score) : "",
-      selected: f.selected === undefined ? "" : String(f.selected),
-      silent: f.silent === undefined ? "" : String(f.silent),
-    });
-    setDialog("override");
-  };
 
   return (
     <AdminPage
@@ -81,14 +55,6 @@ export default function ContentItem({ loaderData }: Route.ComponentProps) {
             </>
           )}
         </span>
-      }
-      actions={
-        <>
-          <Button onClick={() => setDialog("visibility")}>公开范围</Button>
-          {p && <Button onClick={() => setDialog("seo")}>{p.indexable ? "取消收录" : "标记收录"}</Button>}
-          <Button onClick={openOverride}>人工修正</Button>
-          <Button onClick={() => setDialog("analyze")}>重新评估</Button>
-        </>
       }
     >
       <div className="mb-5 flex flex-wrap gap-1.5">
@@ -136,9 +102,6 @@ export default function ContentItem({ loaderData }: Route.ComponentProps) {
               ) : (
                 <span className="text-ink-4">只有初始版本</span>
               )}
-              <div className="mt-2 flex gap-2">
-                <Button size="sm" onClick={() => setDialog("extract")}>重新抽取正文</Button>
-              </div>
             </Step>
             <Step title="模型判断" meta={`${c.analyses.length} 次`} tone={c.analyses.length ? "accent" : "muted"}>
               {c.analyses.length ? (
@@ -238,11 +201,6 @@ export default function ContentItem({ loaderData }: Route.ComponentProps) {
                   ))}
                 </ul>
               )}
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => setDialog("group")}>重新归组</Button>
-                {c.membership.length > 0 && <Button size="sm" onClick={() => setDialog("detach")}>移出事件</Button>}
-                {story?.story_id && <Button size="sm" onClick={() => setDialog("merge")}>把这个事件并入…</Button>}
-              </div>
             </Step>
             <Step title="投递" last meta={`${c.deliveries.length} 条`} tone={c.deliveries.some((d) => d.status === "unknown") ? "bad" : c.deliveries.length ? "accent" : "muted"}>
               {c.deliveries.length ? (
@@ -290,165 +248,6 @@ export default function ContentItem({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
 
-      <ReasonDialog
-        open={dialog === "seo"}
-        title={p?.indexable ? "取消搜索收录" : "标记为可收录"}
-        description={
-          p?.indexable
-            ? "详情页改回 noindex 并移出站点地图；即使是精选，也不再自动收录，直到重新标记。"
-            : "详情页默认 noindex，精选内容自动收录。标记后（仅在公开状态下）改为 index、进入站点地图，并在下一次 IndexNow 提交。适合有独立价值、摘要与正文完整的内容。"
-        }
-        confirmLabel={p?.indexable ? "取消收录" : "标记收录"}
-        busy={pending === "seo"}
-        onClose={() => setDialog(null)}
-        onSubmit={async (reason) => (await run("POST", `${base}/seo`, { indexed: !p?.indexable, reason }, { label: "seo", success: p?.indexable ? "已取消收录" : "已标记为可收录" })) !== null}
-      />
-
-      <ReasonDialog
-        open={dialog === "visibility"}
-        title="公开范围"
-        description="改动会同时作用于网页、API、RSS、MCP、同步流和搜索索引，并刷新缓存。来源方要求下架时，先核实身份与范围。"
-        danger={visibility === "withdrawn"}
-        confirmLabel="应用"
-        busy={pending === "visibility"}
-        onClose={() => setDialog(null)}
-        onSubmit={async (reason) => (await run("POST", `${base}/visibility`, { visibility, reason, version }, { label: "visibility", success: "公开范围已更新" })) !== null}
-      >
-        <div className="grid gap-2 sm:grid-cols-3">
-          {([
-            ["public", "公开", "正常展示"],
-            ["summary-only", "仅摘要", "不展示正文，保留标题摘要"],
-            ["withdrawn", "下架", "所有出口移除，链接 404"],
-          ] as const).map(([v, label, hint]) => (
-            <label key={v} className={`cursor-pointer rounded-card p-3 ring-1 transition-colors ${visibility === v ? "bg-accent-soft ring-accent" : "ring-line-strong hover:bg-bg-sunk"}`}>
-              <input type="radio" name="visibility" className="sr-only" checked={visibility === v} onChange={() => setVisibility(v)} />
-              <div className="text-[13.5px] font-medium text-ink">{label}</div>
-              <div className="mt-0.5 text-[12px] text-ink-3">{hint}</div>
-            </label>
-          ))}
-        </div>
-      </ReasonDialog>
-
-      <ReasonDialog
-        open={dialog === "override"}
-        title="人工修正"
-        description="人工值优先于模型输出，之后的重处理不会覆盖；留空表示不修正该字段（清除已有修正请选“清除”）。"
-        confirmLabel="保存修正"
-        busy={pending === "override"}
-        onClose={() => setDialog(null)}
-        onSubmit={async (reason) => {
-          const next: Record<string, unknown> = {};
-          const clear: string[] = [];
-          for (const k of ["title", "summary", "reason"] as const) {
-            if (fields[k].trim()) next[k] = fields[k].trim();
-            else if (c.override?.fields[k] !== undefined) clear.push(k);
-          }
-          if (fields.category) next.category = fields.category;
-          else if (c.override?.fields.category !== undefined) clear.push("category");
-          if (fields.tags.trim()) next.tags = fields.tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
-          else if (c.override?.fields.tags !== undefined) clear.push("tags");
-          if (fields.scoreMode === "none") next.score = null;
-          else if (fields.scoreMode === "value") next.score = Number(fields.score);
-          else if (c.override?.fields.score !== undefined) clear.push("score");
-          for (const k of ["selected", "silent"] as const) {
-            if (fields[k] === "true" || fields[k] === "false") next[k] = fields[k] === "true";
-            else if (c.override?.fields[k] !== undefined) clear.push(k);
-          }
-          return (await run("POST", `${base}/override`, { fields: next, clear, reason, version }, { label: "override", success: "修正已保存并重新发布" })) !== null;
-        }}
-      >
-        <Field label="标题"><Input value={fields.title} placeholder={p?.title ?? ""} onChange={(e) => setFields({ ...fields, title: e.target.value })} /></Field>
-        <Field label="摘要"><Textarea rows={3} value={fields.summary} placeholder={p?.summary ?? ""} onChange={(e) => setFields({ ...fields, summary: e.target.value })} /></Field>
-        <Field label="推荐理由"><Textarea rows={2} value={fields.reason} placeholder={p?.reason ?? ""} onChange={(e) => setFields({ ...fields, reason: e.target.value })} /></Field>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="栏目">
-            <Select value={fields.category} onChange={(e) => setFields({ ...fields, category: e.target.value })}>
-              <option value="">不修正</option>
-              {CATEGORY_KEYS.map((k) => <option key={k} value={k}>{CATEGORY_LABELS[k]}</option>)}
-            </Select>
-          </Field>
-          <Field label="标签（逗号分隔）"><Input value={fields.tags} onChange={(e) => setFields({ ...fields, tags: e.target.value })} /></Field>
-          <Field label="评分">
-            <Select value={fields.scoreMode} onChange={(e) => setFields({ ...fields, scoreMode: e.target.value })}>
-              <option value="">按模型</option>
-              <option value="none">撤销评分</option>
-              <option value="value">人工评分</option>
-            </Select>
-          </Field>
-          {fields.scoreMode === "value" && <Field label="分数（0–100）"><Input type="number" min={0} max={100} step="any" required value={fields.score} onChange={(e) => setFields({ ...fields, score: e.target.value })} /></Field>}
-          <Field label="精选">
-            <Select value={fields.selected} onChange={(e) => setFields({ ...fields, selected: e.target.value })}>
-              <option value="">按模型</option>
-              <option value="true">强制入选</option>
-              <option value="false">强制不选</option>
-            </Select>
-          </Field>
-          <Field label="推送">
-            <Select value={fields.silent} onChange={(e) => setFields({ ...fields, silent: e.target.value })}>
-              <option value="">正常</option>
-              <option value="true">静默（入选也不推送）</option>
-              <option value="false">取消静默</option>
-            </Select>
-          </Field>
-        </div>
-      </ReasonDialog>
-
-      <ReasonDialog
-        open={dialog === "analyze"}
-        title="对当前修订重新评估"
-        description="会发起一次新的模型调用（计费并记录回执）。同一次提交重复点击不会重复收费。"
-        requireReason={false}
-        confirmLabel="重新评估"
-        busy={pending === "analyze"}
-        onClose={() => setDialog(null)}
-        onSubmit={async () => (await run("POST", `${base}/rerun`, { step: "analyze" }, { label: "analyze", success: "已加入评估队列" })) !== null}
-      />
-      <ReasonDialog
-        open={dialog === "extract"}
-        title="重新抽取正文"
-        requireReason={false}
-        confirmLabel="重新抽取"
-        busy={pending === "extract"}
-        onClose={() => setDialog(null)}
-        onSubmit={async () => (await run("POST", `${base}/rerun`, { step: "extract" }, { label: "extract", success: "已加入抽取队列" })) !== null}
-      />
-      <ReasonDialog
-        open={dialog === "group"}
-        title="重新归组"
-        description="人工归组的成员关系不会被覆盖。"
-        requireReason={false}
-        confirmLabel="重新归组"
-        busy={pending === "group"}
-        onClose={() => setDialog(null)}
-        onSubmit={async () => (await run("POST", `${base}/rerun`, { step: "group" }, { label: "group", success: "已加入归组队列" })) !== null}
-      />
-      <ReasonDialog
-        open={dialog === "detach"}
-        title="移出事件"
-        description="这条内容会作为独立内容展示，事件页随之更新。"
-        danger
-        confirmLabel="移出"
-        busy={pending === "detach"}
-        onClose={() => setDialog(null)}
-        onSubmit={async (reason) => (await run("POST", `${base}/detach`, { reason }, { label: "detach", success: "已移出事件" })) !== null}
-      />
-      <ReasonDialog
-        open={dialog === "merge"}
-        title="合并事件"
-        description={`把事件 #${story?.story_id}（${story?.story_title ?? ""}）并入另一个事件；旧链接会跳转到新事件。`}
-        danger
-        confirmLabel="合并"
-        busy={pending === "merge"}
-        onClose={() => setDialog(null)}
-        onSubmit={async (reason) => {
-          if (!/^\d+$/.test(mergeInto.trim())) return false;
-          return (await run("POST", "/api/admin/stories/merge", { from: story!.story_id, into: Number(mergeInto), reason }, { label: "merge", success: "事件已合并" })) !== null;
-        }}
-      >
-        <Field label="并入的目标事件编号" hint="在目标事件任一内容的诊断页里可以看到 #编号">
-          <Input inputMode="numeric" value={mergeInto} onChange={(e) => setMergeInto(e.target.value)} placeholder="例如 1234" />
-        </Field>
-      </ReasonDialog>
     </AdminPage>
   );
 }

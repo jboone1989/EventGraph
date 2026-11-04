@@ -8,18 +8,21 @@ import { actorOf } from "@aihot/backend/admin/auth";
 import { navCounts } from "@aihot/backend/admin/navigation";
 import { listAudit } from "@aihot/backend/audit";
 import { importSelectBenchRun, listSelectBenchRuns, selectBenchRun } from "@aihot/backend/admin/selectbench";
-import { modelsOverview, switchModel } from "@aihot/backend/admin/models";
+import { modelsOverview, modelBindingsOverview, switchModel } from "@aihot/backend/admin/models";
 import {listProviders,createProvider,updateProvider,deleteProvider} from "@aihot/backend/providers/registry/repository";
 import {isVerifiedFreeTrialProvider} from "@aihot/backend/providers/registry/types";
 import {probeConfiguredProvider} from "@aihot/backend/providers/registry/probe";
 import {startBulkRun,latestBulkRun} from "@aihot/backend/providers/registry/bulk";
 import { contentChain, curatePending, overrideFields, rerun, searchContent, setSeoIndexed, setSeoIndexedBatch, setVisibility } from "@aihot/backend/admin/content";
+import { listNotes, saveNote } from "@aihot/backend/admin/notes";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
 import { banSource, eraseFeedback, feedbackScreenshot, listFeedback, unbanSource, updateFeedback } from "@aihot/backend/admin/feedback";
 import { requeueFailedArticles, runsOverview } from "@aihot/backend/admin/runs";
+import { listCandidates, reviveCandidate } from "@aihot/backend/admin/candidates";
+import { evaluateCandidate, holdCandidate, previewCandidate, startTrial } from "@aihot/backend/admin/lifecycle";
 import { resolveDelivery } from "@aihot/backend/notify/deliver";
 import { releaseReceipt } from "@aihot/backend/operations/recover";
-import { replaceContactQr, setTargetEnabled, settingsOverview, updateBudget } from "@aihot/backend/admin/settings";
+import { removeBudgetLimit, replaceContactQr, setTargetEnabled, settingsOverview, updateBudget } from "@aihot/backend/admin/settings";
 import { createSource, fetchNow, listSources, previewSource, previewStoredSource, sourceDetail, updateSource } from "@aihot/backend/admin/sources";
 import { sendProblem } from "../http/respond.ts";
 import { analyticsOverview } from "@aihot/backend/admin/analytics";
@@ -63,6 +66,9 @@ export function registerAdmin(app: FastifyInstance) {
   // The daily curation queue and its batch decision (specs/002-adsense-readiness FR-008).
   app.get("/api/admin/content/curate-pending", adminHandler(async (req) => ({ rows: await curatePending(Number(q(req).days ?? 3) || 3) })));
   app.post("/api/admin/content/seo-batch", adminHandler(async (req, _reply, admin) => setSeoIndexedBatch(body(req) as never, actorOf(admin))));
+  // The editor's daily notes (specs/004-editorial-ops FR-001): listed and saved from the admin.
+  app.get("/api/admin/notes", adminHandler(async (req) => ({ rows: await listNotes(Number(q(req).days ?? 60) || 60) })));
+  app.post("/api/admin/notes", adminHandler(async (req, _reply, admin) => saveNote(body(req) as never, actorOf(admin))));
   app.get("/api/admin/content/:id", adminHandler(async (req, reply) => orNotFound(req, reply, await contentChain(param(req, "id")))));
   app.post("/api/admin/content/:id/visibility", adminHandler(async (req, _reply, admin) => setVisibility(param(req, "id"), body(req) as never, actorOf(admin))));
   app.post("/api/admin/content/:id/seo", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await setSeoIndexed(param(req, "id"), body(req) as never, actorOf(admin)))));
@@ -116,9 +122,11 @@ export function registerAdmin(app: FastifyInstance) {
     return orNotFound(req, reply, await setTargetEnabled(param(req, "key"), !!b.enabled, b.reason, actorOf(admin)));
   }));
   app.put("/api/admin/budgets/:service", adminHandler(async (req, _reply, admin) => updateBudget(param(req, "service"), body(req) as never, actorOf(admin))));
+  app.delete("/api/admin/budgets/:service", adminHandler(async (req, _reply, admin) => removeBudgetLimit(param(req, "service"), body(req) as never, actorOf(admin))));
 
 
   // Models and evaluation
+  app.get("/api/admin/model-bindings", adminHandler(async () => modelBindingsOverview()));
   app.get("/api/admin/models", adminHandler(async (req) => modelsOverview(Math.min(90, Number(q(req).days) || 7))));
   app.post("/api/admin/models/:capability", adminHandler(async (req, _reply, admin) => {
     const b = body<{ model: string | null; reason: string }>(req);
@@ -167,4 +175,25 @@ export function registerAdmin(app: FastifyInstance) {
   // Attention counts for the navigation, and the audit trail.
   app.get("/api/admin/nav-counts", adminHandler(async () => navCounts()));
   app.get("/api/admin/audit", adminHandler(async (req) => listAudit({ subject: q(req).subject, action: q(req).action, page: page(req) })));
+
+  // Dynamic source lifecycle candidates (specs/007): read the queue, reuse the lifecycle's own
+  // preview/trial/evaluation/hold, and revive an exited source. No second decision path.
+  app.get("/api/admin/source-candidates", adminHandler(async (req) =>
+    listCandidates({ status: q(req).status, q: q(req).q, page: page(req) })));
+  app.post("/api/admin/source-candidates/:id/preview", adminHandler(async (req, _reply, admin) =>
+    previewCandidate(param(req, "id"), actorOf(admin))));
+  app.post("/api/admin/source-candidates/:id/trial", adminHandler(async (req, _reply, admin) =>
+    startTrial(param(req, "id"), actorOf(admin))));
+  app.post("/api/admin/source-candidates/:id/evaluate", adminHandler(async (req, reply, admin) =>
+    orNotFound(req, reply, await evaluateCandidate(param(req, "id"), { actor: actorOf(admin) }))));
+  app.post("/api/admin/source-candidates/:id/hold", adminHandler(async (req, reply, admin) => {
+    const payload = body<{ hold?: unknown; reason?: unknown }>(req);
+    if (typeof payload.hold !== "boolean" || typeof payload.reason !== "string" || !payload.reason.trim()) {
+      throw Object.assign(new Error("hold boolean and non-empty reason are required"), { statusCode: 400 });
+    }
+    const held = await holdCandidate(param(req, "id"), payload.hold, actorOf(admin), payload.reason);
+    return orNotFound(req, reply, held ? { held: true } : null);
+  }));
+  app.post("/api/admin/source-candidates/:id/revive", adminHandler(async (req, _reply, admin) =>
+    reviveCandidate(param(req, "id"), String(body<{ reason: string }>(req).reason ?? ""), actorOf(admin))));
 }

@@ -9,7 +9,7 @@ import {audit} from '@aihot/backend/audit';
 import {connectionPolicy} from '@aihot/backend/providers/registry/connection-validation';
 import {isVerifiedFreeTrialProvider,type ProviderProfile} from '@aihot/backend/providers/registry/types';
 import {credential} from '@aihot/backend/config';
-import {writeWorkflowModel,loadConnection,loadModel,configurationFingerprint,configurationSnapshot} from '@aihot/backend/providers/registry/connections';
+import {writeWorkflowModel,loadConnection,loadModel,configurationFingerprint,configurationSnapshot,clearRegisteredModelCache} from '@aihot/backend/providers/registry/connections';
 import {storedCredential} from '@aihot/backend/providers/registry/connection-secrets';
 
 interface LegacyRow {
@@ -65,7 +65,7 @@ async function activateMigration(tx:import('@aihot/backend/db').Tx,sourceMapping
 export async function migrateProviderConnections(options:{activate?:boolean}={}) {
  if(options.activate&&process.env.MODEL_PROVIDER_REGISTRY_ENABLED!=='true')
   throw Error('Explicit activation requires MODEL_PROVIDER_REGISTRY_ENABLED=true');
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   // A maintenance operation, outside release DDL. No old writes can race the snapshot or validation.
   await tx`LOCK TABLE model_providers,model_provider_checks IN SHARE MODE`;
   await tx`LOCK TABLE settings IN SHARE ROW EXCLUSIVE MODE`;
@@ -168,5 +168,7 @@ export async function migrateProviderConnections(options:{activate?:boolean}={})
   await audit('migration','provider.connections.migrate','providers','split connections and models',null,result,{db:tx});
   return {...result,...activation,activated:!!activation};
  });
+ clearRegisteredModelCache();
+ return result;
 }
 if(import.meta.main){try{console.log(JSON.stringify(await migrateProviderConnections({activate:process.argv.includes('--activate')})));}finally{await closeDb();}}

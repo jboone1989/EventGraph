@@ -9,6 +9,7 @@ import { publishArticle } from "@aihot/backend/publication/publish";
 import { computeHotRanking } from "@aihot/backend/events/hot";
 import { ENGLISH_ITEM_INPUTS } from "@aihot/backend/publication/items";
 import { ENGLISH_STORY_INPUTS } from "@aihot/backend/publication/story-text";
+import { beijingDate } from "@aihot/contracts/time";
 
 const name = new URL(process.env.DATABASE_URL ?? "postgres://localhost/").pathname.slice(1);
 if (!/_(test|ci)$/.test(name)) throw new Error(`refusing to seed "${name}": only a database named *_test or *_ci`);
@@ -46,9 +47,11 @@ const storyId = existing?.id ?? (await sql<{ id: number }[]>`
   INSERT INTO stories (public_id, title, first_report_at, latest_at) VALUES (gen_random_uuid(), 'E2E 实验室发布开源推理模型', now() - interval '3 hours', now()) RETURNING id`)[0]!.id;
 // The story-route panel renders fact titles verbatim as data (no English-copy pipeline for
 // facts), so the fact seeds in the English edition's wording to keep the /en pages chrome-only.
+// Structured subject/action/object seed the P1 station layer projection (unclassified here).
 const [fact] = await sql<{ id: number }[]>`
-  INSERT INTO facts (public_id, story_id, title) VALUES ('e2e-fact-release', ${storyId}, 'E2E Lab releases an open reasoning model')
-  ON CONFLICT (public_id) DO UPDATE SET title = EXCLUDED.title RETURNING id`;
+  INSERT INTO facts (public_id, story_id, title, subject, action, object)
+  VALUES ('e2e-fact-release', ${storyId}, 'E2E Lab releases an open reasoning model', 'E2E Lab', 'releases an open reasoning model for long documents', 'an open reasoning model')
+  ON CONFLICT (public_id) DO UPDATE SET title = EXCLUDED.title, subject = EXCLUDED.subject, action = EXCLUDED.action, object = EXCLUDED.object RETURNING id`;
 for (const [i, id] of ids.slice(0, 2).entries()) {
   await sql`INSERT INTO fact_articles (fact_id, article_id, role) VALUES (${fact!.id}, ${id}, ${i ? "report" : "primary"}) ON CONFLICT DO NOTHING`;
   if (!(await sql`SELECT 1 FROM story_signals WHERE story_id = ${storyId} AND article_id = ${id}`).length) {
@@ -70,6 +73,21 @@ await sql`INSERT INTO story_english (story_id, inputs_hash, outcome, title, dige
           SELECT st.id, ${ENGLISH_STORY_INPUTS}, 'written', 'E2E Lab releases an open reasoning model', 'E2E Lab released an open reasoning model, and a second outlet reported its benchmark results.'
           FROM stories st WHERE st.id = ${storyId}
           ON CONFLICT (story_id) DO UPDATE SET inputs_hash = EXCLUDED.inputs_hash, outcome = 'written', title = EXCLUDED.title, digest = EXCLUDED.digest`;
+
+// A published daily makes archive navigation a required, non-vacuous E2E assertion.
+const day = new Date();
+const issueKey = beijingDate(day.getTime());
+const issueContent = {
+  leadItemId: ids[0],
+  highlights: [ids[0]],
+  overview: "端到端测试日报。",
+  overviewEn: "A sample daily report for end-to-end navigation checks.",
+  sections: [{ label: "AI", items: [{ itemId: ids[0], title: ARTICLES[0]!.zh }] }],
+  metrics: { totalStories: 1, sourcesCount: 1, firstPartyEvents: 1 },
+};
+await sql`INSERT INTO reports (kind, key, window_start, window_end, content, generated_at, origin)
+          VALUES ('daily', ${issueKey}, ${new Date(day.getTime() - 86400000)}, ${day}, ${sql.json(issueContent)}, ${day}, 'manual')
+          ON CONFLICT (kind, key) DO NOTHING`;
 
 const hot = await computeHotRanking();
 console.log(`seeded ${ids.length} articles and 1 event; hot board has ${hot.entries} entr${hot.entries === 1 ? "y" : "ies"}`);

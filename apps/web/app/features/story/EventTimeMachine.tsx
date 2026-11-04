@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router";
 import type { StoryReportView } from "@aihot/contracts/site";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
-import { englishText } from "../../lib/english";
+import { englishText, localizedSourceName } from "../../lib/english";
 import { buildReplayFrames } from "./replay";
 
 interface Props {
@@ -123,7 +123,7 @@ export function EventTimeMachine({ reports, totalReports, clock = "published", p
           {frame.reports.map((report) => (
             <li key={report.id} className="py-3">
               <div className="text-[12px] text-ink-4">
-                {report.source.name} · {report.source.firstParty ? t("一手资料", "First-party") : t("第三方报道", "Third-party")}
+                {localizedSourceName(report.source.name, lang, report.originalUrl)} · {report.source.firstParty ? t("一手资料", "First-party") : t("第三方报道", "Third-party")}
               </div>
               <Link viewTransition to={lang === "en" ? `/en/items/${report.id}` : `/items/${report.id}`}
                 className="mt-1 block text-[14px] font-semibold leading-relaxed text-ink hover:text-accent">

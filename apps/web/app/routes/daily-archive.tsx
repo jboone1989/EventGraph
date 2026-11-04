@@ -4,28 +4,46 @@ import type { ReportIndexEntry, ReportIndexResponse } from "@aihot/contracts/sit
 import { SITE } from "@aihot/site";
 import { apiGet, cachedPage } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
-import { archiveLd, pageMeta } from "../lib/seo";
+import { archiveLd, localized, pageMeta } from "../lib/seo";
+import { englishText } from "../lib/english";
 import { beijingDate } from "@aihot/contracts/time";
 import { localizedWeekday } from "../lib/format";
 import { ReportLayout } from "../features/report/ReportLayout";
 import { useText, useUiLanguage } from "../components/LanguageSwitch";
-import { archiveGroups, entriesUnit } from "../features/report/format";
+import { archiveGroups, entriesUnit, reportPath } from "../features/report/format";
 import { Rows, SectionPage } from "../features/report/ReportPaper";
 import { Nameplate } from "../features/report/Nameplate";
 import type { Screen } from "../components/shell/screens";
+import type { Route } from "./+types/daily-archive";
 
 export const handle: Screen = { tab: "daily", name: "往期" };
 export { pageHeaders as headers } from "../lib/api.server";
 export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 
 export async function loader({ request }: { request: Request }) {
-  const { items: index } = await apiGet<ReportIndexResponse>("/api/site/reports/daily", { signal: request.signal });
+  const english = new URL(request.url).pathname.startsWith("/en/");
+  const { items: index } = await apiGet<ReportIndexResponse>(english ? "/api/site/reports/daily?en=1" : "/api/site/reports/daily", { signal: request.signal });
   return cachedPage(600, { index, today: beijingDate(Date.now()) });
 }
 
-export function meta({ loaderData }: { loaderData?: { index: ReportIndexEntry[] } }) {
-  const entries = (loaderData?.index ?? []).map((e: ReportIndexEntry) => ({ path: `/daily/${e.key}`, name: e.title ? `${e.key} · ${e.title}` : `${SITE.name} 日报 · ${e.key}` }));
-  return pageMeta({ title: "日报 · 历史存档", description: `${SITE.name} 历史日报，按日期归档。`, path: "/daily/archive", image: "/og/pages/daily.png", jsonLd: archiveLd("/daily/archive", `${SITE.name} 日报 · 历史存档`, entries) });
+export function meta({ loaderData, location }: Route.MetaArgs) {
+  const en = location.pathname.startsWith("/en/");
+  const entries = (loaderData?.index ?? []).map((e: ReportIndexEntry) => ({
+    path: reportPath("daily", e.key, en ? "en" : "zh"),
+    name: en ? (englishText(e.titleEn) ?? englishText(e.title) ?? `Daily brief · ${e.key}`) : (e.title ? `${e.key} · ${e.title}` : `${SITE.name} 日报 · ${e.key}`),
+  }));
+  const path = en ? "/en/daily/archive" : "/daily/archive";
+  const label = en ? `${SITE.name} · Daily archive` : `${SITE.name} 日报 · 历史存档`;
+  return localized(pageMeta({
+    title: "日报 · 历史存档",
+    description: `${SITE.name} 历史日报，按日期归档。`,
+    path: "/daily/archive",
+    image: "/og/pages/daily.png",
+    jsonLd: archiveLd(path, label, entries),
+  }), location.pathname, {
+    title: "Daily archive",
+    description: `Past EventGraph daily briefs organized by date.`,
+  });
 }
 
 export default function DailyArchive() {
@@ -35,7 +53,7 @@ export default function DailyArchive() {
   const { index, today } = useLoaderData<typeof loader>();
   const months = archiveGroups("daily", index, language);
   return (
-    <ReportLayout kind="daily" index={index} current={null} today={today} back={{ to: "/daily", label: t("日报", "Daily") }} title={t("日报合订本", "Daily archive")}>
+    <ReportLayout kind="daily" index={index} current={null} today={today} back={{ to: en ? "/en/daily" : "/daily", label: t("日报", "Daily") }} title={t("日报合订本", "Daily archive")}>
       <div className="@container">
         <header className="pt-5 lg:pt-0">
           <div className="flex items-center justify-between gap-4 text-[12px] text-ink-4">
@@ -47,7 +65,11 @@ export default function DailyArchive() {
           <div className="py-6 @[880px]:py-8">
             <h1 id="report-start" data-page-title="">
               <span className="sr-only">{t("日报合订本", "Daily archive")}</span>
-              <Nameplate which="archive" className="block h-[50px] w-auto @[520px]:h-[70px] @[880px]:h-[98px]" />
+              {en ? (
+                <span aria-hidden="true" className="block font-serif text-[36px] font-bold leading-[1.1] tracking-[-0.04em] text-ink @[520px]:text-[58px] @[880px]:text-[78px]">Daily archive</span>
+              ) : (
+                <Nameplate which="archive" className="block h-[50px] w-auto @[520px]:h-[70px] @[880px]:h-[98px]" />
+              )}
             </h1>
           </div>
           <div aria-hidden="true" className="border-t border-line-strong" />
@@ -56,14 +78,14 @@ export default function DailyArchive() {
           <SectionPage key={m.id} id={`m-${m.id}`} label={m.label}>
             <Rows items={m.entries}>
               {(e, cell) => (
-                <IntentLink viewTransition key={e.key} to={`/daily/${e.key}`} className={`group flex gap-4 py-4 ${cell}`}>
+                <IntentLink viewTransition key={e.key} to={reportPath("daily", e.key, language)} className={`group flex gap-4 py-4 ${cell}`}>
                   <span className="flex w-9 shrink-0 flex-col items-center">
                     <span className="num text-[24px] font-black leading-none tracking-[-0.03em] text-ink transition-colors group-hover:text-accent">{e.key.slice(8, 10)}</span>
                     <span className="mt-1.5 text-[10.5px] leading-none text-ink-4">{localizedWeekday(e.key, language)}</span>
                   </span>
                   <span className="min-w-0">
                     <span className="block text-[15px] font-bold leading-[1.55] text-ink transition-colors group-hover:text-accent">
-                      {e.title ?? (en ? `${SITE.name} Daily brief ${e.key}` : `日报 ${e.key}`)}
+                      {en ? englishText(e.titleEn) ?? englishText(e.title) ?? `Daily brief · ${e.key}` : e.title ?? `日报 ${e.key}`}
                     </span>
                     {!!e.count && (
                       <span className="mt-1 block text-[12px] text-ink-4">

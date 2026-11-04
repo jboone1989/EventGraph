@@ -30,3 +30,58 @@ export const EN_TOPIC_GROUPS: Record<string,[string,string]>={
   genre:["Research & explainers","Methods, analysis and tutorials"],
   company:["Organizations","Company releases and institutional updates"],
 };
+
+
+/**
+ * A publisher is not its article: translating an article never translates the
+ * attribution. Use the verified English names of the configured publications,
+ * retaining the Chinese label on the Chinese edition. Never disguise distinct
+ * Chinese outlets as the same anonymous "Publisher".
+ *
+ * All Chinese names in industry/sources.json must have an entry here. For a
+ * source created later in the admin, use its actual original URL hostname until
+ * an authoritative English name is configured.
+ */
+export const EN_SOURCE_NAMES: Record<string, string> = {
+  "Federal Reserve 新闻公告": "Federal Reserve · Press Releases",
+  "SEC 新闻公告": "U.S. SEC · Press Releases",
+  "BIS 新闻公告": "BIS · Press Releases",
+  "BIS 研究论文": "BIS · Research Papers",
+  "Google AI 官方博客": "Google AI · Official Blog",
+  "国家统计局 · 数据发布": "National Bureau of Statistics of China · Data Releases",
+  "中国新闻网 · 财经": "China News Service · Finance",
+  "中国新闻网 · 时政": "China News Service · China",
+  "中国新闻网 · 国际": "China News Service · World",
+  "中国新闻网 · 粤港澳大湾区": "China News Service · Greater Bay Area",
+  "量子位 · AI 产业与研究": "QbitAI · AI Industry & Research",
+  "IT之家 · 科技动态": "ITHome · Technology",
+  "香港金融管理局 · 新闻稿": "Hong Kong Monetary Authority · Press Releases",
+  "PANews · 中文文章": "PANews · Articles",
+  "PANews · 中文快讯": "PANews · News Flashes",
+  "中国人民银行 · 交流资讯": "People's Bank of China · News & Communications",
+  "中国证监会 · 发布公告": "China Securities Regulatory Commission · Announcements",
+  "工业和信息化部 · 工作动态": "Ministry of Industry and Information Technology · Updates",
+};
+
+export function englishSourceName(name: string, originalUrl?: string | null): string {
+  const normalized = name.replace(/\s+/g, " ").trim();
+  if (!hasHan(normalized)) return normalized || "Source";
+  const known = EN_SOURCE_NAMES[normalized];
+  if (known) return known;
+  // Source attribution must stay specific even if an operator introduces a
+  // Chinese-only source not yet in the verified name registry.
+  if (originalUrl) {
+    try {
+      const parsed = new URL(originalUrl);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        const host = parsed.hostname.replace(/^www\./, "");
+        if (host && !hasHan(host)) return host;
+      }
+    } catch { /* Do not derive a name from malformed source URLs. */ }
+  }
+  return "Untranslated source";
+}
+
+export function localizedSourceName(name: string, language: "en" | "zh", originalUrl?: string | null): string {
+  return language === "en" ? englishSourceName(name, originalUrl) : name;
+}

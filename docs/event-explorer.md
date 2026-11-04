@@ -30,6 +30,12 @@ Issue: https://github.com/jboone1989/EventGraph/issues/61
 
 ## 数据审计待办
 
+跨 Story 案例实验同样复用 `clock` / `asOf` URL 与既有时间控件：`known` 按每篇证据的 `discoveredAt`，`valid` 按来源 `publishedAt` 截断；显式未来发布的报道两种时钟都不提前显示，缺发布时间不猜测。非法、仅日期或无时区的截至参数回到最新，避免把不可解析时点伪装成空历史。站点、证据计数和端点失去证据的联系同步过滤。`known` 还要求人工联系的 `curatedAt` 不晚于截至时点；只有 ISO 日期而无时刻的标注，保守地等该 UTC 日期完整结束才显示，不伪造当天具体小时。`valid` 是事后回顾，保留后来的策展日期，不声称当时已知。
+
+StoryRoute 每站只携带最多六条、精选优先的来源，不代表全部成员。历史案例只把当前可展示的站/报道/来源计数标为下界，隐藏单来源推断；不从该子集重算后端的站级总来源数或真实首次收录时刻。站点仍按后端真实首次收录排序；在 known 回放中，只要权威 `timeRecorded` 已早于截至时点，即便当前最多六条精选来源都无法展示该时点前的成员，也保留站点并明确标注“有限来源无可展示证据”。这只证明本站当时已经记录过该站点，不补造被截断证据；无可展示证据也不能反推当时不存在报道。完整历史修订与被截断证据仍不在这次修复范围。
+
+历史案例不显示当前摘要或没有策展日期的负例说明；当前案例标题/轨道标签、已修订事实标题仍只是当前编排，页面明确说明这不是旧版本快照。“回到最新”恢复当前全部公开数据及负例。撤稿内容仍无法通过历史视角恢复。此修复覆盖 `event-evolution-experiment` FR-02/FR-04，FR-08 读者对照实验及 giscus 真实发帖仍另待验收。
+
 双时间过滤是对现有记录的**有界重建**，不等于可还原过去所有版本：Graphiti 的关系可能经后来的 Episode 更新、实体归并，PostgreSQL 的原始发布/修订字段亦可能覆盖旧值。要做金融 Agent 的严格历史决策复盘，需要额外验证历史修订快照或建立追加式变更账本；未经验证不得声称全量点时一致性。
 
 ## 混合版本开发环境的兼容性关卡
@@ -39,3 +45,52 @@ Issue: https://github.com/jboone1989/EventGraph/issues/61
 因此时点查询要求 Graphiti 显式返回 `temporalSupport: "bitemporal-v1"`。
 服务未升级时 API 只返回 `status: "unavailable"` 和空关系，绝不可把当前图谱当历史关系。
 完整的图谱时序功能必须在开发机上部署匹配的 Graphiti 服务并验证后才算上线。
+
+## 影响层与站级证据抽屉（impact-tracing P1）
+
+Spec：`specs/event-impact-tracing-p1/spec.md`（PR #198 merge `b9a913c`，Issue #176 T07）。P1 只补三件
+现有实现缺的东西：封闭的证据类型词汇（`packages/contracts` 的 `IMPACT_EVIDENCE_KINDS`：
+`fact_station` / `related_reporting` / `market_observation`；"客观暴露/依赖"与"分析假设"两类永远只
+以空态文案出现）、事实站的一跳类型化投影、站级来源证据抽屉。无新表、无迁移、无新查询、无模型
+调用、无回填；渲染不触发模型调用。
+
+- **字段透传**：`publicStoryRoute` 在同一条只读查询里补选 `facts.subject/action/object`（可空，null
+  保持 null），`StoryRouteStation` 契约增加同名 `string | null` 字段；公开过滤与合并解析不变。
+- **层归类**（`apps/web/app/features/story/impact-layers.ts` 纯函数）：每个站确定性归入唯一层，
+  优先级 `conflict_event`（结构化 action 命中冲突词）→ `policy_statement` → `company_disclosure`
+  （还须 action 明确为披露/停产/停工陈述）→ `logistics_observation` → `unclassified`。词典复用
+  PR #134；**结构化 action 缺失时不得用标题共现顶替动作守护**，冲突/企业分类不命中。词典只决定
+  "这条事实在哪个层被阅读"，错分可能性存在，层标签一律用"线索/陈述"措辞，绝不使用"影响/导致/
+  生效"，政策站永不显示"拟议/宣布/生效/撤销"阶段标签（是机构言语行为，不是政策生效状态）。
+- **抽屉**：影响工作台的"影响线索"页（手机端"来源"页同样可达）列出带层标签的事实站；每站与每条
+  `related_reporting` 线索都有可展开抽屉：原文链接（`source_open`）、`/items/:id` 入口、修订号
+  （`revision=null` 显示"原版/Original"，首版证据绝不隐藏）、occurred/published/discovered 三个
+  时间（随时钟高亮依据侧）、`singleSource`/`revised`/`occurredAtMissing` 旗标、evidenceKind 标签
+  与"有界重建"警示。事件页的 Story 路线面板同样带层标签与抽屉。
+- **红线**：任何两个层之间不渲染箭头/连线/连线语义，跨层"链"只能以"断链说明"文案出现；Graphiti
+  的泛化 `RELATES_TO` 不参与影响类型化；市场观测只来自 `market_snapshots`（数字共现如 "$117"
+  永不进入）；站点仅在无可显示报道（缺原文链接或缺 published/discovered 必需时间）时隐藏，隐藏不
+  反推不存在。图谱不可用时影响工作台照常渲染（route-only）。
+
+### 只读 DB 复核 SQL（供任意审查者复跑，不进 CI）
+
+```sql
+-- T0（story 3d1ae73d…）事实站与唯一证据行：层输入字段 + 三时间 + 修订
+SELECT f.public_id, f.title, f.subject, f.action, f.object, f.occurred_at,
+       p.revision, p.published_at, p.discovered_at, src.name AS source
+FROM facts f JOIN stories s ON s.id = f.story_id
+JOIN fact_articles fa ON fa.fact_id = f.id JOIN articles a ON a.id = fa.article_id
+JOIN publications p ON p.article_id = a.id JOIN sources src ON src.id = p.source_id
+WHERE s.public_id::text LIKE '3d1ae73d%';
+
+-- USTR 关税表态（story 7bdc9a83…）：政策层站，USTR 官方 + France24 两来源各自修订
+SELECT f.public_id, f.title, f.subject, f.action, f.object, src.name AS source, p.revision
+FROM facts f JOIN stories s ON s.id = f.story_id
+JOIN fact_articles fa ON fa.fact_id = f.id JOIN articles a ON a.id = fa.article_id
+JOIN publications p ON p.article_id = a.id JOIN sources src ON src.id = p.source_id
+WHERE s.public_id::text LIKE '7bdc9a83%' AND p.visibility = 'public';
+
+-- gCaptain 两稿的归组状态（T06 §6.1 背景案例；混淆控制证据）
+SELECT a.id, a.grouping_status, a.title FROM articles a
+JOIN sources src ON src.id = a.source_id WHERE src.id LIKE '%gcaptain%' ORDER BY a.created_at DESC;
+```

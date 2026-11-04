@@ -20,6 +20,13 @@ export default function Sources({ loaderData }: Route.ComponentProps) {
   const { rows, totals, page } = loaderData;
   const [sp] = useSearchParams();
   const navigate = useNavigate();
+  const setFilter = (key: string, value: string) => {
+    const next = new URLSearchParams(sp);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    next.delete("page");
+    navigate(`?${next}`, { preventScrollReset: true });
+  };
   return (
     <AdminPage
       title="信源"
@@ -35,8 +42,8 @@ export default function Sources({ loaderData }: Route.ComponentProps) {
       <Card pad={false}>
         <div className="flex flex-col gap-3 border-b border-line p-3 lg:flex-row lg:items-center lg:justify-between">
           <Form method="get" className="flex w-full max-w-md gap-2" preventScrollReset>
-            {["kind", "health", "mode"].map((k) => sp.get(k) && <input key={k} type="hidden" name={k} value={sp.get(k)!} />)}
-            <Input name="q" defaultValue={sp.get("q") ?? ""} placeholder="名称、ID 或地址" aria-label="搜索信源" />
+            {["kind", "health", "mode", "enabled"].map((k) => sp.get(k) && <input key={k} type="hidden" name={k} value={sp.get(k)!} />)}
+            <Input name="q" defaultValue={sp.get("q") ?? ""} placeholder="名称、ID、网址或标签（如：中国、科技）" aria-label="搜索信源" />
           </Form>
           <div className="flex flex-wrap items-center gap-3">
             <FilterChips param="health" options={[{ value: "", label: "全部" }, { value: "failing", label: "失败" }, { value: "degraded", label: "不稳定" }, { value: "paused", label: "暂停" }]} />
@@ -44,18 +51,25 @@ export default function Sources({ loaderData }: Route.ComponentProps) {
               aria-label="类型"
               className="!w-auto"
               value={sp.get("kind") ?? ""}
-              onChange={(e) => {
-                const next = new URLSearchParams(sp);
-                if (e.target.value) next.set("kind", e.target.value);
-                else next.delete("kind");
-                next.delete("page");
-                navigate(`?${next}`, { preventScrollReset: true });
-              }}
+              onChange={(e) => setFilter("kind", e.target.value)}
             >
               <option value="">全部类型</option>
               {Object.entries(KIND_LABEL).map(([k, v]) => (
                 <option key={k} value={k}>{v}</option>
               ))}
+            </Select>
+            <Select aria-label="启用状态" className="!w-auto" value={sp.get("enabled") ?? ""}
+              onChange={(e) => setFilter("enabled", e.target.value)}>
+              <option value="">启用与暂停</option>
+              <option value="true">仅启用</option>
+              <option value="false">仅暂停</option>
+            </Select>
+            <Select aria-label="内容参与模式" className="!w-auto" value={sp.get("mode") ?? ""}
+              onChange={(e) => setFilter("mode", e.target.value)}>
+              <option value="">全部用途</option>
+              <option value="editorial">新闻正文</option>
+              <option value="hot_signal">热度信号</option>
+              <option value="isolated">独立存档</option>
             </Select>
           </div>
         </div>

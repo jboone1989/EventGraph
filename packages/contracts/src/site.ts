@@ -87,6 +87,33 @@ export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "sum
   sameEvent?: { id: string; title: string } | null;
 }
 
+/** The event a report belongs to as its page's What Next layer (specs/news-explainer): the same status,
+ *  scale and newest evidence the event page shows, never a separate judgement. */
+export interface ItemStoryContext {
+  status: "active" | "watching" | "settled";
+  reportCount: number;
+  sourceCount: number;
+  latestAt: string | null;
+  /** The newest listed report — the event page's 最新进展; null when no evidence is listed today. */
+  latest: { id: string; title: string; englishTitle?: string | null } | null;
+}
+
+/** The item explainer (specs/news-explainer Phase 1): what the report's own source supports of 5W1H,
+ *  why it matters and what to watch next. Every field is optional — a source that does not say stays
+ *  empty instead of templated — and watchpoints carry the original's own date when it has one. */
+export interface ItemExplanation {
+  who: string | null;
+  what: string | null;
+  when: string | null;
+  where: string | null;
+  /** The cause as the source states or attributes it ("X 称…"), never an inferred motive. */
+  why: string | null;
+  how: string | null;
+  soWhat: string | null;
+  /** At most three verifiable watchpoints the report itself names, with its date when it names one. */
+  watchpoints: Array<{ text: string; date: string | null }>;
+}
+
 export interface GroupInfo {
   factId: string;
   /** Other public sources reporting this same news fact, under the current filters. */
@@ -166,11 +193,19 @@ export interface SiteItemDetail extends ItemSummary {
   /** The topics the report belongs to. */
   topics: TopicLink[];
   indexable: boolean;
+  /** When an editor marked this page for indexing (specs/003-content-assets FR-001); null/absent when not curated. */
+  curatedAt?: string | null;
   /** Whether its English page may be indexed: an English copy exists and the event has several reports. */
   englishIndexable: boolean;
   markdownAvailable: boolean;
   group: GroupInfo | null;
+  /** Absent in answers cached before the explainer shipped; null when the report has no event context. */
+  storyContext?: ItemStoryContext | null;
+  /** Absent in answers cached before the explainer shipped; null while no explanation matches the current copy. */
+  explanation?: ItemExplanation | null;
   hasTranslation: boolean;
+  /** This English-edition body is translated from the Chinese publisher original. */
+  englishBodyTranslated?: boolean;
   bodyLanguage: "zh" | "original";
 }
 
@@ -293,6 +328,10 @@ export interface StoryDetail {
   title: string;
   /** Whether the event page may be indexed: an editor curated a report of the event and it is not a thin single-source page (specs/002-adsense-readiness FR-006/FR-009). */
   indexable: boolean;
+  /** The newest curation mark among the event's reports (specs/003-content-assets FR-001); null/absent when uncurated. */
+  curatedAt?: string | null;
+  /** A single-report event whose digest is shorter than the indexing floor: shown as a quick note, not an event (FR-003). */
+  note?: boolean;
   status: "active" | "watching" | "settled";
   reportCount: number;
   sourceCount: number;
@@ -339,6 +378,10 @@ export type StoryRouteReport = {
 export type StoryRouteStation = {
   factId: string;
   title: string;
+  /** The fact's structured actor, action and object, read-only from the same query; null when unset. */
+  subject: string | null;
+  action: string | null;
+  object: string | null;
   /** The fact's stated occurrence time; null means the record only knows when it was reported. */
   timeEffective: string | null;
   /** When the system first recorded public evidence for this station. */
@@ -352,6 +395,12 @@ export type StoryRouteStation = {
     revised: boolean;
   };
 };
+// Impact-tracing P1 (specs/event-impact-tracing-p1 §2): the CLOSED evidence-kind vocabulary.
+// Every rendered impact item's kind comes from this set; "exposure" and "hypothesis" can never
+// appear as items — only as honest empty-state copy. Lock with the web unit tests.
+export const IMPACT_EVIDENCE_KINDS = ["fact_station", "related_reporting", "market_observation"] as const;
+export type ImpactEvidenceKind = (typeof IMPACT_EVIDENCE_KINDS)[number];
+
 export type StoryRoute = {
   schemaVersion: 1;
   story: StoryRef;
@@ -363,6 +412,69 @@ export type StoryRoute = {
   stations: StoryRouteStation[];
   coverage: { stations: number; reports: number; sources: number };
 };
+
+// Cross-event process experiments (specs/event-evolution-experiment): a manually curated case
+// laid out as parallel read-only tracks. Each track re-reads one public story's route through the
+// publication layer at request time, so withdrawn evidence drops out; cross-track links are
+// human annotations with verifiable sources — co-occurrence never becomes a link.
+
+export type CaseStudyLinkType =
+  | "response"
+  | "citation"
+  | "dependency"
+  | "claim"
+  | "follow-up";
+
+export interface CaseStudyLinkEvidence {
+  url: string;
+  source: string;
+  /** When the evidence itself was published. */
+  publishedAt: string;
+  /** Who makes the claim, for "claim" links; absent otherwise. */
+  attribution?: string;
+  attributionEn?: string;
+}
+
+export interface CaseStudyLink {
+  key: string;
+  /** Track key of the responding/citing/claiming side. */
+  from: string;
+  /** Track key of the side being pointed at. */
+  to: string;
+  type: CaseStudyLinkType;
+  note: string;
+  noteEn: string;
+  evidence: CaseStudyLinkEvidence;
+  /** When this annotation was curated (ISO date). */
+  curatedAt: string;
+}
+
+export interface CaseStudyTrack {
+  key: string;
+  label: string;
+  labelEn: string;
+  story: StoryRef;
+  status: "ok" | "insufficient";
+  stations: StoryRouteStation[];
+  coverage: { stations: number; reports: number; sources: number };
+}
+
+export interface CaseStudyResponse {
+  schemaVersion: 1;
+  id: string;
+  title: string;
+  titleEn: string;
+  summary: string;
+  summaryEn: string;
+  /** Last human update of the case definition (YYYY-MM-DD). */
+  updated: string;
+  generatedAt: string;
+  tracks: CaseStudyTrack[];
+  /** Only links whose both endpoints currently have public evidence. */
+  links: CaseStudyLink[];
+  /** Notes explaining deliberately unlinked tracks (the negative examples). */
+  unlinked: Array<{ track: string; note: string; noteEn: string }>;
+}
 
 // Reports (daily / weekly / monthly)
 
@@ -405,6 +517,8 @@ export interface ReportDetail {
   overview: string | null;
   /** A daily's overview in English, written from the Chinese one; null when there is none (English omits the block). */
   overviewEn: string | null;
+  /** The editor's own note above a daily (specs/004-editorial-ops FR-001); absent on non-dailies and unwritten days. */
+  editorNote?: { note: string; noteEn: string | null } | null;
   highlights: ReportCitation[];
   /** As edited: daily categories, weekly and monthly themes. */
   sections: Array<{ label: string; summary: string | null; items: ReportCitation[] }>;
@@ -426,6 +540,7 @@ export interface ReportIndexEntry {
   key: string;
   issueNumber: number;
   title: string | null;
+  titleEn?: string | null;
   count: number;
 }
 
@@ -512,7 +627,7 @@ export interface ItemAvailability {
 }
 
 /** An issue in the archive and the calendar, numbered in its whole series; closed daily months omit their titles. */
-export interface ReportNavigationEntry { key: string; issueNumber: number; title?: string | null; count?: number }
+export interface ReportNavigationEntry { key: string; issueNumber: number; title?: string | null; titleEn?: string | null; count?: number }
 
 // Topics
 

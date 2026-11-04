@@ -32,7 +32,11 @@ const provider = await stub(async (_hit, req) => {
     misalignedAnswers.set(bad[0], bad[1] - 1);
     return { id: "stub-bad-alignment", choices: [{ message: { content: '{"t":[]}' } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } };
   }
+  const toEnglish = String(JSON.parse(req.body).messages[0]?.content ?? "").includes("Translate each HTML fragment");
   const t = segments.map((s) => {
+    if (toEnglish) return s.includes('id="L0"')
+      ? 'A Chinese agency announced an AI safety standard. <a id="L0">Read the notice</a>.'
+      : 'A Chinese agency announced an AI safety standard.';
     // A block with a link and an image: the first answer drops the link, the second keeps everything.
     if (s.includes("Neuroglancer")) {
       const n = (asks.get(s) ?? 0) + 1;
@@ -72,6 +76,50 @@ after(async () => {
   await provider.close();
   await stopBoss();
   await closeDb();
+});
+
+test("a Chinese-language source gets an English body while its Chinese original remains intact", async () => {
+  const original = `中国机构发布了人工智能安全标准（${T}）。`;
+  const { articleId: id } = await upsertMaterial({
+    sourceId: SOURCE, url: `https://example.com/english-body-${T}`,
+    title: `人工智能标准-${T}`, language: "zh",
+    bodyText: `${original} 详情见官方公告。`,
+    bodyHtml: `<p>${original} <a href="https://example.com/standard">官方公告</a></p>`,
+    bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
+    discoveredAt: new Date(Date.now() + 25_000_000),
+  });
+  await sql`INSERT INTO analyses (article_id, input_revision, origin, relevance, category, title_zh, summary_zh, reason_zh, score, selected)
+            VALUES (${id}, 1, 'rule', 'pass', 'ai-models', ${`人工智能标准-${T}`}, '新标准发布。', '值得跟踪。', 90, true)`;
+  await publishArticle(id, { releasedAt: new Date(Date.now() - 60_000) });
+
+  const run = await translatePending({ limit: 1 });
+  assert.equal(run.done.find((r) => r.articleId === id)?.status, "translated");
+  const [saved] = await sql<{ lang: string; body_html: string; complete: boolean }[]>`
+    SELECT lang, body_html, complete FROM translations WHERE article_id = ${id}`;
+  assert.equal(saved?.lang, "en");
+  assert.equal(saved?.complete, true);
+  assert.match(saved!.body_html, /A Chinese agency announced/);
+  assert.match(saved!.body_html, /href="https:\/\/example.com\/standard"/);
+  assert.doesNotMatch(saved!.body_html, /[㐀-鿿]/);
+
+  const en = await app.inject({ method: "GET", url: `/api/site/items/${id}/original` });
+  assert.equal(en.statusCode, 200);
+  const englishItem = JSON.parse(en.body) as { body: { original: string | null; zh: string | null }; englishBodyTranslated: boolean };
+  assert.ok(englishItem.body.original?.includes("A Chinese agency"));
+  assert.equal(englishItem.body.zh, null);
+  assert.equal(englishItem.englishBodyTranslated, true);
+  const zh = await detail(id);
+  assert.ok(zh.body.zh?.includes(original));
+  assert.equal(zh.body.original, null);
+  const chineseOriginal = await app.inject({ method: "GET", url: `/api/site/items/${id}/original?edition=zh` });
+  assert.ok(JSON.parse(chineseOriginal.body).body.original.includes(original), "the Chinese original-text tab is unchanged");
+
+  // A corrected original invalidates the old English version until the worker runs again.
+  await sql`UPDATE articles SET revision = revision + 1, body_text = body_text || ' 更正。', body_html = body_html || '<p>更正。</p>' WHERE id = ${id}`;
+  const stale = await app.inject({ method: "GET", url: `/api/site/items/${id}/original` });
+  assert.equal(JSON.parse(stale.body).englishBodyTranslated, false);
+  assert.equal(JSON.parse(stale.body).body.original, null);
+  await sql`UPDATE publications SET selected = false WHERE article_id = ${id}`;
 });
 
 test("a text corrected while its translation was running is translated again, and the old translation is not shown", async () => {

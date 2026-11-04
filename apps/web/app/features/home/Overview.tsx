@@ -8,6 +8,7 @@ import { IntentLink } from "../../components/ui/IntentLink";
 import { IconArrowRight, IconArrowUpRight, IconCode, IconPlug, IconRss } from "../../components/icons";
 import { KnowledgeCanvas, type KnowledgeGraph, type KnowledgeStats } from "../../components/KnowledgeNetwork";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
+import { englishSourceName } from "../../lib/english";
 import { trackAnalytics } from "../../lib/analytics.client";
 import { Sparkline } from "../hot/Sparkline";
 import { Delta } from "../hot/Delta";
@@ -81,7 +82,7 @@ export function LeadStory({ entry, storyGraph, overview }: { entry: HotEntryView
   const eventPath = useEventPath();
   const own = storyGraph.edges.length > 0;
   const graph = own ? storyGraph : overview;
-  const voices = (entry?.sourceNames ?? []).filter((n) => !hasHan(n)).slice(0, 3);
+  const voices = (entry?.sourceNames ?? []).map(n => englishSourceName(n)).filter((n) => n !== "Untranslated source").slice(0, 3);
   return (
     <section className="lr-lead" aria-labelledby="lead-title">
       <div className="lr-lead-story">

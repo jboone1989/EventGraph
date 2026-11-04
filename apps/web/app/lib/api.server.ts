@@ -47,9 +47,9 @@ export async function apiGet<T>(path: string, init?: { signal?: AbortSignal; hea
  * Maps API failures to route responses: real 404s, the permanent redirect of a merged page (`merged`
  * gives the page of the id it was merged into), the search-busy page, otherwise 503.
  */
-export async function loadOr404<T>(path: string, opts: { busyRedirect?: string; merged?: (id: string) => string; responseHeaders?: Headers; signal?: AbortSignal } = {}): Promise<T> {
+export async function loadOr404<T>(path: string, opts: { busyRedirect?: string; merged?: (id: string) => string; responseHeaders?: Headers; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
   try {
-    return await apiGet<T>(path, { responseHeaders: opts.responseHeaders, signal: opts.signal });
+    return await apiGet<T>(path, { responseHeaders: opts.responseHeaders, signal: opts.signal, timeoutMs: opts.timeoutMs });
   } catch (error) {
     if (opts.signal?.aborted) throw error;
     if (error instanceof ApiError) {

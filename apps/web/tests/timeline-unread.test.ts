@@ -39,7 +39,7 @@ let web: WebServer;
 let origin: string;
 let chrome: Browser;
 let failNextPage = false;
-let boundaryRequests = 0;
+let boundaryCursors: string[] = [];
 
 const api = createServer((req, res) => {
   const url = new URL(req.url!, "http://local");
@@ -54,12 +54,20 @@ const api = createServer((req, res) => {
     const tag = url.searchParams.get("tag");
     const cursor = url.searchParams.get("cursor");
     if (tag === "boundary") {
-      boundaryRequests++;
+      // SSR and hydration can request the same cursor twice; count pages, not HTTP hits.
+      boundaryCursors.push(cursor ?? "1");
       const n = cursor ? Number(cursor) : 1;
       return res.end(JSON.stringify({ filters: { channel: "all", category: null, tag }, cards: [card(`boundary-${n}`, `批次 ${n}`)], nextCursor: n < 5 ? String(n + 1) : null, hot: null, dayCounts: { "2026-10-04": 5 } }));
     }
     if (tag === "group") {
       return res.end(JSON.stringify({ filters: { channel: "all", category: null, tag: "group" }, cards: [groupCard, readGroupCard], nextCursor: null, hot: null, dayCounts: { "2026-10-04": 2 } }));
+    }
+    if (tag === "since") {
+      return res.end(JSON.stringify({ filters: { channel: "all", category: null, tag }, cards: [
+        card("c1", "第一页文章甲"), card("c2", "第一页文章乙"),
+        card("older", "访问前报道", "2026-10-02T08:00:00.000Z"),
+        card("at-baseline", "访问当时报道", "2026-10-03T08:00:00.000Z"),
+      ], nextCursor: null, hot: null, dayCounts: { "2026-10-04": 2, "2026-10-03": 1, "2026-10-02": 1 } }));
     }
     if (tag === "read") {
       return res.end(JSON.stringify({ filters: { channel: "all", category: null, tag: "read" }, cards: [card("c1", "第一页文章甲")], nextCursor: null, hot: null, dayCounts: { "2026-10-04": 1 } }));
@@ -187,20 +195,66 @@ test("with everything read and no more pages, the filter says so instead of look
 test("all-read pages stop at the automatic bound and can continue manually without changing local records", async () => {
   const context = await readerWith(["boundary-1", "boundary-2", "boundary-3", "boundary-4"]);
   const page = await context.newPage();
-  boundaryRequests = 0;
+  boundaryCursors = [];
   try {
     await page.goto(`${origin}/?tag=boundary`);
     const raw = await page.evaluate(() => localStorage.getItem("aihot-read-items"));
     await page.getByRole("button", { name: "只看未读" }).click();
     const more = page.getByRole("button", { name: "加载更多", exact: true });
     await expect(more).toBeVisible();
-    assert.equal(boundaryRequests, 3, "the unread filter respects the existing three-batch limit");
+    assert.deepEqual([...new Set(boundaryCursors)].sort((a, b) => Number(a) - Number(b)), ["1", "2", "3"], "the unread filter stops before requesting batch four");
     await more.click();
     await expect(more).toBeVisible();
     await expect(page.getByText("这批精选都读过了", { exact: true })).toBeVisible();
     await more.click();
     await expect(page.getByRole("link", { name: "批次 5", exact: true })).toBeVisible();
-    assert.equal(boundaryRequests, 5);
+    assert.deepEqual([...new Set(boundaryCursors)].sort((a, b) => Number(a) - Number(b)), ["1", "2", "3", "4", "5"], "manual paging reaches batch five");
     assert.equal(await page.evaluate(() => localStorage.getItem("aihot-read-items")), raw);
+  } finally { await context.close(); }
+});
+
+test("a returning reader sees only newly published unread reports; unread-only remains independent", async () => {
+  const context = await readerWith(["c1"]);
+  await context.addInitScript(() => {
+    localStorage.setItem("eventgraph-feed-last-visit", "2026-10-03T08:00:00.000Z");
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(origin + "/?tag=since");
+    const first = page.locator('[data-item-id="c1"]');
+    const second = page.locator('[data-item-id="c2"]');
+    const older = page.locator('[data-item-id="older"]');
+    const atBaseline = page.locator('[data-item-id="at-baseline"]');
+    await expect(first).toBeVisible();
+    await expect(second.getByTestId("new-since-visit")).toBeVisible();
+    await expect(first.getByTestId("new-since-visit")).toHaveCount(0);
+    await expect(older).toBeVisible();
+    await expect(atBaseline).toBeVisible();
+    await expect(older.getByTestId("new-since-visit")).toHaveCount(0);
+    await expect(atBaseline.getByTestId("new-since-visit")).toHaveCount(0);
+    await page.getByRole("button", { name: "只看未读" }).click();
+    await expect(second).toBeVisible();
+    await expect(second.getByTestId("new-since-visit")).toBeVisible();
+    await expect(first).toHaveCount(0);
+    assert.match(await page.evaluate(() => localStorage.getItem("eventgraph-feed-last-visit")) ?? "", /^20\d\d-/);
+  } finally { await context.close(); }
+});
+
+test("a denied last-visit storage write disables new badges without disabling the feed", async () => {
+  const context = await chrome.newContext();
+  await context.addInitScript(() => {
+    localStorage.setItem("eventgraph-feed-last-visit", "2026-10-03T08:00:00.000Z");
+    const original = localStorage.setItem.bind(localStorage);
+    Object.defineProperty(localStorage, "setItem", { configurable: true, value: (key: string, value: string) => {
+      if (key === "eventgraph-feed-last-visit") throw new Error("storage blocked");
+      original(key, value);
+    } });
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(origin + "/");
+    await expect(page.getByRole("link", { name: "第一页文章乙", exact: true })).toBeVisible();
+    await expect(page.getByTestId("new-since-visit")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "只看未读" })).toBeVisible();
   } finally { await context.close(); }
 });

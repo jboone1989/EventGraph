@@ -4,7 +4,7 @@ import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {sql,closeDb} from '@aihot/backend/db';
 import {createConnection,updateConnection,deleteConnection,listConnections,loadConnection,
  createRegisteredModel,updateRegisteredModel,deleteRegisteredModel,getRegisteredModel,
- configurationFingerprint,routingState,normalizedRegistryActive,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel} from '@aihot/backend/providers/registry/connections';
+ configurationFingerprint,routingState,normalizedRegistryActive,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel,clearRegisteredModelCache} from '@aihot/backend/providers/registry/connections';
 import {storedCredential,credentialDigest} from '@aihot/backend/providers/registry/connection-secrets';
 import {ProviderConfigError,type ConnectionInput,type ModelInput} from '@aihot/backend/providers/registry/connection-types';
 import {migrateProviderConnections,migratedId} from '../scripts/migrate-provider-connections.ts';
@@ -18,10 +18,36 @@ const model=(providerId:string,extra:Partial<ModelInput>={}):ModelInput=>({provi
  body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'},stream:false,complexity:'medium',
  documentationUrl:null,notes:null,enabled:false,routeEnabled:false,...extra});
 after(closeDb);
+test('runtime model cache hits until cleared, while CRUD invalidates it automatically',async()=>{
+ const c=await createConnection(connection({name:'cache-'+randomUUID()}),'create',actor);
+ const m=await createRegisteredModel(model(c.id,{modelId:'before'}),'create',actor);
+ assert.equal((await loadModel(m.id)).model_id,'before');
+ await sql`UPDATE registered_models SET model_id='after' WHERE id=${m.id}::uuid`;
+ assert.equal((await loadModel(m.id)).model_id,'before');
+ clearRegisteredModelCache();
+ assert.equal((await loadModel(m.id)).model_id,'after');
+ const edited=await updateRegisteredModel(m.id,model(c.id,{modelId:'edited'}),m.version,'edit',actor);
+ assert.equal((await loadModel(m.id)).model_id,'edited');
+ await deleteRegisteredModel(m.id,edited.version,'delete',actor);
+ await assert.rejects(loadModel(m.id),/Model not found/);
+});
+
 test('persisted credential fingerprint is keyed, never the offline SHA-256 of an API secret',()=>{
  const weak='weak-secret-for-test',plain=createHash('sha256').update(weak).digest('hex');
  assert.notEqual(credentialDigest(weak),plain);
  assert.notEqual(credentialDigest(weak),credentialDigest(weak+'-rotated'));
+});
+
+
+test('a provider with no models can be deleted in one CRUD operation even when enabled',async()=>{
+ const first=await createConnection(connection({name:'empty-'+randomUUID(),enabled:true}),'create',actor);
+ assert.deepEqual(await deleteConnection(first.id,first.version,'delete empty connection',actor),{deleted:true});
+ const second=await createConnection(connection({name:'has-model-'+randomUUID(),enabled:true}),'create',actor);
+ const child=await createRegisteredModel(model(second.id),'create child',actor);
+ await assert.rejects(deleteConnection(second.id,second.version,'delete with child',actor),
+  e=>e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.id===child.id));
+ await deleteRegisteredModel(child.id,child.version,'delete child',actor);
+ assert.deepEqual(await deleteConnection(second.id,second.version,'delete empty connection',actor),{deleted:true});
 });
 
 test('credentials support replace, keep and clear, without values in views or audits',async()=>{
@@ -101,17 +127,18 @@ test('verification follows configuration fingerprints, including external creden
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.verifiedAt,null);
 });
 
-test('deletion reports concrete model/workflow dependencies and keeps enable separate',async()=>{
+test('deleting a bound model clears its workflow assignment and settings atomically',async()=>{
  const c=await createConnection(connection({enabled:false}),'test',actor);
  const m=await createRegisteredModel(model(c.id),'test',actor);
  const key='models.provider-test-'+randomUUID();
  await sql.begin(tx=>writeWorkflowModel(tx,key,m.id,actor));
- await assert.rejects(deleteRegisteredModel(m.id,m.version,'delete',actor),(e:unknown)=>
-  e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.kind==='workflow'&&d.id===key));
  await assert.rejects(deleteConnection(c.id,c.version,'delete',actor),(e:unknown)=>
   e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.kind==='model'&&d.id===m.id)&&e.dependencies.some(d=>d.id===key));
- await sql.begin(tx=>writeWorkflowModel(tx,key,null,actor));
  assert.deepEqual(await deleteRegisteredModel(m.id,m.version,'delete',actor),{deleted:true});
+ const [binding]=await sql`SELECT 1 FROM provider_workflow_models WHERE setting_key=${key}`;
+ const [setting]=await sql`SELECT 1 FROM settings WHERE key=${key}`;
+ assert.equal(binding,undefined);
+ assert.equal(setting,undefined);
  assert.deepEqual(await deleteConnection(c.id,c.version,'delete',actor),{deleted:true});
 });
 

@@ -1,6 +1,7 @@
 import { GoogleAuth } from "google-auth-library";
 import { cachedReport, providerJson, ProviderError, type Report } from "./external-report.ts";
 import { guardedFetch } from "../lib/http-fetch.ts";
+import { summarizeLandingPages, type PageKindStats } from "./search-page-types.ts";
 
 type Row = { keys?: string[]; clicks: number; impressions: number; ctr: number; position: number };
 export type SearchConsoleData = {
@@ -9,8 +10,13 @@ export type SearchConsoleData = {
   daily: Array<Row & { day: string }>;
   queries: Array<Row & { query: string }>;
   pages: Array<Row & { page: string }>;
+  pageTypes: PageKindStats[];
+  opportunities: Array<Row & { page: string }>;
+  pageRows: number;
+  pagesTruncated: boolean;
 };
 const cached = cachedReport<SearchConsoleData>();
+const PAGE_ROW_LIMIT = 1000;
 
 // Google OAuth and reporting must share the site's configured egress route.
 const googleFetch: typeof fetch = async (input, init) => {
@@ -45,7 +51,7 @@ export async function searchConsoleReport(): Promise<Report<SearchConsoleData>> 
         `https://www.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property!)}/searchAnalytics/query`, {
           method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
           body: JSON.stringify({ startDate, endDate, dimensions, type: "web", dataState: "final",
-            rowLimit: dimensions.length ? (dimensions[0] === "date" ? 31 : 10) : 1 }),
+            rowLimit: dimensions.length ? (dimensions[0] === "date" ? 31 : dimensions[0] === "page" ? PAGE_ROW_LIMIT : 10) : 1 }),
         }, googleFetch);
       if (result.rows !== undefined && !Array.isArray(result.rows)) throw new ProviderError("Search Console 报表格式无效。");
       if (result.rows?.some(r => !r || ![r.clicks, r.impressions, r.ctr, r.position].every(n => typeof n === "number" && Number.isFinite(n) && n >= 0)))
@@ -55,11 +61,15 @@ export async function searchConsoleReport(): Promise<Report<SearchConsoleData>> 
     // Totals come from their own query: anonymized search queries are omitted from keyword rows.
     const [totals, daily, queries, pages] = await Promise.all([query([]), query(["date"]), query(["query"]), query(["page"])]);
     const total = totals[0];
+    const pageRows = pages.map(r => ({ ...r, page: r.keys?.[0] ?? "" }));
+    const domain = property.startsWith("sc-domain:") ? property.slice("sc-domain:".length) : new URL(property).hostname;
+    const grouped = summarizeLandingPages(pageRows, domain, PAGE_ROW_LIMIT);
     return { property, startDate, endDate, clicks: total?.clicks ?? 0, impressions: total?.impressions ?? 0,
       ctr: total?.ctr ?? 0, position: total?.impressions ? total.position : null,
       daily: daily.map(r => ({ ...r, day: r.keys?.[0] ?? "" })).sort((a, b) => a.day.localeCompare(b.day)),
       queries: queries.map(r => ({ ...r, query: r.keys?.[0] ?? "" })),
-      pages: pages.map(r => ({ ...r, page: r.keys?.[0] ?? "" })),
+      pages: pageRows.slice(0, 10),
+      ...grouped,
     };
   }, data => data.impressions === 0);
 }

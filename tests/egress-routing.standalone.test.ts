@@ -10,6 +10,10 @@ import { guardedFetch } from "@aihot/backend/lib/http-fetch";
 
 const deployment = DEPLOYMENT as unknown as { directFetchHosts?: string[] };
 const previousHosts = deployment.directFetchHosts;
+// The production registry uses this host for NVIDIA. A stale SSH tunnel must not stall new-news stages.
+test("NVIDIA API host is eligible for the existing direct egress route", () => {
+  assert.ok(deployment.directFetchHosts?.includes("integrate.api.nvidia.com"));
+});
 const previousProxy = config.egressProxyUrl;
 const previousPrivate = config.allowPrivateNetworkFetch;
 const previousDispatcher = getGlobalDispatcher();

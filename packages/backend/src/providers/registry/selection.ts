@@ -31,12 +31,16 @@ export function rankStageProviders(rows:ProviderProfile[],stage:Stage,now=Date.n
 export async function selectConfiguredProviderForStage(stage:Stage,needsVision=false):Promise<string>{
  if(await normalizedRegistryActive()) {
   const connections=await listConnections(),wanted=needsVision?'vision':'text';
-  const protectedIds=new Set(connections.filter(c=>c.policy==='nvidia-free-trial').map(c=>c.id));
-  const models=(await listRegisteredModels()).filter(m=>protectedIds.has(m.providerId)&&m.adapter==='chat'&&m.routing.eligibleCapabilities.includes(wanted));
+  const enabled=new Map(connections.filter(c=>c.enabled&&c.credential.configured).map(c=>[c.id,c]));
+  // routeEnabled is the operator's explicit opt-in. A registered paid model can be a
+  // fallback when the NVIDIA free-trial pool is unhealthy, without a second routing engine.
+  const candidates=(await listRegisteredModels()).filter(m=>enabled.has(m.providerId)&&m.adapter==='chat'&&m.routing.eligibleCapabilities.includes(wanted));
   const intended=levels[weights[stage]??'medium'];
-  models.sort((a,b)=>Math.abs(levels[a.complexity]-intended)-Math.abs(levels[b.complexity]-intended)||a.id.localeCompare(b.id));
-  if(!models[0])throw Error('No eligible configured model for '+stage+'; test the current configuration');
-  return 'model:'+models[0].id;
+  candidates.sort((a,b)=>
+    (enabled.get(a.providerId)!.policy==='nvidia-free-trial'?0:1)-(enabled.get(b.providerId)!.policy==='nvidia-free-trial'?0:1)||
+    Math.abs(levels[a.complexity]-intended)-Math.abs(levels[b.complexity]-intended)||a.id.localeCompare(b.id));
+  if(!candidates[0])throw new BudgetExceededError('llm','waiting_for_verified_provider',300);
+  return 'model:'+candidates[0].id;
  }
  const eligible=rankStageProviders(await listProviders(),stage,Date.now(),needsVision);
  if(!eligible[0])throw new BudgetExceededError("nvidia","waiting_for_verified_provider",300);

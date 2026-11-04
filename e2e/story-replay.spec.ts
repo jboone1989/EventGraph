@@ -15,7 +15,7 @@ test("report playback steps forward/backward, accepts keyboard scrubbing and aut
   const seeded = process.env.E2E_SEEDED === "1";
   if (!story && !seeded) test.skip(true, "No published event is available");
   expect(story, "The seeded E2E job must publish a test event").toBeTruthy();
-  await open(page, "/story/" + encodeURIComponent(story!));
+  await open(page, "/en/explore?story=" + encodeURIComponent(story!));
 
   const replay = page.getByRole("region", { name: "Event report playback" });
   await expect(replay).toBeVisible();

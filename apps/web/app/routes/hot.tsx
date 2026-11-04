@@ -16,6 +16,7 @@ import { Delta } from "../features/hot/Delta";
 import { PhoneBar } from "../components/shell/PhoneBar";
 import { inNav } from "../components/shell/nav";
 import { useText, useUiLanguage } from "../components/LanguageSwitch";
+import { localizedSourceName } from "../lib/english";
 import type { Screen } from "../components/shell/screens";
 
 export const handle: Screen = { tab: inNav("/hot") ? "hot" : "featured", name: "事件树" };
@@ -51,7 +52,7 @@ const pad = (rank: number) => String(rank).padStart(2, "0");
 /** "某媒体、某账号 等 4 个来源 · 7 位参与者". */
 function Voices({ e }: { e: HotEntryView }) {
   const lang=useUiLanguage();
-  const names = e.sourceNames.slice(0, 2).map(name=>lang==="en"&&/[\u3400-\u9fff]/u.test(name)?"Publisher":name);
+  const names = e.sourceNames.slice(0, 2).map(name=>localizedSourceName(name, lang));
   return (
     <span className="min-w-0 text-[12.5px] leading-snug text-ink-4">
       {/* Lines break between the phrases, never inside one. */}

@@ -1,4 +1,4 @@
-// Curation-gated discovery (specs/002-adsense-readiness FR-006..FR-011), specified before the change:
+// Public-by-default discovery with optional, audited editorial endorsements:
 // - model selection alone no longer indexes a page; only the editor's mark does (curatedIndexOnly);
 // - the daily queue lists selected public pages nobody decided on yet, and the batch decision
 //   flips them (and audits each) in one transaction;
@@ -15,21 +15,24 @@ import { publishArticle } from '@aihot/backend/publication/publish';
 import { stopBoss } from '@aihot/backend/jobs/queue';
 import { upsertMaterial } from '@aihot/backend/content/materials';
 import { loadDiscoveryEntries } from '@aihot/backend/publication/sitemap';
+import { loadStoryDetail } from '@aihot/backend/publication/stories';
+import { loadItemDetail } from '@aihot/backend/publication/detail';
 import { overrideFields } from '@aihot/backend/admin/content';
 import { isIndexable } from '@aihot/backend/publication/rules';
-import { SEO } from '@aihot/site';
 
 const T = tag();
 const sourceId = `curate-${T}`;
 await sql`INSERT INTO sources (id, name, kind, tier, participation_mode) VALUES (${sourceId}, 'Curation test', 'rss', 'T1', 'editorial')`;
 after(async () => { await stopBoss(); await closeDb(); });
 
-test('the rule: selection alone no longer indexes; the editor mark does', () => {
-  assert.equal(SEO.curatedIndexOnly, true, 'this site curates its index');
+test('public editorial content is indexable by default without manual approval', () => {
   const base = { visibility: 'public', sourceMode: 'editorial', hasSummary: true, seoExcludedAt: null };
-  assert.equal(isIndexable({ ...base, selected: true, seoIndexedAt: null }), false, 'selected without a mark stays out');
-  assert.equal(isIndexable({ ...base, selected: false, seoIndexedAt: new Date() }), true, 'the editor mark indexes');
-  assert.equal(isIndexable({ ...base, selected: true, seoIndexedAt: new Date(), seoExcludedAt: new Date() }), false, 'exclusion wins');
+  assert.equal(isIndexable(base), true, 'search discovery does not require editor approval');
+  assert.equal(isIndexable({ ...base, seoExcludedAt: new Date() }), false, 'editor exclusion wins');
+  assert.equal(isIndexable({ ...base, visibility: 'withdrawn' }), false, 'withdrawals stay excluded');
+  assert.equal(isIndexable({ ...base, visibility: 'summary-only' }), false, 'private previews stay excluded');
+  assert.equal(isIndexable({ ...base, sourceMode: 'hot_signal' }), false, 'heat evidence is not an article');
+  assert.equal(isIndexable({ ...base, hasSummary: false }), false, 'empty pages remain excluded');
 });
 
 async function selectedArticle(reason: string) {
@@ -42,11 +45,12 @@ async function selectedArticle(reason: string) {
   return articleId;
 }
 
-test('the daily queue lists undecided selections; one batch flips and audits them', async () => {
+test('optional editorial queue records endorsements of already searchable pages', async () => {
   const a = await selectedArticle('每日一句编辑判断');
   const b = await selectedArticle('每日一句编辑判断'); // same line: FR-011 drops the later duplicate
   const rowsA = await curatePending(1);
-  assert.ok(rowsA.some((r) => r.id === a || r.id === b), 'undecided selections are queued');
+  assert.ok(rowsA.some((r) => r.id === a || r.id === b), 'optional review queue still includes unendorsed articles');
+  assert.ok((await sql`SELECT indexable FROM publications WHERE article_id IN (${a}, ${b})`).every(r => r.indexable), 'articles already searchable before endorsement');
   const [before] = await sql`SELECT reason FROM publications WHERE article_id = ${b}`;
   assert.equal(before!.reason, null, 'an identical reason within 24h is not repeated (FR-011)');
   const { changed } = await setSeoIndexedBatch({ ids: [a, b], indexed: true, reason: '每日策展：收录' }, `curate-${T}`);
@@ -73,24 +77,45 @@ async function storyWith(options: { digest: string; reports: Array<{ indexable: 
     const id = `curate-story-${T}-${randomUUID().slice(0, 8)}-${i}`;
     await sql`INSERT INTO articles (id, source_id, identity_key, url, title, published_at, timeline_at, discovered_at, updated_at)
       VALUES (${id}, ${sourceId}, ${id}, ${`https://example.org/${id}`}, '报道', '2026-10-01', '2026-10-01', '2026-10-01', '2026-10-01')`;
-    await sql`INSERT INTO publications (article_id, source_id, title, summary, url, timeline_at, discovered_at, sort_at, selected, eligible, indexable, visible_after, updated_at, channel, category, story_id, fact_id)
-      VALUES (${id}, ${sourceId}, '报道', '摘要', ${`https://example.org/${id}`}, '2026-10-01', '2026-10-01', '2026-10-01', true, true, ${r.indexable}, '2026-10-01', '2026-10-01', 'news', 'guide', ${story!.id}, ${fact!.id})`;
+    await sql`INSERT INTO publications (article_id, source_id, title, summary, url, timeline_at, discovered_at, sort_at, selected, eligible, indexable, seo_indexed_at, visible_after, updated_at, channel, category, story_id, fact_id)
+      VALUES (${id}, ${sourceId}, '报道', '摘要', ${`https://example.org/${id}`}, '2026-10-01', '2026-10-01', '2026-10-01', true, true, ${r.indexable}, ${r.indexable ? '2026-10-01' : null}, '2026-10-01', '2026-10-01', 'news', 'guide', ${story!.id}, ${fact!.id})`;
     await sql`INSERT INTO fact_articles (fact_id, article_id, role) VALUES (${fact!.id}, ${id}, 'primary')`;
   }
-  return publicId;
+  return { publicId, id: story!.id };
 }
 
-test('discovery stories need a curated report and reject thin single-source pages', async () => {
+test('sitemap reflects projected indexability and rejects thin single-source pages', async () => {
   const at = new Date('2026-10-09');
-  const thin = await storyWith({ digest: '太短', reports: [{ indexable: true }] });
-  const rich = await storyWith({ digest: '长'.repeat(120), reports: [{ indexable: true }] });
-  const multi = await storyWith({ digest: '短', reports: [{ indexable: false }, { indexable: true }] });
-  const uncurated = await storyWith({ digest: '长'.repeat(120), reports: [{ indexable: false }, { indexable: false }] });
+  const thin = (await storyWith({ digest: '太短', reports: [{ indexable: true }] })).publicId;
+  const rich = (await storyWith({ digest: '长'.repeat(120), reports: [{ indexable: true }] })).publicId;
+  const multi = (await storyWith({ digest: '短', reports: [{ indexable: false }, { indexable: true }] })).publicId;
+  const uncurated = (await storyWith({ digest: '长'.repeat(120), reports: [{ indexable: false }, { indexable: false }] })).publicId;
   const entries = await loadDiscoveryEntries(at);
   assert.ok(!entries.some((e) => e.loc === `/story/${thin}`), 'a single short-digest source stays out (FR-009)');
   assert.ok(entries.some((e) => e.loc === `/story/${rich}`), 'a substantial single source is indexed');
   assert.ok(entries.some((e) => e.loc === `/story/${multi}`), 'several reports with one curated report are indexed');
-  assert.ok(!entries.some((e) => e.loc === `/story/${uncurated}`), 'no curated report means no index (FR-006)');
+  assert.ok(!entries.some((e) => e.loc === `/story/${uncurated}`), 'stored ineligible reports remain outside sitemap');
   const richEntry = entries.find((e) => e.loc === `/story/${rich}`);
   assert.ok(richEntry?.lastmod, 'story entries carry a lastmod (FR-010)');
+});
+
+test('pages show who curated them and when; thin single-source events are quick notes', async () => {
+  const c = await selectedArticle('第二篇的策展判断');
+  const before = await loadItemDetail(c);
+  assert.equal(before.kind, 'found');
+  assert.equal(before.item.curatedAt, null, 'unendorsed pages remain searchable without a curation badge');
+  await setSeoIndexedBatch({ ids: [c], indexed: true, reason: '首页核对' }, `curate-${T}`);
+  const after = await loadItemDetail(c);
+  assert.ok(after.kind === 'found' && after.item.curatedAt, 'the editor mark carries through to the page');
+
+  const short = await storyWith({ digest: '太短', reports: [{ indexable: true }] });
+  const shortDetail = await loadStoryDetail(short.id);
+  assert.ok(shortDetail, 'the single-report event has a page');
+  assert.equal(shortDetail.note, true, 'a single short-digest event is labelled a quick note');
+  assert.ok(shortDetail.curatedAt, 'its curation date is exposed');
+  const long = await storyWith({ digest: '长'.repeat(120), reports: [{ indexable: true }] });
+  const longDetail = await loadStoryDetail(long.id);
+  assert.equal(longDetail?.note, false, 'a substantial event is not a quick note');
+  const none = await storyWith({ digest: '长'.repeat(120), reports: [{ indexable: false }] });
+  assert.equal((await loadStoryDetail(none.id))?.curatedAt, null, 'an uncurated event shows no curation line');
 });

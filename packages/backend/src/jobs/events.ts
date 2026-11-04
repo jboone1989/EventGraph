@@ -27,11 +27,14 @@ export async function sweepUngrouped(): Promise<{ enqueued: number }> {
     const rows = await tx<{ id: string }[]>`
       SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
       WHERE a.grouping_status = 'pending' AND a.created_at < now() - interval '3 minutes'
+        AND greatest(a.discovered_at, a.updated_at) >= now() - interval '24 hours'
         AND s.participation_mode = 'editorial' AND a.processing_state = 'analyzed' AND EXISTS (
           SELECT 1 FROM analyses an WHERE an.article_id = a.id AND an.input_revision = a.revision AND an.relevance = 'pass')
         AND NOT EXISTS (SELECT 1 FROM pgboss.job j WHERE j.name = ${QUEUES.group}
           AND j.data->>'articleId' = a.id AND j.state IN ('created', 'active', 'retry'))
-      ORDER BY a.created_at LIMIT 100 FOR UPDATE OF a SKIP LOCKED`;
+      -- Repair current news first. An old import must not occupy the bounded recovery batch.
+      ORDER BY a.backfill ASC, a.discovered_at DESC, a.id
+      LIMIT 100 FOR UPDATE OF a SKIP LOCKED`;
     let enqueued = 0;
     for (const row of rows) {
       if (await enqueue(QUEUES.group, { articleId: row.id }, { singletonKey: row.id }, tx)) enqueued += 1;

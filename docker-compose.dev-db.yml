@@ -1,0 +1,7 @@
+# cn-dev only: publish the isolated development PostgreSQL on host loopback for the
+# VM13 SSH tunnel (scripts/ci/deploy-vm13-preview.sh). Never merged into the compose
+# files production uses; never bound to a public interface.
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"

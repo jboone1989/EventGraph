@@ -1,5 +1,4 @@
 // Publication rules. Each rule is defined once here and used by every exit.
-import { SEO } from "@aihot/site";
 import { serverModules } from '../modules.ts';
 
 /** Presentation exceptions never alter scoring, selection eligibility or fact membership. */
@@ -65,14 +64,13 @@ export function mayRedistribute(source: SourceFacts, bodyMode: "full" | "summary
 }
 
 /**
- * Detail pages are noindex by default. With SEO.curatedIndexOnly (specs/002-adsense-readiness FR-006,
- * the AdSense "manual review or curation" clause) only an editor's index mark (`seo_indexed_at`)
- * indexes a page — model selection alone no longer does. With the flag off, selected items are
- * indexed automatically; an editor can still mark any other public page for indexing, or exclude one.
+ * Google/AdSense does not require an editor's approval before a public page may be indexed.
+ * Index every readable editorial article with a summary, whether selected or not.
+ * Manual exclusion, source visibility and actual content availability still take precedence.
+ * seo_indexed_at continues to record an optional editor endorsement, not search eligibility.
  */
-export function isIndexable(p: { visibility: string; sourceMode: string; hasSummary: boolean; selected: boolean; seoIndexedAt: Date | null; seoExcludedAt: Date | null }): boolean {
-  const curated = SEO.curatedIndexOnly ? p.seoIndexedAt !== null : (p.selected || p.seoIndexedAt !== null);
-  return p.visibility === "public" && hasItemPage(p) && p.hasSummary && p.seoExcludedAt === null && curated;
+export function isIndexable(p: { visibility: string; sourceMode: string; hasSummary: boolean; seoExcludedAt: Date | null }): boolean {
+  return p.visibility === "public" && hasItemPage(p) && p.hasSummary && p.seoExcludedAt === null;
 }
 
 /** Display tags exclude internal entity markers. */

@@ -1,13 +1,14 @@
 // Item detail and Markdown export, both behind the same visibility and licence rules.
-import type { OutlineEntry, SiteItemDetail, StoryRef } from "@aihot/contracts/site";
+import type { ItemExplanation, OutlineEntry, SiteItemDetail, StoryRef } from "@aihot/contracts/site";
 import { ITEM_COPY, SITE } from "@aihot/site";
 import { bodyToMarkdown } from "../content/markdown.ts";
 import { sql } from "../db.ts";
 import { stripTagMarkup } from "../lib/text.ts";
 import { proxyBodyImages } from "../media/imgproxy.ts";
 import { textToHtml } from "../content/sanitize.ts";
-import { exportTranslation, isChineseBody, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
-import { evidenceCondition, listedCondition, storyReportCondition } from "./scope.ts";
+import { exportTranslation, isChineseBody, EXPLAINABLE_PUBLICATION, EXPLAIN_ITEM_INPUTS, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
+import { storyContextFor } from "./stories.ts";
+import { evidenceCondition, listedCondition } from "./scope.ts";
 import { itemUrl, siteUrl } from "./links.ts";
 import { hasItemPage, publicSourceName } from "./rules.ts";
 import { topicLinks, topicMembership } from "./topics.ts";
@@ -18,7 +19,11 @@ interface DetailRow extends ItemRow {
   body_status: string;
   tr_html: string | null;
   tr_complete: boolean | null;
+  en_tr_html: string | null;
+  en_tr_complete: boolean | null;
   topics: string[];
+  story_id: number | null;
+  explanation: ItemExplanation | null;
 }
 
 export type DetailResult =
@@ -26,7 +31,6 @@ export type DetailResult =
   | { kind: "not_found" };
 
 /** An English page is indexed when its report is one of several on its event: the page then has an event to stand in. */
-export const INDEXED_MIN_REPORTS = 2;
 
 /** Adds stable ids to h2–h4 and returns the outline. */
 function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
@@ -42,13 +46,25 @@ function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
   return { html: out, outline };
 }
 
-async function loadRow(id: string): Promise<DetailRow | null> {
+async function loadRow(id: string, language: "zh" | "original" = "zh", explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
-      ${topicMembership()} AS topics
+      en_tr.body_html AS en_tr_html, en_tr.complete AS en_tr_complete,
+      st.id AS story_id, ${topicMembership()} AS topics, ie.content AS explanation
     ${ITEM_FROM}
+    LEFT JOIN translations en_tr ON en_tr.article_id = p.article_id AND en_tr.lang = 'en' AND en_tr.revision >= a.revision
+    LEFT JOIN item_explanations ie ON ie.article_id = p.article_id AND ie.outcome = 'written' AND ie.inputs_hash = ${EXPLAIN_ITEM_INPUTS} AND ${EXPLAINABLE_PUBLICATION}
+      AND ie.language = ${explanationLanguage}
     WHERE p.article_id = ${id}`;
   return row ?? null;
+}
+
+/** The explanation the page shows: the one written for this page's language (D-01) whose fields say
+ *  something; an insufficient-evidence record (the source says little) is kept in the table so it is not
+ *  asked again, and shows nothing. */
+function shownExplanation(content: ItemExplanation | null): ItemExplanation | null {
+  if (!content) return null;
+  return content.who || content.what || content.when || content.where || content.why || content.how || content.soWhat || (content.watchpoints?.length ?? 0) > 0 ? content : null;
 }
 
 /**
@@ -79,8 +95,8 @@ function readingBody(
  * lists leave out (low relevance, merged duplicates, no Chinese summary yet) keep a noindex page;
  * withdrawn and hot_signal items are a 404.
  */
-export async function loadItemDetail(id: string, language: "zh" | "original" = "zh", now = new Date()): Promise<DetailResult> {
-  const row = await loadRow(id);
+export async function loadItemDetail(id: string, language: "zh" | "original" = "zh", now = new Date(), explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailResult> {
+  const row = await loadRow(id, language, explanationLanguage);
   if (!row || !hasItemPage({ visibility: row.visibility, sourceMode: row.source_mode })) return { kind: "not_found" };
 
   const summary = toItemSummary(row);
@@ -101,9 +117,12 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
       relatedStories: [],
       topics: [],
       indexable: false,
+      curatedAt: null,
       englishIndexable: false,
       markdownAvailable: false,
       group: null,
+      storyContext: null,
+      explanation: null,
       hasTranslation: false,
       bodyLanguage: "original",
     };
@@ -122,16 +141,27 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     const post = xView(row, false, true);
     const text = String(row.x_post?.text ?? row.body_text ?? "");
     // A post's text is sent as written: its headings make the outline, without anchors.
-    if (post?.translation || text.trim()) reading = readingBody(language, post?.translation ? { html: textToHtml(post.translation), kind: "translation" } : null, text.trim() ? textToHtml(text) : null, true,
-      (html) => ({ html, outline: withOutline(html).outline }));
+    if (post?.translation || text.trim()) {
+      const englishEditionOfChinese = language === "original" && explanationLanguage === "en" && isChineseBody(row);
+      reading = readingBody(language,
+        post?.translation ? { html: textToHtml(post.translation), kind: "translation" } : null,
+        englishEditionOfChinese ? row.en_tr_html : text.trim() ? textToHtml(text) : null,
+        englishEditionOfChinese ? row.en_tr_complete ?? false : true,
+        (html) => ({ html, outline: withOutline(html).outline }));
+    }
     if (post) {
       const { text: _text, translation: _translation, ...shown } = post;
       x = shown;
     }
   } else if (row.body_mode === "full" && row.body_html) {
     const chinese = isChineseBody(row);
-    const zh = chinese ? { html: row.body_html, kind: "original" as const } : row.tr_html ? { html: row.tr_html, kind: "translation" as const } : null;
-    reading = readingBody(language, zh, chinese ? null : row.body_html, chinese ? true : row.tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
+    if (chinese && language === "original" && explanationLanguage === "en") {
+      reading = readingBody("original", null, row.en_tr_html, row.en_tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
+    } else {
+      const zh = chinese ? { html: row.body_html, kind: "original" as const } : row.tr_html ? { html: row.tr_html, kind: "translation" as const } : null;
+      reading = readingBody(language, zh, chinese ? (language === "original" ? row.body_html : null) : row.body_html,
+        chinese ? true : row.tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
+    }
   }
 
   let group: SiteItemDetail["group"] = null;
@@ -152,9 +182,6 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
 
   // The reason goes with the seat; a report yielding it points to the one holding it.
   const sameEvent = (await seatHolders([row], now)).get(row.id) ?? null;
-  const [event] = row.story_public_id ? await sql<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM publications p JOIN sources s ON s.id = p.source_id
-    WHERE p.story_id = (SELECT id FROM stories WHERE public_id = ${row.story_public_id}) AND ${storyReportCondition(now)}` : [];
   const item: SiteItemDetail = {
     ...summary,
     x,
@@ -166,12 +193,16 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     relatedStories: related,
     topics: topicLinks(row.topics),
     indexable: row.indexable,
-    // FR-012: the English page follows the Chinese page's curation decision, then adds its own bar
-    // (English copy of its own, event of several reports).
-    englishIndexable: row.indexable && !!row.en_title && (event?.n ?? 0) >= INDEXED_MIN_REPORTS,
+    // FR-001/FR-002: the editor's index mark is shown on the page as the curation date.
+    curatedAt: row.curated_at?.toISOString() ?? null,
+    // English pages with their own current translated copy may appear in search even for single-report events.
+    englishIndexable: row.indexable && !!row.en_title,
     markdownAvailable: markdownAvailable(row),
     group,
+    storyContext: row.story_id ? await storyContextFor(row.story_id, now) : null,
+    explanation: shownExplanation(row.explanation),
     hasTranslation: reading.hasTranslation,
+    englishBodyTranslated: language === "original" && explanationLanguage === "en" && isChineseBody(row) && !!row.en_tr_html,
     bodyLanguage: reading.bodyLanguage,
   };
   return { kind: "found", item, row };

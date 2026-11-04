@@ -26,6 +26,7 @@ export interface FeedItemProps {
   group?: GroupInfo | null;
   filters?: TimelineFilters;
   read?: boolean;
+  newSinceVisit?: boolean;
   onOpen?: (id: string) => void;
   /** Show category and tags under the text (全部动态, topics, search). */
   showTags?: boolean;
@@ -33,7 +34,7 @@ export interface FeedItemProps {
   at?: string;
 }
 
-export const FeedItem = memo(function FeedItem({ item, group, filters, read = false, onOpen, showTags = false, at }: FeedItemProps) {
+export const FeedItem = memo(function FeedItem({ item, group, filters, read = false, newSinceVisit = false, onOpen, showTags = false, at }: FeedItemProps) {
   const language=useUiLanguage();
   const isX = item.channel === "x" && !!item.x;
   // Only genuine source URLs, not the AIHot detail URL or untrusted schemes.
@@ -59,6 +60,9 @@ export const FeedItem = memo(function FeedItem({ item, group, filters, read = fa
           </span>
         )}
         <SourceLine item={item} className="text-ink-4" />
+        {newSinceVisit && <span data-testid="new-since-visit" className="shrink-0 rounded border border-line-soft px-1.5 text-[11px] font-medium text-accent">
+          {language === "zh" ? "上次访问后新增" : "New since last visit"}
+        </span>}
         <TierBadge tier={item.source.tier} />
         {at && (
           <time dateTime={at} className="mono shrink-0 text-[12px] lg:hidden">

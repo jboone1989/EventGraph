@@ -6,6 +6,7 @@ import path from "node:path";
 import { REPO_ROOT } from "@aihot/backend/config";
 import { closeDb, sql } from "@aihot/backend/db";
 import { assertSupportedConfig } from "@aihot/backend/sources/config-keys";
+import { EDITOR_NOTES } from "@aihot/site/editor-notes";
 
 interface SeedSource {
   id: string;
@@ -37,9 +38,31 @@ for (const s of sources) {
   added += inserted.length;
 }
 console.log(`sources: ${added} added, ${sources.length - added} already there`);
-// NVIDIA Developer Program endpoint: default conservative request budget, not a money limit.
-// An administrator can adjust this; setup never overwrites an existing setting.
-await sql`INSERT INTO budgets (service, per_minute, per_hour, per_day, note)
-  VALUES ('nvidia', 16, 480, 3000, 'NVIDIA Developer Program prototype tier: requests, no paid fallback')
-  ON CONFLICT (service) DO NOTHING`;
+// PR #97 may have already inserted these feeds before their wall-clock timezone was specified.
+// Fill only the missing key; preserve all other settings and explicit admin timezones.
+await sql`
+  UPDATE sources
+  SET config = config || jsonb_build_object('publishedAtUtcOffset', '+08:00')
+  WHERE id IN ('nbs-data-release', 'nbs-latest-releases-en')
+    AND kind = 'rss' AND NOT (config ? 'publishedAtUtcOffset')`;
+// The editor notes file seeds its rows once (specs/004-editorial-ops FR-001); after that the admin
+// owns them and a deploy never overwrites what was written there.
+for (const [day, note] of Object.entries(EDITOR_NOTES)) {
+  await sql`INSERT INTO editor_notes (day, note, note_en, updated_by) VALUES (${day}, ${note.note}, ${note.noteEn ?? null}, 'seed')
+    ON CONFLICT (day) DO NOTHING`;
+}
+// Enable the already implemented daily discovery/trial scheduler on first deployment.
+// Both development and production run this seed on every release. Only insert
+// missing settings; a subsequent admin choice (including disabling) wins.
+for (const setting of [
+  { key: "sourceLifecycle.discovery", value: { enabled: true, maxGaps: 6, maxCandidates: 8 } },
+  { key: "sourceLifecycle.autoPromote", value: { enabled: true } },
+]) {
+  await sql`
+    INSERT INTO settings (key, value, updated_by)
+    VALUES (${setting.key}, ${sql.json(setting.value)}, 'seed:source-lifecycle')
+    ON CONFLICT (key) DO NOTHING`;
+}
+// Model providers are not throttled by project-owned seed defaults.
+// Existing operator budgets are managed separately; provider HTTP 429 still has retry handling.
 await closeDb();

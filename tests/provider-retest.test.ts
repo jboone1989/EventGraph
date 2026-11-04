@@ -45,24 +45,24 @@ test('disabled by default or with either flag off: no model call and no audit',a
  }
  network.assertNoPendingInterceptors();
 });
-test('selects only enabled, routed, previously successful single capabilities near or just past 24 h',async()=>{
+test('refreshes enabled routed checks even if last scheduler run was missed',async()=>{
  await cleanup();on();
  const near=await seed(23),past=await seed(26),fresh=await seed(10),dead=await seed(40),never=await seed(null),
   failed=await seed(23,{},'failed'),unrouted=await seed(23,{routeEnabled:false}),
   mismatch=await seed(23,{probeSpec:{capability:'vision',body:{messages:[{role:'user',content:[{type:'image_url',image_url:{url:'https://example.invalid/sample.png'}}]}]},response:'chat'},capabilities:['text','vision']});
- reply();reply();
+ reply();reply();reply();
  const out=await retestExpiringModels();
- assert.deepEqual([out.state,out.tested,out.failed],['ran',2,0]);
+ assert.deepEqual([out.state,out.tested,out.failed],['ran',3,0]);
  network.assertNoPendingInterceptors();
  assert.ok(await verifiedAt(near)>Date.now()-HOUR&&await verifiedAt(past)>Date.now()-HOUR);
  assert.ok(await verifiedAt(fresh)<Date.now()-9*HOUR);
- assert.ok(await verifiedAt(dead)<Date.now()-39*HOUR);
+ assert.ok(await verifiedAt(dead)>Date.now()-HOUR, 'expired for 40h must recover');
  assert.equal((await sql`SELECT 1 FROM registered_model_checks WHERE model_id=${never}::uuid`).length,0);
  for(const id of [failed,unrouted,mismatch])assert.ok(await verifiedAt(id)<Date.now()-22*HOUR);
  const audits=await sql`SELECT action FROM audit_log WHERE actor='system:provider-retest' AND subject IN (${near},${past})`;
  assert.equal(audits.length,2);
 });
-test('changed configuration is not retested; repeat and concurrent runs spend once; batch is capped',async()=>{
+test('changed configuration can be retested; repeat and concurrent runs spend once; batch is capped',async()=>{
  await cleanup();on();
  const changed=await seed(23);
  // Simulate an upstream configuration edit made after the last successful probe.
@@ -71,17 +71,17 @@ test('changed configuration is not retested; repeat and concurrent runs spend on
  // A second worker may start before the first releases its advisory lock
  // (returns locked) or just afterwards (processes the remaining models).
  // Both outcomes are valid; no model may be probed twice in either case.
- for(let i=0;i<5;i++)reply();
+ for(let i=0;i<6;i++)reply();
  const [a,b]=await Promise.all([retestExpiringModels(),retestExpiringModels()]);
  assert.ok(a.tested<=3&&b.tested<=3,'each batch must remain bounded');
- assert.ok(a.tested+b.tested>=3&&a.tested+b.tested<=5);
- const remaining=5-a.tested-b.tested;
+ assert.ok(a.tested+b.tested>=3&&a.tested+b.tested<=6);
+ const remaining=6-a.tested-b.tested;
  const second=await retestExpiringModels();
  assert.equal(second.tested,remaining);
  const third=await retestExpiringModels();
  assert.equal(third.tested,0);
  network.assertNoPendingInterceptors();
- assert.ok(await verifiedAt(changed)<Date.now()-22*HOUR);
+ assert.ok(await verifiedAt(changed)>Date.now()-HOUR, 'configuration change is retried instead of stranded');
 });
 test('a failing provider does not stop the batch and its failure is audited',async()=>{
  await cleanup();on();
@@ -94,4 +94,17 @@ test('a failing provider does not stop the batch and its failure is audited',asy
  assert.equal((await sql`SELECT status FROM registered_model_checks WHERE model_id=${bad}::uuid`)[0]!.status==='verified'
   ||(await sql`SELECT status FROM registered_model_checks WHERE model_id=${good}::uuid`)[0]!.status==='verified',true);
  assert.ok((await sql`SELECT 1 FROM audit_log WHERE action='provider.model.retest.run'`).length>=1);
+});
+
+test('a failed capability probe is eligible for bounded automatic recovery after six hours',async()=>{
+ await cleanup();on();
+ const id=await seed(30,{},'failed');
+ await sql`UPDATE registered_models SET route_enabled=true WHERE id=${id}::uuid`;
+ await sql`UPDATE registered_model_checks SET updated_at=now()-interval '7 hours' WHERE model_id=${id}::uuid`;
+ reply();
+ const first=await retestExpiringModels();
+ assert.equal(first.tested,1);
+ assert.ok(await verifiedAt(id)>Date.now()-HOUR);
+ const second=await retestExpiringModels();
+ assert.equal(second.tested,0,'a successful probe is not billed twice before expiry');
 });

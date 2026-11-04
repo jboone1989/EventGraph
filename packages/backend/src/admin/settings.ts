@@ -76,3 +76,16 @@ export async function updateBudget(service: string, input: { perMinute: number; 
   await audit(actor, "budget.update", `budget:${service}`, input.reason, before ?? null, after);
   return after;
 }
+
+/** Remove an operator-defined throttle. In paidRequest, a missing row means no local request cap. */
+export async function removeBudgetLimit(service: string, input: { reason: string }, actor: string) {
+  if (!input.reason?.trim()) throw new Error("reason is required");
+  return sql.begin(async (tx) => {
+    const [before] = await tx`SELECT service, per_minute, per_hour, per_day FROM budgets WHERE service = ${service} FOR UPDATE`;
+    if (!before) return { service, unlimited: true };
+    await tx`DELETE FROM budgets WHERE service = ${service}`;
+    const after = { service, unlimited: true };
+    await audit(actor, "budget.unlimited", `budget:${service}`, input.reason, before, after, { db: tx });
+    return after;
+  });
+}

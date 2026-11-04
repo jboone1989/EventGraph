@@ -1,4 +1,4 @@
-// Full-text Chinese translations: made by the worker after an item
+// Full-text translations in the reader's other language: made by the worker after an item
 // is selected, for sources whose full text may be shown on the site; a page read never translates.
 // Bodies are translated block by block (paragraphs, headings, list items, captions, table cells) so the
 // sanitised structure stays as it is. Inside a block, images and inline code never reach the model
@@ -22,6 +22,7 @@ import { promptText, promptVersion } from "./prompts.ts";
 import { emit } from "../modules.ts";
 
 export const TRANSLATE_PROMPT_VERSION = promptVersion("translate-body", "translate-post");
+export const TRANSLATE_EN_PROMPT_VERSION = promptVersion("translate-body-en", "translate-post-en");
 const BATCH_CHARS = 3500;
 /** Longer bodies get their first part translated and are marked incomplete. */
 const MAX_CHARS = 60_000;
@@ -38,6 +39,9 @@ class TranslationInterruptedError extends Error {}
 const SYSTEM_BODY = promptText("translate-body");
 
 const SYSTEM_POST = promptText("translate-post");
+const SYSTEM_BODY_EN = promptText("translate-body-en");
+const SYSTEM_POST_EN = promptText("translate-post-en");
+type TargetLanguage = "zh" | "en";
 
 export interface TranslateResult {
   articleId: string;
@@ -51,7 +55,7 @@ export interface TranslateResult {
 const isChinese = (language: string | null, sample: string) => language === "zh" || (/[一-鿿]/.test(sample.slice(0, 400)) && language !== "en");
 
 /** Leaf text blocks of a sanitised body, in document order, skipping code. */
-function segmentsOf($: cheerio.CheerioAPI): Element[] {
+function segmentsOf($: cheerio.CheerioAPI, target: TargetLanguage = "zh"): Element[] {
   const out: Element[] = [];
   const visit = (nodes: AnyNode[]) => {
     for (const node of nodes) {
@@ -60,7 +64,7 @@ function segmentsOf($: cheerio.CheerioAPI): Element[] {
       if (el.name === "pre" || el.name === "code") continue;
       const hasBlockChild = el.children.some((c) => c.type === "tag" && CONTAINER.test((c as Element).name));
       if (BLOCK.has(el.name) && !hasBlockChild) {
-        if (/[A-Za-zÀ-ɏЀ-ӿ぀-ヿ]/.test($(el).text())) out.push(el);
+        if (target === "en" ? /[㐀-鿿]/.test($(el).text()) : /[A-Za-zÀ-ɏЀ-ӿ぀-ヿ]/.test($(el).text())) out.push(el);
         continue;
       }
       visit(el.children);
@@ -75,15 +79,15 @@ interface BatchTranslation {
   receiptId: number;
 }
 
-async function translateBatch(articleId: string, revision: number, index: number, parts: string[], system: string, attemptTag?: string): Promise<BatchTranslation> {
+async function translateBatch(articleId: string, revision: number, index: number, parts: string[], system: string, attemptTag?: string, target: TargetLanguage = "zh"): Promise<BatchTranslation> {
   if (shutdownSignal.signal.aborted) throw new TranslationInterruptedError("worker shutting down");
   const model = await modelFor("translate");
   if (shutdownSignal.signal.aborted) throw new TranslationInterruptedError("worker shutting down");
   const res = await chatJson({
     model,
     purpose: "translate_body",
-    subject: `article:${articleId}@${revision}#${index}`,
-    promptVersion: TRANSLATE_PROMPT_VERSION,
+    subject: `article:${articleId}@${revision}#${target === "en" ? "en-" : ""}${index}`,
+    promptVersion: target === "en" ? TRANSLATE_EN_PROMPT_VERSION : TRANSLATE_PROMPT_VERSION,
     system,
     user: JSON.stringify({ segments: parts }),
     schema: Output,
@@ -92,12 +96,13 @@ async function translateBatch(articleId: string, revision: number, index: number
     timeoutMs: 180_000,
     attemptTag,
   });
-  return { translated: res.data.t.length === parts.length ? res.data.t : null, receiptId: res.receiptId };
+  const valid = res.data.t.length === parts.length && (target !== "en" || res.data.t.every((t) => !/[㐀-鿿]/.test(t)));
+  return { translated: valid ? res.data.t : null, receiptId: res.receiptId };
 }
 
 /** Translates batches, retaining every paid receipt used before the final body is committed. */
 async function translateAll(
-  articleId: string, revision: number, parts: string[], system: string, attemptTag?: string,
+  articleId: string, revision: number, parts: string[], system: string, attemptTag?: string, target: TargetLanguage = "zh",
 ): Promise<{ translations: Array<string | null>; receiptIds: number[] }> {
   const out: Array<string | null> = new Array(parts.length).fill(null);
   const receiptIds: number[] = [];
@@ -108,13 +113,13 @@ async function translateAll(
     let chars = 0;
     while (end < parts.length && (end === start || chars + parts[end]!.length <= BATCH_CHARS)) chars += parts[end++]!.length;
     const batch = parts.slice(start, end);
-    const first = await translateBatch(articleId, revision, index++, batch, system, attemptTag);
+    const first = await translateBatch(articleId, revision, index++, batch, system, attemptTag, target);
     receiptIds.push(first.receiptId);
     let done = first.translated;
     if (!done && batch.length > 1) {
       const mid = Math.ceil(batch.length / 2);
-      const left = await translateBatch(articleId, revision, index++, batch.slice(0, mid), system, attemptTag);
-      const right = await translateBatch(articleId, revision, index++, batch.slice(mid), system, attemptTag);
+      const left = await translateBatch(articleId, revision, index++, batch.slice(0, mid), system, attemptTag, target);
+      const right = await translateBatch(articleId, revision, index++, batch.slice(mid), system, attemptTag, target);
       receiptIds.push(left.receiptId, right.receiptId);
       done = left.translated && right.translated ? [...left.translated, ...right.translated] : null;
     }
@@ -175,23 +180,23 @@ export async function translateArticle(articleId: string, attemptTag?: string): 
   if (!row) return { articleId, status: "skipped", reason: "not published" };
   const result = (r: Omit<TranslateResult, "articleId" | "revision">): TranslateResult => ({ articleId, revision: row.revision, ...r });
   if (!row.selected || row.visibility !== "public" || row.body_mode !== "full") return result({ status: "skipped", reason: "not a selected full-text item" });
+  const target: TargetLanguage = isChinese(row.language, row.channel === "x" ? String(row.x_post?.text ?? row.body_text ?? "") : row.body_text ?? row.body_html ?? "") ? "en" : "zh";
 
   if (row.channel === "x") {
     const text = String(row.x_post?.text ?? row.body_text ?? "").trim();
     if (isEmptyOrLinkOnly(text)) return result({ status: "skipped", reason: "no text to translate" });
     const meaningful = collapseWhitespace(text.replace(/https?:\/\/\S+/g, ""));
-    if (isChinese(row.language, text)) return result({ status: "skipped", reason: "already Chinese" });
-    if (meaningful.length < X_MIN_CHARS) return result({ status: "skipped", reason: "short post" });
-    const translated = await translateAll(articleId, row.revision, [text], SYSTEM_POST, attemptTag);
+    if (meaningful.length < (target === "en" ? 10 : X_MIN_CHARS)) return result({ status: "skipped", reason: "short post" });
+    const translated = await translateAll(articleId, row.revision, [text], target === "en" ? SYSTEM_POST_EN : SYSTEM_POST, attemptTag, target);
     const [t] = translated.translations;
     if (!t) return result({ status: "failed", reason: "translation did not line up" });
-    await store(articleId, row.revision, row.title, textToHtml(t), t, true, translated.receiptIds);
+    await store(articleId, row.revision, row.title, textToHtml(t), t, true, translated.receiptIds, target);
     return result({ status: "translated", segments: 1 });
   }
 
-  if (!row.body_html || isChinese(row.language, row.body_text ?? "")) return result({ status: "skipped", reason: "no foreign-language body" });
+  if (!row.body_html) return result({ status: "skipped", reason: "no body" });
   const $ = cheerio.load(row.body_html, null, false);
-  const blocks = segmentsOf($);
+  const blocks = segmentsOf($, target);
   if (!blocks.length) return result({ status: "skipped", reason: "no translatable text" });
   // Beyond the cap, only the leading blocks are translated; the rest keep the original text.
   let budget = MAX_CHARS;
@@ -206,13 +211,14 @@ export async function translateArticle(articleId: string, attemptTag?: string): 
   if (!chosen.length) return result({ status: "skipped", reason: "no batch translated" });
   const shielded = chosen.map((el) => shield($(el).html() ?? ""));
   const restore = (answers: Array<string | null>) => answers.map((t, i) => (t === null ? null : unshield(t, shielded[i]!)));
-  const first = await translateAll(articleId, row.revision, shielded.map((b) => b.html), SYSTEM_BODY, attemptTag);
+  const system = target === "en" ? SYSTEM_BODY_EN : SYSTEM_BODY;
+  const first = await translateAll(articleId, row.revision, shielded.map((b) => b.html), system, attemptTag, target);
   const receiptIds = [...first.receiptIds];
   const translations = restore(first.translations);
   // Blocks whose answer dropped a link or an image are asked once more, on their own receipt.
   const missing = translations.flatMap((t, i) => (t === null ? [i] : []));
   if (missing.length) {
-    const again = await translateAll(articleId, row.revision, missing.map((i) => shielded[i]!.html), SYSTEM_BODY, attemptTag ? `${attemptTag}:retry` : "retry");
+    const again = await translateAll(articleId, row.revision, missing.map((i) => shielded[i]!.html), system, attemptTag ? `${attemptTag}:retry` : "retry", target);
     receiptIds.push(...again.receiptIds);
     missing.forEach((i, k) => (translations[i] = again.translations[k] ? unshield(again.translations[k]!, shielded[i]!) : null));
   }
@@ -227,16 +233,16 @@ export async function translateArticle(articleId: string, attemptTag?: string): 
   if (!done) return result({ status: "failed", reason: "no batch translated" });
   const complete = done === blocks.length;
   const html = sanitizeBody($.html());
-  await store(articleId, row.revision, row.title, html, cheerio.load(html, null, false).root().text().trim(), complete, receiptIds);
+  await store(articleId, row.revision, row.title, html, cheerio.load(html, null, false).root().text().trim(), complete, receiptIds, target);
   return result({ status: complete ? "translated" : "partial", segments: done });
 }
 
-async function store(articleId: string, revision: number, title: string, html: string, text: string, complete: boolean, receiptIds: number[]) {
+async function store(articleId: string, revision: number, title: string, html: string, text: string, complete: boolean, receiptIds: number[], target: TargetLanguage = "zh") {
   // Never over a translation of a later revision (a slow run finishing after a newer one).
   await sql.begin(async (tx) => {
     const changed = await tx`
       INSERT INTO translations (article_id, lang, revision, title, body_html, body_text, complete, origin)
-      VALUES (${articleId}, 'zh', ${revision}, ${title}, ${html}, ${text}, ${complete}, 'model')
+      VALUES (${articleId}, ${target}, ${revision}, ${title}, ${html}, ${text}, ${complete}, 'model')
       ON CONFLICT (article_id, lang) DO UPDATE SET revision = EXCLUDED.revision, title = EXCLUDED.title, body_html = EXCLUDED.body_html,
         body_text = EXCLUDED.body_text, complete = EXCLUDED.complete, origin = 'model', created_at = now()
       WHERE translations.origin <> 'source' AND translations.revision <= EXCLUDED.revision
@@ -331,9 +337,11 @@ export async function translatePending(opts: { limit?: number; budgetMs?: number
     SELECT p.article_id, t.attempts AS last_attempts, t.outcome AS last_outcome, t.reason AS last_reason,
            t.request_tag AS last_request_tag
     FROM publications p JOIN articles a ON a.id = p.article_id
-    LEFT JOIN translations tr ON tr.article_id = p.article_id AND tr.lang = 'zh'
+    LEFT JOIN translations tr ON tr.article_id = p.article_id AND tr.lang = CASE
+      WHEN a.language = 'zh' OR (coalesce(a.language, '') <> 'en' AND left(coalesce(a.body_text, a.excerpt, a.x_post->>'text', a.body_html, ''), 400) ~ '[一-鿿]')
+      THEN 'en' ELSE 'zh' END
     LEFT JOIN translation_attempts t ON t.article_id = p.article_id AND t.revision = a.revision
-    WHERE p.selected AND p.visibility = 'public' AND p.body_mode = 'full' AND coalesce(a.language, '') <> 'zh'
+    WHERE p.selected AND p.visibility = 'public' AND p.body_mode = 'full'
       AND (p.discovered_at > now() - interval '3 days'
            OR EXISTS (SELECT 1 FROM article_revisions r WHERE r.article_id = a.id AND r.revision = a.revision AND r.revision > 1
                       AND r.created_at > now() - interval '3 days'))

@@ -13,19 +13,21 @@ specs/<feature>/
 
 Get the user's approval before implementing substantial behavior changes. Reference the approved `spec.md` **Git SHA and path** (or approved Issue) in the implementation PR. A spec edited only in an implementation branch is a draft, not proof of approval.
 
-For a small fix, an Issue with concrete acceptance criteria is sufficient. Either ChatGPT or Claude can review against the approved version.
+For Specs intended for automatic task intake, use the strict Work Items format in [docs/spec-review.md](../docs/spec-review.md) and [Spec 015](015-spec-task-intake/spec.md). The Producer creates Issues only after an owner-merged, owner-approved Spec PR reaches `develop`.
 
-For Specs intended for automatic Project #2 and native Work Queue intake, use the strict Work Items format in [docs/spec-review.md](../docs/spec-review.md) and [Spec 015](015-spec-task-intake/spec.md). The Producer creates Issues only after an owner-merged, owner-approved Spec PR reaches `develop`.
+For a small fix, an Issue with concrete acceptance criteria is sufficient. Either ChatGPT or Claude can review against the approved version.
 
 ## Product specifications
 
+- [Dynamic source lifecycle (007) — coverage audit + auto discovery/trial/promotion spec](007-dynamic-source-lifecycle/spec.md)
 - [EventGraph Explorer + Story — Draft full product spec](eventgraph-explorer/spec.md)
 - [Minimal reuse/implementation plan](eventgraph-explorer/plan.md)
 - [Agent-sized tasks and acceptance](eventgraph-explorer/tasks.md)
 - [Agent handoff guide](eventgraph-explorer/handoff.md)
-
-The Explorer + Story documents are **DRAFT** until explicitly approved; implementation must pin the approved revision.
-
 ## Agent operations specifications
 
-- [Spec-driven GitHub Projects + native Work Queue intake (015)](015-spec-task-intake/spec.md)
+- [GitHub-hosted autonomous development queue (012) — owner-approved, operational](012-github-hosted-agent-queue/spec.md)
+- [Multi-engine GH-AW Workers (013) — Owner-approved 2026-10-30; pending merge](013-projects-agent-workers/spec.md)
+- [Spec-driven GitHub Projects + native Work Queue intake (015) — Owner-approved 2026-11-03; pending merge](015-spec-task-intake/spec.md)
+
+The Explorer + Story documents remain **DRAFT** until explicitly approved. Spec 013 is owner-approved on 2026-10-30; implementation must pin its exact merged revision.

@@ -21,8 +21,12 @@ if (config.environmentName === "production" && !(config.adminPassword && config.
 
 const app = await buildApp();
 await app.listen({ port: config.apiPort, host: process.env.API_HOST || "127.0.0.1" });
-startHeartbeat(`api:${config.apiPort}`);
-startWorkerWatchdog();
+// VM13 may write administrative changes to production data but must not start
+// a second heartbeat or worker watchdog. Keep this independent of DB read-only.
+if (process.env.EVENTGRAPH_PREVIEW_MODE !== "true" && process.env.EVENTGRAPH_PREVIEW_READONLY !== "true") {
+  startHeartbeat(`api:${config.apiPort}`);
+  startWorkerWatchdog();
+}
 
 let stopping = false;
 const shutdown = async () => {

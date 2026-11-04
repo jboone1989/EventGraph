@@ -20,6 +20,8 @@ import { registerFeedback } from "./feedback.ts";
 import { loadHot, loadStoryDetail, resolveStory } from "@aihot/backend/publication/stories";
 import { publicExploreGallery } from "@aihot/backend/publication/gallery";
 import { publicStoryRoute } from "@aihot/backend/publication/story-route";
+import { publicCaseStudy } from "@aihot/backend/publication/case-studies";
+import { CASE_STUDIES } from "@aihot/site/case-studies";
 import { listReports, loadReport, reportNavigation, loadReportNavigation, loadReportMonth, type ReportKind } from "@aihot/backend/publication/reports";
 import { looseQuery, sendJsonWithEtag, sendProblem } from "../http/respond.ts";
 
@@ -98,7 +100,10 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/items/:id/original", siteHandler(async (req, reply) => {
     const id = (req.params as { id: string }).id;
     if (!/^[a-zA-Z0-9_-]{1,80}$/.test(id)) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "item not found" });
-    const result = await loadItemDetail(id, "original");
+    // The original body is shared by the English edition and the Chinese original-text tab.
+    // Only the English edition may display the English explanation (D-01).
+    const edition = looseQuery(req).edition === "zh" ? "zh" : "en";
+    const result = await loadItemDetail(id, "original", new Date(), edition);
     if (result.kind === "not_found") return sendProblem(req, reply, { status: 404, code: "not_found", detail: "item not found", cacheControl: "public, max-age=60" });
     return sendJsonWithEtag(req, reply, result.item, { etagPrefix: "item-original", cacheControl: "public, max-age=60, s-maxage=60" });
   }));
@@ -172,6 +177,15 @@ export function registerSite(app: FastifyInstance) {
     return sendJsonWithEtag(req, reply, data, { etagPrefix: "explore-gallery", cacheControl: "public, max-age=60, s-maxage=60" });
   }));
 
+  app.get("/api/site/case-studies/:id", siteHandler(async (req, reply) => {
+    // The case list is curated config; the answer itself is rebuilt from today's public evidence.
+    const id = (req.params as { id: string }).id;
+    const def = Object.hasOwn(CASE_STUDIES, id) ? CASE_STUDIES[id] : undefined;
+    if (!def) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "case study not found", cacheControl: "public, max-age=60" });
+    const data = await publicCaseStudy(def);
+    return sendJsonWithEtag(req, reply, data, { etagPrefix: "case-study", cacheControl: "public, max-age=60, s-maxage=60" });
+  }));
+
   app.get("/api/site/stories/:publicId/route", siteHandler(async (req, reply) => {
     const publicId = (req.params as { publicId: string }).publicId;
     const found = await resolveStory(publicId);
@@ -198,7 +212,7 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/reports/:kind", siteHandler(async (req, reply) => {
     const kind = (req.params as { kind: string }).kind;
     if (!["daily", "weekly", "monthly"].includes(kind)) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "unknown report kind" });
-    const body: ReportIndexResponse = { kind: kind as ReportKind, items: await listReports(kind as ReportKind) };
+    const body: ReportIndexResponse = { kind: kind as ReportKind, items: await listReports(kind as ReportKind, undefined, (req.query as { en?: string }).en === "1" && kind === "daily") };
     return sendJsonWithEtag(req, reply, body, { etagPrefix: "reports", cacheControl: "public, max-age=60, s-maxage=60" });
   }));
 
@@ -206,7 +220,7 @@ export function registerSite(app: FastifyInstance) {
   app.get("/api/site/reports/:kind/latest-page", siteHandler(async (req, reply) => {
     const kind = (req.params as { kind: string }).kind;
     if (!["daily", "weekly", "monthly"].includes(kind)) return sendProblem(req, reply, { status: 404, code: "not_found", detail: "unknown report kind" });
-    const index = await listReports(kind as ReportKind);
+    const index = await listReports(kind as ReportKind, undefined, (req.query as { en?: string }).en === "1");
     const report = index[0] ? await loadReport(kind as ReportKind, index[0].key) : null;
     const body: ReportLatestPage = { index: reportNavigation(kind as ReportKind, index, report?.key ?? ""), report };
     return sendJsonWithEtag(req, reply, body, { etagPrefix: "report-latest", cacheControl: "public, max-age=60, s-maxage=60" });

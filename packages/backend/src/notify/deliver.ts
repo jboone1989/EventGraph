@@ -1,13 +1,14 @@
-// Content-group deliveries (Feishu custom-bot webhooks), such as the cards of selected items.
-// One row per target and dedupe key, so nothing is pushed twice; an outcome we cannot know
-// ("unknown") is never retried automatically; content older than a target's enabled_at is never
-// back-filled. FEISHU_CONTENT_PUSH_ENABLED is the safety valve: off, deliveries are recorded as
-// skipped and nothing leaves the process.
+// Content-group deliveries (Feishu custom-bot webhooks and the Telegram channel), such as the cards
+// of selected items. One row per target and dedupe key, so nothing is pushed twice; an outcome we
+// cannot know ("unknown") is never retried automatically; content older than a target's enabled_at
+// is never back-filled. FEISHU_CONTENT_PUSH_ENABLED is the safety valve for every content target:
+// off, deliveries are recorded as skipped and nothing leaves the process.
 import { z } from "zod";
 import { audit, Conflict } from "../audit.ts";
 import { config, credential } from "../config.ts";
 import { sql } from "../db.ts";
 import { postWebhook } from "./feishu.ts";
+import { postTelegram, type TelegramButton } from "./telegram.ts";
 import { selectedContent } from "./selected-content.ts";
 
 export interface DeliveryRequest {
@@ -18,6 +19,8 @@ export interface DeliveryRequest {
   /** When the underlying content appeared; older than a target's enabled_at means skip. */
   contentAt: Date;
   card: unknown;
+  /** The same content as a Telegram message, for targets of that kind. */
+  telegram?: { text: string; buttons: TelegramButton[] };
   /** A follow-up may only belong to one of the content groups. */
   targetKey?: string;
   /**
@@ -29,25 +32,54 @@ export interface DeliveryRequest {
 
 interface Target {
   key: string;
-  kind: "feishu_webhook" | "feishu_chat" | "log";
+  kind: "feishu_webhook" | "feishu_chat" | "telegram" | "log";
   enabled_at: Date | null;
   config_ref: string | null;
+  chat_ref: string | null;
 }
 
 /** Default content targets; they start disabled and are switched on in production only. */
 export async function ensureContentTargets() {
   await sql`
-    INSERT INTO notify_targets (key, purpose, kind, enabled, config_ref, note) VALUES
-      ('feishu-content-main', 'content', 'feishu_webhook', false, 'FEISHU_PUSH_WEBHOOK_URL', '飞书内容主群'),
-      ('feishu-content-mirror', 'content', 'feishu_webhook', false, 'FEISHU_PUSH_MIRROR_WEBHOOK_URL', '飞书内容镜像群')
+    INSERT INTO notify_targets (key, purpose, kind, enabled, config_ref, chat_ref, note) VALUES
+      ('feishu-content-main', 'content', 'feishu_webhook', false, 'FEISHU_PUSH_WEBHOOK_URL', null, '飞书内容主群'),
+      ('feishu-content-mirror', 'content', 'feishu_webhook', false, 'FEISHU_PUSH_MIRROR_WEBHOOK_URL', null, '飞书内容镜像群'),
+      ('feishu-content-public', 'content', 'feishu_webhook', false, 'FEISHU_PUBLIC_WEBHOOK_URL', null, '飞书公开频道群'),
+      ('telegram-channel-public', 'content', 'telegram', false, 'TELEGRAM_PUSH_BOT_TOKEN', 'TELEGRAM_PUSH_CHAT_ID', 'Telegram 公开频道')
     ON CONFLICT (key) DO NOTHING`;
 }
 
+/** A stored payload: a bundle since the Telegram channel, a bare card in older rows. */
+interface Bundle {
+  card?: unknown;
+  telegram?: { text: string; buttons: TelegramButton[] };
+}
+
+const asBundle = (payload: unknown): Bundle | null =>
+  payload && typeof payload === "object" && "card" in payload && "telegram" in payload ? (payload as Bundle) : null;
+
 /** The acknowledgement and stored outcome follow the same rules for first sends and recovery. */
-async function sendDelivery(id: number, url: string, card: unknown): Promise<{ status: string }> {
-  let result: Awaited<ReturnType<typeof postWebhook>>;
+async function sendDelivery(id: number, target: Pick<Target, "kind" | "config_ref" | "chat_ref">, payload: unknown): Promise<{ status: string }> {
+  const bundle = asBundle(payload);
+  let result: Awaited<ReturnType<typeof postWebhook>> | Awaited<ReturnType<typeof postTelegram>>;
   try {
-    result = await postWebhook(url, card);
+    if (target.kind === "telegram") {
+      const token = target.config_ref ? credential("integrations", target.config_ref) : null;
+      const chatId = target.chat_ref ? credential("integrations", target.chat_ref) : null;
+      const tg = bundle?.telegram;
+      if (!token || !chatId || !tg?.text) {
+        await sql`UPDATE deliveries SET status = 'failed', response = 'telegram target not configured', updated_at = now() WHERE id = ${id}`;
+        return { status: "failed" };
+      }
+      result = await postTelegram(token, chatId, tg.text, tg.buttons ?? []);
+    } else {
+      const url = target.config_ref ? credential("integrations", target.config_ref) : null;
+      if (!url) {
+        await sql`UPDATE deliveries SET status = 'failed', response = 'webhook not configured', updated_at = now() WHERE id = ${id}`;
+        return { status: "failed" };
+      }
+      result = await postWebhook(url, bundle?.card ?? payload);
+    }
   } catch (error) {
     // A timeout or lost connection may still have delivered. Never retry it automatically.
     result = { status: "unknown", body: String(error).slice(0, 500) };
@@ -69,11 +101,11 @@ export async function deliverContent(req: DeliveryRequest): Promise<Array<{ targ
     // silence or correction reaches mirrors as well as the first group.
     const current = req.subjectKind === "selected" ? await selectedContent(req.subjectId) : null;
     if (current && current.status !== "ready") break;
-    const card = current?.card ?? req.card;
+    const payload = { card: current?.card ?? req.card, telegram: current?.telegram ?? req.telegram ?? null };
     const claim = await sql.begin(async (tx) => {
       // Reserve a target in a short transaction: concurrent siblings must see each other's pending
       // delivery, even before either network request starts. No lock is held while sending.
-      const [t] = await tx<Target[]>`SELECT key, kind, enabled_at, config_ref FROM notify_targets
+      const [t] = await tx<Target[]>`SELECT key, kind, enabled_at, config_ref, chat_ref FROM notify_targets
         WHERE key = ${target.key} AND purpose = 'content' AND enabled FOR UPDATE`;
       if (!t || (t.enabled_at && req.contentAt < t.enabled_at)) return null;
       if (sentSubjects.length) {
@@ -83,25 +115,19 @@ export async function deliverContent(req: DeliveryRequest): Promise<Array<{ targ
       }
       const [row] = await tx<{ id: number }[]>`
         INSERT INTO deliveries (target_key, subject_kind, subject_id, dedupe_key, status, payload)
-        VALUES (${t.key}, ${req.subjectKind}, ${req.subjectId}, ${req.dedupeKey}, 'pending', ${tx.json(card as never)})
+        VALUES (${t.key}, ${req.subjectKind}, ${req.subjectId}, ${req.dedupeKey}, 'pending', ${tx.json(payload as never)})
         ON CONFLICT (target_key, dedupe_key) DO NOTHING RETURNING id`;
       return row ? { id: row.id, target: t } : null;
     });
     if (!claim) continue;
     const { id, target: t } = claim;
-    if (!config.feishuContentPushEnabled || t.kind !== "feishu_webhook") {
+    if (!config.feishuContentPushEnabled || (t.kind !== "feishu_webhook" && t.kind !== "telegram")) {
       await sql`UPDATE deliveries SET status = 'skipped', response = 'content push disabled', updated_at = now() WHERE id = ${id}`;
       results.push({ target: t.key, status: "skipped" });
       continue;
     }
-    const url = t.config_ref ? credential("integrations", t.config_ref) : undefined;
-    if (!url) {
-      await sql`UPDATE deliveries SET status = 'failed', response = 'webhook not configured', updated_at = now() WHERE id = ${id}`;
-      results.push({ target: t.key, status: "failed" });
-      continue;
-    }
     await sql`UPDATE deliveries SET status = 'sending', attempts = attempts + 1, updated_at = now() WHERE id = ${id}`;
-    results.push({ target: t.key, ...(await sendDelivery(id, url, card)) });
+    results.push({ target: t.key, ...(await sendDelivery(id, t, payload)) });
   }
   return results;
 }
@@ -111,26 +137,32 @@ export async function deliverContent(req: DeliveryRequest): Promise<Array<{ targ
  * for deliveries in doubt or definitely failed; the safety valve still applies.
  */
 export async function resendDelivery(id: number, version?: string): Promise<{ status: string }> {
-  const [d] = await sql<{ status: string; version: string; payload: unknown; target_key: string; config_ref: string | null; kind: string; enabled: boolean; enabled_at: Date | null; subject_kind: string; subject_id: string }[]>`
-    SELECT d.status, d.updated_at::text AS version, d.payload, d.target_key, t.config_ref, t.kind, t.enabled, t.enabled_at, d.subject_kind, d.subject_id
+  const [d] = await sql<{ status: string; version: string; payload: unknown; target_key: string; config_ref: string | null; chat_ref: string | null; kind: string; enabled: boolean; enabled_at: Date | null; subject_kind: string; subject_id: string }[]>`
+    SELECT d.status, d.updated_at::text AS version, d.payload, d.target_key, t.config_ref, t.chat_ref, t.kind, t.enabled, t.enabled_at, d.subject_kind, d.subject_id
     FROM deliveries d JOIN notify_targets t ON t.key = d.target_key WHERE d.id = ${id}`;
   if (!d) throw new Error(`delivery ${id} not found`);
   if (d.status !== "unknown" && d.status !== "failed") throw new Conflict("这条投递不需要处理");
-  if (!config.feishuContentPushEnabled || d.kind !== "feishu_webhook") throw new Error("content push is disabled in this environment");
+  if (!config.feishuContentPushEnabled || (d.kind !== "feishu_webhook" && d.kind !== "telegram")) throw new Error("content push is disabled in this environment");
   if (!d.enabled) throw new Conflict("这个推送群已停用");
   const current = d.subject_kind === "selected" ? await selectedContent(d.subject_id) : null;
   if (current && (current.status !== "ready" || (d.enabled_at && current.article.discovered_at < d.enabled_at))) {
     throw new Conflict("这条内容已不再符合推送条件");
   }
-  const payload = current?.card ?? d.payload;
-  const url = d.config_ref ? credential("integrations", d.config_ref) : undefined;
-  if (!url) throw new Error("webhook not configured");
+  // A resend sends what the operator can see: the fresh rendering when there is one, the stored payload otherwise.
+  const payload = current ? { card: current.card, telegram: current.telegram } : d.payload;
+  if (d.kind === "telegram") {
+    if (!d.config_ref || !d.chat_ref || !credential("integrations", d.config_ref) || !credential("integrations", d.chat_ref) || !asBundle(payload)?.telegram?.text) {
+      throw new Error("telegram target not configured");
+    }
+  } else {
+    if (!d.config_ref || !credential("integrations", d.config_ref)) throw new Error("webhook not configured");
+  }
   // Keep PostgreSQL's timestamp precision: a retry may already have failed again by the time this
   // update runs. Only the request that claims the version the operator read may send the card.
   const claimed = await sql`UPDATE deliveries SET status = 'sending', attempts = attempts + 1, payload = ${sql.json(payload as never)}, updated_at = now()
     WHERE id = ${id} AND status IN ('unknown', 'failed') AND updated_at::text = ${version ?? d.version}`;
   if (!claimed.count) throw new Conflict("这条投递已被其他操作处理，请刷新后重试");
-  return sendDelivery(id, url, payload);
+  return sendDelivery(id, { kind: d.kind as Target["kind"], config_ref: d.config_ref, chat_ref: d.chat_ref }, payload);
 }
 
 /**

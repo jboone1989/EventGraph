@@ -12,6 +12,7 @@ import { REPO_ROOT, config } from "@aihot/backend/config";
 import { applyPublicHeaders, sendTextWithEtag } from "../http/respond.ts";
 import { loadSitemap } from "@aihot/backend/publication/sitemap";
 import { llmsTxt, loadLlmsAvailability } from "@aihot/backend/publication/llms";
+import { calendarIcs } from "@aihot/site/calendar";
 import { loadContact } from "@aihot/backend/site/contact";
 
 const PUBLIC = path.join(REPO_ROOT, "site/public");
@@ -131,6 +132,13 @@ export function registerStatic(app: FastifyInstance) {
     applyPublicHeaders(reply, { cors: false });
     // Cached like /openapi-v1.json: a release that adds an ability is described everywhere within minutes.
     return sendTextWithEtag(req, reply, text, { etagPrefix: "llms", cacheControl: "public, max-age=300, must-revalidate", contentType: "text/plain; charset=utf-8" });
+  });
+
+  // The curated release calendar's subscription (specs/004-editorial-ops FR-002): whole-day events,
+  // rebuilt from site/calendar.ts on each deploy, so a plain ETag cache is enough.
+  app.get("/calendar.ics", (req, reply) => {
+    applyPublicHeaders(reply, { cors: false });
+    return sendTextWithEtag(req, reply, calendarIcs(), { etagPrefix: "calendar", cacheControl: "public, max-age=3600", contentType: "text/calendar; charset=utf-8" });
   });
 
   // The site's public files (site/public/), placeholders filled in; one the site does not have is a 404.

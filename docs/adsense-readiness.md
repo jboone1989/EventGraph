@@ -35,19 +35,22 @@ Code shipped on `feature/adsense-readiness` (specs/002-adsense-readiness): polic
 
 Still needs the operator, in order:
 
-1. **Daily curation** (from deploy day on): in 后台 → 内容诊断, review 当日待策展 and confirm/exclude — only curated pages enter the sitemap and index. Target before applying: ≥30 consecutive days of decisions and ≥150 curated indexable pages (spec SC-004).
-2. **Original research**: ≥3 signed pieces in the `/research` section (spec FR-013/014; the section ships with the readiness work — see `specs/002-adsense-readiness/tasks.md` US3).
-3. **Cloudflare normalization**: redirect `http://*` and `https://livingruntime.com` to `https://www.livingruntime.com` (301, preserve path), enable HSTS. `SITE_URL` stays `https://www.livingruntime.com`.
+1. **Daily curation** (from deploy day on): in 后台 → 内容诊断, review 当日待策展 and confirm/exclude — only curated pages enter the sitemap and index. Target before applying: ≥30 consecutive days of decisions and ≥150 curated indexable pages (spec SC-004). Track it with `npm run curation:report` (coverage of the last 30 days: indexed, excluded, waiting).
+2. **Original research**: ≥3 signed pieces in the `/research` section (spec FR-013/014; the section ships with the readiness work — see `specs/002-adsense-readiness/tasks.md` US3; draft texts await review in `specs/002-adsense-readiness/research-drafts/`).
+3. **Cloudflare normalization**: redirect `http://*` and `https://livingruntime.com` to `https://www.livingruntime.com` (301, preserve path), enable HSTS. `SITE_URL` stays `https://www.livingruntime.com`. Run `SMOKE_EXPECT_HTTPS=1 python3 scripts/production-smoke.py` afterwards — it checks the redirects too.
 4. **CMP**: Google-certified consent (AdSense → Privacy & messaging) for EEA/UK/CH visitors; expand privacy section 6 with the actual ad services, cookies and withdrawal once ads are enabled.
 5. **Deploy** this branch through `feature → develop → main` (`docs/deploy.md`; migrations are additive), then verify ownership as in section 1. `/api/health` now reports the deployed release (`AIHOT_RELEASE` is written by `deploy-prod.sh`).
 6. **Wait before requesting review**: let `content.english` fill recent reports, let curated pages accumulate, and run `node scripts/adsense-preflight.mjs` plus section 4 locally. Reviewers should find substantial original text, not mostly links.
+
+Editor notes and topic briefs are edited in `site/editor-notes.ts` and `site/topic-briefs.ts` (deployed with the site; no admin UI yet — see `specs/003-content-assets/spec.md` §6).
 
 ## 4. Regression checks
 
 ```sh
 npm run test:standalone
 npm run typecheck
-npm run adsense:preflight   # no placeholders, contact email set (fail-closed)
+npm run adsense:preflight   # no placeholders, contact email set (fail-closed; CI runs it too)
+node scripts/production-smoke.py  # policy placeholders, sitemap lastmod, ad-crawler rules (and 301s with SMOKE_EXPECT_HTTPS=1)
 node scripts/adsense-smoke.mjs # checks current preview, default verification OFF
 # With default disabled: expect HTTP 404 and NO account meta/script.
 curl -si http://127.0.0.1:3000/ads.txt

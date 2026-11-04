@@ -8,6 +8,7 @@ import { probeNvidiaPool } from "@aihot/backend/providers/nvidia-pool";
 import { ingestGraphitiOnce } from "@aihot/backend/knowledge/graphiti";
 import { translatePending } from "@aihot/backend/editorial/translate";
 import { writeEnglishPending } from "@aihot/backend/editorial/english";
+import { writeExplanationsPending } from "@aihot/backend/editorial/explain";
 import { adaptIntervals, scheduleDueSources } from "@aihot/backend/sources/collect";
 import { scheduleMpReconcile } from "@aihot/backend/sources/mp";
 import { dajialaConfigured } from "@aihot/backend/providers/dajiala";
@@ -16,6 +17,7 @@ import { computeHotRanking, snapshotHeat } from "@aihot/backend/events/hot";
 import { linkRelatedStories } from "@aihot/backend/events/consolidate";
 import { composeDueReports } from "@aihot/backend/reports/compose";
 import { dailyRetention } from "@aihot/backend/operations/retention";
+import { expireStaleWork } from "@aihot/backend/operations/stale-work";
 import { submitIndexNow } from "@aihot/backend/operations/indexnow";
 import { checkAlerts, sendDigest } from "@aihot/backend/operations/alerts";
 import { recoverStaleWork } from "@aihot/backend/operations/recover";
@@ -37,10 +39,13 @@ const ENGINE_SCHEDULES: Scheduled[] = [
   // Paid probes of registered models whose 24 h success is about to expire (both registry and model-call flags).
   ...(retestEnabled() ? [{ name: "models.registry.retest", cron: "*/30 * * * *", run: () => retestExpiringModels() }] : []),
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
+  { name: "ops.expire-stale-work", cron: "*/10 * * * *", run: expireStaleWork },
   // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).
   { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },
   // English copy of selected reports and story digests for the /en edition (model calls; off with MODEL_CALLS_ENABLED=false).
   { name: "content.english", cron: "*/5 * * * *", run: () => writeEnglishPending() },
+  // 5W1H + So What + What Next for recent selected reports (model calls; off with MODEL_CALLS_ENABLED=false).
+  { name: "content.explain", cron: "*/15 * * * *", run: () => writeExplanationsPending() },
   { name: "hot.rank", cron: "*/5 * * * *", run: () => computeHotRanking() },
   { name: "hot.snapshot", cron: "2 * * * *", run: () => snapshotHeat() },
   { name: "stories.links", cron: "12 * * * *", run: linkRelatedStories },

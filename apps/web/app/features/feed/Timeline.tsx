@@ -13,7 +13,7 @@ import { EmptyState } from "../../components/ui/Page";
 import { beijingDate, beijingTime, beijingWeekday } from "@aihot/contracts/time";
 import { monthDay, weekdayShort, localizedMonthDay, localizedWeekday } from "../../lib/format";
 import { isHydrated } from "../../lib/hydration";
-import { markRead, useReadSet } from "../../lib/local-state";
+import { beginFeedVisit, markRead, useReadSet } from "../../lib/local-state";
 import { filterParams, listPath } from "../../lib/seo";
 import { isReload, readSnapshot, restoreAnchor, saveSnapshot, useSaveOnLeave } from "../../lib/restore";
 import { useText, useUiLanguage } from "../../components/LanguageSwitch";
@@ -134,6 +134,8 @@ export function Timeline({ initial, filters }: { initial: TimelineResponse; filt
   const location = useLocation();
   const navigation = useNavigation();
   const readSet = useReadSet();
+  const [previousVisit, setPreviousVisit] = useState<string | null>(null);
+  useEffect(() => { setPreviousVisit(beginFeedVisit()); }, []);
   const historyKey = location.key;
 
   // Back navigation (client side): restore synchronously from the snapshot. A full reload restores
@@ -339,7 +341,9 @@ export function Timeline({ initial, filters }: { initial: TimelineResponse; filt
                     const delay = fresh ? Math.min(order++, 10) * 40 : 0;
                     return (
                       <TimelineSlot key={c.key} dataKey={c.key} at={c.anchorAt} fresh={fresh} delay={delay}>
-                        <FeedItem item={c.item} group={c.group} filters={filters} read={readSet.has(c.item.id)} onOpen={markRead} at={c.anchorAt} />
+                        <FeedItem item={c.item} group={c.group} filters={filters} read={readSet.has(c.item.id)} onOpen={markRead} at={c.anchorAt}
+                          newSinceVisit={previousVisit !== null && Date.parse(c.anchorAt) > Date.parse(previousVisit) &&
+                            Date.parse(c.anchorAt) <= Date.now() && unreadVisible(c)} />
                       </TimelineSlot>
                     );
                   })}

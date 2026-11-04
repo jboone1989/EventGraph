@@ -56,7 +56,8 @@ export function registerAnalytics(app: FastifyInstance) {
     perMinute.set(key, { count, until: prior && prior.until > now ? prior.until : now + 60_000 });
     if (perMinute.size > 5000) perMinute.clear();
     if (count > 120) return reply.code(429).send({ error: "rate_limited" });
-    await storePublicAnalyticsEvent(event);
+    // A production-backed development preview never persists analytics events.
+    if (process.env.EVENTGRAPH_PREVIEW_READONLY !== "true") await storePublicAnalyticsEvent(event);
     return reply.code(204).send();
   });
 }

@@ -8,7 +8,7 @@ export const PAGES = [
   "/agent", "/about", "/changelog", "/feedback", "/terms", "/privacy", "/more", "/admin/login",
 ];
 /** The English edition's stable addresses (apps/web/app/lib/edition.ts). */
-export const EN_PAGES = ["/en", "/en/hot", "/en/knowledge", "/en/explore", "/en/daily", "/en/topics"];
+export const EN_PAGES = ["/en", "/en/hot", "/en/knowledge", "/en/explore", "/en/daily", "/en/daily/archive", "/en/topics"];
 
 export interface Samples {
   item?: string;

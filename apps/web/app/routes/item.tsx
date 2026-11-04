@@ -1,3 +1,4 @@
+import { StoryDiscussion } from "../features/story/StoryDiscussion";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Await, isRouteErrorResponse, Link, useAsyncError, useLoaderData, useNavigate, useRevalidator, type ClientLoaderFunctionArgs } from "react-router";
 import type { Route } from "./+types/item";
@@ -9,7 +10,7 @@ import { articleLd, breadcrumbLd, localized, pageMeta, siteUrl, titled } from ".
 import { englishPath, isEnglishPath } from "../lib/edition";
 import { fullDateTime, localizedRelativeTime } from "../lib/format";
 import { markRead } from "../lib/local-state";
-import { SameEventBadge, SelectedBadge } from "../components/ui/Badge";
+import { SameEventBadge, SelectedBadge, Badge } from "../components/ui/Badge";
 import { ScoreLabel, shownScore } from "../components/ui/Score";
 import { PillTabs } from "../components/ui/Tabs";
 import { ArticleLayout, RailSection } from "../components/ui/Page";
@@ -20,7 +21,7 @@ import { StoryFollowups } from "../features/item/StoryFollowups";
 import { MediaGallery } from "../features/item/MediaGallery";
 import { QuotedPost } from "../features/item/QuotedPost";
 import { ArticleBody } from "../features/item/ArticleBody";
-import { enTopicName, englishText, hasHan } from "../lib/english";
+import { enTopicName, englishText, hasHan, localizedSourceName, englishSourceName } from "../lib/english";
 import { useUiLanguage, useText } from "../components/LanguageSwitch";
 import { ActionsSheet, ReaderToolbar, type ActionRow } from "../features/item/ReaderTools";
 import { OutlineSheet, scrollToAnchor } from "../components/ui/OutlineSheet";
@@ -36,7 +37,7 @@ export { pageHeaders as headers } from "../lib/api.server";
 const PosterSheet = lazy(() => import("../features/item/PosterSheet"));
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  // The English edition reads the original-language body; the Chinese one its own or the translation.
+  // The English edition reads an English translation of Chinese sources where available, otherwise the English original.
   const variant = isEnglishPath(new URL(request.url).pathname) ? "/original" : "";
   const item = await loadOr404<SiteItemDetail>(`/api/site/items/${encodeURIComponent(params.id)}${variant}`, { signal: request.signal });
   return cachedPage(600, { item });
@@ -98,7 +99,7 @@ export function itemMeta(item: SiteItemDetail, pathname: string) {
     ],
   }), pathname, {
     title: english?.title ?? englishText(item.originalTitle) ?? "Original report",
-    description: english?.summary ?? `Source record from ${item.source.name}, with a link to the original reporting.`,
+    description: english?.summary ?? `Source record from ${englishSourceName(item.source.name, item.links.original)}, with a link to the original reporting.`,
     noindex: !english || !item.indexable || (isEnglishPath(pathname) && !item.englishIndexable),
   });
 }
@@ -271,11 +272,11 @@ function ItemPreview({ preview }: { preview: FeedItemSummary }) {
   const briefHidesForX = isX && !en && preview.summary?.replace(/\s+/g, " ").trim() === preview.title;
   return (
     <div className="mx-auto max-w-[var(--page-max-reading)] pb-8">
-      <PhoneBar back={preview.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }} title={isX ? preview.x!.authorName : title} />
+      <PhoneBar back={preview.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }} title={isX ? (en && hasHan(preview.x!.authorName) ? `@${preview.x!.handle}` : preview.x!.authorName) : title} />
       <article className="pb-6 pt-3" aria-busy="true">
         <div className="mb-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-ink-3">
-          <span className="font-semibold text-ink-2">{isX ? preview.x!.authorName : preview.source.name}</span>
-          {isX && <span>· @{preview.x!.handle} · X</span>}
+          <span className="font-semibold text-ink-2">{isX ? (en && hasHan(preview.x!.authorName) ? `@${preview.x!.handle}` : preview.x!.authorName) : localizedSourceName(preview.source.name, language, preview.links?.original)}</span>
+          {isX && <span>· {en && hasHan(preview.x!.authorName) ? "X" : `@${preview.x!.handle} · X`}</span>}
           <span>·</span>
           {!preview.publishedAt && <span>{t("收录于", "Collected")}</span>}
           <time dateTime={shownAt} className="mono">{fullDateTime(shownAt)}</time>
@@ -339,6 +340,92 @@ function ItemGone() {
   );
 }
 
+/** The report's What Next layer (specs/news-explainer): its event's status, scale and newest listed
+ *  evidence — the same facts the event page shows, linking there. Only with evidence, never a template:
+ *  a lone report's event page just redirects back, so it stays out. */
+function EventContext({ story, context, currentId, en }: { story: NonNullable<SiteItemDetail["story"]>; context: NonNullable<SiteItemDetail["storyContext"]>; currentId: string; en: boolean }) {
+  const t = useText();
+  const tone = context.status === "active" ? "hot" : context.status === "watching" ? "amber" : "neutral";
+  const statusLabel = context.status === "active" ? t("持续更新", "Active") : context.status === "watching" ? t("观察中", "Watching") : t("历史事件", "Historical");
+  const storyPath = en ? englishPath(`/story/${story.publicId}`) ?? `/story/${story.publicId}` : `/story/${story.publicId}`;
+  // The newest development is news only when it is another report: this page's own report is already here.
+  const latest = context.latest && context.latest.id !== currentId ? context.latest : null;
+  const latestTitle = latest ? (en ? englishText(latest.englishTitle ?? "") ?? englishText(latest.title) : latest.title) : null;
+  return (
+    <section className="mt-7 rounded-panel border border-line-soft bg-bg-sunk/40 p-4 xl:mt-8">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[12px] font-semibold text-accent">{t("所属事件", "The event")}</span>
+        <Badge tone={tone}>{statusLabel}</Badge>
+      </div>
+      <Link viewTransition to={storyPath} className="mt-2 block text-[15.5px] font-[650] leading-[1.6] text-ink transition-colors hover:text-accent">
+        {en ? englishText(story.title) ?? "View the event" : story.title}
+      </Link>
+      {latest && latestTitle && (
+        <p className="mt-1.5 text-[13px] leading-relaxed text-ink-3">
+          {t("最新进展：", "Latest: ")}
+          <Link viewTransition to={en ? englishPath(`/items/${latest.id}`) ?? `/items/${latest.id}` : `/items/${latest.id}`} className="text-ink-2 transition-colors hover:text-accent">{latestTitle}</Link>
+          {context.latestAt && <span suppressHydrationWarning> · {localizedRelativeTime(context.latestAt, en ? "en" : "zh")}</span>}
+        </p>
+      )}
+      <div className="mt-2.5 flex items-center justify-between gap-3 text-[12px] text-ink-4">
+        <span className="num">{context.reportCount} {t("篇报道", "reports")} · {context.sourceCount} {t("个来源", "sources")}</span>
+        <Link viewTransition to={storyPath} className="font-medium text-accent hover:underline">{t("查看事件全部 →", "See the event →")}</Link>
+      </div>
+    </section>
+  );
+}
+
+/** The report's explainer (specs/news-explainer Phase 1): the 5W1H the source itself supports, why it
+ *  matters and what to watch next. Every part is optional and evidence-gated — a source that does not
+ *  say stays out; there is never a template to fill. D-01: the explanation is written in the report's
+ *  own language and served only to that language's page, so the English edition never shows a Chinese
+ *  explanation and the Chinese page never shows an English one. */
+function ItemExplainer({ explanation }: { explanation: NonNullable<SiteItemDetail["explanation"]> }) {
+  const t = useText();
+  const rows: Array<[string, string]> = [
+    [t("谁", "Who"), explanation.who],
+    [t("什么", "What"), explanation.what],
+    [t("时间", "When"), explanation.when],
+    [t("地点", "Where"), explanation.where],
+    [t("原因", "Why"), explanation.why],
+    [t("经过", "How"), explanation.how],
+  ].filter((row): row is [string, string] => !!row[1]);
+  return (
+    <section className="mt-6 rounded-panel border border-line-soft bg-bg-sunk/40 p-4 xl:mt-8">
+      <span className="text-[12px] font-semibold text-accent">{t("新闻解读", "Explained")}</span>
+      {rows.length > 0 && (
+        <dl className="mt-2.5 space-y-1.5">
+          {rows.map(([label, text]) => (
+            <div key={label} className="flex gap-2.5 text-[13.5px] leading-[1.7]">
+              <dt className="w-10 shrink-0 pt-px text-[12px] font-medium text-ink-4">{label}</dt>
+              <dd className="min-w-0 text-ink-2">{text}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {explanation.soWhat && (
+        <div className="mt-3 border-t border-line-soft pt-2.5">
+          <div className="mb-1 text-[12px] font-semibold text-ink-3">{t("为什么重要", "What this changes")}</div>
+          <p className="text-[13.5px] leading-[1.75] text-ink-2">{explanation.soWhat}</p>
+        </div>
+      )}
+      {explanation.watchpoints.length > 0 && (
+        <div className="mt-3 border-t border-line-soft pt-2.5">
+          <div className="mb-1 text-[12px] font-semibold text-ink-3">{t("接下来看", "What to watch")}</div>
+          <ul className="space-y-1">
+            {explanation.watchpoints.map((w, i) => (
+              <li key={i} className="flex gap-2 text-[13.5px] leading-[1.7] text-ink-2">
+                {w.date && <time dateTime={w.date} className="mono shrink-0 text-ink-4">{w.date}</time>}
+                <span className="min-w-0">{w.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ItemView({ item }: { item: SiteItemDetail }) {
   const navigate = useNavigate();
   const preference = useUiLanguage();
@@ -385,14 +472,13 @@ function ItemView({ item }: { item: SiteItemDetail }) {
   };
 
   const bodyHtml = lang === "zh" ? (item.body?.zh ?? item.body?.original) : (item.body?.original ?? item.body?.zh);
-  const bodyLabel = !item.body ? null : lang === "zh" && item.body.zhKind === "translation" ? t("正文 · AI 翻译","Body · AI translation") : lang === "original" && hasTranslation ? t("正文 · 原文","Original article") : t("正文","Article");
+  const bodyLabel = !item.body ? null : en && item.englishBodyTranslated ? "Article · AI translation" : lang === "zh" && item.body.zhKind === "translation" ? t("正文 · AI 翻译","Body · AI translation") : lang === "original" && hasTranslation ? t("正文 · 原文","Original article") : t("正文","Article");
   const isX = item.channel === "x" && !!item.x;
   // Without a reliable date from the original, the time shown is when it was collected, labelled as such.
   const shownAt = item.publishedAt ?? item.discoveredAt;
   const timeLabel = item.publishedAt ? t("发布时间", "Published") : t("收录时间", "Collected");
   const summaryOnly = item.readingMode === "summary-only";
-  // The English page never shows a Chinese body: the original text only when it reads without
-  // translation; otherwise the report stays at the publisher, with the English copy on top.
+  // Never show a partially translated body containing Chinese prose as if it were English.
   const bodyReadable = !en || (!!bodyHtml && !hasHan(bodyHtml.replace(/<[^>]*>/g, "")));
   const showOutline = item.outline.length >= 3 && bodyReadable;
   const originalLabel = isX ? t("在 X 查看原推", "View the post on X") : t("打开原文", "Read the original");
@@ -403,6 +489,10 @@ function ItemView({ item }: { item: SiteItemDetail }) {
   const reasonText = en ? english?.reason ?? null : item.reason;
 
   const related = item.relatedStories.filter((s) => s.publicId !== item.story?.publicId);
+  // English keeps only the related events whose titles carry English, as everywhere else.
+  const relatedList = en
+    ? related.flatMap((s) => { const title = englishText(s.title); return title ? [{ s, title }] : []; })
+    : related.map((s) => ({ s, title: s.title }));
   // English pages name topics in English when the taxonomy has it, and drop the ones it hasn't.
   const enTopics = en
     ? item.topics.flatMap((topic) => {
@@ -476,9 +566,9 @@ function ItemView({ item }: { item: SiteItemDetail }) {
   // under the facts (or under the notes when only the right rail shows).
   const facts = (
     <RailSection title={t("来源", "Source")}>
-      <div className="text-[14px] font-semibold leading-snug text-ink">{isX ? item.x!.authorName : item.source.name}</div>
+      <div className="text-[14px] font-semibold leading-snug text-ink">{isX ? (en && hasHan(item.x!.authorName) ? `@${item.x!.handle}` : item.x!.authorName) : localizedSourceName(item.source.name, preference, item.links.original)}</div>
       <div className="mt-1 text-[12.5px] leading-relaxed text-ink-3">
-        {isX ? `@${item.x!.handle} · X` : item.author ?? hostOf(item.links.original)}
+        {isX ? (en && hasHan(item.x!.authorName) ? "X" : `@${item.x!.handle} · X`) : (en && hasHan(item.author ?? "") ? null : item.author) ?? hostOf(item.links.original)}
       </div>
       <div className="mt-3 text-[12px] text-ink-4">{timeLabel}</div>
       <time dateTime={shownAt} className="mono mt-0.5 block text-[12.5px] text-ink-2">
@@ -487,6 +577,11 @@ function ItemView({ item }: { item: SiteItemDetail }) {
       <div className="mt-0.5 text-[12px] text-ink-4" suppressHydrationWarning>
         {localizedRelativeTime(shownAt, preference)}
       </div>
+      {item.curatedAt && (
+        <div className="mt-3 border-t border-line-soft pt-2 text-[12px] leading-relaxed text-ink-4">
+          {t("编辑策展于", "Curated by the editor on")} <time dateTime={item.curatedAt} className="mono text-ink-3">{item.curatedAt.slice(0, 10)}</time>
+        </div>
+      )}
     </RailSection>
   );
   const outline = showOutline && <ArticleOutline outline={item.outline} />;
@@ -532,7 +627,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
       {/* Phones: back to where the reader came from, the title once it has scrolled away, more actions. */}
       <PhoneBar
         back={item.selected || !inNav("/all") ? { to: "/", label: t("精选", "Featured") } : { to: "/all", label: t("全部", "All") }}
-        title={isX ? item.x!.authorName : displayTitle}
+        title={isX ? (en && hasHan(item.x!.authorName) ? `@${item.x!.handle}` : item.x!.authorName) : displayTitle}
         actions={
           <BarButton label={t("更多操作", "More actions")} onClick={() => setActionsOpen(true)}>
             <IconMore size={22} />
@@ -561,9 +656,9 @@ function ItemView({ item }: { item: SiteItemDetail }) {
         <div className="sticky top-0 z-20 -mx-2 hidden bg-bg/95 px-2 py-1.5 backdrop-blur lg:block 2xl:hidden">{backButton}</div>
         <article className="pb-6 pt-3 lg:pt-2 2xl:pt-1">
           <div className={`flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-ink-3 2xl:hidden ${isX ? "" : "mb-3"}`}>
-            <span className="font-semibold text-ink-2">{isX ? item.x!.authorName : item.source.name}</span>
-            {isX && <span>· @{item.x!.handle} · X</span>}
-            {item.author && !isX && <span>· {item.author}</span>}
+            <span className="font-semibold text-ink-2">{isX ? (en && hasHan(item.x!.authorName) ? `@${item.x!.handle}` : item.x!.authorName) : localizedSourceName(item.source.name, preference, item.links.original)}</span>
+            {isX && <span>· {en && hasHan(item.x!.authorName) ? "X" : `@${item.x!.handle} · X`}</span>}
+            {item.author && !isX && (!en || !hasHan(item.author)) && <span>· {item.author}</span>}
             <span>·</span>
             {!item.publishedAt && <span>{t("收录于", "Collected")}</span>}
             <time dateTime={shownAt} className="mono">{fullDateTime(shownAt)}</time>
@@ -584,7 +679,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
           {/* The source is a first-class citation, visible before the AI's interpretation on every screen. */}
           {/^(https?:)\/\//i.test(item.links.original) && (
             <div className="mt-4 flex flex-wrap items-center gap-2 text-[13px] text-ink-3">
-              <span>{t("原始来源：","Original source: ")}{item.source.name}</span>
+              <span>{t("原始来源：","Original source: ")}{localizedSourceName(item.source.name, preference, item.links.original)}</span>
               <a href={item.links.original} target="_blank" rel="noopener noreferrer"
                 className="inline-flex min-h-10 items-center gap-1.5 rounded-control border border-line-strong px-3 font-semibold text-accent hover:border-accent hover:bg-bg-sunk">
                 {isX ? t("查看原帖","View post") : t("阅读原始报道","Read original")} <IconExternal size={14} />
@@ -605,6 +700,12 @@ function ItemView({ item }: { item: SiteItemDetail }) {
               <div className="mb-1 text-[12px] font-semibold text-ink-3">{t(ITEM_COPY.reasonLabel, "Why it matters")}</div>
               <p className="text-[15px] leading-[1.75] text-ink-2">{reasonText}</p>
             </section>
+          )}
+
+          {item.explanation && <ItemExplainer explanation={item.explanation} />}
+
+          {item.story && item.storyContext && item.storyContext.reportCount > 1 && (
+            <EventContext story={item.story} context={item.storyContext} currentId={item.id} en={en} />
           )}
 
           {item.sameEvent && !en && (
@@ -642,7 +743,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
                   />
                 )}
               </div>
-              {hasTranslation && lang === "zh" && !item.body.complete && (
+              {((hasTranslation && lang === "zh") || (en && item.englishBodyTranslated)) && !item.body.complete && (
                 <p className="mb-5 rounded-control bg-bg-sunk px-3 py-2 text-[13px] text-ink-3">{t("译文尚不完整，完整内容请切换到原文。", "The translation is incomplete — switch to the original for the full text.")}</p>
               )}
               <ArticleBody html={bodyHtml} />
@@ -655,7 +756,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
           <p className="mt-8 text-[13px] text-ink-4">
             {t("来源：","Source: ")}
             <a href={item.links.original} target="_blank" rel="noopener noreferrer" className="text-ink-3 hover:text-accent">
-              {isX ? item.x!.authorName : item.source.name}
+              {isX ? (en && hasHan(item.x!.authorName) ? `@${item.x!.handle}` : item.x!.authorName) : localizedSourceName(item.source.name, preference, item.links.original)}
             </a>
             <span> · {hostOf(item.links.original)}</span>
           </p>
@@ -675,23 +776,25 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             </div>
           )}
 
-          {/* The follow-ups' headlines exist only in Chinese; English readers follow the event page instead. */}
-          {item.story && !en && <StoryFollowups story={item.story} currentId={item.id} />}
+          {/* The follow-ups load after the page; English shows the ones whose titles carry English. */}
+          {item.story && <StoryFollowups story={item.story} currentId={item.id} />}
 
-          {related.length > 0 && !en && (
+          {relatedList.length > 0 && (
             <section className="mt-8">
               <h2 className="mb-2 text-[14px] font-semibold text-ink">{t("相关事件", "Related events")}</h2>
               <ul className="divide-y divide-line-soft">
-                {related.map((s) => (
+                {relatedList.map(({ s, title }) => (
                   <li key={s.publicId}>
-                    <Link viewTransition to={`/story/${s.publicId}`} className="block py-2.5 text-[14px] text-ink-2 hover:text-accent">
-                      {s.title}
+                    <Link viewTransition to={en ? englishPath(`/story/${s.publicId}`) ?? `/story/${s.publicId}` : `/story/${s.publicId}`} className="block py-2.5 text-[14px] text-ink-2 hover:text-accent">
+                      {title}
                     </Link>
                   </li>
                 ))}
               </ul>
             </section>
           )}
+          {/* Every public item gets its own discussion, including ungrouped reports. */}
+          <StoryDiscussion key={item.id} itemId={item.id} />
         </article>
       </ArticleLayout>
 

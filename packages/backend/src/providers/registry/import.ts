@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
-import {loadConnection,connectionView,listRegisteredModels} from './connections.ts';
+import {loadConnection,connectionView,listRegisteredModels,clearRegisteredModelCache} from './connections.ts';
 import {checkModel} from './connection-validation.ts';
 import {ProviderConfigError,type ModelInput} from './connection-types.ts';
 
@@ -23,5 +23,6 @@ export async function importModels(providerId:string,modelIds:unknown,reason:str
   }
   await audit(actor,'provider.models.import',providerId,reason,null,{modelIds},{db:tx});
  });
+ clearRegisteredModelCache();
  return {models:(await listRegisteredModels()).filter(m=>m.providerId===providerId)};
 }
