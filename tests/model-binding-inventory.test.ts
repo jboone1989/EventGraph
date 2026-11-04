@@ -1,6 +1,10 @@
 import "./setup.ts";
 import assert from "node:assert/strict";
-import {randomUUID} from "node:crypto";
+import {randomUUID,randomBytes} from "node:crypto";
+import {createRequire} from "node:module";
+import {config} from "@aihot/backend/config";
+import {graphitiModelRequest} from "@aihot/backend/providers/graphiti-proxy";
+import {clearRegisteredModelCache} from "@aihot/backend/providers/registry/connections";
 import {after,test} from "node:test";
 import {closeDb,sql} from "@aihot/backend/db";
 import {modelBindingsOverview,switchModel} from "@aihot/backend/admin/models";
@@ -88,5 +92,47 @@ test("Graphiti embedding is an explicit embedding-only binding, never the chat d
   else process.env.GRAPHITI_BINDING_TEST_KEY=priorKey;
   if(priorEnv===undefined)delete process.env.GRAPHITI_EMBEDDING_MODEL_REF;
   else process.env.GRAPHITI_EMBEDDING_MODEL_REF=priorEnv;
+ }
+});
+
+test("Graphiti registered chat is non-streaming upstream and reuses received receipts",async()=>{
+ const require=createRequire(new URL("../packages/backend/package.json",import.meta.url));
+ const {MockAgent,getGlobalDispatcher,setGlobalDispatcher}=require("undici") as typeof import("undici");
+ const previous={dispatcher:getGlobalDispatcher(),private:config.allowPrivateNetworkFetch,proxy:config.egressProxyUrl,calls:config.modelCallsEnabled,secret:process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY,testKey:process.env.GRAPHITI_INTEGRATION_TEST_KEY};
+ const agent=new MockAgent();agent.disableNetConnect();setGlobalDispatcher(agent);
+ config.allowPrivateNetworkFetch=true;config.egressProxyUrl=null;config.modelCallsEnabled=true;
+ process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString("base64");
+ const connectionId=randomUUID(),chatId=randomUUID(),modelId="graphiti-stream-"+chatId;
+ process.env.GRAPHITI_INTEGRATION_TEST_KEY="test-key-"+connectionId;
+ try{
+  await sql`INSERT INTO provider_connections (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,credential_env,updated_by) VALUES (${connectionId}::uuid,'Graphiti stream test','custom','openai-compatible','https://graphiti-test.invalid/v1',60000,true,'none','GRAPHITI_INTEGRATION_TEST_KEY','test')`;
+  await sql`INSERT INTO registered_models (id,provider_id,model_id,adapter,capabilities,enabled,route_enabled,stream,updated_by) VALUES (${chatId}::uuid,${connectionId}::uuid,${modelId},'chat','["text"]'::jsonb,true,true,true,'test')`;
+  const c=await loadConnection(connectionId),m=await loadModel(chatId);
+  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,config_snapshot,status,verified_at) VALUES (${chatId}::uuid,'text',${configurationFingerprint(c,m)},${sql.json(configurationSnapshot(c,m))},'verified',now())`;
+  await switchModel("graphiti","model:"+chatId,"stream transport test","test");
+  let sent=0,requestBody:Record<string,unknown>={};
+  agent.get("https://graphiti-test.invalid").intercept({path:"/v1/chat/completions",method:"POST"}).reply(req=>{
+   sent++;requestBody=JSON.parse(String(req.body));
+   return {statusCode:200,data:{choices:[{message:{role:"assistant",content:"OK"}}],usage:{prompt_tokens:2,completion_tokens:1}}};
+  });
+  const query={messages:[{role:"user",content:"hello Graphiti"}]};
+  const one=await graphitiModelRequest("chat",query);
+  const two=await graphitiModelRequest("chat",query);
+  assert.deepEqual(one,two);
+  assert.equal(sent,1,"duplicate logical request must reuse the saved receipt");
+  assert.equal(requestBody.stream,false,"the registered stream=true setting cannot override Graphiti non-streaming");
+  assert.equal(requestBody.model,modelId);
+  const [receipt]=await sql<{status:string;attempts:number}[]>`SELECT status,attempts FROM receipts WHERE purpose='graphiti_chat' AND model=${modelId} ORDER BY id DESC LIMIT 1`;
+  assert.deepEqual([receipt?.status,receipt?.attempts],["received",1]);
+ }finally{
+  await sql`DELETE FROM provider_workflow_models WHERE setting_key='models.graphiti'`;
+  await sql`DELETE FROM settings WHERE key='models.graphiti'`;
+  await sql`DELETE FROM registered_models WHERE id=${chatId}::uuid`;
+  await sql`DELETE FROM provider_connections WHERE id=${connectionId}::uuid`;
+  clearRegisteredModelCache();
+  setGlobalDispatcher(previous.dispatcher);config.allowPrivateNetworkFetch=previous.private;config.egressProxyUrl=previous.proxy;config.modelCallsEnabled=previous.calls;
+  if(previous.secret===undefined)delete process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY;else process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY=previous.secret;
+  if(previous.testKey===undefined)delete process.env.GRAPHITI_INTEGRATION_TEST_KEY;else process.env.GRAPHITI_INTEGRATION_TEST_KEY=previous.testKey;
+  await agent.close();
  }
 });
