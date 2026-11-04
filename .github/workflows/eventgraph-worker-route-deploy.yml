@@ -1,4 +1,5 @@
-name: Deploy GH-AW code Worker route
+name: "Agent · Worker 路由发布"
+run-name: "Agent Worker 路由 · ${{ github.event_name }}"
 
 on:
   push:
@@ -18,6 +19,7 @@ concurrency:
 
 jobs:
   deploy:
+    name: "更新 GH-AW Worker 路由"
     if: github.ref_name == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
