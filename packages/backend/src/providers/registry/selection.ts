@@ -9,7 +9,7 @@ export type Complexity = 'light' | 'medium' | 'heavy';
 const weights: Record<string, Complexity> = {
   prefilter: 'light', score: 'medium', understand: 'heavy', summarize: 'light',
   wording: 'light', structure: 'medium', group: 'heavy', groupReview: 'heavy',
-  digest: 'heavy', report: 'heavy', translate: 'medium', english: 'medium', explain: 'heavy',
+  digest: 'heavy', report: 'heavy', graphiti: 'heavy', translate: 'medium', english: 'medium', explain: 'heavy',
 };
 const levels: Record<Complexity, number> = { light: 0, medium: 1, heavy: 2 };
 const cooling = new Map<string, number>();
