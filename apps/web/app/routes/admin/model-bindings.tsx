@@ -14,7 +14,7 @@ type Step=AdminModelBindings["steps"][number];
 type Choice=AdminModelBindings["choices"][number];
 
 function usable(choice:Choice,step:Step){
- return choice.adapter==="chat"&&(!step.vision||choice.vision);
+ return choice.adapter===(step.embedding?"embedding":"chat")&&(!step.vision||choice.vision);
 }
 function titleFor(choice:Choice){
  return choice.modelId+" · "+choice.provider;
@@ -25,7 +25,7 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
  const [selected,setSelected]=useState(original);
  const [error,setError]=useState("");
  const chosen=choices.find(c=>c.key===selected);
- const isAuto=selected==='auto'||/^auto:(light|medium|heavy)$/.test(selected);
+ const isAuto=!step.embedding&&(selected==='auto'||/^auto:(light|medium|heavy)$/.test(selected));
  const canSave=selected!==original&&(!selected||isAuto||!!chosen&&usable(chosen,step));
  const save=async()=>{
   setError("");
@@ -38,15 +38,15 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
   <div className="flex items-center gap-2">
    <Select aria-label={"为"+step.label.split("（")[0]+"选择模型"} value={selected}
     disabled={busy} onChange={e=>{setSelected(e.target.value);setError("");}}>
-    <option value="">{step.key==="default"?"使用部署默认模型":"继承默认模型"}</option>
-    <option value="auto">自动 · 免费优先（OpenRouter → NVIDIA）</option>
+    <option value="">{step.embedding?"未绑定向量模型":step.key==="default"?"使用部署默认模型":"继承默认模型"}</option>
+    {!step.embedding&&<><option value="auto">自动 · 免费优先（OpenRouter → NVIDIA）</option>
     <option value="auto:light">自动 · 轻量模型</option>
     <option value="auto:medium">自动 · 标准模型</option>
-    <option value="auto:heavy">自动 · 高级模型</option>
+    <option value="auto:heavy">自动 · 高级模型</option></>}
     {selected&&!chosen&&!isAuto&&<option value={selected} disabled>{selected}（旧配置，仅保留当前值）</option>}
     {choices.map(choice=>{
      const ok=usable(choice,step);
-     const suffix=!ok?(choice.adapter!=="chat"?"（非对话模型）":"（不支持图像）"):"";
+     const suffix=!ok?(choice.adapter!==(step.embedding?"embedding":"chat")?"（模型类型不匹配）":"（不支持图像）"):"";
      return <option key={choice.key} value={choice.key} disabled={!ok}>
       {titleFor(choice)}{suffix}
      </option>;
@@ -86,9 +86,9 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
       {s.label.includes("（")&&<div className="text-xs text-ink-4">{s.label.slice(s.label.indexOf("（"))}</div>}
      </div>},
      {key:"current",label:"生效模型",render:s=><span className="block max-w-[200px] break-all font-mono text-xs">
-      {display(s.current.source==="admin"?s.current.model:loaderData.defaultModel.model)}</span>},
+      {display(s.current.source==="admin"?s.current.model:s.embedding?"":loaderData.defaultModel.model)}</span>},
      {key:"source",label:"来源",render:s=><Badge tone={s.current.source==="admin"?"accent":"muted"}>
-      {s.current.source==="admin"?"单独指定":"继承默认"}
+      {s.current.source==="admin"?"单独指定":s.embedding?"需单独指定":"继承默认"}
      </Badge>},
      {key:"select",label:"更改绑定",render:s=><ModelBinding
       key={s.key+":"+s.current.source+":"+s.current.model} step={s} choices={choices}/>},
