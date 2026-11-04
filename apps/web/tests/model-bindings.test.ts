@@ -44,7 +44,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(picker.locator('option[value="default"]')).toHaveCount(0);
   await expect(picker.locator('option')).toHaveCount(1);
   data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",
-   adapter:"chat",vision:false});
+   adapter:"chat",vision:false,priceKind:"unknown"});
   await page.reload();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeEnabled();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");

@@ -15,7 +15,7 @@ export default function ModelsAdmin({loaderData}:Route.ComponentProps){
   actions={<div className="flex flex-wrap gap-2">
    {loaderData.providers.filter(p=>p.vendor.toLowerCase()==="openrouter").map(p=>
     <Button key={p.id} disabled={busy} onClick={()=>void run("POST","/api/admin/providers/"+p.id+"/openrouter-free/sync",{},
-     {success:"已同步 OpenRouter 免费模型（包含 openrouter/free）"})}>同步 OpenRouter 免费模型</Button>)}
+     {success:"已同步 OpenRouter 免费模型与价格"})}>同步免费模型及价格</Button>)}
    <Button disabled={busy} onClick={()=>void run("POST","/api/admin/provider-models/cache/refresh",{},
     {success:"已清空本服务的模型缓存"})}>刷新模型</Button>
   </div>}>

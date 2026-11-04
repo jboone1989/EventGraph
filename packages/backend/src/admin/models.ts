@@ -114,6 +114,7 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
    SELECT setting_key,model_id FROM provider_workflow_models WHERE setting_key LIKE 'models.%'`,
  ]);
  const names=new Map(connections.map(c=>[c.id,c.name]));
+ const providers=new Map(connections.map(c=>[c.id,c]));
  const assigned=new Map(bindings.map(b=>[b.setting_key,b.model_id]));
  return {
   steps:Object.entries(capabilities()).map(([key,c])=>{
@@ -123,7 +124,10 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
   }),
   choices:models.map(m=>({
    key:'model:'+m.id,modelId:m.modelId,provider:names.get(m.providerId)??m.providerId,
-   adapter:m.adapter,vision:m.capabilities.includes('vision')
+   adapter:m.adapter,vision:m.capabilities.includes('vision'),
+   priceKind:(()=>{const c=providers.get(m.providerId),price=m.upstreamMetadata.pricing as {kind?:string;source?:string}|undefined;
+    return c?.policy==='nvidia-free-trial'?'trial':c?.vendor.toLowerCase()==='openrouter'&&price?.source==='openrouter'&&
+     (price.kind==='free'||price.kind==='paid')?price.kind:'unknown';})()
   })),
  };
 }

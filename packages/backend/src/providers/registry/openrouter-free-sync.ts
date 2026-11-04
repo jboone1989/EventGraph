@@ -6,7 +6,7 @@ import {loadConnection,clearRegisteredModelCache} from './connections.ts';
 import {storedCredential} from './connection-secrets.ts';
 import {ProviderConfigError} from './connection-types.ts';
 
-type CatalogModel={id?:unknown;pricing?:{prompt?:unknown;completion?:unknown};architecture?:{output_modalities?:unknown}};
+type CatalogModel={id?:unknown;pricing?:Record<string,unknown>;architecture?:{output_modalities?:unknown}};
 const isZero=(value:unknown)=>typeof value==='string'||typeof value==='number'?Number(value)===0&&String(value).trim()!=='':false;
 const isFreeChat=(model:CatalogModel):model is CatalogModel&{id:string}=>typeof model.id==='string'&&
  model.id.length>0&&model.id.length<=300&&isZero(model.pricing?.prompt)&&isZero(model.pricing?.completion)&&
@@ -33,14 +33,24 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
  // Both token prices must be zero; a free input price alone does not make a model free.
  const freeIds=new Set(payload.data.filter(isFreeChat).map(m=>m.id));
  freeIds.add('openrouter/free');
+ const catalog=new Map(payload.data.filter((m):m is CatalogModel&{id:string}=>typeof m.id==='string').map(m=>[m.id,m]));
  const timestamp=new Date().toISOString();
  const result=await sql.begin(async tx=>{
   await tx`SELECT id FROM provider_connections WHERE id=${providerId}::uuid FOR UPDATE`;
   const existing=await tx<{model_id:string;upstream_metadata:Record<string,unknown>}[]>`
    SELECT model_id,upstream_metadata FROM registered_models WHERE provider_id=${providerId}::uuid FOR UPDATE`;
   const previous=new Set(existing.map(m=>m.model_id));
+  for(const row of existing){
+   const entry=catalog.get(row.model_id);
+   const rate=entry?.pricing;
+   const valid=rate&&['prompt','completion'].every(k=>rate[k]!==undefined&&rate[k]!==null&&rate[k]!==''&&Number.isFinite(Number(rate[k]))&&Number(rate[k])>=0);
+   const pricing=valid?{kind:isFreeChat(entry!)?'free':'paid',inputPerMillion:Number(rate!.prompt)*1e6,outputPerMillion:Number(rate!.completion)*1e6,checkedAt:timestamp,source:'openrouter'}:
+    {kind:'unknown',checkedAt:timestamp,source:'openrouter'};
+   await tx`UPDATE registered_models SET upstream_metadata=upstream_metadata || ${tx.json({pricing})}
+    WHERE provider_id=${providerId}::uuid AND model_id=${row.model_id}`;
+  }
   for(const modelId of freeIds){
-   const metadata=tx.json({openrouterFreeSync:{free:true,checkedAt:timestamp}});
+   const metadata=tx.json({openrouterFreeSync:{free:true,checkedAt:timestamp},pricing:{kind:'free',inputPerMillion:0,outputPerMillion:0,checkedAt:timestamp,source:'openrouter'}});
    await tx`INSERT INTO registered_models
     (id,provider_id,model_id,adapter,capabilities,probe_spec,enabled,route_enabled,upstream_metadata,updated_by)
     VALUES (${randomUUID()}::uuid,${providerId}::uuid,${modelId},'chat',${tx.json(['text'])},
