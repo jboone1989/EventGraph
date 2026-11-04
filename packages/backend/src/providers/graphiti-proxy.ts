@@ -1,5 +1,8 @@
 import {createHash, timingSafeEqual} from 'node:crypto';
 import {modelFor,invalidateModelCache} from '../editorial/models.ts';
+import {config} from '../config.ts';
+import {storedCredential} from './registry/connection-secrets.ts';
+import {ProviderConfigError} from './registry/connection-types.ts';
 import {clearRegisteredModelCache} from './registry/connections.ts';
 import {registeredRuntime,requestRegisteredModel} from './registry/runtime.ts';
 import {selectConfiguredProviderForStage,coolDownReference} from './registry/selection.ts';
@@ -59,6 +62,9 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
   const {m,c,fingerprint}=await registeredRuntime(id,capability);
   if(kind==='chat'&&m.adapter!=='chat')throw new Error('Graphiti chat binding requires a chat model');
   if(kind==='embedding'&&m.adapter!=='embedding')throw new Error('Graphiti embedding binding requires an embedding model');
+  // Fail before creating a paid request receipt: no request was sent yet.
+  if(!config.modelCallsEnabled)throw new ProviderConfigError('Model calls are disabled','connection',409);
+  if(!storedCredential(c))throw new ProviderConfigError('Configure a credential first','credential',409);
   const payload={...body,...(kind==='embedding'&&c.vendor.toLowerCase()!=='nvidia'?{input_type:undefined}:{})};
   const hash=createHash('sha256').update(stableJson(payload)).digest('hex');
   try {
