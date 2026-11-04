@@ -61,7 +61,7 @@ test("Graphiti embedding is an explicit embedding-only binding, never the chat d
   const {modelFor,invalidateModelCache}=await import('@aihot/backend/editorial/models');
   invalidateModelCache();
   await assert.rejects(modelFor('graphitiEmbedding'),/Configure a registered embedding model/);
-  await assert.rejects(switchModel('graphitiEmbedding','auto','bad auto','test'),/specific tested embedding model/);
+  await assert.rejects(switchModel('graphitiEmbedding','auto','bad auto','test'),/specific embedding model/);
   await assert.rejects(switchModel('graphitiEmbedding','model:'+chatId,'wrong adapter','test'),/embedding model/);
   await switchModel('graphitiEmbedding','model:'+embeddingId,'binding test','test');
   const [assignment]=await sql<{model_id:string}[]>`SELECT model_id FROM provider_workflow_models WHERE setting_key='models.graphitiEmbedding'`;
