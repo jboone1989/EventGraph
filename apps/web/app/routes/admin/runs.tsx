@@ -41,6 +41,11 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   // Failure group to put back into processing ("" = failures within the last 24 hours).
   const [requeue, setRequeue] = useState<string | null>(null);
   const [requeueLimit, setRequeueLimit] = useState("5");
+  // Keep expanded diagnostics stable while the page auto-refreshes.
+  const [expanded, setExpanded] = useState<string[]>([]);
+  const showSection = (id: string) => setExpanded(current => current.includes(id) ? current : [...current, id]);
+  const toggleSection = (id: string) => setExpanded(current => current.includes(id)
+    ? current.filter(item => item !== id) : [...current, id]);
 
   // Live view: refresh every 20 s while visible.
   useEffect(() => {
@@ -82,19 +87,19 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         {attentionCount === 0
           ? <p className="text-[13px] text-ink-3">未发现本页跟踪的重点异常。仍可展开下方区域检查诊断记录。</p>
           : <div className="space-y-2 text-[13px]">
-            {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" className="ml-2 text-accent hover:underline">进程明细</a></p>}
-            {r.live24h.stalled > 0 && <p><Badge tone="bad">超时 {num(r.live24h.stalled)}</Badge> 新新闻等待超过 15 分钟。<a href="#runs-issues" className="ml-2 text-accent hover:underline">查看异常</a></p>}
-            {r.articleProcessing.failed > 0 && <p><Badge tone="bad">文章失败 {num(r.articleProcessing.failed)}</Badge> 可按原因分批恢复。<a href="#runs-issues" className="ml-2 text-accent hover:underline">处理入口</a></p>}
-            {failedQueueJobs > 0 && <p><Badge tone="warn">队列失败 {num(failedQueueJobs)}</Badge> 最近 24 小时失败任务。<a href="#runs-issues" className="ml-2 text-accent hover:underline">任务明细</a></p>}
-            {unknownReceipts > 0 && <p><Badge tone="bad">回执待核对 {num(unknownReceipts)}</Badge> 避免重复模型调用。<a href="#runs-issues" className="ml-2 text-accent hover:underline">核对回执</a></p>}
-            {unknownDeliveries > 0 && <p><Badge tone="warn">投递待核实 {num(unknownDeliveries)}</Badge> 先确认是否送达。<a href="#runs-issues" className="ml-2 text-accent hover:underline">核实投递</a></p>}
-            {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" className="ml-2 text-accent hover:underline">信源明细</a></p>}
+            {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")} className="ml-2 text-accent hover:underline">进程明细</a></p>}
+            {r.live24h.stalled > 0 && <p><Badge tone="bad">超时 {num(r.live24h.stalled)}</Badge> 新新闻等待超过 15 分钟。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">查看异常</a></p>}
+            {r.articleProcessing.failed > 0 && <p><Badge tone="bad">文章失败 {num(r.articleProcessing.failed)}</Badge> 可按原因分批恢复。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">处理入口</a></p>}
+            {failedQueueJobs > 0 && <p><Badge tone="warn">队列失败 {num(failedQueueJobs)}</Badge> 最近 24 小时失败任务。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">任务明细</a></p>}
+            {unknownReceipts > 0 && <p><Badge tone="bad">回执待核对 {num(unknownReceipts)}</Badge> 避免重复模型调用。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">核对回执</a></p>}
+            {unknownDeliveries > 0 && <p><Badge tone="warn">投递待核实 {num(unknownDeliveries)}</Badge> 先确认是否送达。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">核实投递</a></p>}
+            {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent hover:underline">信源明细</a></p>}
           </div>}
         <div className="mt-3 flex flex-wrap gap-4 text-[12px]">
-          <a className="text-accent hover:underline" href="#runs-issues">异常与恢复</a>
-          <a className="text-accent hover:underline" href="#runs-models">模型效果</a>
-          <a className="text-accent hover:underline" href="#runs-queues">队列与任务</a>
-          <a className="text-accent hover:underline" href="#runs-diagnostics">诊断记录</a>
+          <a className="text-accent hover:underline" href="#runs-issues" onClick={() => showSection("runs-issues")}>异常与恢复</a>
+          <a className="text-accent hover:underline" href="#runs-models" onClick={() => showSection("runs-models")}>模型效果</a>
+          <a className="text-accent hover:underline" href="#runs-queues" onClick={() => showSection("runs-queues")}>队列与任务</a>
+          <a className="text-accent hover:underline" href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")}>诊断记录</a>
         </div>
       </Card>
       <Card className="mb-5" title="新新闻处理链路 · 最近 24 小时"
@@ -117,8 +122,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         </div>
       </Card>
 
-      <details id="runs-issues" className={sectionClass}>
-        <summary className={summaryClass}>异常与恢复<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.articleProcessing.failed)} 条失败文章 · {num(failedQueueJobs)} 次队列失败 · {num(unknownReceipts)} 条未知回执</span></summary>
+      <details id="runs-issues" open={expanded.includes("runs-issues")} className={sectionClass}>
+        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-issues"); }}>异常与恢复<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.articleProcessing.failed)} 条失败文章 · {num(failedQueueJobs)} 次队列失败 · {num(unknownReceipts)} 条未知回执</span></summary>
         <div className="mt-4">      {r.grouping.waiting > 0 && (
         <Card className="mb-5" title="等待去重确认的精选" right={<span>{num(r.grouping.waiting)} 条等待 · {num(r.grouping.needsAttention)} 条超过 10 分钟</span>} pad={false} scrollable>
           <p className="px-4 py-3 text-[13px] text-ink-3">这些新闻已达到精选条件，确认是否重复后才会进入精选。最多展示等待最久的 30 条。</p>
@@ -225,8 +230,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
 
 </div>
       </details>
-      <details id="runs-models" className={sectionClass}>
-        <summary className={summaryClass}>模型路由与内容处理<span className="ml-2 text-[12px] font-normal text-ink-4">{r.routingEffect ? rate(r.routingEffect.successful,r.routingEffect.attempts) : "暂无自动路由数据"} · {num(r.articleProcessing.unavailableModel)} 条模型不可路由</span></summary>
+      <details id="runs-models" open={expanded.includes("runs-models")} className={sectionClass}>
+        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-models"); }}>模型路由与内容处理<span className="ml-2 text-[12px] font-normal text-ink-4">{r.routingEffect ? rate(r.routingEffect.successful,r.routingEffect.attempts) : "暂无自动路由数据"} · {num(r.articleProcessing.unavailableModel)} 条模型不可路由</span></summary>
         <div className="mt-4">      {r.routingEffect && (
         <Card className="mb-5" title="智能模型路由效果 · 最近 24 小时"
           right={<Link className="text-[12px] text-accent hover:underline" to="/admin/model-bindings">调整工作流模型</Link>}>
@@ -289,8 +294,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
 
 </div>
       </details>
-      <details id="runs-queues" className={sectionClass}>
-        <summary className={summaryClass}>队列与定时任务<span className="ml-2 text-[12px] font-normal text-ink-4">{num(queued)} 条待执行 · {num(failing.length)} 项定时任务最近失败</span></summary>
+      <details id="runs-queues" open={expanded.includes("runs-queues")} className={sectionClass}>
+        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-queues"); }}>队列与定时任务<span className="ml-2 text-[12px] font-normal text-ink-4">{num(queued)} 条待执行 · {num(failing.length)} 项定时任务最近失败</span></summary>
         <div className="mt-4">      <div className="grid gap-5 xl:grid-cols-2">
         <Card title="队列" pad={false} scrollable>
           <DataTable scrollable
@@ -328,8 +333,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
 
 </div>
       </details>
-      <details id="runs-diagnostics" className={sectionClass}>
-        <summary className={summaryClass}>历史记录与诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.timeline.length)} 条近期任务 · {num(r.processes.length)} 个进程</span></summary>
+      <details id="runs-diagnostics" open={expanded.includes("runs-diagnostics")} className={sectionClass}>
+        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-diagnostics"); }}>历史记录与诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.timeline.length)} 条近期任务 · {num(r.processes.length)} 个进程</span></summary>
         <div className="mt-4">      {PARTS.map(({ name, part: Part }) => (r.modules[name] != null ? <Part key={name} data={r.modules[name]} /> : null))}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
