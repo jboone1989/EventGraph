@@ -108,11 +108,19 @@ test('verification follows configuration fingerprints, including external creden
  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,status,verified_at)
   VALUES (${m.id}::uuid,'text',${fingerprint},'verified',now())`;
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
- // Even an exact legacy fingerprint cannot authorize checks older than 24 hours.
- const stale=routingState({...await loadModel(m.id),enabled:true,route_enabled:true},await loadConnection(c.id),
-  [{model_id:m.id,capability:'text',config_fingerprint:fingerprint,status:'legacy',
-    verified_at:new Date(Date.now()-25*60*60*1000),latency_ms:null}]);
- assert.deepEqual(stale.eligibleCapabilities,[]);
+ // A matching successful check remains valid when only time has passed.
+ const eligibleRow={...await loadModel(m.id),enabled:true,route_enabled:true};
+ const eligibleConnection=await loadConnection(c.id);
+ const oldCheck={model_id:m.id,capability:'text',config_fingerprint:fingerprint,status:'legacy',
+    verified_at:new Date(Date.now()-25*60*60*1000),latency_ms:null};
+ const stillVerified=routingState(eligibleRow,eligibleConnection,[oldCheck]);
+ assert.deepEqual(stillVerified.eligibleCapabilities,['text']);
+ // A future-dated or unsuccessful check must never enable routing.
+ const future=routingState(eligibleRow,eligibleConnection,[{...oldCheck,status:'verified',
+   verified_at:new Date(Date.now()+60*60*1000)}]);
+ assert.deepEqual(future.eligibleCapabilities,[]);
+ const failed=routingState(eligibleRow,eligibleConnection,[{...oldCheck,status:'failed'}]);
+ assert.deepEqual(failed.eligibleCapabilities,[]);
  const renamed=await updateConnection(c.id,connection({name:'New display name'}),c.version,'display',actor);
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
  process.env.PROVIDER_TEST_KEY='rotated';
@@ -124,6 +132,18 @@ test('verification follows configuration fingerprints, including external creden
  const changed=await updateConnection(c.id,connection({baseUrl:'https://example.com/another/v1'}),renamed.version,'address',actor);
  assert.equal(changed.baseUrl,'https://example.com/another/v1');
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.verifiedAt,null);
+});
+
+test('a successful 25-hour-old capability test can enable routing without repeated paid calls',async()=>{
+ const c=await createConnection(connection({name:'persistent-'+randomUUID(),
+  credential:{action:'replace',value:'test-key-'+randomUUID()}}),'create',actor);
+ const input=model(c.id,{enabled:true});
+ const m=await createRegisteredModel(input,'create',actor);
+ const fingerprint=configurationFingerprint(await loadConnection(c.id),await loadModel(m.id));
+ await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,status,verified_at)
+   VALUES (${m.id}::uuid,'text',${fingerprint},'verified',now()-interval '25 hours')`;
+ const routed=await updateRegisteredModel(m.id,{...input,routeEnabled:true},m.version,'enable',actor);
+ assert.deepEqual(routed.routing.eligibleCapabilities,['text']);
 });
 
 test('deleting a bound model clears its workflow assignment and settings atomically',async()=>{
