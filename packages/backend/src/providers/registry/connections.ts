@@ -76,7 +76,7 @@ export function routingState(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[],now
  const own=checks.filter(x=>x.model_id===r.id);
  const eligible=own.filter(x=>x.config_fingerprint===fingerprint&&
   (x.status==='legacy'||x.status==='verified')&&x.verified_at&&
-  now>=x.verified_at.getTime()&&now-x.verified_at.getTime()<86400000&&r.capabilities.includes(x.capability as never)).map(x=>x.capability);
+  now>=x.verified_at.getTime()&&r.capabilities.includes(x.capability as never)).map(x=>x.capability);
  if(!eligible.length) {
   const mismatched=own.find(x=>x.config_fingerprint!==fingerprint);
   const changed=mismatched?.config_snapshot?Object.keys(snapshot).filter(k=>snapshot[k]!==mismatched.config_snapshot![k]):[];
@@ -223,7 +223,7 @@ async function requireRouteEvidence(input:ModelInput,id:string,c:ConnectionRow,d
  const candidate={...old,...rowValues(input),id} as ModelRow;
  const checks=await db<CheckRow[]>`SELECT * FROM registered_model_checks WHERE model_id=${id}::uuid`;
  const fingerprint=configurationFingerprint(c,candidate);
- if(!checks.some(x=>x.config_fingerprint===fingerprint&&x.status==='verified'&&x.verified_at&&Date.now()-x.verified_at.getTime()<86400000&&input.capabilities.includes(x.capability as never)))
+ if(!checks.some(x=>x.config_fingerprint===fingerprint&&x.status==='verified'&&x.verified_at&&Date.now()>=x.verified_at.getTime()&&input.capabilities.includes(x.capability as never)))
   throw new ProviderConfigError('Run a successful capability test on the current configuration before enabling routing','routeEnabled');
 }
 function rowValues(input:ModelInput) {
