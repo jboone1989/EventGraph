@@ -8,6 +8,7 @@ import {startWebServer} from "./web-server.ts";
 test("workflow bindings list new models, gate unverified choices, and save per-stage",async()=>{
  const modelKey="model:22222222-2222-4222-a222-222222222222";
  const data:AdminModelBindings={
+  defaultModel:{model:"",source:"default"},
   steps:[{key:"prefilter",label:"精选预筛（宽召回）",vision:false,
    current:{model:"default",source:"default"}}],
   choices:[],
@@ -21,14 +22,16 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   if(path==="/api/admin/nav-counts")return res.end("{}");
   if(path==="/api/site/meta")return res.end(JSON.stringify({changelogVersion:null}));
   if(path==="/api/admin/model-bindings")return res.end(JSON.stringify(data));
-  if(path==="/api/admin/models/prefilter"&&req.method==="POST"){
+  if((path==="/api/admin/models/prefilter"||path==="/api/admin/models/default")&&req.method==="POST"){
    let body="";for await(const c of req)body+=c;
    const parsed=JSON.parse(body) as {model:string|null;reason:string};
    writes.push({path,body:parsed});
    if(failure){res.statusCode=409;return res.end(JSON.stringify({detail:"模型暂不可用"}));}
-   data.steps[0]!.current=parsed.model?
-    {model:parsed.model,source:"admin"}:{model:"",source:"default"};
-   return res.end(JSON.stringify({after:data.steps[0]!.current}));
+   const current=parsed.model?
+    {model:parsed.model,source:"admin" as const}:{model:"",source:"default" as const};
+   if(path.endsWith('/default'))data.defaultModel=current;
+   else data.steps[0]!.current=current;
+   return res.end(JSON.stringify({after:current}));
   }
   res.statusCode=404;res.end("{}");
  });
@@ -41,6 +44,8 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   const picker=page.getByRole("combobox",{name:"为精选预筛选择模型"});
   await expect(page.getByText("工作流模型绑定",{exact:true}).first()).toBeVisible();
   await expect(picker).toHaveValue("");
+  const defaultPicker=page.getByRole("combobox",{name:"为默认模型选择模型"});
+  await expect(defaultPicker).toHaveValue("");
   await expect(picker.locator('option[value="default"]')).toHaveCount(0);
   await expect(picker.locator('option')).toHaveCount(1);
   data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",
@@ -48,9 +53,13 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await page.reload();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeEnabled();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");
+  await defaultPicker.selectOption(modelKey);
+  await page.getByRole("button",{name:"保存"}).first().click();
+  assert.equal(writes.at(-1)?.path,"/api/admin/models/default");
+  assert.equal(writes.at(-1)?.body.model,modelKey);
   await picker.selectOption(modelKey);
-  await page.getByRole("button",{name:"保存"}).click();
-  await expect(page.getByText("已绑定",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"保存"}).last().click();
+  await expect(page.getByText("单独指定",{exact:true})).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,modelKey);
   assert.match(writes.at(-1)!.body.reason,/prefilter/);
   await picker.selectOption("");
@@ -59,7 +68,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(page.getByRole("alert")).toContainText("模型暂不可用");
   failure=false;
   await page.getByRole("button",{name:"保存"}).click();
-  await expect(page.getByText("未绑定",{exact:true}).first()).toBeVisible();
+  await expect(page.getByText("继承默认",{exact:true}).first()).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,null);
   data.choices.splice(0,1);
   await page.reload();
