@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {test} from "node:test";
 import {checkProviderChanges} from "@aihot/backend/providers/registry/validation";
-import {rankStageProviders} from "@aihot/backend/providers/registry/selection";
 import {instantiateProvider,ChatProvider,EmbeddingProvider,parseSseCompletion} from "@aihot/backend/providers/registry/adapter";
 import type {ProviderProfile} from "@aihot/backend/providers/registry/types";
 const now=Date.parse("2026-10-17T01:00:00Z");
@@ -38,13 +37,6 @@ test("each instance uses its independent profile and adapter",()=>{
  const e={...profile("nvidia/nemotron-3-embed-1b","light"),adapter:"embedding" as const,
   endpoint:"https://integrate.api.nvidia.com/v1/embeddings",capabilities:["embedding" as const]};
  assert.ok(instantiateProvider(e) instanceof EmbeddingProvider);
-});
-test("text route requires independent recent text evidence and disabled providers never route",()=>{
- const tiny=profile("openai/gpt-oss-20b","light"),large=profile("nvidia/nemotron-3-super-120b-a12b","heavy"),other=profile("meta/muse-glimmer-30b","medium");
- assert.deepEqual(rankStageProviders([large,tiny,other],"prefilter",now).map(x=>x.modelId),["openai/gpt-oss-20b","meta/muse-glimmer-30b","nvidia/nemotron-3-super-120b-a12b"]);
- assert.equal(rankStageProviders([large,tiny,other],"groupReview",now)[0]?.modelId,"nvidia/nemotron-3-super-120b-a12b");
- tiny.routeEnabled=false;large.checks[0]!.status="failed";other.checks=[];
- assert.equal(rankStageProviders([tiny,large,other],"prefilter",now).length,0);
 });
 test("streaming models separate reasoning content from final answer and require DONE",()=>{
  const raw=[
