@@ -28,7 +28,7 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
       GRAPHITI_MODEL_PROXY_URL: http://api:3001/api/internal/graphiti/v1
-      GRAPHITI_MODEL_PROXY_TOKEN: ${GRAPHITI_MODEL_PROXY_TOKEN:?Configure shared Graphiti model proxy token in production env}
+      GRAPHITI_MODEL_PROXY_TOKEN: ${GRAPHITI_MODEL_PROXY_TOKEN:-}
       GRAPHITI_EMBEDDING_DIM: ${GRAPHITI_EMBEDDING_DIM:-2048}
     depends_on:
       knowledge-neo4j:
