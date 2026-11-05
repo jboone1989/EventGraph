@@ -63,7 +63,7 @@ export function configurationSnapshot(c:ConnectionRow,m:ModelRow):Record<string,
 export function configurationFingerprint(c:ConnectionRow,m:ModelRow):string {
  return createHash('sha256').update(JSON.stringify(configurationSnapshot(c,m))).digest('hex');
 }
-export function routingState(r:ModelRow,c:ConnectionRow,_checks:CheckRow[]=[],_now=Date.now()):RegisteredModel['routing'] {
+export function routingState(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[],now=Date.now()):RegisteredModel['routing'] {
  const reasons:string[]=[];
  if(!c.enabled)reasons.push('Connection is disabled');
  if(!r.enabled)reasons.push('Model is disabled');
@@ -73,8 +73,13 @@ export function routingState(r:ModelRow,c:ConnectionRow,_checks:CheckRow[]=[],_n
  try {if(!storedCredential(c))reasons.push('Credential is missing');snapshot=configurationSnapshot(c,r);fingerprint=configurationFingerprint(c,r);}
  catch {reasons.push('Credential cannot be read');}
  try{checkConnectionPolicy(c.base_url,c.policy);checkModel(modelInput(r),connectionView(c));}catch{reasons.push('Configuration violates endpoint or model policy');}
- // Model availability is learned from real work, not prior capability probes.
- // Test results remain visible in the admin but do not block runtime routing.
+ // Chat-model availability is learned from real requests, not scheduled probes.
+ // Embeddings remain a special case: a verified dimension-compatible probe is required.
+ if(r.adapter==='embedding'&&!checks.some(x=>x.model_id===r.id&&x.config_fingerprint===fingerprint&&
+  (x.status==='verified'||x.status==='legacy')&&x.verified_at&&
+  x.verified_at.getTime()<=now&&r.capabilities.includes(x.capability as never))) {
+  reasons.push('Embedding requires a successful capability test');
+ }
  return {eligibleCapabilities:reasons.length?[]:r.capabilities,reasons};
 }
 function effectiveBilling(r:ModelRow,c:ConnectionRow):'free'|'paid' {
