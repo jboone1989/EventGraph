@@ -10,6 +10,7 @@ import { closeDb, sql } from "@aihot/backend/db";
 import { upsertMaterial } from "@aihot/backend/content/materials";
 import { analyzeArticle, buildMaterial, loadAnalyzeInput, normalizeStructure, StructureSchema, tierThreshold, UNDERSTAND_FLOOR } from "@aihot/backend/editorial/analyze";
 import { processArticle, queueProcessing } from "@aihot/backend/jobs/content";
+import { publishArticle } from "@aihot/backend/publication/publish";
 import { QUEUES, stopBoss } from "@aihot/backend/jobs/queue";
 import { compactAnswerFirstSummary, enforceIdentity, MAX_BODY_CHARS, parseTranslateOutput } from "@aihot/backend/editorial/writing";
 import { READER_WORDING } from "@aihot/industry/wording";
@@ -256,6 +257,15 @@ test("Chinese sources get real English titles and summaries in the same analysis
   assert.equal(row?.inputs_hash, row?.current_hash);
   assert.ok(row?.title.length && row?.summary.length >= 40);
   assert.doesNotMatch(row!.title + row!.summary, /[㐀-鿿]/u);
+  await sql`UPDATE articles SET grouping_status='complete', grouped_at=now(), selection_adds_value=true WHERE id=${id}`;
+  await publishArticle(id);
+  const [regrouped] = await sql<{ inputs_hash: string; current_hash: string; selected: boolean }[]>`
+    SELECT ec.inputs_hash, md5(concat_ws(chr(31), p.title, p.original_title, p.summary, p.reason)) AS current_hash, p.selected
+    FROM english_copies ec JOIN publications p ON p.article_id=ec.article_id WHERE ec.article_id=${id}`;
+  assert.ok(regrouped?.selected, "grouping may admit the article to the selected edition");
+  assert.equal(regrouped?.inputs_hash, regrouped?.current_hash,
+    "asynchronous grouping must not erase the already-generated English summary");
+  assert.equal(provider.hits(), hits + 1, "grouping's publication rebuild must not buy an English translation");
 });
 
 test("analysing the same revision again reuses every paid answer", async () => {
