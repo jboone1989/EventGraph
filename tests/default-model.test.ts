@@ -1,7 +1,7 @@
 // The engine's own model: one OpenAI-compatible model (LLM_BASE_URL, LLM_API_KEY, LLM_MODEL) runs every
 // step of the analysis when nothing picks another one for a step.
 import { stub, tag } from "./setup.ts";
-import { analysisStep, SELECTING_SCORE, type AnalysisStep } from "./analysis-steps.ts";
+import { analysisStep, combinedAnswer, type AnalysisStep } from "./analysis-steps.ts";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
@@ -23,12 +23,7 @@ const seen: Array<{ model: string; step: AnalysisStep }> = [];
 const provider = await stub((_hit, req) => {
   const step = analysisStep(req.body);
   seen.push({ model: (JSON.parse(req.body) as { model: string }).model, step });
-  const content =
-    step === "prefilter" ? { label: "PASS", reason: "测试" }
-    : step === "score" ? { attentionScore: SELECTING_SCORE }
-    : step === "understand" ? { itemType: "product_launch", authorRole: "principal", tags: ["产品更新"], editorialJudgment: "理由", titleZh: "一个模型的标题", summaryZh: "一个模型写的摘要。第二句。" }
-    : step === "structure" ? { category: "term", tags: ["产品更新"], subjects: [], fact: null }
-    : "title_zh: 标题\nsummary_zh: 摘要。";
+  const content = combinedAnswer({ titleZh: "一个模型的标题", summaryZh: "一个模型写的摘要。第二句。" });
   return { id: `stub-${seen.length}`, choices: [{ message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
 });
 Object.assign(process.env, { LLM_BASE_URL: `${provider.url}/v1`, LLM_API_KEY: "test-key", LLM_MODEL: "one-model", MODEL_CALLS_ENABLED: "true" });
@@ -42,7 +37,7 @@ after(async () => {
   await closeDb();
 });
 
-test("one model runs the prefilter, both scores, the writing and the structure", async () => {
+test("one configured model performs the entire bilingual analysis", async () => {
   const { articleId } = await upsertMaterial({
     sourceId: SOURCE, url: `https://example.com/${T}`, title: `A product launch ${T}`, bodyText: `A company launched a product with pricing and availability. ${T} `.repeat(6),
     bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
@@ -50,7 +45,7 @@ test("one model runs the prefilter, both scores, the writing and the structure",
   const res = await analyzeArticle(articleId);
   assert.equal(res!.output!.selected, true);
   assert.equal(res!.output!.titleZh, "一个模型的标题");
-  assert.deepEqual(seen.map((r) => r.step).sort(), ["prefilter", "score", "score", "structure", "understand"]);
+  assert.deepEqual(seen.map((r) => r.step).sort(), ["combined"]);
   assert.ok(seen.every((r) => r.model === "one-model"), "every request names the configured model");
   const services = await sql<{ service: string }[]>`SELECT DISTINCT service FROM receipts WHERE subject LIKE ${`article:${articleId}%`}`;
   assert.deepEqual(services.map((s) => s.service), ["llm"]);
