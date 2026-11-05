@@ -102,8 +102,8 @@ test("yesterday's published work is cleared without deleting the article, and to
   const old = await make("published-old");
   const revised = await make("published-revised");
   await sql`
-    INSERT INTO publications (article_id, title, source_id, channel, url, discovered_at, timeline_at)
-    SELECT a.id, a.title, a.source_id, 'news', a.url, a.discovered_at, a.timeline_at
+    INSERT INTO publications (article_id, title, source_id, channel, url, discovered_at, timeline_at, sort_at)
+    SELECT a.id, a.title, a.source_id, 'news', a.url, a.discovered_at, a.timeline_at, a.timeline_at
     FROM articles a WHERE a.id IN (${old}, ${revised})`;
   await sql`UPDATE articles SET discovered_at = now() - interval '2 days',
     updated_at = now() - interval '2 days'
