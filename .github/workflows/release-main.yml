@@ -95,13 +95,12 @@ jobs:
           IMAGE_REF: ${{ steps.pin.outputs.image_ref }}
         run: docker buildx imagetools inspect "$IMAGE_REF"
 
-  # VM09 production deployment is opt-in until host SSH credentials are configured.
+  # A successful production release must actually deploy; never silently skip rollout.
+  # Missing SSH settings cause an explicit failure, not a misleading green release.
   deploy_production:
     name: "部署生产环境 VM09"
     needs: promote
-    if: >-
-      ${{ needs.promote.outputs.image_ref != '' &&
-          vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
+    if: ${{ needs.promote.outputs.image_ref != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
