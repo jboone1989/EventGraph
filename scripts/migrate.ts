@@ -12,7 +12,7 @@ const retiredModelObjects: Record<string, { table: string; column?: string }> = 
   "0124_retire_legacy_model_check_detail.sql": { table: "model_provider_checks", column: "detail" },
 };
 
-export async function runMigrations(sql: postgres.Sql, root: string): Promise<number> {
+export function listMigrationFiles(root: string): {name:string;file:string}[] {
   const sqlFiles = (dir: string) => existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".sql")).map((name) => ({ name, file: path.join(dir, name) })) : [];
   const modules = path.join(root, "modules");
   const migrations = [
@@ -22,6 +22,11 @@ export async function runMigrations(sql: postgres.Sql, root: string): Promise<nu
   for (const [i, migration] of migrations.entries()) {
     if (migrations[i + 1]?.name === migration.name) throw new Error(`two migrations are named ${migration.name}: ${migration.file} and ${migrations[i + 1].file}`);
   }
+  return migrations;
+}
+
+export async function runMigrations(sql: postgres.Sql, root: string): Promise<number> {
+  const migrations = listMigrationFiles(root);
   // Validate the complete set before making any change; old files remain installable as history.
   const prepared = migrations.map((migration) => {
     const text = readFileSync(migration.file, "utf8");
