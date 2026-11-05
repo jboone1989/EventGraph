@@ -40,7 +40,7 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     await expect(page.getByText("定时任务最近失败 1")).toBeVisible();
     await expect(page.getByText("遗留未完成新闻 2")).toBeVisible();
     await expect(page.getByText("侧栏数字只统计最近 24 小时", { exact: false })).toBeVisible();
-    const navBadge = page.locator('a[href="/admin/runs"] span[title="最近24小时超时或失败的新闻（按篇计数）"]');
+    const navBadge = page.locator('aside a[href="/admin/runs"] span[title="最近24小时超时或失败的新闻（按篇计数）"]');
     await expect(navBadge).toHaveText("5");
     await expect(navBadge).toHaveClass(/bg-bg-sunk/);
     await expect(page.getByText("超时未完成", { exact: true })).toBeVisible();
