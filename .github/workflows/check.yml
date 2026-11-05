@@ -466,7 +466,10 @@ jobs:
             if (!/^[0-9a-f]{40}$/.test(base)) throw new Error('Invalid base SHA');
             const rubric = execFileSync('git', ['show', base + ':.github/review/claude-review-checklist.md'],
               { encoding: 'utf8', maxBuffer: 100_000 });
-            const model = process.env.REVIEW_MODEL;
+            // The legacy UI setting uses a provider alias; the public API requires a full model slug.
+            const configuredModel = process.env.REVIEW_MODEL;
+            const model = configuredModel === 'deepseek-flash'
+              ? 'deepseek/deepseek-v4.1-flash-1017' : configuredModel;
             const body = {
               model,
               stream: false,
@@ -485,7 +488,12 @@ jobs:
               body: JSON.stringify(body),
               signal: AbortSignal.timeout(150_000),
             });
-            if (!response.ok) throw new Error('OpenRouter review failed: HTTP ' + response.status);
+            if (!response.ok) {
+              if (response.status === 401) {
+                throw new Error('OpenRouter HTTP 401: GitHub secret OPENROUTER_API_KEY was rejected. Verify or replace the API key; merge remains blocked.');
+              }
+              throw new Error('OpenRouter review failed: HTTP ' + response.status);
+            }
             const data = await response.json();
             const answer = data?.choices?.[0];
             if (answer?.finish_reason !== 'stop' || typeof answer.message?.content !== 'string') {
