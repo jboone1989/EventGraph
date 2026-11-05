@@ -13,7 +13,7 @@ A release uses **one** application image: push to `develop` (or validated exact-
 - `develop → main` 使用 **Merge Commit**，不可 Squash/Rebase。保留提交祖先关系；生产镜像仍由经检验的 `develop` SHA 和不可变 GHCR digest 配对固定到 `.github/production-image.env`，绝不因为合并分支而跳过镜像和环境验证。
 - **每次 `main` 合并成功后，立即通过 PR 将 `main → develop` 回同步，使用 Merge Commit，不使用 Squash/Rebase**；已经包含 `main` 祖先时不需要新 PR。仅同步分支历史和经过验证的发布元数据，禁止在此步骤夹带业务功能。 Spec 门禁仅对同仓库、`develop` 为 `main` 祖先、差异为空或仅 `.github/production-image.env` 的纯回同步放行；业务差异仍需已有批准 Spec，全部 CI 与代码评审继续执行。
 - 主分支受 GitHub 规则保护，不直接推送、不强制推送。不重复开同用途的 PR，优先处理已有回同步 PR。回同步完成时应满足 `git merge-base --is-ancestor main develop`；此时未发布的功能提交只能在 `develop` 一侧增加。
-- 本次回同步以 `main` 为历史来源，同时把待用生产镜像标记修正为 `develop` 已成功发布的 `679c15f0…`（digest `ca2150e7…`）；这只是仓库元数据准备，**不执行生产部署**。后续真正发布仍以 `release-main.yml` 的已有检查为准。
+- 本次回同步仅调整分支历史、CI 合并门禁和规则说明，**不修改 `.github/production-image.env`，不执行生产部署**。下次生产发布必须在独立、经过验证的 `develop → main` 发布中选择与最新运行代码等价的已发布镜像摘要，继续执行 `release-main.yml` 的校验。
 
 ## GitHub-native workflow ownership (2026-11-04)
 
