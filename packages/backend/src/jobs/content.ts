@@ -8,6 +8,7 @@ import type { PgBoss } from "pg-boss";
 import { sql, type Db } from "../db.ts";
 import { extractArticleBody, pageFetchable } from "../content/extract.ts";
 import { analyzeArticle, AnalysisInterruptedError } from "../editorial/analyze.ts";
+import { storeAnalyzedEnglish } from "../editorial/english.ts";
 import { isHistorical } from "../content/materials.ts";
 import { publishArticle } from "../publication/publish.ts";
 import { BudgetExceededError, ProviderRejectedError, ReceiptBusyError, ReceiptUnknownError } from "../providers/receipts.ts";
@@ -142,7 +143,10 @@ async function processRevision(articleId: string, row: NonNullable<Awaited<Retur
     }
     if (result.stale) return { state: "stale" }; // the newer revision has its own job
     await publishArticle(articleId);
-    // History still completes the identity gate; groupArticle confirms it without a model call.
+    // English is generated in the same analysis call: publish both editions immediately.
+    // Only historical entries and editorial corrections need the separate English backfill worker.
+    await storeAnalyzedEnglish(articleId, result.output.english, result.receiptIds[0]);
+    // Event grouping and Graphiti are enhancements; neither blocks the ordinary news item.
     if (result.output.relevance === "pass") await enqueue(QUEUES.group, { articleId }, { singletonKey: articleId, priority: row.historical ? PRIORITY.history : row.tier === 'T1' ? PRIORITY.liveOfficial : PRIORITY.live });
     await sql`UPDATE articles SET processing_attempts = 0, processing_retry_at = NULL, processing_queued_at = NULL
               WHERE id = ${articleId} AND revision = ${row.revision}`;
