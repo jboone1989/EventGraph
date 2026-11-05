@@ -14,6 +14,14 @@ function fail(message) {
   process.exit(1);
 }
 if (!hash.test(base) || !hash.test(head)) fail("Missing or invalid PR base/head SHA.");
+// Prevent new main-only application history: production promotion may only come
+// from this repository's develop branch. A main hotfix must go through develop first.
+if (process.env.SPEC_BASE_REF === "main" &&
+    (process.env.SPEC_HEAD_REF !== "develop" ||
+     !process.env.SPEC_REPOSITORY ||
+     process.env.SPEC_HEAD_REPO !== process.env.SPEC_REPOSITORY)) {
+  fail("main accepts only same-repository develop -> main promotions; merge fixes into develop first.");
+}
 if (process.env.SPEC_BASE_REF === "main" &&
     process.env.SPEC_HEAD_REF === "develop" &&
     process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY &&

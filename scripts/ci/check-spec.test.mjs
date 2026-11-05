@@ -85,6 +85,19 @@ test("same-repo develop to main promotion is exempt, fork promotion is not", () 
     assert.equal(check(cwd, base, head, "", { ...env, SPEC_HEAD_REPO: "other/EventGraph" }).status, 1);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+test("main rejects feature and release branches even when they have an approved Spec", () => {
+  const { cwd, base } = fixture();
+  try {
+    const head = commit(cwd, "apps/app.ts", "export const value = 2;\\n");
+    const env = { SPEC_BASE_REF: "main", SPEC_HEAD_REF: "release/independent-main",
+      SPEC_HEAD_REPO: "jboone1989/EventGraph", SPEC_REPOSITORY: "jboone1989/EventGraph" };
+    const body = `Spec: specs/demo/spec.md@${base}`;
+    assert.equal(check(cwd, base, head, body, env).status, 1);
+    assert.equal(check(cwd, base, head, body, { ...env, SPEC_HEAD_REF: "feature/fix" }).status, 1);
+    assert.equal(check(cwd, base, head, body, { ...env, SPEC_HEAD_REF: "develop" }).status, 0);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("moving product code into docs still requires a spec", () => {
   const { cwd, base } = fixture();
   try {

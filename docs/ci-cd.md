@@ -7,6 +7,14 @@ A release uses **one** application image: push to `develop` (or validated exact-
 - Only main pushes with release intent run standalone promotion. Its `.github/production-image.env` pins both the successful develop SOURCE_SHA and digest; promotion requires successful `check`, `e2e` and published-image results for that SHA, unchanged application inputs, and an existing digest. The main push never builds a second image.
 - The `deploy_production` job runs only if `EVENTGRAPH_PROD_AUTO_DEPLOY=true` is configured. It invokes the existing VM09 `scripts/deploy-prod.sh`. With no configured production SSH, run that script on VM09 through an authorized operator; **merging to main by itself does not deploy**.
 
+## 分支继承与发布规则（2026-11-05）
+
+- 唯一功能路径：`feature/* → develop → main`。先将修复、Spec、工作流变更合入 `develop`；`main` 只接受**同仓库 `develop` 作为 PR 源分支**。CI 的 Spec gate 对其他源分支指向 `main` 的 PR 直接失败，包括 `release/*`、`hotfix/*`；紧急修复也先合到 `develop`。
+- `develop → main` 使用 **Merge Commit**，不可 Squash/Rebase。保留提交祖先关系；生产镜像仍由经检验的 `develop` SHA 和不可变 GHCR digest 配对固定到 `.github/production-image.env`，绝不因为合并分支而跳过镜像和环境验证。
+- **每次 `main` 合并成功后，立即通过 PR 将 `main → develop` 回同步，使用 Merge Commit，不使用 Squash/Rebase**；已经包含 `main` 祖先时不需要新 PR。仅同步分支历史和经过验证的发布元数据，禁止在此步骤夹带业务功能。
+- 主分支受 GitHub 规则保护，不直接推送、不强制推送。不重复开同用途的 PR，优先处理已有回同步 PR。回同步完成时应满足 `git merge-base --is-ancestor main develop`；此时未发布的功能提交只能在 `develop` 一侧增加。
+- 本次回同步以 `main` 为历史来源，同时把待用生产镜像标记修正为 `develop` 已成功发布的 `679c15f0…`（digest `ca2150e7…`）；这只是仓库元数据准备，**不执行生产部署**。后续真正发布仍以 `release-main.yml` 的已有检查为准。
+
 ## GitHub-native workflow ownership (2026-11-04)
 
 - `Check` validates PRs, develop pushes and immutable-SHA manual dispatch, preserving real `check`, `docker`, `e2e` and the Spec gate. Metadata-only edits no longer rerun heavy CI; manually re-dispatch Check on the current head when retargeting a base.
