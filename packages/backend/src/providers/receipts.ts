@@ -255,3 +255,17 @@ export async function completeReceipt(db: Db, receiptId: number): Promise<void> 
 export async function rejectReceivedResponse(receiptId: number, reason: string): Promise<void> {
   await sql`UPDATE receipts SET status = 'failed', error = ${reason.slice(0, 2000)}, updated_at = now() WHERE id = ${receiptId}`;
 }
+
+// Only the receipt owner changes unresolved provider attempts; callers supply article ids
+// inside their own article lifecycle transaction. Settled billing history is preserved.
+export async function closeUnresolvedArticleReceipts(db: Db, articleIds: string[], reason: string): Promise<number> {
+  if (!articleIds.length) return 0;
+  const match = db`substring(subject from '^article:([^@:#]+)') = ANY(${articleIds}::text[])`;
+  await db`UPDATE receipt_attempts SET status='failed', error=${reason},
+    finished_at=coalesce(finished_at, now())
+    WHERE status IN ('pending', 'unknown') AND receipt_id IN
+      (SELECT id FROM receipts WHERE ${match})`;
+  const changed = await db`UPDATE receipts SET status='failed', error=${reason}, updated_at=now()
+    WHERE status IN ('pending', 'unknown') AND ${match}`;
+  return changed.count;
+}

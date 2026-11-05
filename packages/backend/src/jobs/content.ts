@@ -11,7 +11,7 @@ import { analyzeArticle, AnalysisInterruptedError } from "../editorial/analyze.t
 import { storeAnalyzedEnglish } from "../editorial/english.ts";
 import { isHistorical } from "../content/materials.ts";
 import { publishArticle } from "../publication/publish.ts";
-import { BudgetExceededError, ProviderRejectedError, ReceiptBusyError, ReceiptUnknownError } from "../providers/receipts.ts";
+import { BudgetExceededError, ProviderRejectedError, ReceiptBusyError, ReceiptUnknownError, closeUnresolvedArticleReceipts } from "../providers/receipts.ts";
 import { ModelOutputError } from "../providers/llm.ts";
 import { ProviderConfigError } from "../providers/registry/connection-types.ts";
 import { enqueue, QUEUES, shutdownSignal, work } from "./queue.ts";
@@ -318,13 +318,7 @@ export async function requeueFailed(group: string | null, limit: number | null =
       // A manual retry also releases unresolved model attempts for these news items.
       // Do not delete cost history; the explicit operator action authorizes a fresh call.
       const ids = selected.map(a => a.id);
-      const subjectMatch = tx`substring(subject from '^article:([^@:#]+)') = ANY(${ids}::text[])`;
-      await tx`UPDATE receipt_attempts SET status='failed', error='Manual news retry',
-        finished_at=coalesce(finished_at, now())
-        WHERE status IN ('unknown','pending') AND receipt_id IN
-          (SELECT id FROM receipts WHERE ${subjectMatch})`;
-      await tx`UPDATE receipts SET status='failed', error='Manual news retry', updated_at=now()
-        WHERE status IN ('unknown','pending') AND ${subjectMatch}`;
+      await closeUnresolvedArticleReceipts(tx, ids, "Manual news retry");
     }
     return selected;
   });

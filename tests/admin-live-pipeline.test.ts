@@ -3,15 +3,17 @@ import { tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
+import { getBoss, stopBoss } from "@aihot/backend/jobs/queue";
 import { livePipelineOverview, legacyUnresolvedOverview, currentNewsQueueOverview } from "@aihot/backend/admin/runs";
 import { navCounts } from "@aihot/backend/admin/navigation";
 
-after(closeDb);
+after(async () => { await stopBoss(); await closeDb(); });
 
 test("live dashboard excludes old and backfilled articles", async () => {
   const before = await livePipelineOverview();
   const navBefore = await navCounts();
   const oldBefore = await legacyUnresolvedOverview();
+  await getBoss(); // Standalone test database has no pg-boss tables until startup.
   const currentBefore = await currentNewsQueueOverview();
   const source = `live-dashboard-${tag()}`;
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
