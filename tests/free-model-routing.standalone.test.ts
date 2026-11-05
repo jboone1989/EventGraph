@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ProviderConnection, RegisteredModel } from '@aihot/contracts/providers';
-import { rankFreeModels, stageComplexity, coolDownModel } from '@aihot/backend/providers/registry/selection';
+import { rankFreeModels, stageComplexity, coolDownModel, rememberSuccessfulRoute } from '@aihot/backend/providers/registry/selection';
 import { requestExtrasForTask } from '@aihot/backend/providers/llm';
+import { complexityFromModelId } from '@aihot/contracts/providers';
 
 const provider = (id: string, vendor: string, policy: ProviderConnection['policy'] = 'none'): ProviderConnection => ({
  id,name:vendor,vendor,policy,protocol:'openai-compatible',baseUrl:'https://example.com/v1',
  timeoutMs:30000,enabled:true,credential:{configured:true},version:1,updatedAt:new Date().toISOString()
 });
 const model = (id: string, providerId: string, modelId: string, complexity: RegisteredModel['complexity']): RegisteredModel => ({
- id,providerId,modelId,complexity,adapter:'chat',endpointOverride:null,timeoutOverrideMs:null,
+ id,providerId,modelId,complexity,billing:id==='paid'?'paid':'free',adapter:'chat',endpointOverride:null,timeoutOverrideMs:null,
  capabilities:['text'],requestDefaults:{},probeSpec:null,stream:false,documentationUrl:null,
  notes:null,enabled:true,routeEnabled:true,upstreamMetadata:{},
  routing:{eligibleCapabilities:['text'],reasons:[]},version:1,updatedAt:new Date().toISOString(),
@@ -24,7 +25,7 @@ const candidates=[
 ];
 test('free-first routing never silently selects paid models',()=>{
  const ranked=rankFreeModels(candidates,connections,'prefilter');
- assert.deepEqual(ranked.map(m=>m.id),['or-light','nv-light','or-heavy']);
+ assert.deepEqual(ranked.map(m=>m.id),['nv-light','or-light','or-heavy']);
  assert.ok(!ranked.some(m=>m.id==='paid'));
 });
 test('task complexity keeps light work on light models and deep work on deep models',()=>{
@@ -37,9 +38,25 @@ test('temporary OpenRouter outage falls back to NVIDIA and cooling is per accoun
  coolDownModel('or-light','or',60,true);
  assert.deepEqual(rankFreeModels(candidates,connections,'prefilter').map(m=>m.id),['nv-light']);
 });
-test('only tested and explicitly routed chat models are eligible',()=>{
- const blocked={...candidates[0]!,routing:{eligibleCapabilities:[],reasons:['retest required']}};
+test('only enabled and explicitly routed chat models are eligible, without a probe prerequisite',()=>{
+ const blocked={...candidates[0]!,routeEnabled:false};
  assert.deepEqual(rankFreeModels([blocked,candidates[2]!],connections,'prefilter').map(m=>m.id),['nv-light']);
+});
+
+test('the last successful free model is reused until it fails',()=>{
+ const alt=provider('alt','openrouter');
+ const selected=model('cached','alt','another/model-20b','light');
+ const second=model('second','alt','another/model-21b','light');
+ rememberSuccessfulRoute('model:cached','light');
+ assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'cached');
+ coolDownModel('cached','alt',60);
+ assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'second');
+});
+test('parameter count supplies only an initial, overridable tier',()=>{
+ assert.equal(complexityFromModelId('model-26b-a4b'),'light');
+ assert.equal(complexityFromModelId('model-120b-a12b'),'medium');
+ assert.equal(complexityFromModelId('model-550b-a55b'),'heavy');
+ assert.equal(complexityFromModelId('openrouter/free'),'medium');
 });
 
 test('NVIDIA Ultra uses non-reasoning mode only for schema-constrained grouping', () => {

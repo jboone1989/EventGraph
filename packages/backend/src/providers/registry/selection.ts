@@ -1,6 +1,5 @@
 import { listConnections, listRegisteredModels } from './connections.ts';
 import { BudgetExceededError } from '../receipts.ts';
-import { isVerifiedFreeTrialProvider } from './types.ts';
 import type { RegisteredModel, ProviderConnection } from '@aihot/contracts/providers';
 
 export type Complexity = 'light' | 'medium' | 'heavy';
@@ -12,63 +11,59 @@ const weights: Record<string, Complexity> = {
 const levels: Record<Complexity, number> = { light: 0, medium: 1, heavy: 2 };
 const cooling = new Map<string, number>();
 const accountCooling = new Map<string, number>();
+// The most recently successful free model is reused until an explicit rejection.
+// Keyed by required tier and capability, never by workflow or arbitrary test latency.
+const lastGood = new Map<string, string>();
 
 export function stageComplexity(stage: string): Complexity {
   return stage === 'light' || stage === 'medium' || stage === 'heavy' ? stage : weights[stage] ?? 'medium';
 }
+const cacheKey=(stage:string,needsVision:boolean)=>stageComplexity(stage)+':'+(needsVision?'vision':'text');
 
-/** A 429 may represent an account-wide quota. Do not flood other models using the same key. */
-export function coolDownModel(id: string, providerId: string, seconds = 60, accountWide = false) {
-  const until = Date.now() + Math.max(1, seconds) * 1000;
-  cooling.set(id, until);
-  if (accountWide) accountCooling.set(providerId, until);
+export function rememberSuccessfulRoute(reference:string,stage:string,needsVision=false):void {
+  if(reference.startsWith('model:'))lastGood.set(cacheKey(stage,needsVision),reference.slice(6));
 }
 
-function tierPenalty(actual: Complexity, target: Complexity): number {
-  const delta = levels[actual] - levels[target];
-  return delta < 0 ? -delta * 150 : delta * 70;
+/** After a rejection do not pick the same cached model again. */
+export function coolDownModel(id:string,providerId:string,seconds=60,accountWide=false):void {
+  const until=Date.now()+Math.max(1,seconds)*1000;
+  cooling.set(id,until);
+  if(accountWide)accountCooling.set(providerId,until);
+  for(const [key,cachedId] of lastGood)if(cachedId===id)lastGood.delete(key);
 }
 
-function isFree(m: RegisteredModel, c: ProviderConnection): boolean {
-  if (c.vendor.toLowerCase() === 'openrouter') return m.modelId.endsWith(':free') || m.modelId === 'openrouter/free';
-  return c.vendor.toLowerCase() === 'nvidia' && c.policy === 'nvidia-free-trial' && isVerifiedFreeTrialProvider(m.modelId);
-}
-
-export function rankFreeModels(models: RegisteredModel[], connections: ProviderConnection[], stage: string,
-  now = Date.now(), needsVision = false, excluded: ReadonlySet<string> = new Set()): RegisteredModel[] {
-  const owners = new Map(connections.map(c => [c.id, c]));
-  const capability = needsVision ? 'vision' : 'text', target = stageComplexity(stage);
-  return models.filter(m => {
-    const c = owners.get(m.providerId);
-    return !!c && c.enabled && c.credential.configured && isFree(m, c) &&
-      m.enabled && m.routeEnabled && m.adapter === 'chat' &&
-      m.routing.eligibleCapabilities.includes(capability) && levels[m.complexity] >= levels[target] && !excluded.has(m.id) &&
-      (cooling.get(m.id) ?? 0) <= now && (accountCooling.get(c.id) ?? 0) <= now;
-  }).sort((a, b) => {
-    const ca = owners.get(a.providerId)!, cb = owners.get(b.providerId)!;
-    const vendor = (ca.vendor.toLowerCase() === 'openrouter' ? 0 : 1) -
-      (cb.vendor.toLowerCase() === 'openrouter' ? 0 : 1);
-    // Match the required tier before preferring a vendor: do not waste heavy
-    // OpenRouter capacity on a light task if a light NVIDIA model is healthy.
-    return tierPenalty(a.complexity, target) - tierPenalty(b.complexity, target) || vendor ||
-      (a.checks.find(c => c.capability === capability)?.latencyMs ?? 120000) -
-      (b.checks.find(c => c.capability === capability)?.latencyMs ?? 120000) || a.id.localeCompare(b.id);
+export function rankFreeModels(models:RegisteredModel[],connections:ProviderConnection[],stage:string,
+  now=Date.now(),needsVision=false,excluded:ReadonlySet<string>=new Set()):RegisteredModel[] {
+  const owners=new Map(connections.map(c=>[c.id,c]));
+  const capability=needsVision?'vision':'text',target=stageComplexity(stage);
+  const cached=lastGood.get(cacheKey(stage,needsVision));
+  return models.filter(m=>{
+    const c=owners.get(m.providerId);
+    return !!c&&c.enabled&&c.credential.configured&&m.billing==='free'&&
+      m.enabled&&m.routeEnabled&&m.adapter==='chat'&&
+      m.routing.eligibleCapabilities.includes(capability)&&levels[m.complexity]>=levels[target]&&
+      !excluded.has(m.id)&&(cooling.get(m.id)??0)<=now&&(accountCooling.get(c.id)??0)<=now;
+  }).sort((a,b)=>{
+    // Previously successful free model wins; otherwise stay in the requested tier.
+    const cachedDifference=Number(b.id===cached)-Number(a.id===cached);
+    return cachedDifference||
+      (levels[a.complexity]-levels[target])-(levels[b.complexity]-levels[target])||
+      a.modelId.localeCompare(b.modelId)||a.id.localeCompare(b.id);
   });
 }
 
-/** A single authoritative selector for every automatic workflow, without legacy NVIDIA fallback. */
-export async function selectConfiguredProviderForStage(stage: string, needsVision = false,
-  excluded: ReadonlySet<string> = new Set()): Promise<string> {
-  const [connections, models] = await Promise.all([listConnections(), listRegisteredModels()]);
-  const candidates = rankFreeModels(models, connections, stage, Date.now(), needsVision, excluded);
-  if (!candidates.length) throw new BudgetExceededError('free-models', 'waiting_for_free_provider', 300);
-  return 'model:' + candidates[0]!.id;
+export async function selectConfiguredProviderForStage(stage:string,needsVision=false,
+  excluded:ReadonlySet<string>=new Set()):Promise<string> {
+  const [connections,models]=await Promise.all([listConnections(),listRegisteredModels()]);
+  const candidates=rankFreeModels(models,connections,stage,Date.now(),needsVision,excluded);
+  if(!candidates.length)throw new BudgetExceededError('free-models','waiting_for_free_provider',300);
+  return 'model:'+candidates[0]!.id;
 }
 
-export async function coolDownReference(reference: string, seconds = 60, accountWide = false): Promise<void> {
-  if (!reference.startsWith('model:')) return;
-  const id = reference.slice(6);
-  const models = await listRegisteredModels();
-  const m = models.find(item => item.id === id);
-  if (m) coolDownModel(id, m.providerId, seconds, accountWide);
+export async function coolDownReference(reference:string,seconds=60,accountWide=false):Promise<void> {
+  if(!reference.startsWith('model:'))return;
+  const id=reference.slice(6);
+  const models=await listRegisteredModels();
+  const m=models.find(item=>item.id===id);
+  if(m)coolDownModel(id,m.providerId,seconds,accountWide);
 }
