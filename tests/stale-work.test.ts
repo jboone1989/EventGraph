@@ -12,7 +12,7 @@ const unique = tag();
 const source = `freshness-${unique}`;
 after(async () => { await stopBoss(); await closeDb(); });
 
-test("UTC midnight removes yesterday unfinished news and jobs, keeps today and published content", async () => {
+test("UTC midnight clears yesterday unfinished queues without losing their collection identities", async () => {
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
     VALUES (${source},'Freshness','rss','T1','editorial','2100-01-01')`;
   const make = async (name: string) => (await upsertMaterial({
@@ -41,7 +41,7 @@ test("UTC midnight removes yesterday unfinished news and jobs, keeps today and p
   assert.equal((await sql`SELECT processing_state FROM articles WHERE id = ${oldFailed}`)[0]!.processing_state, "failed");
   const first = await expireStaleWork();
   assert.ok(first.deletedStaleJobs >= 1);
-  assert.equal(first.deletedStaleArticles, 2);
+  assert.equal(first.clearedStaleArticles, 2);
   assert.equal(first.markedUnknownReceipts, 1);
   const preserved = await sql<{ logical_key: string; status: string }[]>`
     SELECT logical_key,status FROM receipts WHERE logical_key IN (${pendingKey},${unknownKey})`;
@@ -50,16 +50,24 @@ test("UTC midnight removes yesterday unfinished news and jobs, keeps today and p
     "pending and unknown provider outcomes must remain protected from re-billing");
   const states = await sql<{ id: string; processing_state: string; processing_retry_at: Date | null }[]>`
     SELECT id,processing_state,processing_retry_at FROM articles WHERE id IN (${old},${oldFailed},${fresh})`;
-  assert.equal(states.length, 1, "both unfinished old rows must be deleted");
+  assert.equal(states.length, 3, "identities survive so the collector does not re-import them");
+  assert.equal(states.find(x => x.id === old)?.processing_state, "skipped");
+  assert.equal(states.find(x => x.id === oldFailed)?.processing_state, "skipped");
   assert.equal(states.find(x => x.id === fresh)?.processing_state, "new");
   assert.equal((await sql`SELECT id FROM pgboss.job WHERE id = ${oldJob}`).length, 0);
   assert.equal((await sql`SELECT id FROM pgboss.job WHERE id = ${freshJob}`).length, 1);
-  assert.equal((await sql`SELECT id FROM articles WHERE id = ${old}`).length, 0);
+  assert.equal((await sql`SELECT id FROM articles WHERE id = ${old}`).length, 1);
+  const rediscovered = await upsertMaterial({
+    sourceId: source, url: `https://example.org/${unique}/old`, title: "Article old",
+    bodyText: "Complete article content", bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
+  });
+  assert.equal(rediscovered.articleId, old, "same RSS article must not become a new billable identity");
+  assert.equal(rediscovered.created, false);
   const repeated = await expireStaleWork();
   assert.equal(repeated.deletedStaleJobs, 0);
-  assert.equal(repeated.deletedStaleArticles, 0);
+  assert.equal(repeated.clearedStaleArticles, 0);
   assert.equal(await queueProcessing(old), null);
-  assert.equal(await rerun(old, "analyze", `expired-${unique}`, "test"), null);
+  await assert.rejects(rerun(old, "analyze", `expired-${unique}`, "test"), /不是当前 UTC 日的新闻/);
   const sweep = await sweepUnprocessed();
   assert.equal(typeof sweep.enqueued, "number");
   assert.equal((await sql`SELECT count(*)::int n FROM pgboss.job WHERE data->>'articleId' = ${old}`)[0]!.n, 0);
@@ -90,7 +98,7 @@ test("updating a stale unfinished article does not extend its UTC-day lifetime",
   await expireStaleWork();
   const [after] = await sql<{ processing_state: string }[]>`
     SELECT processing_state FROM articles WHERE id = ${id}`;
-  assert.equal(after, undefined, "the unfinished old article must be deleted");
+  assert.equal(after?.processing_state, "skipped", "old news exits the queue without becoming new on rediscovery");
 });
 
 test("yesterday's published work is cleared without deleting the article, and today's published revision still queues", async () => {
