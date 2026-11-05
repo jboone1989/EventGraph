@@ -11,6 +11,7 @@ import { upsertMaterial } from "@aihot/backend/content/materials";
 import { analyzeArticle, buildMaterial, loadAnalyzeInput, normalizeStructure, StructureSchema, tierThreshold, UNDERSTAND_FLOOR } from "@aihot/backend/editorial/analyze";
 import { processArticle, queueProcessing } from "@aihot/backend/jobs/content";
 import { publishArticle } from "@aihot/backend/publication/publish";
+import { loadItemDetail } from "@aihot/backend/publication/detail";
 import { QUEUES, stopBoss } from "@aihot/backend/jobs/queue";
 import { compactAnswerFirstSummary, enforceIdentity, MAX_BODY_CHARS, parseTranslateOutput } from "@aihot/backend/editorial/writing";
 import { READER_WORDING } from "@aihot/industry/wording";
@@ -66,6 +67,8 @@ const provider = await stub((_hit, req) => {
       reasonZh: wordy ? `理由里有禁用词 ${marker}` : `理由 ${marker}`,
       reasonEn: `The announcement has documented impact and implications for readers interested in ${marker}.`,
       itemType: "model_release", authorRole: "principal",
+      explanation: { who: "某实验室", what: `来源确认发布了 ${marker} 模型`, when: null, where: null,
+        why: null, how: null, soWhat: "读者可从原文核实性能和价格", watchpoints: [] },
     });
   }
   if (step === "prefilter") return answer({ label: marker === "OFFTOPIC" || marker === "BARE" ? "BLOCK" : marker === "VAGUE" ? "UNKNOWN" : "PASS", reason: "测试" });
@@ -269,6 +272,13 @@ test("Chinese sources get real English titles and summaries in the same analysis
   assert.equal(regrouped?.inputs_hash, regrouped?.current_hash,
     "asynchronous grouping must not erase the already-generated English summary");
   assert.match(regrouped!.reason ?? "", /documented impact/, "selection retains the original English why-it-matters paragraph");
+  const detail = await loadItemDetail(id, "zh");
+  assert.equal(detail.kind, "found");
+  if (detail.kind === "found") {
+    assert.match(detail.item.explanation?.what ?? "", /来源确认发布了 CLEAR 模型/,
+      "single-pass explanation is published without another model call");
+    assert.equal(detail.item.body, null, "aggregation shows the summary, not the copied article body");
+  }
   assert.equal(provider.hits(), hits + 1, "grouping's publication rebuild must not buy an English translation");
 });
 

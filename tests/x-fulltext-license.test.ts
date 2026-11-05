@@ -166,7 +166,9 @@ test("R03: every list projection retains the item without unlicensed X content",
 
 test("R04: revoking only site fulltext keeps editorial summaries after republishing", hidesPosts, async () => {
   const f = await fixture({ full: true });
-  assert.ok((await get(`/api/site/items/${f.id}/original`)).body.includes(f.main));
+  const before = (await get(`/api/site/items/${f.id}/original`)).json();
+  assert.equal(before.body, null, "licensed content is still viewed at its original publisher");
+  assert.equal(before.links.original, f.url);
   assert.ok((await feedItem("/feed/full.xml", f)).includes(f.zh));
   await revoke(f, { site_fulltext: false });
   await summaryDetail(f);
@@ -180,9 +182,11 @@ test("R04: revoking only site fulltext keeps editorial summaries after republish
 test("R05: revoking only syndication preserves licensed site reading and Markdown", async () => {
   const f = await fixture({ full: true });
   await revoke(f, { syndicate_fulltext: false });
-  assert.ok((await get(`/api/site/items/${f.id}`)).body.includes(f.zh));
-  assert.ok((await get(`/api/site/items/${f.id}/original`)).body.includes(f.main));
-  assert.ok((await get(`/items/${f.id}/markdown`, 200, /text\/markdown/)).body.includes(f.main));
+  assert.equal((await get(`/api/site/items/${f.id}`)).json().body, null);
+  assert.equal((await get(`/api/site/items/${f.id}/original`)).json().body, null);
+  const md = (await get(`/items/${f.id}/markdown`, 200, /text\/markdown/)).body;
+  assert.ok(md.includes(f.summary!) && md.includes(f.url));
+  assert.ok(!md.includes(f.main) && !md.includes(f.zh));
   const feed = await feedItem("/feed/full.xml", f);
   noContent(feed, f);
   assert.ok(!feed.includes("content:encoded"));
@@ -195,15 +199,14 @@ for (const kind of ["x_search", "rss"] as const) {
       if (full) {
         const normal = (await get(`/api/site/items/${f.id}`)).json();
         const original = (await get(`/api/site/items/${f.id}/original`)).json();
-        assert.equal(normal.bodyLanguage, "zh");
-        assert.equal(normal.hasTranslation, true);
-        assert.ok(normal.body.zh.includes(f.zh));
-        assert.equal(normal.body.original, null);
-        assert.ok(original.body.original.includes(f.main));
-        assert.equal(original.body.zh, null);
+        assert.equal(normal.bodyLanguage, "original");
+        assert.equal(normal.hasTranslation, false);
+        assert.equal(normal.body, null);
+        assert.equal(original.body, null);
+        assert.equal(normal.links.original, f.url);
         if (kind === "x_search") {
           assert.equal(normal.x.quoted.text, f.quoted);
-          assert.equal(normal.x.quoted.translation, f.quotedZh);
+          assert.equal(normal.x.quoted.translation, null, "historical quoted-post translations remain internal");
           assert.equal(normal.x.media.length, 2);
           assert.ok(normal.x.media[0].url.includes(f.media));
           assert.ok(normal.x.media[0].srcSet.includes(f.media));
@@ -211,7 +214,9 @@ for (const kind of ["x_search", "rss"] as const) {
           assert.equal(normal.x.media[1].kind, "video");
         }
         const md = (await get(`/items/${f.id}/markdown`, 200, /text\/markdown/)).body;
-        for (const marker of kind === "x_search" ? [f.main, f.zh, f.quoted, f.quotedZh] : [f.main, f.zh]) assert.ok(md.includes(marker));
+        assert.ok(md.includes(f.summary!) && md.includes(f.url));
+        for (const marker of [f.main, f.zh, f.quoted, f.quotedZh]) assert.ok(!md.includes(marker),
+          "Markdown is an attributed summary, never copied post or full article text");
       } else {
         await summaryDetail(f);
         await summaryMarkdown(f);
@@ -248,9 +253,9 @@ for (const translation of ["missing", "stale", "same"] as const) {
     const f = await fixture({ full: true, translation });
     const detail = (await get(`/api/site/items/${f.id}`)).json();
     assert.equal(detail.hasTranslation, false);
-    assert.equal(detail.body.zh, null);
-    assert.ok(detail.body.original.includes(f.main));
-    if (translation === "same") assert.equal(detail.x.quoted.translation, null);
+    assert.equal(detail.body, null);
+    assert.equal(detail.links.original, f.url);
+    assert.equal(detail.x?.quoted?.translation ?? null, null, "old quote translations are not published");
     const md = (await get(`/items/${f.id}/markdown`, 200, /text\/markdown/)).body;
     if (translation === "missing" || translation === "stale") assert.ok(!md.includes(f.zh));
     await revoke(f, { site_fulltext: false });

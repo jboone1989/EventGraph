@@ -29,7 +29,7 @@ export interface Capability {
 export const CAPABILITIES = {
   prefilter: { label: "精选预筛（是否属于这个行业，宽召回）", env: "PREFILTER_MODEL", default: DEFAULTS.prefilter ?? "default", purposes: ["prefilter_article"] },
   score: { label: "精选评分（两次独立评分，按信源分级门槛）", env: "SCORE_MODEL", default: DEFAULTS.score ?? "default", purposes: ["score_article"] },
-  understand: { label: "内容理解（入选和接近入选的标题、摘要、推荐理由，能看图时看首图）", env: "UNDERSTAND_MODEL", default: DEFAULTS.understand ?? "default", purposes: ["understand_article"] },
+  understand: { label: "新闻统一分析（一次请求完成判断、评分、结构、中英文摘要和解读；沿用当前模型配置）", env: "UNDERSTAND_MODEL", default: DEFAULTS.understand ?? "default", purposes: ["analyze_article", "understand_article"] },
   summarize: { label: "标题摘要（其余文章的中文标题与摘要）", env: "SUMMARIZE_MODEL", default: DEFAULTS.summarize ?? "default", purposes: ["summarize_article"] },
   wording: { label: "改用词（标题、摘要、理由用了本站不用的词时，只改这些词）", env: "WORDING_MODEL", default: DEFAULTS.wording ?? "default", purposes: ["mend_wording"], idle: () => !READER_WORDING.length },
   structure: { label: "结构抽取（分类、标签、主体公司、事件事实，不写读者文字）", env: "STRUCTURE_MODEL", default: DEFAULTS.structure ?? "default", purposes: ["structure_article"] },
@@ -45,6 +45,11 @@ export const CAPABILITIES = {
   graphitiEmbedding: { label: "Graphiti 向量生成（必须单独指定向量模型，维度与现有知识图谱一致）", env: "GRAPHITI_EMBEDDING_MODEL_REF", default: "", purposes: ["graphiti_embedding"], embedding: true },
 } satisfies Record<string, Capability>;
 
+// The active runtime bindings; legacy individual-step entry points remain for evaluators only.
+export const ACTIVE_MODEL_BINDINGS = new Set([
+  "understand", "group", "groupReview", "digest", "report", "english", "graphiti", "graphitiEmbedding",
+]);
+
 export type CapabilityKey = keyof typeof CAPABILITIES;
 
 /** Every step: the engine's, then the installed modules' (their defaults also from site/models.ts). */
@@ -59,6 +64,7 @@ export async function stepsOnService(service: string): Promise<string[]> {
   const current = await modelSources();
   const names:string[]=[];
   for(const [key,c] of Object.entries(capabilities())) {
+    if (key in CAPABILITIES && !ACTIVE_MODEL_BINDINGS.has(key)) continue;
     const reference=current[key]!.model;
     let owner=MODELS[reference]?.service;
     if(reference.startsWith('model:')) {

@@ -134,18 +134,18 @@ test('provider redirects are refused and upstream error bodies never expose cred
 test('workflow switch and reset update the FK binding with settings and fail closed on unknown references',async()=>{
  const c=await createConnection(connection(),'test','test'),m=await createRegisteredModel(model(c.id),'test','test');
  await certify(m.id);await updateRegisteredModel(m.id,{...model(c.id),routeEnabled:true},m.version,'route','test');
- await switchModel('summarize','model:'+m.id,'switch','test');
- assert.equal(await modelFor('summarize'),'model:'+m.id);assert.equal((await modelSources()).summarize?.model,'model:'+m.id);
+ await switchModel('understand','model:'+m.id,'switch','test');
+ assert.equal(await modelFor('understand'),'model:'+m.id);assert.equal((await modelSources()).understand?.model,'model:'+m.id);
  assert.ok((await stepsOnService('example')).length);
- const [binding]=await sql`SELECT model_id FROM provider_workflow_models WHERE setting_key='models.summarize'`;assert.equal(binding!.model_id,m.id);
- await switchModel('summarize',null,'reset','test');assert.equal((await sql`SELECT 1 FROM provider_workflow_models WHERE setting_key='models.summarize'`).length,0);
- await sql`INSERT INTO settings(key,value,updated_by) VALUES ('models.summarize','{"model":"missing-model"}'::jsonb,'test')`;
+ const [binding]=await sql`SELECT model_id FROM provider_workflow_models WHERE setting_key='models.understand'`;assert.equal(binding!.model_id,m.id);
+ await switchModel('understand',null,'reset','test');assert.equal((await sql`SELECT 1 FROM provider_workflow_models WHERE setting_key='models.understand'`).length,0);
+ await sql`INSERT INTO settings(key,value,updated_by) VALUES ('models.understand','{"model":"missing-model"}'::jsonb,'test')`;
  // Fail closed if the saved admin model is invalid and no environment fallback exists.
- const priorEnv=process.env.SUMMARIZE_MODEL;
- delete process.env.SUMMARIZE_MODEL;
- try{invalidateModelCache();await assert.rejects(modelFor('summarize'),/Unknown configured model/);}
- finally{priorEnv===undefined?delete process.env.SUMMARIZE_MODEL:process.env.SUMMARIZE_MODEL=priorEnv;}
- await sql`DELETE FROM settings WHERE key='models.summarize'`;invalidateModelCache();
+ const priorEnv=process.env.UNDERSTAND_MODEL;
+ delete process.env.UNDERSTAND_MODEL;
+ try{invalidateModelCache();await assert.rejects(modelFor('understand'),/Unknown configured model/);}
+ finally{priorEnv===undefined?delete process.env.UNDERSTAND_MODEL:process.env.UNDERSTAND_MODEL=priorEnv;}
+ await sql`DELETE FROM settings WHERE key='models.understand'`;invalidateModelCache();
 });
 test('NVIDIA domain recognition enforces boundary, approved endpoint and model policy',async()=>{
  for(const baseUrl of ['https://api.nvidia.com/v1','https://NVIDIA.COM./v1','https://unapproved.api.nvidia.com/v1'])

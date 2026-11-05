@@ -16,9 +16,10 @@
 - `reasonZh`、`reasonEn`：分别用简体中文和自然英语简短说明新闻价值；两者必须忠于同一批原始证据。低重要性可以留空；英文推荐理由不能复制中文。
 - `itemType`：新闻类型，必须在 {{itemTypes}} 中选。
 - `authorRole`：`principal`、`observer`、`relayer` 之一。
+- `explanation`：在同一次请求中按**原文语言**生成 5W1H、So What 和 What Next，字段 `who`、`what`、`when`、`where`、`why`、`how`、`soWhat`（没有原文依据时填 null），`watchpoints`（最多 3 个，格式为 `{"text":"关注事项","date":null}`，只有原文明确给出完整日期才填 YYYY-MM-DD）。证据不足可返回 null，禁止猜测。
 
 真实性规则：
 1. 报道明确的事实与引文必须有输入依据；分清发布、传闻、计划和已证实结果。
 2. 不可把无来源的人名、公司、数字、日期加入双语摘要。英文版尤其不能凭空补充细节。
 3. `BLOCK` 或无法从材料生成可信稿件时，`titleZh`/`summaryZh`/`titleEn`/`summaryEn` 可以为空字符串，`fact` 应为 null。
-4. 不要输出正文全文、解释推理过程或任何额外字段。
+4. 不要输出正文全文、解释推理过程或上述字段之外的额外字段。解读只依赖原文证据，不能把预测写成既成事实。

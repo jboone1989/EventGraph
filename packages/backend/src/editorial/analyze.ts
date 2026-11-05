@@ -19,6 +19,7 @@ import { chatJson, ModelOutputError, type ContentPart } from "../providers/llm.t
 import { completeReceipt, ProviderRejectedError, ReceiptUnknownError } from "../providers/receipts.ts";
 import { collapseWhitespace } from "../lib/text.ts";
 import { modelFor, modelSupportsVision } from "./models.ts";
+import { ExplainSchema } from "./explain-schema.ts";
 import { buildMaterial, firstImagePart, loadAnalyzeInput, type AnalyzeInputArticle } from "./input.ts";
 import { pageFetchable } from "../content/extract.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
@@ -187,6 +188,7 @@ export const AnalyzeOnceSchema = StructureSchema.extend({
   reasonEn: z.string().trim().max(600).catch(""),
   itemType: z.enum(ITEM_TYPES).catch(ITEM_TYPES[0]),
   authorRole: z.enum(["principal", "observer", "relayer"]).catch("relayer"),
+  explanation: ExplainSchema.nullish().catch(null),
 });
 
 const usableEnglish = (title: string, summary: string, reason: string) =>
@@ -243,6 +245,7 @@ export interface AnalysisRun {
   } | null;
   structure: (ReturnType<typeof normalizeStructure> & { model: string; receiptId: number; reused: boolean }) | null;
   english?: { title: string; summary: string; reason: string } | null;
+  explanation?: z.infer<typeof ExplainSchema> | null;
 }
 
 const isContentFilter = (error: unknown) => error instanceof ProviderRejectedError && !error.retryable && /contentFilter|"1301"/.test(error.message);
@@ -541,6 +544,9 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
     prefilter, scores, writing,
     structure: { ...normalizeStructure(StructureSchema.parse(d), a), model: res.model, receiptId: res.receiptId, reused: res.reused },
     english: usableEnglish(d.titleEn, d.summaryEn, d.reasonEn),
+    explanation: d.explanation ? { ...d.explanation,
+      watchpoints: d.explanation.watchpoints.map(point => ({ ...point,
+        date: point.date && buildMaterial(a).includes(point.date) ? point.date : null })) } : null,
   };
 }
 
@@ -580,6 +586,7 @@ export function normalizeAnalysis(run: AnalysisRun) {
     scope: run.structure?.scope ?? "unknown",
     fact: run.structure?.fact ?? null,
     english: run.english ?? null,
+    explanation: run.explanation ?? null,
   };
 }
 
@@ -614,6 +621,7 @@ export async function analyzeArticle(articleId: string, opts: StepOpts = {}): Pr
     ...(w ? { writer: w.kind, writerModel: w.model, itemType: w.itemType ?? null, authorRole: w.authorRole ?? null } : {}),
     ...(w?.identityGuard?.outcome === "fallback" ? { identityGuard: w.identityGuard } : {}),
     scope: out.scope, fact: out.fact, ...(out.english ? { english: out.english } : {}),
+    ...(out.explanation ? { explanation: out.explanation } : {}),
   };
   const committed = await sql.begin(async (tx) => {
     const [current] = await tx<{ revision: number }[]>`SELECT revision FROM articles WHERE id = ${articleId} FOR UPDATE`;

@@ -1,15 +1,11 @@
 // Item detail and Markdown export, both behind the same visibility and licence rules.
-import type { ItemExplanation, OutlineEntry, SiteItemDetail, StoryRef } from "@aihot/contracts/site";
+import type { ItemExplanation, SiteItemDetail, StoryRef } from "@aihot/contracts/site";
 import { ITEM_COPY, SITE } from "@aihot/site";
-import { bodyToMarkdown } from "../content/markdown.ts";
 import { sql } from "../db.ts";
-import { stripTagMarkup } from "../lib/text.ts";
-import { proxyBodyImages } from "../media/imgproxy.ts";
-import { textToHtml } from "../content/sanitize.ts";
-import { exportTranslation, isChineseBody, EXPLAINABLE_PUBLICATION, EXPLAIN_ITEM_INPUTS, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
+import { EXPLAINABLE_PUBLICATION, EXPLAIN_ITEM_INPUTS, ITEM_COLUMNS, ITEM_FROM, seatHolders, showsPost, toItemSummary, xView, type ItemRow } from "./items.ts";
 import { storyContextFor } from "./stories.ts";
 import { evidenceCondition, listedCondition } from "./scope.ts";
-import { itemUrl, siteUrl } from "./links.ts";
+import { itemUrl } from "./links.ts";
 import { hasItemPage, publicSourceName } from "./rules.ts";
 import { topicLinks, topicMembership } from "./topics.ts";
 
@@ -32,27 +28,19 @@ export type DetailResult =
 
 /** An English page is indexed when its report is one of several on its event: the page then has an event to stand in. */
 
-/** Adds stable ids to h2–h4 and returns the outline. */
-function withOutline(html: string): { html: string; outline: OutlineEntry[] } {
-  const outline: OutlineEntry[] = [];
-  let n = 0;
-  const out = html.replace(/<h([2-4])(?: id="sec-\d+")?>([\s\S]*?)<\/h\1>/gi, (_m, level: string, inner: string) => {
-    n += 1;
-    const id = `sec-${n}`;
-    const text = stripTagMarkup(inner, "").trim();
-    if (text) outline.push({ id, text: text.slice(0, 80), level: Number(level) });
-    return `<h${level} id="${id}">${inner}</h${level}>`;
-  });
-  return { html: out, outline };
-}
-
 async function loadRow(id: string, language: "zh" | "original" = "zh", explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
       en_tr.body_html AS en_tr_html, en_tr.complete AS en_tr_complete,
-      st.id AS story_id, ${topicMembership()} AS topics, ie.content AS explanation
+      st.id AS story_id, ${topicMembership()} AS topics,
+      CASE WHEN ${EXPLAINABLE_PUBLICATION} AND
+        (a.language = ${explanationLanguage} OR
+         (a.language IS NULL AND (CASE WHEN a.title ~ '[一-龥]' THEN 'zh' ELSE 'en' END) = ${explanationLanguage}))
+        THEN coalesce(an.output->'explanation', ie.content)
+        ELSE ie.content END AS explanation
     ${ITEM_FROM}
     LEFT JOIN translations en_tr ON en_tr.article_id = p.article_id AND en_tr.lang = 'en' AND en_tr.revision >= a.revision
+    LEFT JOIN analyses an ON an.id = p.analysis_id
     LEFT JOIN item_explanations ie ON ie.article_id = p.article_id AND ie.outcome = 'written' AND ie.inputs_hash = ${EXPLAIN_ITEM_INPUTS} AND ${EXPLAINABLE_PUBLICATION}
       AND ie.language = ${explanationLanguage}
     WHERE p.article_id = ${id}`;
@@ -65,29 +53,6 @@ async function loadRow(id: string, language: "zh" | "original" = "zh", explanati
 function shownExplanation(content: ItemExplanation | null): ItemExplanation | null {
   if (!content) return null;
   return content.who || content.what || content.when || content.where || content.why || content.how || content.soWhat || (content.watchpoints?.length ?? 0) > 0 ? content : null;
-}
-
-/**
- * The body a page reads in `language` when it has it, else in the other: Chinese is the article's own text
- * or a translation (shown even before it is complete), the original only the article's own. `page` turns
- * the HTML shown into what is sent, with its outline.
- */
-function readingBody(
-  language: "zh" | "original",
-  zh: { html: string; kind: "translation" | "original" } | null,
-  original: string | null,
-  complete: boolean,
-  page: (html: string) => { html: string; outline: OutlineEntry[] },
-): Pick<SiteItemDetail, "body" | "outline" | "hasTranslation" | "bodyLanguage"> {
-  const bodyLanguage = language === "original" && original ? "original" : zh?.html ? "zh" : "original";
-  const shown = bodyLanguage === "zh" ? zh!.html : original;
-  const sent = shown ? page(shown) : { html: shown, outline: [] };
-  return {
-    body: { zh: bodyLanguage === "zh" ? sent.html : null, original: bodyLanguage === "original" ? sent.html : null, zhKind: zh?.kind ?? null, complete },
-    outline: sent.outline,
-    hasTranslation: zh?.kind === "translation" && !!zh.html && !!original,
-    bodyLanguage,
-  };
 }
 
 /**
@@ -135,32 +100,15 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     WHERE fa.article_id = ${id} AND fa.role <> 'mention' AND st.merged_into IS NULL
     ORDER BY "publicId" LIMIT 6`;
 
+  // The article body is retained for analysis, but aggregator pages link to the publisher for full text.
   let x: SiteItemDetail["x"] = null;
-  let reading: Pick<SiteItemDetail, "body" | "outline" | "hasTranslation" | "bodyLanguage"> = { body: null, outline: [], hasTranslation: false, bodyLanguage: "original" };
+  const reading: Pick<SiteItemDetail, "body" | "outline" | "hasTranslation" | "bodyLanguage"> =
+    { body: null, outline: [], hasTranslation: false, bodyLanguage: "original" };
   if (showsPost(row)) {
     const post = xView(row, false, true);
-    const text = String(row.x_post?.text ?? row.body_text ?? "");
-    // A post's text is sent as written: its headings make the outline, without anchors.
-    if (post?.translation || text.trim()) {
-      const englishEditionOfChinese = language === "original" && explanationLanguage === "en" && isChineseBody(row);
-      reading = readingBody(language,
-        post?.translation ? { html: textToHtml(post.translation), kind: "translation" } : null,
-        englishEditionOfChinese ? row.en_tr_html : text.trim() ? textToHtml(text) : null,
-        englishEditionOfChinese ? row.en_tr_complete ?? false : true,
-        (html) => ({ html, outline: withOutline(html).outline }));
-    }
     if (post) {
       const { text: _text, translation: _translation, ...shown } = post;
-      x = shown;
-    }
-  } else if (row.body_mode === "full" && row.body_html) {
-    const chinese = isChineseBody(row);
-    if (chinese && language === "original" && explanationLanguage === "en") {
-      reading = readingBody("original", null, row.en_tr_html, row.en_tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
-    } else {
-      const zh = chinese ? { html: row.body_html, kind: "original" as const } : row.tr_html ? { html: row.tr_html, kind: "translation" as const } : null;
-      reading = readingBody(language, zh, chinese ? (language === "original" ? row.body_html : null) : row.body_html,
-        chinese ? true : row.tr_complete ?? false, (html) => withOutline(proxyBodyImages(html)));
+      x = { ...shown, quoted: shown.quoted ? { ...shown.quoted, translation: null } : null };
     }
   }
 
@@ -202,7 +150,7 @@ export async function loadItemDetail(id: string, language: "zh" | "original" = "
     storyContext: row.story_id ? await storyContextFor(row.story_id, now) : null,
     explanation: shownExplanation(row.explanation),
     hasTranslation: reading.hasTranslation,
-    englishBodyTranslated: language === "original" && explanationLanguage === "en" && isChineseBody(row) && !!row.en_tr_html,
+    englishBodyTranslated: false,
     bodyLanguage: reading.bodyLanguage,
   };
   return { kind: "found", item, row };
@@ -216,7 +164,7 @@ export function markdownAvailable(row: {
   visibility: string; source_mode: string; summary: string | null; body_mode: string; body_html?: string | null; channel: string; x_post: Record<string, any> | null;
 }): boolean {
   if (row.visibility !== "public" || !hasItemPage({ visibility: row.visibility, sourceMode: row.source_mode })) return false;
-  return !!row.summary || (showsPost(row) && (!!row.x_post?.text || !!row.x_post?.media?.length || !!row.x_post?.quoted?.text)) || (row.body_mode === "full" && !!row.body_html);
+  return !!row.summary;
 }
 
 export async function exportMarkdown(id: string): Promise<{ filename: string; body: string } | null> {
@@ -232,21 +180,6 @@ export async function exportMarkdown(id: string): Promise<{ filename: string; bo
   lines.push(`- 原文：${row.url}`, "");
   if (row.summary) lines.push("## 摘要", "", row.summary, "");
   if (row.selected && row.seat && row.reason) lines.push(`## ${ITEM_COPY.reasonLabel}`, "", row.reason, "");
-  if (showsPost(row) && row.x_post) {
-    const post = xView(row);
-    if (post?.text) lines.push("## 正文", "", post.text, "");
-    if (post?.translation) lines.push("## 中文译文", "", post.translation, "");
-    for (const media of post?.media ?? []) {
-      const url = media.url.startsWith("/") ? siteUrl(media.url) : media.url;
-      lines.push(media.kind === "image" ? `![${media.alt ?? ""}](${url})` : `[视频](${url})`, "");
-    }
-    const q = post?.quoted;
-    if (q?.text) lines.push(`## 引用 @${q.handle ?? ""}`, "", ...String(q.text).split("\n").map((l) => `> ${l}`), "", ...(q.url ? [q.url, ""] : []));
-    if (q?.text && q.translation) lines.push("### 引用中文译文", "", ...q.translation.split("\n").map((l) => `> ${l}`), "");
-  } else if (row.body_mode === "full" && row.body_html) {
-    const translation = exportTranslation(row);
-    if (translation) lines.push("## 正文 · 中文译文", "", bodyToMarkdown(translation, row.url), "");
-    lines.push(isChineseBody(row) ? "## 正文" : "## 正文 · 原文", "", bodyToMarkdown(row.body_html, row.url), "");
-  }
+  // Full text, translated bodies and quoted posts stay with the original publishers.
   return { filename: `${SITE.mcpPrefix}-${row.id}.md`, body: lines.join("\n").replace(/\n{3,}/g, "\n\n") };
 }
