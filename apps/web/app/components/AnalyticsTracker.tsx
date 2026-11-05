@@ -20,8 +20,8 @@ export function AnalyticsTracker({ config }: { config: AnalyticsConfig }) {
     if (pathname.startsWith("/admin")) return;
     if (last.current === pathname) return;
     last.current = pathname;
-    trackAnalytics("page_view", { language });
     const id = pathname.match(/^\/(?:en\/)?(story|items)\/([a-zA-Z0-9_-]{1,80})/);
+    trackAnalytics("page_view", { language, contentId: id?.[2] });
     if (id) trackAnalytics(id[1] === "story" ? "story_open" : "item_open", { language, contentId: id[2] });
     if (pathname === "/agent") trackAnalytics("agent_access_open", { language });
     if (pathname === "/feedback") trackAnalytics("feedback_open", { language });
