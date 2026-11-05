@@ -511,9 +511,14 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
     model: res.model, threshold, values: [d.attentionScore], receiptIds: [res.receiptId], reused: res.reused,
   };
   const near = threshold !== null && (d.attentionScore >= threshold || d.attentionScore > UNDERSTAND_FLOOR);
-  const copy = finalizeCopy(translateInputOf(a), { titleZh: d.titleZh, summaryZh: d.summaryZh });
-  const writing: NonNullable<AnalysisRun["writing"]> = original
-    ? { kind: "verbatim", model: null, titleZh: original.title, summaryZh: original.summary ?? "", reasonZh: null,
+  const translation = translateInputOf(a);
+  const mainText = collapseWhitespace(translation.mainText || translation.title);
+  const shortChinese = isShortTweetInput(translation) && !needsShortTweetTranslation(mainText)
+    ? { title: mainText, summary: mainText } : null;
+  const verbatim = original ?? shortChinese;
+  const copy = finalizeCopy(translation, { titleZh: d.titleZh, summaryZh: d.summaryZh });
+  const writing: NonNullable<AnalysisRun["writing"]> = verbatim
+    ? { kind: "verbatim", model: null, titleZh: verbatim.title, summaryZh: verbatim.summary ?? "", reasonZh: null,
         receiptIds: [], reused: true }
     : { kind: near ? "understand" : "summarize", model: res.model, titleZh: copy.titleZh, summaryZh: copy.summaryZh,
         reasonZh: near ? d.reasonZh || null : null, itemType: d.itemType, authorRole: d.authorRole,
