@@ -1,6 +1,6 @@
 // Recovery must finish the same evaluation that failed, and commit the release, queue and audit together.
 import { gate, pointModels, Reply, stub, tag } from "./setup.ts";
-import { analysisStep, SELECTING_SCORE } from "./analysis-steps.ts";
+import { analysisStep, combinedAnswer } from "./analysis-steps.ts";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, test } from "node:test";
@@ -28,14 +28,11 @@ const provider = await stub(async (_hit, request) => {
   }
   const step = analysisStep(request.body);
   calls.push(step);
-  if (step === "score" && refuseScore) {
+  if (step === "combined" && !original && refuseScore) {
     refuseScore = false;
     return new Reply(503, { error: "temporary outage" });
   }
-  const content = step === "prefilter" ? { label: original ? "BLOCK" : "PASS", reason: "local fixture" }
-    : step === "score" ? { attentionScore: SELECTING_SCORE }
-    : step === "structure" ? { category: "guide", tags: [], subjects: [], fact: null }
-    : { itemType: "model_release", authorRole: "principal", tags: ["模型发布"], editorialJudgment: "模型能力提升", titleZh: `新判断 ${T}`, summaryZh: "模型发布并提供评测和价格。" };
+  const content = combinedAnswer({ label: original ? "BLOCK" : "PASS", titleZh: `新判断 ${T}` });
   return { choices: [{ message: { content: JSON.stringify(content) } }] };
 });
 pointModels(provider.url);
@@ -131,8 +128,9 @@ test("a manual re-evaluation survives extraction, a lost job, and receipt releas
   await boss.complete(QUEUES.analyze, afterBody!.id);
   await sql`UPDATE articles SET processing_state='failed' WHERE id=${id}`;
   const [r] = await sql<{ id: number }[]>`INSERT INTO receipts (logical_key,service,purpose,subject,status)
-    VALUES (${`identity-${T}`},'deepseek','score_article',${`article:${id}@1`},'unknown') RETURNING id`;
-  await releaseReceipt(r!.id, { billed: false, note: "verified" }, "test");
+    VALUES (${`identity-${T}`},'deepseek','analyze_article',${`article:${id}@1`},'unknown') RETURNING id`;
+  const released = await releaseReceipt(r!.id, { billed: false, note: "verified" }, "test");
+  assert.equal(released?.requeued, true, "released combined receipt queues the article again");
   const [afterRelease] = await boss.fetch(QUEUES.analyze);
   assert.deepEqual(afterRelease!.data, { articleId: id, attemptTag });
   await boss.complete(QUEUES.analyze, afterRelease!.id);
@@ -174,8 +172,7 @@ test("a temporary provider failure resumes the manual evaluation instead of rein
   await waitFor(async () => (await sql`SELECT 1 FROM pgboss.job WHERE name=${QUEUES.analyze} AND data->>'articleId'=${id} AND state<'completed'`).length === 0);
   assert.equal((await sql`SELECT processing_state FROM articles WHERE id=${id}`)[0]!.processing_state, "analyzed");
   assert.equal((await sql`SELECT selection_candidate FROM publications WHERE article_id=${id}`)[0]!.selection_candidate, true);
-  assert.equal(calls.filter((s) => s === "prefilter").length, 2, "one original and one manual prefilter; recovery buys neither again");
-  assert.equal(calls.filter((s) => s === "structure").length, 1, "the paid structure response survives the score failure");
+  assert.equal(calls.filter((s) => s === "combined").length, 3, "one original, one rejected retry, one settled bilingual analysis");
 });
 
 // Failure modes: an old paid call can fail after a new material revision has already finished;
@@ -184,7 +181,7 @@ test("a late refusal for an old revision preserves the new revision's completed 
   const id = await article("revision-race");
   const asked = gate();
   const release = gate();
-  heldFailure = { input: `revision-race`, asked, release };
+  heldFailure = { input: `AI lab release ${T} revision-race`, asked, release };
   const jobId = await queueProcessing(id);
   await wakeAnalysis();
   await asked.promise;

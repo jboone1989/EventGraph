@@ -35,6 +35,7 @@ import { wordingProblems } from "./wording.ts";
 export { buildMaterial, loadAnalyzeInput, type AnalyzeInputArticle };
 
 export const PROMPT_VERSIONS = {
+  once: promptVersion("analyze-once"),
   prefilter: promptVersion("prefilter"),
   score: promptVersion("selection-score"),
   understand: promptVersion("understand"),
@@ -44,12 +45,12 @@ export const PROMPT_VERSIONS = {
 } as const;
 /** Every step's prompt, as stored on each judgement. */
 export const SELECTION_PROMPT_VERSION = [PROMPT_VERSIONS.prefilter, PROMPT_VERSIONS.score].join("+");
-export const ANALYZE_PROMPT_VERSION = Object.values(PROMPT_VERSIONS).join("+");
+export const ANALYZE_PROMPT_VERSION = PROMPT_VERSIONS.once;
 
 // Scoring
 
 /** Independent score calls per article; their sum decides, their mean (floored) is shown. */
-export const SCORE_CALLS = 2;
+export const SCORE_CALLS = 1;
 
 /**
  * The thresholds on the mean score, per source tier (industry/selection.ts): selected when
@@ -164,6 +165,34 @@ export const STRUCTURE_SYSTEM = promptText("structure", {
   entities: Object.entries(ENTITIES).map(([id, e]) => `${id}（${e.aliases.slice(0, 3).join("/")}）`).join("，"),
 });
 
+/** One grounded judgement creates the Chinese and English edition in a single receipt. */
+export const ANALYZE_ONCE_SYSTEM = promptText("analyze-once", {
+  categoryGuide: CATEGORY_GUIDE,
+  categoryTags: CATEGORY_TAGS.join("、"),
+  topicTags: TOPIC_TAGS.join("、"),
+  entityTags: ENTITY_TAGS.join("、"),
+  entities: Object.entries(ENTITIES).map(([id, e]) => `${id}（${e.aliases.slice(0, 3).join("/")}）`).join("，"),
+  itemTypes: ITEM_TYPES.join("、"),
+});
+
+export const AnalyzeOnceSchema = StructureSchema.extend({
+  label: PrefilterSchema.shape.label,
+  reason: z.string().max(200).catch(""),
+  attentionScore: ScoreSchema.shape.attentionScore,
+  titleZh: z.string().trim().max(200).catch(""),
+  summaryZh: z.string().trim().max(4000).catch(""),
+  titleEn: z.string().trim().max(160).catch(""),
+  summaryEn: z.string().trim().max(1200).catch(""),
+  reasonZh: z.string().trim().max(400).catch(""),
+  reasonEn: z.string().trim().max(600).catch(""),
+  itemType: z.enum(ITEM_TYPES).catch(ITEM_TYPES[0]),
+  authorRole: z.enum(["principal", "observer", "relayer"]).catch("relayer"),
+});
+
+const usableEnglish = (title: string, summary: string, reason: string) =>
+  title.length >= 8 && summary.length >= 40 && !/[㐀-鿿]/u.test(title + summary)
+    ? { title, summary, reason: !/[㐀-鿿]/u.test(reason) ? reason : "" } : null;
+
 /** Keep only quotes present both in the original material and in the text the structure model saw. */
 export function normalizeStructure(data: z.infer<typeof StructureSchema>, a: AnalyzeInputArticle) {
   const visible = collapseWhitespace(buildMaterial(a));
@@ -213,6 +242,7 @@ export interface AnalysisRun {
     reused: boolean;
   } | null;
   structure: (ReturnType<typeof normalizeStructure> & { model: string; receiptId: number; reused: boolean }) | null;
+  english?: { title: string; summary: string; reason: string } | null;
 }
 
 const isContentFilter = (error: unknown) => error instanceof ProviderRejectedError && !error.retryable && /contentFilter|"1301"/.test(error.message);
@@ -455,31 +485,63 @@ async function runSummarize(a: AnalyzeInputArticle, opts: StepOpts): Promise<Non
   return { kind: "summarize", model: res.model, titleZh: copy.titleZh, summaryZh: copy.summaryZh, reasonZh: null, identityGuard: copy.identityGuard, receiptIds: [res.receiptId], reused: res.reused };
 }
 
-/** Runs the steps on the material as it is (or reuses their receipts) without writing business results. */
+/** One provider request per article revision. Independent step APIs remain available to evaluators. */
 export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): Promise<AnalysisRun> {
   checkAnalysisRunning();
-  const prefilter = await runSelectionPrefilter(a, opts);
-  // Missing article text waits for a later revision; displayable original posts keep their judgement.
-  if (prefilter.label === "BLOCK") return { prefilter, scores: null, writing: null, structure: null };
-  const original = originalPostCopy(a.xPost, a.url);
-  if (missingEvidence(a) && !original) return { prefilter, scores: null, writing: null, structure: null };
-  // The structure step needs nothing from the scores: it runs beside them.
-  const structure = runStructure(a, opts).then((value) => ({ value }), (error: unknown) => ({ error }));
-  try {
-    const scores = await runSelectionScores(a, opts);
-    const sum = scores && !scores.refused && scores.values.length === SCORE_CALLS ? scores.values.reduce((total, v) => total + v, 0) : null;
-    const near = sum !== null && (sum >= scores!.threshold * SCORE_CALLS || sum > UNDERSTAND_FLOOR * SCORE_CALLS);
-    const s = await structure;
-    if ("error" in s) throw s.error;
-    const writing: NonNullable<AnalysisRun["writing"]> = original
-      ? { kind: "verbatim", model: null, titleZh: original.title, summaryZh: original.summary ?? "", reasonZh: null, receiptIds: [], reused: true }
-      : await mendWording(a, (near ? await runUnderstand(a, opts) : null) ?? (await runSummarize(a, opts)), opts);
-    return { prefilter, scores, writing, structure: s.value };
-  } finally {
-    // A score/writing error or deploy must not let the job finish while a paid structure request
-    // still owns a response. It settles and stores its receipt before shutdown can close the DB.
-    await structure;
+  const model = await modelFor("understand");
+  const input = [
+    `【原标题】\n${a.title}`,
+    `【发布时间（北京时间）】\n${a.publishedAt ? scoreInputTime(a.publishedAt) : "未知"}`,
+    `【原始材料】\n${buildMaterial(a)}`,
+  ].join("\n\n");
+  const res = await chatJson({
+    model, purpose: "analyze_article", subject: subjectOf(a),
+    promptVersion: ANALYZE_PROMPT_VERSION, system: ANALYZE_ONCE_SYSTEM, user: input,
+    schema: AnalyzeOnceSchema, temperature: 0.2, maxTokens: 8192,
+    attemptTag: opts.attemptTag,
+  }).catch((error: unknown) => {
+    if (!isContentFilter(error)) throw error;
+    return null;
+  });
+  if (!res) {
+    // A provider's content-filter refusal is not a news verdict.
+    // Only this exceptional case uses the old summarizer; no score or fact is invented.
+    const writing = await runSummarize(a, opts);
+    return {
+      prefilter: { label: "UNKNOWN", reason: "provider content filter refused classification", model,
+        receiptId: writing.receiptIds[0] ?? 0, reused: writing.reused },
+      scores: null, writing, structure: null, english: null,
+    };
   }
+  const d = res.data;
+  const label = d.label === "BLOCK" && missingEvidence(a) ? "UNKNOWN" : d.label;
+  const prefilter = { label, reason: d.reason, model: res.model, receiptId: res.receiptId, reused: res.reused };
+  const original = originalPostCopy(a.xPost, a.url);
+  if (label === "BLOCK" || (missingEvidence(a) && !original))
+    return { prefilter, scores: null, writing: null, structure: null };
+
+  const threshold = tierThreshold(a.source.tier);
+  const scores = threshold === null ? null : {
+    model: res.model, threshold, values: [d.attentionScore], receiptIds: [res.receiptId], reused: res.reused,
+  };
+  const near = threshold !== null && (d.attentionScore >= threshold || d.attentionScore > UNDERSTAND_FLOOR);
+  const translation = translateInputOf(a);
+  const mainText = collapseWhitespace(translation.mainText || translation.title);
+  const shortChinese = isShortTweetInput(translation) && !needsShortTweetTranslation(mainText)
+    ? { title: mainText, summary: mainText } : null;
+  const verbatim = original ?? shortChinese;
+  const copy = finalizeCopy(translation, { titleZh: d.titleZh, summaryZh: d.summaryZh });
+  const writing: NonNullable<AnalysisRun["writing"]> = verbatim
+    ? { kind: "verbatim", model: null, titleZh: verbatim.title, summaryZh: verbatim.summary ?? "", reasonZh: null,
+        receiptIds: [], reused: true }
+    : { kind: near ? "understand" : "summarize", model: res.model, titleZh: copy.titleZh, summaryZh: copy.summaryZh,
+        reasonZh: near ? d.reasonZh || null : null, itemType: d.itemType, authorRole: d.authorRole,
+        identityGuard: copy.identityGuard, receiptIds: [res.receiptId], reused: res.reused };
+  return {
+    prefilter, scores, writing,
+    structure: { ...normalizeStructure(StructureSchema.parse(d), a), model: res.model, receiptId: res.receiptId, reused: res.reused },
+    english: usableEnglish(d.titleEn, d.summaryEn, d.reasonEn),
+  };
 }
 
 /** One judgement from the steps: the selection rule, the reader-facing copy and the structure. */
@@ -489,8 +551,7 @@ export function normalizeAnalysis(run: AnalysisRun) {
   const summaryZh = (run.writing?.summaryZh ?? "").trim();
   // Original posts can consist entirely of media. Model-written copy still needs a title and summary.
   const relevance = label === "BLOCK" ? "block" : !run.writing || !titleZh || (!summaryZh && run.writing.kind !== "verbatim") ? "unknown" : "pass";
-  // Selected when the two scores add up to twice the tier threshold; the mean, floored, is the score
-  // shown (it never decides a half point on its own).
+  // The single judgement is scored once against the source tier threshold.
   const values = run.scores && !run.scores.refused ? run.scores.values : null;
   const sum = values?.length === SCORE_CALLS ? values.reduce((total, v) => total + v, 0) : null;
   const score = sum === null ? null : Math.floor(sum / SCORE_CALLS);
@@ -518,6 +579,7 @@ export function normalizeAnalysis(run: AnalysisRun) {
     reasonZh: run.writing?.reasonZh ?? null,
     scope: run.structure?.scope ?? "unknown",
     fact: run.structure?.fact ?? null,
+    english: run.english ?? null,
   };
 }
 
@@ -542,16 +604,16 @@ export async function analyzeArticle(articleId: string, opts: StepOpts = {}): Pr
   if (waitsForPage(input)) return { analysisId: null, stale: false, needsBody: true, output: null, receiptIds: [], reused: true };
   const run = await runAnalysis(input, opts);
   const out = normalizeAnalysis(run);
-  const receiptIds = [
+  const receiptIds = [...new Set([
     run.prefilter.receiptId, ...(run.scores?.receiptIds ?? []), ...(run.writing?.receiptIds ?? []), ...(run.structure ? [run.structure.receiptId] : []),
-  ];
+  ].filter(id => id > 0))];
   const w = run.writing;
   const detail = {
     prefilter: { label: run.prefilter.label, reason: run.prefilter.reason },
     scores: out.scores, scoreModel: out.scoreModel, threshold: out.threshold, ...(out.scoreRefused ? { scoreRefused: true } : {}),
     ...(w ? { writer: w.kind, writerModel: w.model, itemType: w.itemType ?? null, authorRole: w.authorRole ?? null } : {}),
     ...(w?.identityGuard?.outcome === "fallback" ? { identityGuard: w.identityGuard } : {}),
-    scope: out.scope, fact: out.fact,
+    scope: out.scope, fact: out.fact, ...(out.english ? { english: out.english } : {}),
   };
   const committed = await sql.begin(async (tx) => {
     const [current] = await tx<{ revision: number }[]>`SELECT revision FROM articles WHERE id = ${articleId} FOR UPDATE`;
