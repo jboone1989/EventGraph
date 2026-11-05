@@ -31,6 +31,30 @@ export async function registeredRuntime(id:string,capability?:string) {
  }
  return {m,c,fingerprint,snapshot};
 }
+/** Extract only short, redacted diagnostics from an upstream JSON error. Never expose a raw body. */
+function providerErrorDetail(raw:string,key:string):string|null {
+ if(raw.length>4096)return null;
+ let value:unknown;
+ try{value=JSON.parse(raw);}catch{return null;}
+ if(!value||typeof value!=='object'||Array.isArray(value))return null;
+ const root=value as Record<string,unknown>;
+ const error=root.error&&typeof root.error==='object'&&!Array.isArray(root.error)
+  ?root.error as Record<string,unknown>:root;
+ const rawCode=error.code??root.code??error.type;
+ const candidate=String(rawCode);
+ const code=(typeof rawCode==='string'||typeof rawCode==='number')&&/^[\w.-]{1,64}$/.test(candidate)
+  &&!candidate.includes(key)&&!/^(?:sk-|key-|Bearer)/i.test(candidate)&&!/[A-Za-z0-9_-]{32,}/.test(candidate)
+  ?'code '+candidate:'';
+ const rawMessage=[error.message,error.msg,root.message,root.msg].find(x=>typeof x==='string'&&x.trim());
+ const message=typeof rawMessage==='string'?rawMessage
+  .replaceAll(key,'[redacted]')
+  .replace(/\bBearer\s+[^\s"'<>]+/gi,'Bearer [redacted]')
+  .replace(/\b(?:api[_ -]?key|access[_ -]?token|authorization|secret)\s*[:=]\s*["']?[^\s"',;]+/gi,'credential=[redacted]')
+  .replace(/\b(?:sk-[\w-]{8,}|[A-Za-z0-9_-]{48,})\b/g,'[redacted]')
+  .replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,240):'';
+ return [code,message].filter(Boolean).join(': ')||null;
+}
+
 async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<string,unknown>) {
  if(!config.modelCallsEnabled)throw new ProviderConfigError('Model calls are disabled','connection',409);
  const key=storedCredential(c);
@@ -45,7 +69,11 @@ async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<strin
    {authorization:'Bearer '+key,'content-type':'application/json',accept:body?.stream===true?'text/event-stream':'application/json'};
   const res=await guardedFetch(modelEndpoint(c,m),{method:body?'POST':'GET',headers,
    body:payload?JSON.stringify(payload):undefined,timeoutMs:m?.timeout_override_ms??c.timeout_ms,maxRedirects:0,maxBytes:8*1024*1024});
-  if(res.status<200||res.status>=300)throw new ProviderRejectedError('Provider HTTP '+res.status,res.status,res.status===429||res.status>=500);
+  if(res.status<200||res.status>=300) {
+   const detail=providerErrorDetail(res.text(),key);
+   throw new ProviderRejectedError('Provider HTTP '+res.status+(detail?' — '+detail:''),res.status,
+    res.status===429||res.status>=500,detail??undefined);
+  }
   const raw=res.text().split(key).join('[redacted]');
   const parsed=body?.stream===true?parseSseCompletion(raw):JSON.parse(raw) as Record<string,unknown>;
   if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw Error('Invalid response');
@@ -92,7 +120,7 @@ export function diagnoseProbeFailure(error:unknown):{status:'failed'|'unknown';d
   const code=cause.status;
   const detail=code===410?'Provider HTTP 410 (model retired or unavailable on this endpoint)':
    code===429?'Provider HTTP 429 (rate limit or capacity; retry later)':'Provider HTTP '+(code??'?');
-  return {status:'failed',detail};
+  return {status:'failed',detail:detail+(cause.providerDetail?' — '+cause.providerDetail:'')};
  }
  if(cause instanceof ProviderConfigError)return {status:error instanceof ReceiptUnknownError?'unknown':'failed',detail:cause.message};
  if(cause instanceof BudgetExceededError)return {status:'failed',detail:cause.message};
