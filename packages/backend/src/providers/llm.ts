@@ -1,5 +1,5 @@
 import {normalizedRegistryActive,resolveModelReference} from './registry/connections.ts';
-import {selectConfiguredProviderForStage,coolDownReference,stageComplexity} from './registry/selection.ts';
+import {selectConfiguredProviderForStage,rememberSuccessfulRoute,coolDownReference,stageComplexity} from './registry/selection.ts';
 import {ProviderConfigError} from './registry/connection-types.ts';
 import {registeredRuntime,requestRegisteredModel,modelEndpoint} from './registry/runtime.ts';
 import {storedCredential} from './registry/connection-secrets.ts';
@@ -161,13 +161,15 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
     const excluded = new Set<string>();
     const needsVision = Array.isArray(opts.user) && opts.user.some(p => p.type === 'image_url');
     let rejectedModel: string | undefined;
-    for (let attempt = 0; attempt < 8; attempt++) {
+    while (true) {
       const selected = await selectConfiguredProviderForStage(level || stage!, needsVision, excluded);
       try {
-        return await chatJson({
+        const result = await chatJson({
           ...opts, model: selected,
           routing: { stage: stage!, tier, ...(rejectedModel ? { fallbackFrom: rejectedModel } : {}) },
         });
+        rememberSuccessfulRoute(selected, level || stage!, needsVision);
+        return result;
       } catch (error) {
         // Only a provider-declared HTTP rejection can prove a safe failover.
         // Unknown outcomes (including network timeouts) retain their receipts.
@@ -179,7 +181,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
         if (!selected.startsWith('model:')) throw error;
         if (refused) rejectedModel = selected;
         excluded.add(selected.slice(6));
-        const accountWide = quota || (error instanceof ProviderRejectedError && error.status === 429);
+        const accountWide = quota; // 429 may affect just one model, so try the next free candidate.
         await coolDownReference(selected, accountWide ? 60 : staleProbe ? 300 : 30, accountWide);
       }
     }

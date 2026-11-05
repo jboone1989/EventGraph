@@ -1,4 +1,5 @@
 import {useState} from "react";
+import {complexityFromModelId} from "@aihot/contracts/providers";
 import type {ProviderManagement,ProviderConnection,RegisteredModel,ConnectionInput,ModelInput} from "@aihot/contracts/providers";
 import {Button,ButtonLink,Input,Select,Textarea,Card,Badge,DataTable} from "./ui";
 import {useAdminAction} from "./action";
@@ -22,7 +23,7 @@ const probeFor=(adapter:ModelInput["adapter"]):ModelInput["probeSpec"]=>
 const modelInput=(m:RegisteredModel):ModelInput=>({
  providerId:m.providerId,modelId:m.modelId,adapter:m.adapter,endpointOverride:m.endpointOverride,
  timeoutOverrideMs:m.timeoutOverrideMs,capabilities:m.capabilities,requestDefaults:m.requestDefaults,
- probeSpec:m.probeSpec,stream:m.stream,complexity:m.complexity,documentationUrl:m.documentationUrl,
+ probeSpec:m.probeSpec,stream:m.stream,complexity:m.complexity,billing:m.billing,documentationUrl:m.documentationUrl,
  notes:m.notes,enabled:m.enabled,routeEnabled:m.routeEnabled
 });
 function Modal({title,busy,onClose,children}:{title:string;busy:boolean;onClose:()=>void;children:React.ReactNode}){
@@ -209,6 +210,8 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
     {key:"id",label:"模型 ID",render:m=><span className="break-all font-mono text-xs">{m.modelId}</span>},
     {key:"provider",label:"厂商连接",render:m=>names.get(m.providerId)??m.providerId},
     {key:"adapter",label:"类型",render:m=>m.adapter},
+    {key:"billing",label:"计费",render:m=>m.billing==="free"?"免费":"付费"},
+    {key:"complexity",label:"档位",render:m=>({light:"轻量",medium:"标准",heavy:"高级"})[m.complexity]},
     {key:"status",label:"状态",render:m=><Badge tone={m.enabled?"ok":"muted"}>{m.enabled?"启用":"停用"}</Badge>},
     {key:"ops",label:"操作",render:m=>{
      const latest=testResults[m.id],record=m.checks.find(c=>c.capability===m.probeSpec?.capability);
@@ -243,6 +246,11 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
  const [modelId,setModelId]=useState(model?.modelId??"");
  const [adapter,setAdapter]=useState<ModelInput["adapter"]>(model?.adapter??"chat");
  const [complexity,setComplexity]=useState<ModelInput["complexity"]>(model?.complexity??"medium");
+ const [billing,setBilling]=useState<"free"|"paid">(model?.billing??"paid");
+ const inferBilling=(id:string,selectedId=providerId):"free"|"paid"=>{
+  const c=providers.find(p=>p.id===selectedId);
+  return id.endsWith(":free")||id==="openrouter/free"||(c?.vendor.toLowerCase()==="nvidia"&&c.policy==="nvidia-free-trial")?"free":"paid";
+ };
  const [enabled,setEnabled]=useState(model?.enabled??true);
  const [routeEnabled,setRouteEnabled]=useState(model?.routeEnabled??false);
  const [vision,setVision]=useState(model?.capabilities.includes("vision")??false);
@@ -273,22 +281,22 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
   await onSave({
    ...(model?modelInput(model):{
     providerId,modelId,adapter,endpointOverride:null,timeoutOverrideMs:null,
-    capabilities,requestDefaults:{},probeSpec,stream:false,complexity:"medium" as const,
+    capabilities,requestDefaults:{},probeSpec,stream:false,complexity:"medium" as const,billing,
     documentationUrl:null,notes:null,enabled,routeEnabled:false
    }),
-   providerId,modelId:modelId.trim(),adapter,complexity,enabled,routeEnabled:enabled&&routeEnabled,
+   providerId,modelId:modelId.trim(),adapter,complexity,billing,enabled,routeEnabled:enabled&&routeEnabled,
    capabilities,probeSpec,endpointOverride:endpoint.trim()||null,
    timeoutOverrideMs:timeout?Number(timeout):null,notes:notes.trim()||null
   });
  }
  return <Modal title={model?"编辑模型":"新增模型"} busy={busy} onClose={onClose}>
   <label className="block space-y-1 text-sm">厂商连接
-   <Select aria-label="厂商连接" disabled={busy} value={providerId} onChange={e=>setProviderId(e.target.value)}>
+   <Select aria-label="厂商连接" disabled={busy} value={providerId} onChange={e=>{setProviderId(e.target.value);if(!model)setBilling(inferBilling(modelId,e.target.value));}}>
     {providers.map(c=><option key={c.id} value={c.id}>{vendorLabel(c.vendor)} · {c.id}</option>)}
    </Select>
   </label>
   <label className="block space-y-1 text-sm">模型 ID
-   <Input aria-label="模型 ID" disabled={busy} value={modelId} onChange={e=>setModelId(e.target.value)} placeholder="填入官方模型 ID"/>
+   <Input aria-label="模型 ID" disabled={busy} value={modelId} onChange={e=>{setModelId(e.target.value);if(!model){setComplexity(complexityFromModelId(e.target.value));setBilling(inferBilling(e.target.value));}}} placeholder="填入官方模型 ID"/>
   </label>
   <label className="block space-y-1 text-sm">模型类型
    <Select aria-label="模型类型" disabled={busy} value={adapter} onChange={e=>selectAdapter(e.target.value as ModelInput["adapter"])}>
@@ -298,6 +306,11 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
   {adapter==="chat"&&<label className="flex items-center gap-2 text-sm">
    <input type="checkbox" checked={vision} disabled={busy} onChange={e=>setVision(e.target.checked)}/>支持图像输入
   </label>}
+  <label className="block space-y-1 text-sm">计费方式
+   <Select aria-label="计费方式" disabled={busy} value={billing} onChange={e=>setBilling(e.target.value as "free"|"paid")}>
+    <option value="free">免费</option><option value="paid">付费</option>
+   </Select>
+  </label>
   {adapter==="chat"&&<label className="block space-y-1 text-sm">模型能力等级
    <Select aria-label="模型能力等级" disabled={busy} value={complexity}
     onChange={e=>setComplexity(e.target.value as ModelInput["complexity"])}>
@@ -323,7 +336,7 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
      <Textarea rows={5} disabled={busy} value={probe} onChange={e=>setProbe(e.target.value)}/>
     </label>
     <label className="flex items-center gap-2"><input type="checkbox" disabled={busy||!enabled}
-     checked={routeEnabled} onChange={e=>setRouteEnabled(e.target.checked)}/>允许运行时路由（需要成功测试）</label>
+     checked={routeEnabled} onChange={e=>setRouteEnabled(e.target.checked)}/>允许自动路由（实际请求决定可用性）</label>
    </div>
   </details>
   {error&&<p role="alert" className="text-sm text-hot">{error}</p>}
