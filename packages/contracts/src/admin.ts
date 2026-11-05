@@ -336,6 +336,8 @@ export interface AdminRuns {
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
   /** Articles first discovered within the last 24 hours, excluding historical backfills and signal-only feeds. */
   live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
+  /** Unresolved editorial articles first discovered over 24 hours ago; not included in live24h. */
+  legacyUnresolved: number;
   failedJobs: Array<{ name: string; failed: number; last: Timestamp | null; last_output: string | null }>;
   grouping: {
     waiting: number;
@@ -346,7 +348,7 @@ export interface AdminRuns {
     id: string; name: string; kind: string; health: string; fail_count: number; last_ok_at: Timestamp | null; last_fetch_at: Timestamp | null;
     next_fetch_at: Timestamp | null; interval_minutes: number; last_error: string | null;
   }>;
-  receipts: { counts: Record<string, number>; issues: AdminReceiptIssue[] };
+  receipts: { counts: Record<string, number>; unknownTotal: number; issues: AdminReceiptIssue[] };
   deliveries: AdminDeliveryIssue[];
   errors: Array<{ error: string; n: number; last: Timestamp; example: string }>;
   retrying: { count: number; next: Timestamp | null };

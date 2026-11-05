@@ -93,12 +93,23 @@ export async function livePipelineOverview(): Promise<Runs["live24h"]> {
       count(*) FILTER (WHERE a.processing_state = 'failed')::int AS failed,
       count(*) FILTER (WHERE a.processing_state = 'blocked')::int AS filtered,
       count(*) FILTER (WHERE a.processing_state = 'new'
-        AND greatest(a.discovered_at, a.updated_at) < now() - interval '15 minutes')::int AS stalled,
+        AND a.discovered_at < now() - interval '15 minutes')::int AS stalled,
       max(a.discovered_at) AS "newestAt"
     FROM articles a JOIN sources s ON s.id = a.source_id
-    WHERE greatest(a.discovered_at, a.updated_at) > now() - interval '24 hours'
+    WHERE a.discovered_at > now() - interval '24 hours'
+      AND a.discovered_at <= now()
       AND NOT a.backfill AND s.participation_mode = 'editorial'`;
   return row ?? { discovered: 0, analyzed: 0, grouped: 0, waiting: 0, failed: 0, filtered: 0, stalled: 0, newestAt: null };
+}
+
+/** Currently unresolved editorial articles first discovered before the last 24-hour window. */
+export async function legacyUnresolvedOverview(): Promise<number> {
+  const [row] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM articles a JOIN sources s ON s.id = a.source_id
+    WHERE a.discovered_at <= now() - interval '24 hours'
+      AND a.processing_state IN ('new', 'failed')
+      AND NOT a.backfill AND s.participation_mode = 'editorial'`;
+  return row?.n ?? 0;
 }
 
 export async function runsOverview(): Promise<Runs> {
@@ -110,9 +121,11 @@ export async function runsOverview(): Promise<Runs> {
     queues,
     [articleProcessing],
     live24h,
+    legacyUnresolved,
     failedJobs,
     lagging,
     receipts,
+    [unknownReceiptCount],
     receiptIssues,
     deliveries,
     errors,
@@ -150,8 +163,12 @@ export async function runsOverview(): Promise<Runs> {
         count(*) FILTER (WHERE processing_state='blocked')::int AS filtered,
         count(*) FILTER (WHERE processing_state IN ('new','failed') AND
           (processing_error ILIKE '%No eligible configured model%' OR processing_error ILIKE '%Model cannot route%'))::int AS "unavailableModel"
-      FROM articles WHERE greatest(discovered_at, updated_at) >= now() - interval '24 hours'`,
+      FROM articles a JOIN sources s ON s.id = a.source_id
+      WHERE a.discovered_at >= now() - interval '24 hours'
+        AND a.discovered_at <= now()
+        AND NOT a.backfill AND s.participation_mode = 'editorial'`,
     livePipelineOverview(),
+    legacyUnresolvedOverview(),
     sql<Runs["failedJobs"]>`
       SELECT name, count(*)::int AS failed, max(completed_on) AS last, left((array_agg(output::text ORDER BY completed_on DESC))[1], 300) AS last_output
       FROM pgboss.job WHERE state = 'failed' AND completed_on > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC, 1`,
@@ -162,6 +179,7 @@ export async function runsOverview(): Promise<Runs> {
         AND (health = 'failing' OR next_fetch_at < now() - interval '30 minutes' OR last_ok_at < now() - make_interval(mins => greatest(interval_minutes * 6, 360)))
       ORDER BY health = 'failing' DESC, next_fetch_at, id LIMIT 60`,
     sql<{ status: string; n: number }[]>`SELECT status, count(*)::int AS n FROM receipts WHERE created_at > now() - interval '7 days' GROUP BY 1 ORDER BY 1`,
+    sql<{ n: number }[]>`SELECT count(*)::int AS n FROM receipts WHERE status = 'unknown'`,
     sql<Runs["receipts"]["issues"]>`
       SELECT id, service, model, purpose, subject, status, attempts, left(error, 240) AS error, created_at, updated_at FROM receipts
       WHERE status = 'unknown' OR (status = 'failed' AND updated_at > now() - interval '3 days') OR (status = 'pending' AND updated_at < now() - interval '15 minutes')
@@ -171,14 +189,23 @@ export async function runsOverview(): Promise<Runs> {
       WHERE status IN ('unknown', 'failed') OR (status = 'sending' AND updated_at < now() - interval '15 minutes')
       ORDER BY status = 'unknown' DESC, updated_at DESC, id DESC LIMIT 40`,
     sql<Runs["errors"]>`
+      -- Match the exact eligibility set used by requeueFailed; the action must
+      -- never requeue more articles than this error group tells the operator.
       SELECT ${failureGroupSql()} AS error, count(*)::int AS n, max(discovered_at) AS last,
              (array_agg(id ORDER BY discovered_at DESC))[1] AS example
-      FROM articles WHERE processing_state = 'failed' AND greatest(discovered_at, updated_at) > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
+      FROM articles
+      WHERE processing_state = 'failed'
+        AND greatest(discovered_at, updated_at) > now() - interval '24 hours'
+      GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
     sql<Runs["ingest"]>`SELECT client, kind, status, left(error, 200) AS error, summary, created_at FROM ingest_events ORDER BY created_at DESC, id DESC LIMIT 20`,
     waitingSelectedNews(),
     // Articles waiting to retry after a passing provider problem (they are not failed).
     sql<{ n: number; next: Date | null }[]>`
-      SELECT count(*)::int AS n, min(processing_retry_at) AS next FROM articles WHERE processing_state = 'new' AND processing_attempts > 0 AND greatest(discovered_at, updated_at) >= now() - interval '24 hours'`,
+      SELECT count(*)::int AS n, min(a.processing_retry_at) AS next
+      FROM articles a JOIN sources s ON s.id = a.source_id
+      WHERE a.processing_state = 'new' AND a.processing_attempts > 0
+        AND a.discovered_at >= now() - interval '24 hours'
+        AND a.discovered_at <= now() AND NOT a.backfill AND s.participation_mode = 'editorial'`,
     routingEffectOverview(),
     Promise.all(serverModules().flatMap((m) => (m.admin?.runs ? [m.admin.runs().then((part) => [m.name, part] as const)] : []))),
   ]);
@@ -196,11 +223,12 @@ export async function runsOverview(): Promise<Runs> {
     queues,
     articleProcessing: articleProcessing ?? {waiting:0,retrying:0,failed:0,filtered:0,unavailableModel:0},
     live24h,
+    legacyUnresolved,
     routingEffect,
     failedJobs,
     grouping: groupingOverview(grouping, now),
     lagging,
-    receipts: { counts: Object.fromEntries(receipts.map((r) => [r.status, r.n])), issues: receiptIssues },
+    receipts: { counts: Object.fromEntries(receipts.map((r) => [r.status, r.n])), unknownTotal: unknownReceiptCount?.n ?? 0, issues: receiptIssues },
     deliveries,
     errors,
     retrying: { count: retrying?.n ?? 0, next: retrying?.next ?? null },
