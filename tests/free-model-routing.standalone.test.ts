@@ -44,11 +44,13 @@ test('only enabled and explicitly routed chat models are eligible, without a pro
 });
 
 test('the last successful free model is reused until it fails',()=>{
- const selected=model('cached','nv','another/model-20b','light');
+ const alt=provider('alt','openrouter');
+ const selected=model('cached','alt','another/model-20b','light');
+ const second=model('second','alt','another/model-21b','light');
  rememberSuccessfulRoute('model:cached','light');
- assert.equal(rankFreeModels([candidates[0]!,selected],connections,'light')[0]?.id,'cached');
- coolDownModel('cached','nv',60);
- assert.equal(rankFreeModels([candidates[0]!,selected],connections,'light')[0]?.id,'or-light');
+ assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'cached');
+ coolDownModel('cached','alt',60);
+ assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'second');
 });
 test('parameter count supplies only an initial, overridable tier',()=>{
  assert.equal(complexityFromModelId('model-26b-a4b'),'light');
