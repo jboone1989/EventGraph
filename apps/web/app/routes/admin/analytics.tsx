@@ -22,6 +22,7 @@ type Overview = {
     startDate: string; endDate: string;
     pageRows: number; pagesTruncated: boolean;
     pageTypes: Array<{ kind: string; pages: number; clicks: number; impressions: number; ctr: number }>;
+    opportunities: Array<{ page: string; clicks: number; impressions: number }>;
   }>;
 };
 
@@ -137,6 +138,16 @@ export default function AnalyticsAdmin({ loaderData: a }: Route.ComponentProps) 
             </tr>)}</tbody>
           </table>
         </div>
+        <details className="mt-4 border-t border-line pt-3">
+          <summary className="cursor-pointer text-[13px] font-medium text-ink-2">有搜索曝光的新闻落地页（点击查看）</summary>
+          <p className="mt-2 text-[12px] text-ink-4">依据 Google 返回的页面样本排序，不代表全站搜索点击或自动修改标题的建议。</p>
+          {sc.data.opportunities.length ? <div className="mt-2 space-y-2">
+            {sc.data.opportunities.slice(0, 10).map(p => <div key={p.page} className="flex justify-between gap-3 text-[12px]">
+              <a href={p.page} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate text-accent hover:underline" title={p.page}>{p.page}</a>
+              <span className="shrink-0 num">{n(p.impressions)} 曝光 / {n(p.clicks)} 点击</span>
+            </div>)}
+          </div> : <p className="mt-2 text-[12px] text-ink-4">暂无有曝光的新闻落地页。</p>}
+        </details>
       </Card>}
       <p className="mt-5 text-[12px] text-ink-4">站内统计不记录管理页面；DNT/GPC、浏览器阻止脚本或网络失败时可能漏计。Cloudflare、站内 PV 与 Google 搜索点击的统计范围和时间窗口不同，不能相加。</p>
     </AdminPage>
