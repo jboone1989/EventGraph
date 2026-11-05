@@ -419,11 +419,11 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
     && previous.title === next.title && previous.original_title === originalTitle
     && previous.summary === summary) {
     await tx`UPDATE english_copies
-      SET inputs_hash = md5(concat_ws(chr(31), ${next.title}, ${originalTitle}, ${summary}, ${reason})),
+      SET inputs_hash = md5(concat_ws(chr(31), ${next.title}::text, ${originalTitle}::text, ${summary}::text, ${reason}::text)),
           reason = NULL, updated_at = now()
       WHERE article_id = ${articleId} AND outcome = 'written'
-        AND inputs_hash = md5(concat_ws(chr(31), ${previous.title}, ${previous.original_title},
-          ${previous.summary}, ${previous.reason}))`;
+        AND inputs_hash = md5(concat_ws(chr(31), ${previous.title}::text, ${previous.original_title}::text,
+          ${previous.summary}::text, ${previous.reason}::text))`;
   }
 
   // The pool search row follows eligibility; its body part only covers full text the site may show.
