@@ -14,7 +14,7 @@ export interface ConnectionRow {
 export interface ModelRow {
  id:string;provider_id:string;model_id:string;adapter:RegisteredModel['adapter'];endpoint_override:string|null;timeout_override_ms:number|null;
  capabilities:RegisteredModel['capabilities'];request_defaults:Record<string,unknown>;probe_spec:RegisteredModel['probeSpec'];
- stream:boolean;complexity:RegisteredModel['complexity'];billing:'free'|'paid';documentation_url:string|null;notes:string|null;
+ stream:boolean;complexity:RegisteredModel['complexity'];billing:'free'|'paid'|null;documentation_url:string|null;notes:string|null;
  enabled:boolean;route_enabled:boolean;upstream_metadata:Record<string,unknown>;version:number;updated_at:Date;
 }
 export type CheckRow={model_id:string;capability:string;config_fingerprint:string;config_snapshot?:Record<string,string>|null;status:string;verified_at:Date|null;latency_ms:number|null};
@@ -77,10 +77,16 @@ export function routingState(r:ModelRow,c:ConnectionRow,_checks:CheckRow[]=[],_n
  // Test results remain visible in the admin but do not block runtime routing.
  return {eligibleCapabilities:reasons.length?[]:r.capabilities,reasons};
 }
+function effectiveBilling(r:ModelRow,c:ConnectionRow):'free'|'paid' {
+ if(r.billing)return r.billing;
+ if(c.vendor.toLowerCase()==='openrouter'&&(r.model_id.endsWith(':free')||r.model_id==='openrouter/free'||r.upstream_metadata?.openrouterFreeSync && (r.upstream_metadata.openrouterFreeSync as {free?:boolean}).free===true))return 'free';
+ if(c.vendor.toLowerCase()==='nvidia'&&c.policy==='nvidia-free-trial')return 'free';
+ return 'paid';
+}
 export function modelView(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[]):RegisteredModel {
  let fingerprint:string|null=null;
  try{fingerprint=configurationFingerprint(c,r);}catch{ /* unreadable credentials invalidate checks */ }
- return {...modelInput(r),timeoutOverrideMs:r.timeout_override_ms??null,id:r.id,upstreamMetadata:r.upstream_metadata,version:r.version,updatedAt:r.updated_at.toISOString(),
+ return {...modelInput(r),billing:effectiveBilling(r,c),timeoutOverrideMs:r.timeout_override_ms??null,id:r.id,upstreamMetadata:r.upstream_metadata,version:r.version,updatedAt:r.updated_at.toISOString(),
   routing:routingState(r,c,checks),
   checks:checks.filter(x=>x.model_id===r.id).map(x=>({capability:x.capability,
    status:x.config_fingerprint===fingerprint?x.status:'unverified',
@@ -243,7 +249,7 @@ export async function updateRegisteredModel(id:string,input:ModelInput,version:n
   if(!old)return missing('Model');versionCheck(old.version,version);
   checkModel(input,connectionView(connection));
   const before=await getRegisteredModel(id,tx);
-  await tx`UPDATE registered_models SET ${tx({...writeValues({...input,billing:input.billing??old.billing},tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
+  await tx`UPDATE registered_models SET ${tx({...writeValues({...input,billing:input.billing??effectiveBilling(old,connection)},tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
   const view=await getRegisteredModel(id,tx);
   await audit(actor,'provider.model.update',id,reason,before,view,{db:tx});return view;
  }) as RegisteredModel;clearRegisteredModelCache();return result;}catch(error){return duplicate(error);}
