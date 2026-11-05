@@ -346,7 +346,7 @@ export interface AdminRuns {
     id: string; name: string; kind: string; health: string; fail_count: number; last_ok_at: Timestamp | null; last_fetch_at: Timestamp | null;
     next_fetch_at: Timestamp | null; interval_minutes: number; last_error: string | null;
   }>;
-  receipts: { counts: Record<string, number>; issues: AdminReceiptIssue[] };
+  receipts: { counts: Record<string, number>; unknownTotal: number; issues: AdminReceiptIssue[] };
   deliveries: AdminDeliveryIssue[];
   errors: Array<{ error: string; n: number; last: Timestamp; example: string }>;
   retrying: { count: number; next: Timestamp | null };
