@@ -168,6 +168,8 @@ cp "$staged_compose" "$compose_file"
 # INSERT and readback happen in one transaction that always rolls back. Production
 # migrations and source seeding still belong only to the production release.
 compose run --rm --no-deps api node scripts/ci/vm13-db-write-probe.ts || restore
+# No schema writes from VM13: fail before swapping in API/Web code that expects missing columns.
+compose run --rm --no-deps api node scripts/ci/check-vm13-schema.ts || restore
 
 compose up -d --no-build --pull never --force-recreate --remove-orphans api web || restore
 for service in api web; do
