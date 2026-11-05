@@ -86,7 +86,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
             {r.live24h.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.live24h.failed)}</Badge> 按文章去重，失败任务另列。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
             {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">信源明细</a></p>}
             {failing.length > 0 && <p><Badge tone="warn">定时任务最近失败 {num(failing.length)}</Badge> 按失败任务类型统计，不等于新闻失败篇数。<a href="#runs-queues" onClick={() => showSection("runs-queues")} className="ml-2 text-accent">查看任务</a></p>}
-            {legacyUnresolved > 0 && <p><Badge tone="warn">遗留未完成新闻 {num(legacyUnresolved)}</Badge> 首次发现于 24 小时之前，当前仍等待处理或失败，不计入新新闻。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看诊断</a></p>
+            {legacyUnresolved > 0 && <p><Badge tone="warn">遗留未完成新闻 {num(legacyUnresolved)}</Badge> 首次发现于 24 小时之前，当前仍等待处理或失败，不计入新新闻。<Link className="ml-2 text-accent" to="/admin/content">查看新闻</Link></p>}
           </div>}
         <p className="mt-3 text-[12px] text-ink-3">侧栏红色数字只统计最近 24 小时超时或失败的独立新闻；更早发现但仍未完成的新闻，以及 Worker、信源和定时任务异常单独提示，不累加到新新闻数。历史重试与失败任务记录只用于诊断。</p>
         <div className="mt-3 flex flex-wrap gap-4 text-[12px]">
