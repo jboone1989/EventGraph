@@ -14,7 +14,7 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     live24h: { discovered: 25, analyzed: 14, grouped: 12, waiting: 6, failed: 2, filtered: 7, stalled: 3, newestAt: now },
     failedJobs: [{ name: "cron.reports.compose", failed: 4, last: now, last_output: "Provider HTTP 500" }],
     grouping: { waiting: 0, needsAttention: 0, items: [] },
-    lagging: [], receipts: { counts: {}, issues: [] }, deliveries: [], errors: [],
+    lagging: [], receipts: { counts: {}, unknownTotal: 0, issues: [] }, deliveries: [], errors: [],
     retrying: { count: 3, next: now }, ingest: [], modules: {},
   };
   const api = createServer((req, res) => {
@@ -33,15 +33,15 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const res = await page.goto(web.origin + "/admin/runs");
     assert.equal(res?.status(), 200);
-    await expect(page.getByText("运行概览", { exact: true })).toBeVisible();
-    await expect(page.getByText("定时任务失败 1")).toBeVisible();
-    await expect(page.getByText("未发现本页跟踪的重点异常")).toHaveCount(0);
-    await expect(page.getByText("超时未处理", { exact: true })).toBeVisible();
+    await expect(page.getByText("新闻处理概览 · 最近 24 小时", { exact: true })).toBeVisible();
+    await expect(page.getByText("超时新闻 3")).toBeVisible();
+    await expect(page.getByText("失败新闻 2")).toBeVisible();
+    await expect(page.getByText("超时未完成", { exact: true })).toBeVisible();
     const queue = page.locator("#runs-queues");
     const news = page.locator("#runs-news");
-    await page.getByRole("link", { name: "查看新闻处理" }).click();
+    await page.getByRole("link", { name: "新闻处理" }).click();
     await expect(news).toHaveJSProperty("open", true);
-    await expect(page.getByText("超过 15 分钟", { exact: true })).toBeVisible();
+    await expect(page.getByText("分析完成", { exact: true })).toBeVisible();
     const problems = page.locator("#runs-issues");
     await expect(queue).toHaveJSProperty("open", false);
     await expect(problems).toHaveJSProperty("open", false);
