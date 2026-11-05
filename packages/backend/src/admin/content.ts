@@ -7,6 +7,7 @@ import { correctReportClassification } from "../reports/correct.ts";
 import type { AdminContentChain, AdminContentRow, AdminPublication, BeforeJson } from "@aihot/contracts/admin";
 import { ARTICLE_ID_PATTERN, CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { sql, type Tx } from "../db.ts";
+import { utcDayStart } from "../operations/stale-work.ts";
 import { enqueue, QUEUES } from "../jobs/queue.ts";
 import { queueProcessing } from "../jobs/content.ts";
 import { identityKeyForUrl, normalizeUrl } from "../lib/url.ts";
@@ -303,8 +304,8 @@ export async function rerun(id: string, step: "extract" | "analyze" | "group", r
       SELECT after FROM audit_log WHERE subject = ${`content:${id}`} AND action = ${`content.rerun.${step}`}
         AND actor = ${actor} AND request_id = ${requestId} ORDER BY id DESC LIMIT 1`;
     if (prior) return { jobId: prior.after.jobId };
-    if (Math.max(a.discovered_at.getTime(), a.updated_at.getTime()) < Date.now() - 24 * 60 * 60 * 1000) {
-      throw Object.assign(new Error("新闻超过 24 小时，不再重新处理"), { statusCode: 409 });
+    if (a.discovered_at.getTime() < utcDayStart().getTime()) {
+      throw Object.assign(new Error("不是当前 UTC 日的新闻，不再重新处理"), { statusCode: 409 });
     }
     let jobId: string | null;
     if (step === "group") jobId = await requestRegroup(id, requestId, tx);

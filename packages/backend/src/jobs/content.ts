@@ -15,6 +15,7 @@ import { BudgetExceededError, ProviderRejectedError, ReceiptBusyError, ReceiptUn
 import { ModelOutputError } from "../providers/llm.ts";
 import { ProviderConfigError } from "../providers/registry/connection-types.ts";
 import { enqueue, QUEUES, shutdownSignal, work } from "./queue.ts";
+import { utcDayStart } from "../operations/stale-work.ts";
 
 /** Minutes to wait after the n-th failed attempt; one more failure after the last ends in "failed". */
 const RETRY_MINUTES = [5, 10, 20, 40, 60, 120, 240, 360];
@@ -48,7 +49,7 @@ async function route(articleId: string, db: Db): Promise<Route | null> {
     FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
   if (!row) return null;
   // Do not automatically revive news that has aged out of the operational queue.
-  if (Math.max(row.discovered_at.getTime(), row.updated_at.getTime()) < Date.now() - 24 * 60 * 60 * 1000) return null;
+  if (row.discovered_at.getTime() < utcDayStart().getTime()) return null;
   const historical = isHistorical(row);
   const signal = row.participation_mode !== "editorial";
   const pending = row.body_status === "pending";
@@ -244,7 +245,7 @@ export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
   const rows = await sql<{ id: string }[]>`
     SELECT id FROM articles
     WHERE processing_state = 'new' AND created_at < now() - interval '3 minutes'
-      AND greatest(discovered_at, updated_at) >= now() - interval '24 hours'
+      AND discovered_at >= ${utcDayStart()}
       AND (processing_retry_at IS NULL OR processing_retry_at <= now())
       AND (processing_queued_at IS NULL OR processing_queued_at < now() - ${QUEUED_STALE}::interval)
     ORDER BY discovered_at DESC LIMIT 500`;
@@ -259,7 +260,7 @@ export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
     SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
     WHERE a.processing_state = 'analyzed' AND a.grouping_status = 'pending'
       AND a.grouped_at IS NULL AND s.participation_mode = 'editorial'
-      AND greatest(a.discovered_at, a.updated_at) > now() - interval '24 hours'
+      AND a.discovered_at >= ${utcDayStart()}
       AND greatest(a.discovered_at, a.updated_at) < now() - interval '3 minutes'
     ORDER BY (s.tier = 'T1') DESC, coalesce(a.published_at, a.discovered_at) DESC
     LIMIT 12`;
@@ -284,7 +285,7 @@ export async function resumeAfterRelease(receipt: { purpose: string; subject: st
   if (!article) return false;
   const [a] = await db`UPDATE articles SET processing_state = 'new', processing_attempts = 0, processing_retry_at = NULL, processing_error = NULL
                         WHERE id = ${article} AND processing_state = 'failed'
-                          AND greatest(discovered_at, updated_at) >= now() - interval '24 hours' RETURNING id`;
+                          AND discovered_at >= ${utcDayStart()} RETURNING id`;
   return !!a && !!(await queueProcessing(article, { step: "analyze", db }));
 }
 
@@ -299,18 +300,32 @@ export const failureGroupSql = (column = "processing_error") =>
  */
 export async function requeueFailed(group: string | null, limit: number | null = null): Promise<{ requeued: number }> {
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 500)) throw new Error("requeue limit must be 1..500");
-  const rows = await sql<{ id: string }[]>`
-    WITH picked AS (
-      SELECT id FROM articles
-      WHERE processing_state = 'failed' AND greatest(discovered_at, updated_at) > now() - interval '24 hours'
-        AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
-      ORDER BY discovered_at DESC, id
-      LIMIT ${limit ?? 1000000}
-      FOR UPDATE SKIP LOCKED
-    )
-    UPDATE articles a SET processing_state = 'new', processing_attempts = 0,
-      processing_retry_at = NULL, processing_error = NULL
-    FROM picked WHERE a.id = picked.id RETURNING a.id`;
-  for (const r of rows.slice(0, 500)) await queueProcessing(r.id);
+  const rows = await sql.begin(async tx => {
+    const selected = await tx<{ id: string }[]>`
+      WITH picked AS (
+        SELECT id FROM articles
+        WHERE processing_state = 'failed' AND discovered_at >= ${utcDayStart()}
+          AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
+        ORDER BY discovered_at DESC, id
+        LIMIT ${limit ?? 500} FOR UPDATE SKIP LOCKED
+      )
+      UPDATE articles a SET processing_state = 'new', processing_attempts = 0,
+        processing_retry_at = NULL, processing_error = NULL
+      FROM picked WHERE a.id = picked.id RETURNING a.id`;
+    if (selected.length) {
+      // A manual retry also releases unresolved model attempts for these news items.
+      // Do not delete cost history; the explicit operator action authorizes a fresh call.
+      const ids = selected.map(a => a.id);
+      const subjectMatch = tx`substring(subject from '^article:([^@:#]+)') = ANY(${ids}::text[])`;
+      await tx`UPDATE receipt_attempts SET status='failed', error='Manual news retry',
+        finished_at=coalesce(finished_at, now())
+        WHERE status IN ('unknown','pending') AND receipt_id IN
+          (SELECT id FROM receipts WHERE ${subjectMatch})`;
+      await tx`UPDATE receipts SET status='failed', error='Manual news retry', updated_at=now()
+        WHERE status IN ('unknown','pending') AND ${subjectMatch}`;
+    }
+    return selected;
+  });
+  for (const row of rows) await queueProcessing(row.id);
   return { requeued: rows.length };
 }

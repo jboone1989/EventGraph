@@ -35,7 +35,7 @@ const ENGINE_SCHEDULES: Scheduled[] = [
   // Paid probes of registered models whose 24 h success is about to expire (both registry and model-call flags).
   ...(retestEnabled() ? [{ name: "models.registry.retest", cron: "*/30 * * * *", run: () => retestExpiringModels() }] : []),
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
-  { name: "ops.expire-stale-work", cron: "*/10 * * * *", run: expireStaleWork },
+  { name: "ops.expire-stale-work", cron: "0 0 * * *", timezone: "UTC", missed: "once", run: expireStaleWork },
   // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).
   { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },
   // English copy of selected reports and story digests for the /en edition (model calls; off with MODEL_CALLS_ENABLED=false).
@@ -82,7 +82,7 @@ export async function registerSchedules(boss: PgBoss) {
   for (const s of schedules) {
     const queue = `cron.${s.name}`;
     await ensureQueue(queue, { policy: "singleton", retryLimit: 1, expireInSeconds: 3600 });
-    await boss.schedule(queue, s.cron, {}, { tz: "Asia/Shanghai", missed: s.missed ?? "skip" });
+    await boss.schedule(queue, s.cron, {}, { tz: s.timezone ?? "Asia/Shanghai", missed: s.missed ?? "skip" });
     // Schedules fire at minute boundaries; a 15 s pickup keeps them on time with a third of the polling.
     await boss.work(queue, { pollingIntervalSeconds: 15 }, async () => recordRun(s.name, s.run));
   }

@@ -3,7 +3,7 @@ import { tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
-import { livePipelineOverview, legacyUnresolvedOverview } from "@aihot/backend/admin/runs";
+import { livePipelineOverview, legacyUnresolvedOverview, currentNewsQueueOverview } from "@aihot/backend/admin/runs";
 import { navCounts } from "@aihot/backend/admin/navigation";
 
 after(closeDb);
@@ -12,6 +12,7 @@ test("live dashboard excludes old and backfilled articles", async () => {
   const before = await livePipelineOverview();
   const navBefore = await navCounts();
   const oldBefore = await legacyUnresolvedOverview();
+  const currentBefore = await currentNewsQueueOverview();
   const source = `live-dashboard-${tag()}`;
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
             VALUES (${source},'Live dashboard','rss','T1','editorial','2100-01-01')`;
@@ -40,7 +41,10 @@ test("live dashboard excludes old and backfilled articles", async () => {
   const after = await livePipelineOverview();
   const navAfter = await navCounts();
   const oldAfter = await legacyUnresolvedOverview();
+  const currentAfter = await currentNewsQueueOverview();
   assert.equal(after.discovered - before.discovered, 4);
+  assert.equal(currentAfter.pending - currentBefore.pending, 1);
+  assert.equal(currentAfter.failed - currentBefore.failed, 1);
   assert.equal(oldAfter - oldBefore, 2, "unresolved pre-24h articles remain visible outside new-news totals");
   assert.equal(after.waiting - before.waiting, 1);
   assert.equal(after.analyzed - before.analyzed, 1);

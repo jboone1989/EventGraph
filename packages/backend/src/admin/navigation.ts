@@ -13,11 +13,10 @@ export async function navCounts(): Promise<AdminNavCounts> {
            (SELECT count(*)::int FROM sources WHERE enabled AND health = 'failing') AS sources,
            (SELECT count(*)::int
               FROM articles a JOIN sources s ON s.id = a.source_id
-              WHERE a.discovered_at > now() - interval '24 hours'
+              WHERE a.discovered_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
                 AND a.discovered_at <= now()
                 AND NOT a.backfill AND s.participation_mode = 'editorial'
-                AND (a.processing_state = 'failed'
-                     OR (a.processing_state = 'new' AND a.discovered_at < now() - interval '15 minutes'))) AS runs`,
+                AND a.processing_state IN ('new','failed')) AS runs`,
     Promise.all(serverModules().flatMap((m) => Object.entries(m.admin?.counts ?? {}).map(async ([key, count]) => [key, await count()] as const))),
   ]);
   return { ...c, ...Object.fromEntries(counts) };
