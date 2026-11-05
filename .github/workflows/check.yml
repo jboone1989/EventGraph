@@ -443,6 +443,8 @@ jobs:
             exit 1
           fi
 
+      # The historical OPENROUTER_API_KEY secret name is misleading: the same secret
+      # is successfully used by other PR reviews against the DeepSeek native endpoint.
       # DeepSeek native Chat Completions supports JSON mode, not JSON-schema enforcement.
       # A single bounded request avoids Claude Code's multi-turn tool loop and
       # fails closed if the response is missing, malformed or incomplete.
