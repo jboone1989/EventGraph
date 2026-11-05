@@ -257,7 +257,7 @@ export async function updateRegisteredModel(id:string,input:ModelInput,version:n
   // A changed provider or model ID cannot inherit the old free classification.
   const identityChanged=old.provider_id!==input.providerId||old.model_id!==input.modelId;
   const billing=identityChanged
-   ? effectiveBilling({...old,provider_id:input.providerId,model_id:input.modelId,billing:null},connection)
+   ? effectiveBilling({...old,provider_id:input.providerId,model_id:input.modelId,billing:null,upstream_metadata:{}},connection)
    : input.billing??effectiveBilling(old,connection);
   await tx`UPDATE registered_models SET ${tx({...writeValues({...input,billing},tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
   const view=await getRegisteredModel(id,tx);

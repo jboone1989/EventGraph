@@ -118,6 +118,8 @@ test('changing provider or model ID cannot carry a stale free billing classifica
  const moved=await updateRegisteredModel(original.id,model(paidConnection.id,{modelId:'example/20b',billing:'free'}),original.version,'move model','test');
  assert.equal(moved.billing,'paid');
  const other=await createRegisteredModel(model(freeConnection.id,{modelId:'example/30b:free'}),'test','test');
+ // A catalog sync can leave old free metadata on the row after an ID edit.
+ await sql`UPDATE registered_models SET upstream_metadata=${sql.json({openrouterFreeSync:{free:true}})} WHERE id=${other.id}::uuid`;
  const renamed=await updateRegisteredModel(other.id,model(freeConnection.id,{modelId:'example/30b',billing:'free'}),other.version,'rename model','test');
  assert.equal(renamed.billing,'paid');
 });
