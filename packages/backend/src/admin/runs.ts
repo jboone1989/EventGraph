@@ -189,11 +189,13 @@ export async function runsOverview(): Promise<Runs> {
       WHERE status IN ('unknown', 'failed') OR (status = 'sending' AND updated_at < now() - interval '15 minutes')
       ORDER BY status = 'unknown' DESC, updated_at DESC, id DESC LIMIT 40`,
     sql<Runs["errors"]>`
-      SELECT ${failureGroupSql("a.processing_error")} AS error, count(*)::int AS n, max(a.discovered_at) AS last,
-             (array_agg(a.id ORDER BY a.discovered_at DESC))[1] AS example
-      FROM articles a JOIN sources s ON s.id = a.source_id
-      WHERE a.processing_state = 'failed' AND a.discovered_at > now() - interval '24 hours'
-        AND a.discovered_at <= now() AND NOT a.backfill AND s.participation_mode = 'editorial'
+      -- Match the exact eligibility set used by requeueFailed; the action must
+      -- never requeue more articles than this error group tells the operator.
+      SELECT ${failureGroupSql()} AS error, count(*)::int AS n, max(discovered_at) AS last,
+             (array_agg(id ORDER BY discovered_at DESC))[1] AS example
+      FROM articles
+      WHERE processing_state = 'failed'
+        AND greatest(discovered_at, updated_at) > now() - interval '24 hours'
       GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
     sql<Runs["ingest"]>`SELECT client, kind, status, left(error, 200) AS error, summary, created_at FROM ingest_events ORDER BY created_at DESC, id DESC LIMIT 20`,
     waitingSelectedNews(),
