@@ -3,87 +3,153 @@ import { SITE } from "@aihot/site";
 import type { Route } from "./+types/analytics";
 import { adminGet } from "../../lib/admin.server";
 import { AdminPage, Card, Stat } from "../../features/admin/ui";
-import { ExternalAnalytics, type ExternalAnalyticsData, type Report } from "../../features/admin/ExternalAnalytics";
 
-type Metric = { name: string; count: number; sessions: number };
-type Day = { day: string; page_views: number; sessions: number; graph_sessions: number };
-type Overview = ExternalAnalyticsData & {
-  cloudflare: Report<{pageViews: number; daily: Array<{day: string; pageViews: number}>}>;
-  periodDays: number; asOf: string; weeklyEffectiveExplorers: number;
-  ingestion: {total_events: number; last_event_at: string | null};
-  totals: { page_views?: number; sessions?: number; story_sessions?: number; graph_sessions?: number; source_sessions?: number; search_sessions?: number };
-  daily: Day[]; events: Metric[];
-  content: Array<{ page_type: string; content_id: string; count: number }>;
-  languages: Array<{ language: string; page_views: number }>;
-  referrers: Array<{ host: string; page_views: number }>;
-  performance: { samples: number; mean_ms: number | null; p75_ms: number | null };
+type Report<T> = {
+  state: "unconfigured" | "ready" | "empty" | "error";
+  data: T | null; refreshedAt: string | null; message?: string;
 };
+type Overview = {
+  periodDays: number; asOf: string;
+  ingestion: { total_events: number; last_event_at: string | null };
+  summary: { today: number; yesterday: number; seven_days: number; thirty_days: number };
+  daily: Array<{ day: string; page_views: number }>;
+  pageTypes: Array<{ page_type: string; page_views: number }>;
+  content: Array<{ page_type: string; content_id: string; count: number }>;
+  referrers: Array<{ host: string; page_views: number }>;
+  cloudflare: Report<{ pageViews: number; daily: Array<{ day: string; pageViews: number }> }>;
+  searchConsole: Report<{
+    clicks: number; impressions: number; ctr: number; position: number | null;
+    startDate: string; endDate: string;
+    pageRows: number; pagesTruncated: boolean;
+    pageTypes: Array<{ kind: string; pages: number; clicks: number; impressions: number; ctr: number }>;
+    opportunities: Array<{ page: string; clicks: number; impressions: number }>;
+  }>;
+};
+
 export async function loader({ request }: Route.LoaderArgs) {
   return adminGet<Overview>(request, "/api/admin/analytics");
 }
-export const meta: Route.MetaFunction = () => [{ title: `流量与行为 · ${SITE.name} 后台` }, { name: "robots", content: "noindex" }];
+export const meta: Route.MetaFunction = () => [
+  { title: "流量与广告 · " + SITE.name + " 后台" }, { name: "robots", content: "noindex" },
+];
 export const headers: Route.HeadersFunction = () => ({ "Cache-Control": "private, no-store" });
+
 const n = (v: number | null | undefined) => (v ?? 0).toLocaleString("zh-CN");
-const pct = (part: number | undefined, total: number | undefined) => total ? ((100 * (part ?? 0)) / total).toFixed(1) + "%" : "—";
-const names: Record<string, string> = {
-  page_view: "页面浏览", story_open: "事件打开", item_open: "报道打开", graph_node_select: "Graph 节点选择",
-  graph_relation_select: "关系证据选择", source_open: "来源外链", search_submit: "站内搜索",
-  navigation_complete: "页面切换", agent_access_open: "Agent 接入", feedback_open: "反馈入口",
+const pageNames: Record<string, string> = {
+  home: "首页", all: "全部新闻", item: "新闻详情", story: "事件详情",
+  hot: "热门", knowledge: "知识图谱", entity: "实体详情", search: "搜索",
+  daily: "日报", weekly: "周报", monthly: "月报", topics: "主题", agent: "Agent", other: "其他",
 };
+const searchPageNames: Record<string, string> = {
+  news: "新闻详情", story: "事件详情", topic: "主题", daily: "日报", other: "其他",
+};
+
 export default function AnalyticsAdmin({ loaderData: a }: Route.ComponentProps) {
-  const totals = a.totals;
   const hasData = a.ingestion.total_events > 0;
-  const metric = (value: number | null | undefined) => hasData ? n(value) : "—";
+  const pv = (v: number) => hasData ? n(v) : "—";
   const max = Math.max(1, ...a.daily.map(d => d.page_views));
+  const cf = a.cloudflare;
+  const sc = a.searchConsole;
   return (
-    <AdminPage title="流量与行为" subtitle={<>最近 {a.periodDays} 天 · 更新于 {a.asOf.slice(0,16).replace("T", " ") + " UTC"} · 匿名会话统计，不等于独立访客数（UV）</>}>
-      <Card className="mb-5" title="Cloudflare Web Analytics · 最近 7 天">
-        {a.cloudflare.data ? <>
-          <p className="num text-[24px] font-semibold">{n(a.cloudflare.data.pageViews)} PV</p>
-          <p className="text-[12px] text-ink-3">数据源：Cloudflare RUM（独立统计口径，不与站内 PV 相加）· 更新 {a.cloudflare.refreshedAt?.slice(0,16).replace("T"," ")} UTC</p>
-          {a.cloudflare.state === "empty" && <p className="text-[12px] text-ink-3">API 已连通，最近 7 天暂未返回页面浏览数据。</p>}
-          <div className="mt-3 space-y-1">{a.cloudflare.data.daily.map(d => <div key={d.day} className="flex justify-between text-[12px]"><span>{d.day}</span><span className="num">{n(d.pageViews)} PV</span></div>)}</div>
-        </> : <p className="text-[13px] text-ink-3">{a.cloudflare.message ?? "尚未取得 Cloudflare 数据"}</p>}
+    <AdminPage title="流量与广告" subtitle={"站内页面浏览 · 最近 30 天 · UTC 日期 · 更新于 " + a.asOf.slice(0, 16).replace("T", " ") + " UTC"}>
+      <p className="mb-4 text-[13px] text-ink-3">PV 是一次页面打开，不是独立访客，也不是一次广告展示。下方站内 PV 统一来自同一套匿名页面浏览记录，不叠加其他平台数据。</p>
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat label="今日 PV" value={pv(a.summary.today)} hint="UTC 今天 00:00 起"/>
+        <Stat label="昨日 PV" value={pv(a.summary.yesterday)} hint="UTC 昨天全天"/>
+        <Stat label="近 7 天 PV" value={pv(a.summary.seven_days)} hint="滚动 7 天"/>
+        <Stat label="近 30 天 PV" value={pv(a.summary.thirty_days)} hint="滚动 30 天"/>
+      </div>
+      {!hasData && <p role="status" className="mb-5 text-[13px] text-ink-3">尚未收到站内统计事件，不能把未采集的数据当成 0 PV。</p>}
+      <div className="mb-5 grid gap-5 xl:grid-cols-2">
+        <Card title="每日页面浏览 · 最近 30 天（UTC）">
+          {a.daily.length ? <div className="space-y-2" role="list" aria-label="每日页面浏览量">
+            {a.daily.map(day => <div key={day.day} role="listitem" className="grid grid-cols-[72px_minmax(0,1fr)_66px] items-center gap-2 text-[12px]">
+              <time dateTime={day.day} className="text-ink-3">{day.day.slice(5)}</time>
+              <div className="h-3 rounded-full bg-bg-sunk"><div className="h-3 rounded-full bg-accent" style={{width: 100 * day.page_views / max + "%"}}/></div>
+              <span className="num text-right text-ink-2">{n(day.page_views)}</span>
+            </div>)}
+          </div> : <p className="text-[13px] text-ink-4">最近 30 天没有站内页面浏览记录。</p>}
+        </Card>
+        <Card title="哪些页面类型被打开得最多 · 30 天">
+          {a.pageTypes.length ? <div className="space-y-2 text-[13px]">
+            {a.pageTypes.map(p => <div key={p.page_type} className="flex justify-between gap-3 border-b border-line-soft pb-2 last:border-0">
+              <span className="text-ink-3">{pageNames[p.page_type] ?? p.page_type}</span>
+              <span className="num">{n(p.page_views)} PV</span>
+            </div>)}
+          </div> : <p className="text-[13px] text-ink-4">暂无页面类型数据。</p>}
+        </Card>
+        <Card title="新闻与事件打开排行 · 30 天">
+          <p className="mb-3 text-[12px] text-ink-4">逐个内容的打开次数，来自现有新闻/事件打开事件，不再额外累加到全站 PV。</p>
+          {a.content.length ? <div className="space-y-2 text-[13px]">
+            {a.content.map(c => <div key={c.page_type + c.content_id} className="flex items-center justify-between gap-3 border-b border-line-soft pb-2 last:border-0">
+              <Link className="min-w-0 truncate text-accent hover:underline" to={(c.page_type === "story" ? "/story/" : "/items/") + encodeURIComponent(c.content_id)}>
+                {c.page_type === "story" ? "事件" : "新闻"} · {c.content_id}
+              </Link>
+              <span className="num shrink-0">{n(c.count)} 次</span>
+            </div>)}
+          </div> : <p className="text-[13px] text-ink-4">暂无新闻或事件打开记录。</p>}
+        </Card>
+        <Card title="外部访问来源 · 30 天">
+          {a.referrers.length ? <div className="space-y-2 text-[13px]">
+            {a.referrers.map(r => <div key={r.host} className="flex justify-between gap-3 border-b border-line-soft pb-2 last:border-0">
+              <span className="truncate text-ink-3">{r.host}</span>
+              <span className="num shrink-0">{n(r.page_views)} PV</span>
+            </div>)}
+          </div> : <p className="text-[13px] text-ink-4">暂无可识别的外部来源。直接访问或浏览器隐藏来源时不会出现在这里。</p>}
+        </Card>
+      </div>
+      <Card className="mb-5" title="Google AdSense · 广告变现">
+        <p className="text-[13px] text-ink-3">尚未接入 AdSense 报表。广告展示次数、预估收入和 Page RPM 暂无真实数据；审核和广告投放启用后应以 Google 官方报表为准。</p>
+        <p className="mt-2 text-[12px] text-ink-4">Page RPM = 预估收入 ÷ 页面浏览量 × 1,000。PV 不是广告展示次数，不能据此推算实际收入。</p>
       </Card>
-      <ExternalAnalytics posthog={a.posthog} searchConsole={a.searchConsole}/>
-      <div role="status" className="mb-5 rounded-panel border border-line bg-bg-sunk p-4 text-[13px] text-ink-2">{!hasData ? "尚未收到任何真实访问事件。数据采集未得到验证，所有指标暂不显示；不会使用模拟数据。" : `已收到 ${n(a.ingestion.total_events)} 条真实入库事件。最近一次：${a.ingestion.last_event_at ?? "未知"}。访客数不等于匿名会话数。`}</div>
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="7 天有效知识探索" value={metric(a.weeklyEffectiveExplorers)} hint="同一匿名会话：打开事件后选择 Graph 节点或访问原文"/>
-        <Stat label="页面浏览 PV" value={metric(totals.page_views)} hint="仅站内匿名事件，非 CDN 请求数"/>
-        <Stat label="匿名会话" value={metric(totals.sessions)} hint="本标签页会话 ID，非 UV"/>
-        <Stat label="事件打开会话" value={metric(totals.story_sessions)} hint={hasData ? pct(totals.story_sessions, totals.sessions) + " / 会话" : "尚无样本"} />
-        <Stat label="Graph 使用会话" value={metric(totals.graph_sessions)} hint={hasData ? pct(totals.graph_sessions, totals.sessions) + " / 会话" : "尚无样本"} />
-        <Stat label="来源跳转会话" value={metric(totals.source_sessions)} />
-        <Stat label="搜索会话" value={metric(totals.search_sessions)} />
-        <Stat label="页面切换耗时 P75" value={a.performance.p75_ms == null ? "—" : a.performance.p75_ms + "ms"} hint={hasData ? n(a.performance.samples) + " 次客户端样本" : "尚无样本"}/>
-        <Stat label="切换平均耗时" value={a.performance.mean_ms == null ? "—" : a.performance.mean_ms + "ms"} />
-      </div>
-      <div className="grid gap-5 xl:grid-cols-2">
-        <Card title="按天流量（UTC，最近 30 天）">
-          {a.daily.length === 0 ? <p className="text-[13px] text-ink-4">尚无统计事件。上线前的访问数据无法补录。</p> :
-            <div className="space-y-2" role="list" aria-label="每天的页面浏览与会话">
-              {a.daily.map(day => <div key={day.day} role="listitem" className="grid grid-cols-[90px_minmax(0,1fr)_75px] items-center gap-2 text-[12px]">
-                <time dateTime={day.day} className="text-ink-3">{day.day.slice(5)}</time>
-                <div className="h-3 rounded-full bg-bg-sunk"><div className="h-3 rounded-full bg-accent" style={{ width: `${100 * day.page_views / max}%` }}/></div>
-                <span className="num text-right text-ink-2">{n(day.page_views)} PV</span>
-              </div>)}
-            </div>}
+      <div className="mb-5 grid gap-5 xl:grid-cols-2">
+        <Card title="Cloudflare · 近 7 天流量核对">
+          {cf.data ? <>
+            <Stat label="Cloudflare 页面浏览" value={n(cf.data.pageViews)} hint="独立采集口径 · 不与站内 PV 相加"/>
+            <p className="mt-2 text-[12px] text-ink-4">Cloudflare 与站内采集覆盖范围可能不同；此数据仅供核对。</p>
+          </> : <p className="text-[13px] text-ink-3">{cf.message ?? "Cloudflare 报表不可用；不显示虚假的 0 PV。"}</p>}
         </Card>
-        <Card title="关键行为">
-          {a.events.length ? <div className="space-y-2 text-[13px]">{a.events.map(e=><div key={e.name} className="flex justify-between border-b border-line-soft pb-2 last:border-0"><span className="text-ink-3">{names[e.name] ?? e.name}</span><span className="num">{n(e.count)} 次 · {n(e.sessions)} 会话</span></div>)}</div> : <p className="text-ink-4 text-[13px]">尚无数据</p>}
-        </Card>
-        <Card title="被打开最多的内容">
-          {a.content.length ? <div className="space-y-2 text-[13px]">{a.content.map(e=><div key={e.page_type+e.content_id} className="flex justify-between gap-3"><Link className="min-w-0 truncate text-accent hover:underline" to={e.page_type === "story" ? "/story/"+encodeURIComponent(e.content_id) : "/items/"+encodeURIComponent(e.content_id)}>{e.page_type}: {e.content_id}</Link><span className="num">{n(e.count)}</span></div>)}</div> : <p className="text-ink-4 text-[13px]">暂无事件或报道打开记录</p>}
-        </Card>
-        <Card title="来源与语言">
-          <p className="mb-3 text-[12px] text-ink-4">只保存来源域名，不存完整网址或搜索内容。</p>
-          {a.languages.map(e=><div key={e.language} className="flex justify-between text-[13px]"><span>{e.language === "zh" ? "中文" : "English"}</span><span>{n(e.page_views)} PV</span></div>)}
-          <div className="my-3 border-t border-line"/>
-          {a.referrers.map(e=><div key={e.host} className="flex justify-between gap-3 text-[13px]"><span className="truncate">{e.host}</span><span className="num">{n(e.page_views)}</span></div>)}
-          {!a.referrers.length && <p className="text-ink-4 text-[13px]">尚无外部来源域名记录</p>}
+        <Card title="Google 搜索 · 最近 30 个完整日期">
+          {sc.data ? <>
+            <div className="grid grid-cols-2 gap-3">
+              <Stat label="搜索点击" value={n(sc.data.clicks)}/>
+              <Stat label="搜索曝光" value={n(sc.data.impressions)}/>
+              <Stat label="点击率" value={(100 * sc.data.ctr).toFixed(2) + "%"}/>
+              <Stat label="平均排名" value={sc.data.position == null ? "—" : sc.data.position.toFixed(1)}/>
+            </div>
+            <p className="mt-2 text-[12px] text-ink-4">{sc.data.startDate} 至 {sc.data.endDate}（太平洋日期）；搜索点击不是全站 PV。</p>
+          </> : <p className="text-[13px] text-ink-3">{sc.message ?? "Search Console 报表不可用；不显示虚假的 0 点击。"}</p>}
+          <a className="mt-3 inline-block text-[12px] text-accent" href="https://search.google.com/search-console/" target="_blank" rel="noopener noreferrer">打开 Search Console ↗</a>
         </Card>
       </div>
-      <p className="mt-5 text-[12px] text-ink-4">浏览器开启 DNT/GPC 或禁用存储时不计入。匿名事件最长保留 90 天；UV、SEO 曝光及核心 Web 指标以对应外部平台为准。</p>
+      {sc.data && <Card title="Google 搜索落地页 · 按类型">
+        <p className="mb-3 text-[12px] text-ink-4">仅汇总 Search Console 返回的 {n(sc.data.pageRows)} 条页面记录{sc.data.pagesTruncated ? "（达到行数上限，可能不完整）" : ""}，不等于全站搜索总量。</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[12px]">
+            <thead><tr className="border-b border-line text-ink-4">
+              <th className="py-2">页面类型</th><th className="text-right">页面数</th>
+              <th className="text-right">曝光</th><th className="text-right">点击</th>
+            </tr></thead>
+            <tbody>{sc.data.pageTypes.map(p => <tr key={p.kind} className="border-b border-line-soft last:border-0">
+              <td className="py-2">{searchPageNames[p.kind] ?? p.kind}</td>
+              <td className="text-right num">{n(p.pages)}</td>
+              <td className="text-right num">{n(p.impressions)}</td>
+              <td className="text-right num">{n(p.clicks)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        <details className="mt-4 border-t border-line pt-3">
+          <summary className="cursor-pointer text-[13px] font-medium text-ink-2">有搜索曝光的新闻落地页（点击查看）</summary>
+          <p className="mt-2 text-[12px] text-ink-4">依据 Google 返回的页面样本排序，不代表全站搜索点击或自动修改标题的建议。</p>
+          {sc.data.opportunities.length ? <div className="mt-2 space-y-2">
+            {sc.data.opportunities.slice(0, 10).map(p => <div key={p.page} className="flex justify-between gap-3 text-[12px]">
+              <a href={p.page} target="_blank" rel="noopener noreferrer" className="min-w-0 truncate text-accent hover:underline" title={p.page}>{p.page}</a>
+              <span className="shrink-0 num">{n(p.impressions)} 曝光 / {n(p.clicks)} 点击</span>
+            </div>)}
+          </div> : <p className="mt-2 text-[12px] text-ink-4">暂无有曝光的新闻落地页。</p>}
+        </details>
+      </Card>}
+      <p className="mt-5 text-[12px] text-ink-4">站内统计不记录管理页面；DNT/GPC、浏览器阻止脚本或网络失败时可能漏计。Cloudflare、站内 PV 与 Google 搜索点击的统计范围和时间窗口不同，不能相加。</p>
     </AdminPage>
   );
 }

@@ -18,18 +18,19 @@ let current: AnalyticsConfig = EMPTY_ANALYTICS;
 
 export function setAnalyticsConfig(config: AnalyticsConfig) { current = config; }
 export function pageType(pathname: string): PageType {
-  if (pathname === "/") return "home";
-  if (pathname === "/all" || pathname.startsWith("/all/")) return "all";
-  if (pathname.startsWith("/story/")) return "story";
-  if (pathname.startsWith("/items/")) return "item";
-  if (pathname === "/hot") return "hot";
-  if (pathname.startsWith("/knowledge/entity/")) return "entity";
-  if (pathname.startsWith("/knowledge")) return "knowledge";
-  if (pathname.startsWith("/daily")) return "daily";
-  if (pathname.startsWith("/weekly")) return "weekly";
-  if (pathname.startsWith("/monthly")) return "monthly";
-  if (pathname.startsWith("/topics")) return "topics";
-  if (pathname === "/agent") return "agent";
+  const path = pathname === "/en" ? "/" : pathname.startsWith("/en/") ? pathname.slice(3) : pathname;
+  if (path === "/") return "home";
+  if (path === "/all" || path.startsWith("/all/")) return "all";
+  if (path.startsWith("/story/")) return "story";
+  if (path.startsWith("/items/")) return "item";
+  if (path === "/hot") return "hot";
+  if (path.startsWith("/knowledge/entity/")) return "entity";
+  if (path.startsWith("/knowledge")) return "knowledge";
+  if (path.startsWith("/daily")) return "daily";
+  if (path.startsWith("/weekly")) return "weekly";
+  if (path.startsWith("/monthly")) return "monthly";
+  if (path.startsWith("/topics")) return "topics";
+  if (path === "/agent") return "agent";
   return "other";
 }
 function anonymousSession() {

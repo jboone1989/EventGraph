@@ -44,7 +44,7 @@ const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
       { to: "/admin/model-bindings", label: "工作流模型绑定" },
     ] },
   { group: "效果", items: [
-      { to: "/admin/analytics", label: "流量与效果" },
+      { to: "/admin/analytics", label: "流量与广告" },
     ] },
   { group: "系统设置", items: [
       { to: "/admin/feedback", label: "反馈", count: "feedback", tone: "accent" },
