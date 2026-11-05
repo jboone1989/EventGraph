@@ -249,7 +249,7 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
  const [billing,setBilling]=useState<"free"|"paid">(model?.billing??"paid");
  const inferBilling=(id:string,selectedId=providerId):"free"|"paid"=>{
   const c=providers.find(p=>p.id===selectedId);
-  return id.endsWith(":free")||id==="openrouter/free"||(c?.vendor.toLowerCase()==="nvidia"&&c.policy==="nvidia-free-trial")?"free":"paid";
+  return (c?.vendor.toLowerCase()==="openrouter"&&(id.endsWith(":free")||id==="openrouter/free"))||(c?.vendor.toLowerCase()==="nvidia"&&c.policy==="nvidia-free-trial")?"free":"paid";
  };
  const [enabled,setEnabled]=useState(model?.enabled??true);
  const [routeEnabled,setRouteEnabled]=useState(model?.routeEnabled??false);
