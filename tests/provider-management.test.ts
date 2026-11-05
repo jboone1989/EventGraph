@@ -182,6 +182,32 @@ test('HTTP CRUD enforces auth and CSRF, exposes field errors and returns deletio
  } finally {config.devAdmin={displayName:'Test admin'};await app.close();}
 });
 
+test('registered model tests display structured provider rate-limit errors without leaking credentials',async()=>{
+ const secret='sk-private-key-'+randomUUID();
+ const c=await createConnection(connection({credential:{action:'replace',value:secret}}),'test','test');
+ const m=await createRegisteredModel(model(c.id,{requestDefaults:{}}),'test','test');
+ const target=network.get('https://provider.invalid');
+ target.intercept({path:'/prefix/v4/chat/completions',method:'POST'}).reply(429,
+  {error:{code:'1302',message:'Free tier request limit reached; retry after 60 seconds'}});
+ const limited=await testRegisteredModel(m.id,'text','test');
+ assert.equal(limited.status,'failed');
+ assert.match(limited.detail,/Provider HTTP 429/);
+ assert.match(limited.detail,/code 1302/);
+ assert.match(limited.detail,/Free tier request limit reached/);
+ target.intercept({path:'/prefix/v4/chat/completions',method:'POST'}).reply(400,
+  {code:'invalid_model',msg:'Unknown model ID'});
+ const invalid=await testRegisteredModel(m.id,'text','test');
+ assert.match(invalid.detail,/Provider HTTP 400.*code invalid_model: Unknown model ID/);
+ target.intercept({path:'/prefix/v4/chat/completions',method:'POST'}).reply(401,
+  {error:{message:'Authorization: Bearer '+secret+' was rejected; api_key='+secret}});
+ const sensitive=await testRegisteredModel(m.id,'text','test');
+ assert.equal(sensitive.status,'failed');
+ assert.ok(!sensitive.detail.includes(secret));
+ const receipts=await sql<{error:string}[]>`SELECT error FROM receipts WHERE subject=${m.id+':text'}`;
+ assert.ok(!JSON.stringify(receipts).includes(secret));
+ network.assertNoPendingInterceptors();
+});
+
 test('model probes identify upstream HTTP failures and preserve known preflight error causes',()=>{
  assert.deepEqual(diagnoseProbeFailure(new ProviderRejectedError('Provider HTTP 401',401,false)),
   {status:'failed',detail:'Provider HTTP 401'});
