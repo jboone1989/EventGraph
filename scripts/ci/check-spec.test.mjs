@@ -98,6 +98,26 @@ test("main rejects feature and release branches even when they have an approved 
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 
+test("same-repo main to develop back-sync permits empty history or production pin only", () => {
+  const { cwd, base } = fixture();
+  const env = { SPEC_BASE_REF: "develop", SPEC_HEAD_REF: "main",
+    SPEC_HEAD_REPO: "jboone1989/EventGraph", SPEC_REPOSITORY: "jboone1989/EventGraph" };
+  try {
+    git(cwd, "commit", "--allow-empty", "-qm", "release merge marker");
+    const emptyHead = git(cwd, "rev-parse", "HEAD");
+    assert.equal(check(cwd, base, emptyHead, "", env).status, 0);
+    const pinHead = commit(cwd, ".github/production-image.env", "SOURCE_SHA=verified\\n");
+    assert.equal(check(cwd, base, pinHead, "", env).status, 0);
+    assert.equal(check(cwd, base, pinHead, "", { ...env, SPEC_HEAD_REPO: "other/EventGraph" }).status, 1);
+    const appHead = commit(cwd, "apps/app.ts", "export const value = 2;\\n");
+    assert.equal(check(cwd, base, appHead, "", env).status, 1);
+    // A main change that does not descend from develop cannot use the exception.
+    git(cwd, "checkout", "-qb", "develop-ahead", base);
+    const newerBase = commit(cwd, "docs/update.md", "Develop-only update\\n");
+    assert.equal(check(cwd, newerBase, pinHead, "", env).status, 1);
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+
 test("moving product code into docs still requires a spec", () => {
   const { cwd, base } = fixture();
   try {
