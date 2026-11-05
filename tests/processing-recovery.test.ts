@@ -180,7 +180,7 @@ test("a late refusal for an old revision preserves the new revision's completed 
   const id = await article("revision-race");
   const asked = gate();
   const release = gate();
-  heldFailure = { input: `revision-race`, asked, release };
+  heldFailure = { input: `AI lab release ${T} revision-race`, asked, release };
   const jobId = await queueProcessing(id);
   await wakeAnalysis();
   await asked.promise;
