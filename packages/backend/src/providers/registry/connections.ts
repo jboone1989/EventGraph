@@ -254,7 +254,12 @@ export async function updateRegisteredModel(id:string,input:ModelInput,version:n
   if(!old)return missing('Model');versionCheck(old.version,version);
   checkModel(input,connectionView(connection));
   const before=await getRegisteredModel(id,tx);
-  await tx`UPDATE registered_models SET ${tx({...writeValues({...input,billing:input.billing??effectiveBilling(old,connection)},tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
+  // A changed provider or model ID cannot inherit the old free classification.
+  const identityChanged=old.provider_id!==input.providerId||old.model_id!==input.modelId;
+  const billing=identityChanged
+   ? effectiveBilling({...old,provider_id:input.providerId,model_id:input.modelId,billing:null},connection)
+   : input.billing??effectiveBilling(old,connection);
+  await tx`UPDATE registered_models SET ${tx({...writeValues({...input,billing},tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
   const view=await getRegisteredModel(id,tx);
   await audit(actor,'provider.model.update',id,reason,before,view,{db:tx});return view;
  }) as RegisteredModel;clearRegisteredModelCache();return result;}catch(error){return duplicate(error);}

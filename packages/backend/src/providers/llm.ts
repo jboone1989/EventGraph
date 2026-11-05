@@ -161,7 +161,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
     const excluded = new Set<string>();
     const needsVision = Array.isArray(opts.user) && opts.user.some(p => p.type === 'image_url');
     let rejectedModel: string | undefined;
-    while (true) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       const selected = await selectConfiguredProviderForStage(level || stage!, needsVision, excluded);
       try {
         const result = await chatJson({
@@ -181,7 +181,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
         if (!selected.startsWith('model:')) throw error;
         if (refused) rejectedModel = selected;
         excluded.add(selected.slice(6));
-        const accountWide = quota; // 429 may affect just one model, so try the next free candidate.
+        const accountWide = quota || (error instanceof ProviderRejectedError && error.status === 429);
         await coolDownReference(selected, accountWide ? 60 : staleProbe ? 300 : 30, accountWide);
       }
     }

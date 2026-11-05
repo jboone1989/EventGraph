@@ -109,6 +109,19 @@ test('bulk import preserves free classification on NVIDIA trial connections',asy
  assert.equal(suffix.models.find(x=>x.modelId==='model-20b:free')?.billing,'paid','untrusted custom suffix does not mark provider as free');
 });
 
+test('changing provider or model ID cannot carry a stale free billing classification',async()=>{
+ const freeConnection=await createConnection(connection({name:'free-identity',vendor:'openrouter'}),'test','test');
+ const paidConnection=await createConnection(connection({name:'paid-identity',vendor:'example'}),'test','test');
+ let original=await createRegisteredModel(model(freeConnection.id,{modelId:'example/20b:free'}),'test','test');
+ assert.equal(original.billing,'free');
+ // This is what a stale edit form would send: explicit free for a new paid identity.
+ const moved=await updateRegisteredModel(original.id,model(paidConnection.id,{modelId:'example/20b',billing:'free'}),original.version,'move model','test');
+ assert.equal(moved.billing,'paid');
+ const other=await createRegisteredModel(model(freeConnection.id,{modelId:'example/30b:free'}),'test','test');
+ const renamed=await updateRegisteredModel(other.id,model(freeConnection.id,{modelId:'example/30b',billing:'free'}),other.version,'rename model','test');
+ assert.equal(renamed.billing,'paid');
+});
+
 test('provider redirects are refused and upstream error bodies never expose credentials',async()=>{
  const c=await createConnection(connection({credential:{action:'replace',value:'do-not-echo-this-key'}}),'test','test');
  network.get('https://provider.invalid').intercept({path:'/prefix/v4/models',method:'GET'}).reply(302,'',{headers:{location:'https://other.invalid/capture'}});

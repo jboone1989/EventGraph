@@ -291,12 +291,12 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
  }
  return <Modal title={model?"编辑模型":"新增模型"} busy={busy} onClose={onClose}>
   <label className="block space-y-1 text-sm">厂商连接
-   <Select aria-label="厂商连接" disabled={busy} value={providerId} onChange={e=>{setProviderId(e.target.value);if(!model)setBilling(inferBilling(modelId,e.target.value));}}>
+   <Select aria-label="厂商连接" disabled={busy} value={providerId} onChange={e=>{setProviderId(e.target.value);setBilling(inferBilling(modelId,e.target.value));}}>
     {providers.map(c=><option key={c.id} value={c.id}>{vendorLabel(c.vendor)} · {c.id}</option>)}
    </Select>
   </label>
   <label className="block space-y-1 text-sm">模型 ID
-   <Input aria-label="模型 ID" disabled={busy} value={modelId} onChange={e=>{setModelId(e.target.value);if(!model){setComplexity(complexityFromModelId(e.target.value));setBilling(inferBilling(e.target.value));}}} placeholder="填入官方模型 ID"/>
+   <Input aria-label="模型 ID" disabled={busy} value={modelId} onChange={e=>{setModelId(e.target.value);if(!model)setComplexity(complexityFromModelId(e.target.value));setBilling(inferBilling(e.target.value));}} placeholder="填入官方模型 ID"/>
   </label>
   <label className="block space-y-1 text-sm">模型类型
    <Select aria-label="模型类型" disabled={busy} value={adapter} onChange={e=>selectAdapter(e.target.value as ModelInput["adapter"])}>
