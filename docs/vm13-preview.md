@@ -40,8 +40,10 @@ transactions; the latter prevents the preview API from starting another
 heartbeat or worker watchdog. The preview API enables `MODEL_CALLS_ENABLED=true` solely to allow the administrator to explicitly test configured models against their upstream API; this can incur provider usage charges. No collector/worker runs on VM13, and a failed or missing credential is not treated as an ambiguous provider receipt.
 The preview runs **no** `migrate.ts`,
 `seed.ts` or worker. Schema changes belong only to the separately gated
-production release. Newly developed features requiring tables not yet present
-in production may remain unavailable until their production schema release.
+production release. Before switching to new Web/API images, the preview now
+compares the image's migration list against `schema_migrations` on the shared
+production database. A missing migration aborts deployment with its filename
+rather than running code against missing tables or columns.
 
 Before restarting Web/API, VM13 runs `scripts/ci/vm13-db-write-probe.ts`
 inside the exact image/container environment. This inserts a uniquely named

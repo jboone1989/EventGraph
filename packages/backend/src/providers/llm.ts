@@ -1,5 +1,5 @@
 import {normalizedRegistryActive,resolveModelReference} from './registry/connections.ts';
-import {selectConfiguredProviderForStage,coolDownReference,stageComplexity} from './registry/selection.ts';
+import {selectConfiguredProviderForStage,rememberSuccessfulRoute,coolDownReference,stageComplexity} from './registry/selection.ts';
 import {ProviderConfigError} from './registry/connection-types.ts';
 import {registeredRuntime,requestRegisteredModel,modelEndpoint} from './registry/runtime.ts';
 import {storedCredential} from './registry/connection-secrets.ts';
@@ -164,10 +164,12 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
     for (let attempt = 0; attempt < 8; attempt++) {
       const selected = await selectConfiguredProviderForStage(level || stage!, needsVision, excluded);
       try {
-        return await chatJson({
+        const result = await chatJson({
           ...opts, model: selected,
           routing: { stage: stage!, tier, ...(rejectedModel ? { fallbackFrom: rejectedModel } : {}) },
         });
+        rememberSuccessfulRoute(selected, level || stage!, needsVision);
+        return result;
       } catch (error) {
         // Only a provider-declared HTTP rejection can prove a safe failover.
         // Unknown outcomes (including network timeouts) retain their receipts.

@@ -412,6 +412,21 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
         EXCLUDED.indexable, EXCLUDED.story_id, EXCLUDED.fact_id, EXCLUDED.search_text,
         EXCLUDED.sort_at)`;
 
+  // First grouping admission keeps the English reason written during single-pass analysis.
+  // An actual change to an established Chinese reason invalidates its English translation,
+  // allowing bounded English backfill to restore it.
+  if (previous && previous.reason !== reason
+    && previous.title === next.title && previous.original_title === originalTitle
+    && previous.summary === summary) {
+    await tx`UPDATE english_copies
+      SET inputs_hash = md5(concat_ws(chr(31), ${next.title}::text, ${originalTitle}::text, ${summary}::text, ${reason}::text)),
+          reason = CASE WHEN ${previous.reason}::text IS NULL AND ${reason}::text IS NOT NULL THEN english_copies.reason ELSE NULL END,
+          updated_at = now()
+      WHERE article_id = ${articleId} AND outcome = 'written'
+        AND inputs_hash = md5(concat_ws(chr(31), ${previous.title}::text, ${previous.original_title}::text,
+          ${previous.summary}::text, ${previous.reason}::text))`;
+  }
+
   // The pool search row follows eligibility; its body part only covers full text the site may show.
   if (eligible) {
     const body = bodyMode === "full" ? (article.body_text ?? "").slice(0, 12000).toLowerCase() : "";
