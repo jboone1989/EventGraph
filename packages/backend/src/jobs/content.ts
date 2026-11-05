@@ -302,9 +302,7 @@ export async function requeueFailed(group: string | null, limit: number | null =
   const rows = await sql<{ id: string }[]>`
     WITH picked AS (
       SELECT id FROM articles
-      WHERE processing_state = 'failed' AND discovered_at > now() - interval '24 hours'
-        AND discovered_at <= now() AND NOT backfill
-        AND source_id IN (SELECT id FROM sources WHERE participation_mode = 'editorial')
+      WHERE processing_state = 'failed' AND greatest(discovered_at, updated_at) > now() - interval '24 hours'
         AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
       ORDER BY discovered_at DESC, id
       LIMIT ${limit ?? 1000000}
