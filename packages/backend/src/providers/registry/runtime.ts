@@ -41,8 +41,10 @@ function providerErrorDetail(raw:string,key:string):string|null {
  const error=root.error&&typeof root.error==='object'&&!Array.isArray(root.error)
   ?root.error as Record<string,unknown>:root;
  const rawCode=error.code??root.code??error.type;
- const code=(typeof rawCode==='string'||typeof rawCode==='number')&&/^[\w.-]{1,64}$/.test(String(rawCode))
-  ?'code '+String(rawCode):'';
+ const candidate=String(rawCode);
+ const code=(typeof rawCode==='string'||typeof rawCode==='number')&&/^[\w.-]{1,64}$/.test(candidate)
+  &&!candidate.includes(key)&&!/^(?:sk-|key-|Bearer)/i.test(candidate)&&!/[A-Za-z0-9_-]{32,}/.test(candidate)
+  ?'code '+candidate:'';
  const rawMessage=[error.message,error.msg,root.message,root.msg].find(x=>typeof x==='string'&&x.trim());
  const message=typeof rawMessage==='string'?rawMessage
   .replaceAll(key,'[redacted]')

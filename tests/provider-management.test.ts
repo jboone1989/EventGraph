@@ -199,7 +199,7 @@ test('registered model tests display structured provider rate-limit errors witho
  const invalid=await testRegisteredModel(m.id,'text','test');
  assert.match(invalid.detail,/Provider HTTP 400.*code invalid_model: Unknown model ID/);
  target.intercept({path:'/prefix/v4/chat/completions',method:'POST'}).reply(401,
-  {error:{message:'Authorization: Bearer '+secret+' was rejected; api_key='+secret}});
+  {error:{code:secret,message:'Authorization: Bearer '+secret+' was rejected; api_key='+secret}});
  const sensitive=await testRegisteredModel(m.id,'text','test');
  assert.equal(sensitive.status,'failed');
  assert.ok(!sensitive.detail.includes(secret));
