@@ -14,7 +14,7 @@ export interface ConnectionRow {
 export interface ModelRow {
  id:string;provider_id:string;model_id:string;adapter:RegisteredModel['adapter'];endpoint_override:string|null;timeout_override_ms:number|null;
  capabilities:RegisteredModel['capabilities'];request_defaults:Record<string,unknown>;probe_spec:RegisteredModel['probeSpec'];
- stream:boolean;complexity:RegisteredModel['complexity'];documentation_url:string|null;notes:string|null;
+ stream:boolean;complexity:RegisteredModel['complexity'];billing:'free'|'paid';documentation_url:string|null;notes:string|null;
  enabled:boolean;route_enabled:boolean;upstream_metadata:Record<string,unknown>;version:number;updated_at:Date;
 }
 export type CheckRow={model_id:string;capability:string;config_fingerprint:string;config_snapshot?:Record<string,string>|null;status:string;verified_at:Date|null;latency_ms:number|null};
@@ -47,7 +47,7 @@ export function connectionView(r:ConnectionRow):ProviderConnection {
 export function modelInput(r:ModelRow):ModelInput {
  return {providerId:r.provider_id,modelId:r.model_id,adapter:r.adapter,endpointOverride:r.endpoint_override,timeoutOverrideMs:r.timeout_override_ms??null,
   capabilities:r.capabilities,requestDefaults:r.request_defaults,probeSpec:r.probe_spec,stream:r.stream,
-  complexity:r.complexity,documentationUrl:r.documentation_url,notes:r.notes,enabled:r.enabled,routeEnabled:r.route_enabled};
+  complexity:r.complexity,billing:r.billing,documentationUrl:r.documentation_url,notes:r.notes,enabled:r.enabled,routeEnabled:r.route_enabled};
 }
 function canonical(value:unknown):unknown {
  if(Array.isArray(value))return value.map(canonical);
@@ -55,7 +55,7 @@ function canonical(value:unknown):unknown {
  return value;
 }
 export function configurationSnapshot(c:ConnectionRow,m:ModelRow):Record<string,string> {
- const {documentationUrl:_,notes:__,enabled:___,routeEnabled:____,...relevant}=modelInput(m);
+ const {documentationUrl:_,notes:__,enabled:___,routeEnabled:____,billing:_____,...relevant}=modelInput(m);
  const fields={protocol:c.protocol,address:c.base_url,timeout:m.timeout_override_ms??c.timeout_ms,policy:c.policy,
   credential:[c.credential_version,credentialDigest(storedCredential(c))],model:relevant};
  return Object.fromEntries(Object.entries(fields).map(([key,value])=>[key,createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')]));
@@ -63,7 +63,7 @@ export function configurationSnapshot(c:ConnectionRow,m:ModelRow):Record<string,
 export function configurationFingerprint(c:ConnectionRow,m:ModelRow):string {
  return createHash('sha256').update(JSON.stringify(configurationSnapshot(c,m))).digest('hex');
 }
-export function routingState(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[],now=Date.now()):RegisteredModel['routing'] {
+export function routingState(r:ModelRow,c:ConnectionRow,_checks:CheckRow[]=[],_now=Date.now()):RegisteredModel['routing'] {
  const reasons:string[]=[];
  if(!c.enabled)reasons.push('Connection is disabled');
  if(!r.enabled)reasons.push('Model is disabled');
@@ -73,16 +73,9 @@ export function routingState(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[],now
  try {if(!storedCredential(c))reasons.push('Credential is missing');snapshot=configurationSnapshot(c,r);fingerprint=configurationFingerprint(c,r);}
  catch {reasons.push('Credential cannot be read');}
  try{checkConnectionPolicy(c.base_url,c.policy);checkModel(modelInput(r),connectionView(c));}catch{reasons.push('Configuration violates endpoint or model policy');}
- const own=checks.filter(x=>x.model_id===r.id);
- const eligible=own.filter(x=>x.config_fingerprint===fingerprint&&
-  (x.status==='legacy'||x.status==='verified')&&x.verified_at&&
-  now>=x.verified_at.getTime()&&r.capabilities.includes(x.capability as never)).map(x=>x.capability);
- if(!eligible.length) {
-  const mismatched=own.find(x=>x.config_fingerprint!==fingerprint);
-  const changed=mismatched?.config_snapshot?Object.keys(snapshot).filter(k=>snapshot[k]!==mismatched.config_snapshot![k]):[];
-  reasons.push(mismatched?'Configuration changed'+(changed.length?': '+changed.join(', '):' since its last test')+'; retest required':'No current successful capability test; retest required');
- }
- return {eligibleCapabilities:reasons.length?[]:eligible,reasons};
+ // Model availability is learned from real work, not prior capability probes.
+ // Test results remain visible in the admin but do not block runtime routing.
+ return {eligibleCapabilities:reasons.length?[]:r.capabilities,reasons};
 }
 export function modelView(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[]):RegisteredModel {
  let fingerprint:string|null=null;
@@ -217,19 +210,10 @@ function duplicate(error:unknown):never {
  if((error as {code?:string}).code==='23505')throw new ProviderConfigError('This model ID already exists on this connection','modelId',409);
  throw error;
 }
-async function requireRouteEvidence(input:ModelInput,id:string,c:ConnectionRow,db:Db,old?:ModelRow):Promise<void> {
- if(!input.routeEnabled||old?.route_enabled)return;
- if(!c.enabled)throw new ProviderConfigError('Enable the connection before enabling routing','routeEnabled');
- const candidate={...old,...rowValues(input),id} as ModelRow;
- const checks=await db<CheckRow[]>`SELECT * FROM registered_model_checks WHERE model_id=${id}::uuid`;
- const fingerprint=configurationFingerprint(c,candidate);
- if(!checks.some(x=>x.config_fingerprint===fingerprint&&x.status==='verified'&&x.verified_at&&Date.now()>=x.verified_at.getTime()&&input.capabilities.includes(x.capability as never)))
-  throw new ProviderConfigError('Run a successful capability test on the current configuration before enabling routing','routeEnabled');
-}
 function rowValues(input:ModelInput) {
  return {provider_id:input.providerId,model_id:input.modelId,adapter:input.adapter,endpoint_override:input.endpointOverride,timeout_override_ms:input.timeoutOverrideMs??null,
   capabilities:input.capabilities,request_defaults:input.requestDefaults,probe_spec:input.probeSpec,
-  stream:input.stream,complexity:input.complexity,documentation_url:input.documentationUrl,notes:input.notes,
+  stream:input.stream,complexity:input.complexity,billing:input.billing??'paid',documentation_url:input.documentationUrl,notes:input.notes,
   enabled:input.enabled,route_enabled:input.routeEnabled};
 }
 function writeValues(input:ModelInput,db:Db) {
@@ -241,8 +225,9 @@ export async function createRegisteredModel(input:ModelInput,reason:string,actor
  try{const result=await sql.begin(async tx=>{
   const [connection]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${input.providerId}::uuid FOR UPDATE`;
   if(!connection)return missing('Connection');checkModel(input,connectionView(connection));
-  const id=randomUUID();await requireRouteEvidence(input,id,connection,tx);
-  await tx`INSERT INTO registered_models ${tx({id,...writeValues(input,tx),updated_by:actor})}`;
+  const id=randomUUID();
+  const billing=input.billing??((connection.vendor.toLowerCase()==='openrouter'&& (input.modelId.endsWith(':free')||input.modelId==='openrouter/free'))||(connection.vendor.toLowerCase()==='nvidia'&&connection.policy==='nvidia-free-trial')?'free':'paid');
+  await tx`INSERT INTO registered_models ${tx({id,...writeValues({...input,billing},tx),updated_by:actor})}`;
   const view=await getRegisteredModel(id,tx);
   await audit(actor,'provider.model.create',id,reason,null,view,{db:tx});return view;
  }) as RegisteredModel;clearRegisteredModelCache();return result;}catch(error){return duplicate(error);}
@@ -256,9 +241,9 @@ export async function updateRegisteredModel(id:string,input:ModelInput,version:n
   if(!connection)return missing('Connection');
   const [old]=await tx<ModelRow[]>`SELECT * FROM registered_models WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Model');versionCheck(old.version,version);
-  checkModel(input,connectionView(connection));await requireRouteEvidence(input,id,connection,tx,old);
+  checkModel(input,connectionView(connection));
   const before=await getRegisteredModel(id,tx);
-  await tx`UPDATE registered_models SET ${tx({...writeValues(input,tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
+  await tx`UPDATE registered_models SET ${tx({...writeValues({...input,billing:input.billing??old.billing},tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
   const view=await getRegisteredModel(id,tx);
   await audit(actor,'provider.model.update',id,reason,before,view,{db:tx});return view;
  }) as RegisteredModel;clearRegisteredModelCache();return result;}catch(error){return duplicate(error);}
