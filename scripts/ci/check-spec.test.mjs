@@ -111,10 +111,12 @@ test("same-repo main to develop back-sync permits empty history or production pi
     assert.equal(check(cwd, base, pinHead, "", { ...env, SPEC_HEAD_REPO: "other/EventGraph" }).status, 1);
     const appHead = commit(cwd, "apps/app.ts", "export const value = 2;\\n");
     assert.equal(check(cwd, base, appHead, "", env).status, 1);
-    // A main change that does not descend from develop cannot use the exception.
+    // A legitimate back-sync still works if develop received new commits first.
     git(cwd, "checkout", "-qb", "develop-ahead", base);
     const newerBase = commit(cwd, "docs/update.md", "Develop-only update\\n");
-    assert.equal(check(cwd, newerBase, pinHead, "", env).status, 1);
+    assert.equal(check(cwd, newerBase, emptyHead, "", env).status, 0);
+    assert.equal(check(cwd, newerBase, pinHead, "", env).status, 0);
+    assert.equal(check(cwd, newerBase, appHead, "", env).status, 1);
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 

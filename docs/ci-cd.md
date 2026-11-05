@@ -11,7 +11,7 @@ A release uses **one** application image: push to `develop` (or validated exact-
 
 - 唯一功能路径：`feature/* → develop → main`。先将修复、Spec、工作流变更合入 `develop`；`main` 只接受**同仓库 `develop` 作为 PR 源分支**。CI 的 Spec gate 对其他源分支指向 `main` 的 PR 直接失败，包括 `release/*`、`hotfix/*`；紧急修复也先合到 `develop`。
 - `develop → main` 使用 **Merge Commit**，不可 Squash/Rebase。保留提交祖先关系；生产镜像仍由经检验的 `develop` SHA 和不可变 GHCR digest 配对固定到 `.github/production-image.env`，绝不因为合并分支而跳过镜像和环境验证。
-- **每次 `main` 合并成功后，立即通过 PR 将 `main → develop` 回同步，使用 Merge Commit，不使用 Squash/Rebase**；已经包含 `main` 祖先时不需要新 PR。仅同步分支历史和经过验证的发布元数据，禁止在此步骤夹带业务功能。 Spec 门禁仅对同仓库、`develop` 为 `main` 祖先、差异为空或仅 `.github/production-image.env` 的纯回同步放行；业务差异仍需已有批准 Spec，全部 CI 与代码评审继续执行。
+- **每次 `main` 合并成功后，立即通过 PR 将 `main → develop` 回同步，使用 Merge Commit，不使用 Squash/Rebase**；已经包含 `main` 祖先时不需要新 PR。仅同步分支历史和经过验证的发布元数据，禁止在此步骤夹带业务功能。 Spec 门禁仅对同仓库、`main` 相对共同祖先的差异为空或仅 `.github/production-image.env` 的纯回同步放行；业务差异仍需已有批准 Spec，全部 CI 与代码评审继续执行。
 - 主分支受 GitHub 规则保护，不直接推送、不强制推送。不重复开同用途的 PR，优先处理已有回同步 PR。回同步完成时应满足 `git merge-base --is-ancestor main develop`；此时未发布的功能提交只能在 `develop` 一侧增加。
 - 本次回同步仅调整分支历史、CI 合并门禁和规则说明，**不修改 `.github/production-image.env`，不执行生产部署**。下次生产发布必须在独立、经过验证的 `develop → main` 发布中选择与最新运行代码等价的已发布镜像摘要，继续执行 `release-main.yml` 的校验。
 

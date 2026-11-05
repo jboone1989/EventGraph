@@ -30,28 +30,20 @@ if (process.env.SPEC_BASE_REF === "main" &&
   console.log("Spec gate PASS: same-repo develop -> main promotion.");
   process.exit(0);
 }
-// A same-repository main -> develop ancestry sync is not a new feature. Allow
-// a content-empty merge or an immutable release-image pin to return to develop,
-// but require develop to be an ancestor of main. Every other change goes through
-// the ordinary Spec gate; GitHub's full Check/E2E/review rules still apply.
+// Allow main -> develop history synchronization if main adds no application code.
+// Compare main to the common ancestor, not develop's current tip: develop may
+// already have subsequent feature commits by the time the back-sync PR opens.
+// Regular Spec/CI/review rules still apply to all other changes.
 if (process.env.SPEC_BASE_REF === "develop" &&
     process.env.SPEC_HEAD_REF === "main" &&
     process.env.SPEC_REPOSITORY &&
     process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY) {
-  let baseIsAncestor = false;
-  try {
-    git("merge-base", "--is-ancestor", base, head);
-    baseIsAncestor = true;
-  } catch {
-    // A divergent main cannot use the release-history-only exception.
-  }
-  if (baseIsAncestor) {
-    const changed = git("diff", "--no-renames", "--name-only", "-z", base, head)
-      .split("\0").filter(Boolean);
-    if (changed.every(file => file === ".github/production-image.env")) {
-      console.log("Spec gate PASS: verified main -> develop release-history synchronization.");
-      process.exit(0);
-    }
+  const syncBase = git("merge-base", base, head).trim();
+  const changed = git("diff", "--no-renames", "--name-only", "-z", syncBase, head)
+    .split("\0").filter(Boolean);
+  if (changed.every(file => file === ".github/production-image.env")) {
+    console.log("Spec gate PASS: verified main -> develop release-history synchronization.");
+    process.exit(0);
   }
 }
 const ancestor = git("merge-base", base, head).trim();
