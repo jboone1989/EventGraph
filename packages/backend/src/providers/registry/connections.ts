@@ -47,7 +47,7 @@ export function connectionView(r:ConnectionRow):ProviderConnection {
 export function modelInput(r:ModelRow):ModelInput {
  return {providerId:r.provider_id,modelId:r.model_id,adapter:r.adapter,endpointOverride:r.endpoint_override,timeoutOverrideMs:r.timeout_override_ms??null,
   capabilities:r.capabilities,requestDefaults:r.request_defaults,probeSpec:r.probe_spec,stream:r.stream,
-  complexity:r.complexity,billing:r.billing,documentationUrl:r.documentation_url,notes:r.notes,enabled:r.enabled,routeEnabled:r.route_enabled};
+  complexity:r.complexity,billing:r.billing??'paid',documentationUrl:r.documentation_url,notes:r.notes,enabled:r.enabled,routeEnabled:r.route_enabled};
 }
 function canonical(value:unknown):unknown {
  if(Array.isArray(value))return value.map(canonical);
