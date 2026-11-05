@@ -36,6 +36,8 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     await expect(page.getByText("新闻处理概览 · 最近 24 小时", { exact: true })).toBeVisible();
     await expect(page.getByText("超时新闻 3")).toBeVisible();
     await expect(page.getByText("失败新闻 2")).toBeVisible();
+    await expect(page.getByText("定时任务最近失败 1")).toBeVisible();
+    await expect(page.getByText("侧栏红色数字只统计最近 24 小时", { exact: false })).toBeVisible();
     await expect(page.getByText("超时未完成", { exact: true })).toBeVisible();
     const queue = page.locator("#runs-queues");
     const news = page.locator("#runs-news");
