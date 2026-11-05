@@ -45,6 +45,7 @@ const provider = await stub((_hit, req) => {
   requests.push({ step, marker, user });
   const answer = (content: unknown) => ({ id: `stub-${requests.length}`, model: "stub", choices: [{ message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
   if (step === "combined") {
+    if (marker === "SENSITIVE") return new Reply(400, { contentFilter: [{ level: 1, role: "user" }], error: { code: "1301", message: "系统检测到输入或生成内容可能包含不安全或敏感内容" } });
     const values = scoreAnswers[marker] ?? [BAR, BAR];
     const attentionScore = Math.ceil((values[0] + values[1]) / 2);
     const low = attentionScore <= FLOOR;
@@ -63,6 +64,7 @@ const provider = await stub((_hit, req) => {
       titleEn: `A laboratory releases a model for ${marker}`,
       summaryEn: `A laboratory introduced a new model, with performance measurements and pricing details for ${marker}.`,
       reasonZh: wordy ? `理由里有禁用词 ${marker}` : `理由 ${marker}`,
+      reasonEn: `The announcement has documented impact and implications for readers interested in ${marker}.`,
       itemType: "model_release", authorRole: "principal",
     });
   }
@@ -221,8 +223,9 @@ test("a short post in Chinese is its own copy; a content-filter refusal is trans
   assert.deepEqual([post!.output!.titleZh, post!.output!.summaryZh], [text, text]);
   assert.deepEqual(calls("推文"), ["combined"], "the original post needs no separate writing request");
   const sensitive = await analyzeArticle(await article("SENSITIVE"));
-  assert.deepEqual([sensitive!.output!.selected, sensitive!.output!.titleZh], [true, "翻译标题 SENSITIVE"]);
-  assert.deepEqual(calls("SENSITIVE"), ["combined"]);
+  assert.deepEqual([sensitive!.output!.selected, sensitive!.output!.titleZh, sensitive!.output!.score], [false, "翻译标题 SENSITIVE", null]);
+  assert.deepEqual(calls("SENSITIVE"), ["combined", "summarize"], "content filter invokes only a grounded summarizer fallback");
+  assert.equal(sensitive!.receiptIds.length, 1, "rejected request is not a completed receipt");
 });
 
 test("guards: a company the input does not name is not written in; long summaries are cut at sentences", () => {
@@ -259,12 +262,13 @@ test("Chinese sources get real English titles and summaries in the same analysis
   assert.doesNotMatch(row!.title + row!.summary, /[㐀-鿿]/u);
   await sql`UPDATE articles SET grouping_status='complete', grouped_at=now(), selection_adds_value=true WHERE id=${id}`;
   await publishArticle(id);
-  const [regrouped] = await sql<{ inputs_hash: string; current_hash: string; selected: boolean }[]>`
-    SELECT ec.inputs_hash, md5(concat_ws(chr(31), p.title, p.original_title, p.summary, p.reason)) AS current_hash, p.selected
+  const [regrouped] = await sql<{ inputs_hash: string; current_hash: string; selected: boolean; reason: string | null }[]>`
+    SELECT ec.inputs_hash, md5(concat_ws(chr(31), p.title, p.original_title, p.summary, p.reason)) AS current_hash, p.selected, ec.reason
     FROM english_copies ec JOIN publications p ON p.article_id=ec.article_id WHERE ec.article_id=${id}`;
   assert.ok(regrouped?.selected, "grouping may admit the article to the selected edition");
   assert.equal(regrouped?.inputs_hash, regrouped?.current_hash,
     "asynchronous grouping must not erase the already-generated English summary");
+  assert.match(regrouped!.reason ?? "", /documented impact/, "selection retains the original English why-it-matters paragraph");
   assert.equal(provider.hits(), hits + 1, "grouping's publication rebuild must not buy an English translation");
 });
 

@@ -33,14 +33,14 @@ export const EnglishDigestSchema = z.object({ title: english(140).pipe(z.string(
 /** Persist the English edition from the same receipt as the news analysis.
  * Historical or edited items without valid current English remain eligible for writeEnglishPending.
  */
-export async function storeAnalyzedEnglish(articleId: string, copy: { title: string; summary: string } | null, receiptId: number | undefined): Promise<void> {
-  if (!copy || !receiptId || !EnglishCopySchema.safeParse({ ...copy, reason: "" }).success) return;
+export async function storeAnalyzedEnglish(articleId: string, copy: { title: string; summary: string; reason: string } | null, receiptId: number | undefined): Promise<void> {
+  if (!copy || !receiptId || !EnglishCopySchema.safeParse(copy).success) return;
   await sql`
     INSERT INTO english_copies (article_id, inputs_hash, outcome, attempts, title, summary, reason, error, receipt_id, updated_at)
-    SELECT p.article_id, ${ENGLISH_ITEM_INPUTS}, 'written', 1, ${copy.title}, ${copy.summary}, NULL, NULL, ${receiptId}, now()
+    SELECT p.article_id, ${ENGLISH_ITEM_INPUTS}, 'written', 1, ${copy.title}, ${copy.summary}, ${copy.reason || null}, NULL, ${receiptId}, now()
     FROM publications p WHERE p.article_id = ${articleId} AND p.visibility = 'public' AND p.summary IS NOT NULL
     ON CONFLICT (article_id) DO UPDATE SET inputs_hash = EXCLUDED.inputs_hash, outcome = 'written', attempts = 1,
-      title = EXCLUDED.title, summary = EXCLUDED.summary, reason = NULL, error = NULL,
+      title = EXCLUDED.title, summary = EXCLUDED.summary, reason = EXCLUDED.reason, error = NULL,
       receipt_id = EXCLUDED.receipt_id, updated_at = now()
   `;
 }
@@ -66,7 +66,8 @@ async function writeItems(deadline: number, limit: number): Promise<{ written: n
     FROM publications p JOIN sources s ON s.id = p.source_id JOIN articles a ON a.id = p.article_id
     LEFT JOIN english_copies ec ON ec.article_id = p.article_id
     WHERE p.visibility = 'public' AND p.summary IS NOT NULL AND p.discovered_at > now() - ${WINDOW}
-      AND (ec.article_id IS NULL OR ec.inputs_hash <> ${ENGLISH_ITEM_INPUTS} OR (ec.outcome = 'failed' AND ec.attempts < ${MAX_ATTEMPTS}))
+      AND (ec.article_id IS NULL OR ec.inputs_hash <> ${ENGLISH_ITEM_INPUTS} OR (ec.outcome = 'failed' AND ec.attempts < ${MAX_ATTEMPTS})
+        OR (p.reason IS NOT NULL AND ec.outcome = 'written' AND ec.reason IS NULL AND ec.attempts < ${MAX_ATTEMPTS}))
     ORDER BY p.discovered_at DESC LIMIT ${limit}`;
   let written = 0, failed = 0;
   for (const r of rows) {
@@ -82,8 +83,9 @@ async function writeItems(deadline: number, limit: number): Promise<{ written: n
         await tx`
           INSERT INTO english_copies (article_id, inputs_hash, outcome, attempts, title, summary, reason, error, receipt_id, updated_at)
           VALUES (${r.article_id}, ${r.hash}, 'written', 1, ${res.data.title}, ${res.data.summary}, ${r.reason ? res.data.reason || null : null}, NULL, ${res.receiptId}, now())
-          ON CONFLICT (article_id) DO UPDATE SET inputs_hash = EXCLUDED.inputs_hash, outcome = 'written', attempts = 1, title = EXCLUDED.title,
-            summary = EXCLUDED.summary, reason = EXCLUDED.reason, error = NULL, receipt_id = EXCLUDED.receipt_id, updated_at = now()`;
+          ON CONFLICT (article_id) DO UPDATE SET inputs_hash = EXCLUDED.inputs_hash, outcome = 'written',
+            attempts = CASE WHEN english_copies.inputs_hash = EXCLUDED.inputs_hash THEN LEAST(english_copies.attempts + 1, ${MAX_ATTEMPTS}) ELSE 1 END,
+            title = EXCLUDED.title, summary = EXCLUDED.summary, reason = EXCLUDED.reason, error = NULL, receipt_id = EXCLUDED.receipt_id, updated_at = now()`;
         await completeReceipt(tx, res.receiptId);
       });
       written++;

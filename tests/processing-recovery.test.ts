@@ -128,8 +128,9 @@ test("a manual re-evaluation survives extraction, a lost job, and receipt releas
   await boss.complete(QUEUES.analyze, afterBody!.id);
   await sql`UPDATE articles SET processing_state='failed' WHERE id=${id}`;
   const [r] = await sql<{ id: number }[]>`INSERT INTO receipts (logical_key,service,purpose,subject,status)
-    VALUES (${`identity-${T}`},'deepseek','score_article',${`article:${id}@1`},'unknown') RETURNING id`;
-  await releaseReceipt(r!.id, { billed: false, note: "verified" }, "test");
+    VALUES (${`identity-${T}`},'deepseek','analyze_article',${`article:${id}@1`},'unknown') RETURNING id`;
+  const released = await releaseReceipt(r!.id, { billed: false, note: "verified" }, "test");
+  assert.equal(released?.requeued, true, "released combined receipt queues the article again");
   const [afterRelease] = await boss.fetch(QUEUES.analyze);
   assert.deepEqual(afterRelease!.data, { articleId: id, attemptTag });
   await boss.complete(QUEUES.analyze, afterRelease!.id);

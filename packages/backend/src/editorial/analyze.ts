@@ -184,13 +184,14 @@ export const AnalyzeOnceSchema = StructureSchema.extend({
   titleEn: z.string().trim().max(160).catch(""),
   summaryEn: z.string().trim().max(1200).catch(""),
   reasonZh: z.string().trim().max(400).catch(""),
+  reasonEn: z.string().trim().max(600).catch(""),
   itemType: z.enum(ITEM_TYPES).catch(ITEM_TYPES[0]),
   authorRole: z.enum(["principal", "observer", "relayer"]).catch("relayer"),
 });
 
-const usableEnglish = (title: string, summary: string) =>
+const usableEnglish = (title: string, summary: string, reason: string) =>
   title.length >= 8 && summary.length >= 40 && !/[㐀-鿿]/u.test(title + summary)
-    ? { title, summary } : null;
+    ? { title, summary, reason: !/[㐀-鿿]/u.test(reason) ? reason : "" } : null;
 
 /** Keep only quotes present both in the original material and in the text the structure model saw. */
 export function normalizeStructure(data: z.infer<typeof StructureSchema>, a: AnalyzeInputArticle) {
@@ -241,7 +242,7 @@ export interface AnalysisRun {
     reused: boolean;
   } | null;
   structure: (ReturnType<typeof normalizeStructure> & { model: string; receiptId: number; reused: boolean }) | null;
-  english?: { title: string; summary: string } | null;
+  english?: { title: string; summary: string; reason: string } | null;
 }
 
 const isContentFilter = (error: unknown) => error instanceof ProviderRejectedError && !error.retryable && /contentFilter|"1301"/.test(error.message);
@@ -498,7 +499,20 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
     promptVersion: ANALYZE_PROMPT_VERSION, system: ANALYZE_ONCE_SYSTEM, user: input,
     schema: AnalyzeOnceSchema, temperature: 0.2, maxTokens: 8192,
     attemptTag: opts.attemptTag,
+  }).catch((error: unknown) => {
+    if (!isContentFilter(error)) throw error;
+    return null;
   });
+  if (!res) {
+    // A provider's content-filter refusal is not a news verdict.
+    // Only this exceptional case uses the old summarizer; no score or fact is invented.
+    const writing = await runSummarize(a, opts);
+    return {
+      prefilter: { label: "UNKNOWN", reason: "provider content filter refused classification", model,
+        receiptId: writing.receiptIds[0] ?? 0, reused: writing.reused },
+      scores: null, writing, structure: null, english: null,
+    };
+  }
   const d = res.data;
   const label = d.label === "BLOCK" && missingEvidence(a) ? "UNKNOWN" : d.label;
   const prefilter = { label, reason: d.reason, model: res.model, receiptId: res.receiptId, reused: res.reused };
@@ -526,7 +540,7 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
   return {
     prefilter, scores, writing,
     structure: { ...normalizeStructure(StructureSchema.parse(d), a), model: res.model, receiptId: res.receiptId, reused: res.reused },
-    english: usableEnglish(d.titleEn, d.summaryEn),
+    english: usableEnglish(d.titleEn, d.summaryEn, d.reasonEn),
   };
 }
 
@@ -592,7 +606,7 @@ export async function analyzeArticle(articleId: string, opts: StepOpts = {}): Pr
   const out = normalizeAnalysis(run);
   const receiptIds = [...new Set([
     run.prefilter.receiptId, ...(run.scores?.receiptIds ?? []), ...(run.writing?.receiptIds ?? []), ...(run.structure ? [run.structure.receiptId] : []),
-  ])];
+  ].filter(id => id > 0))];
   const w = run.writing;
   const detail = {
     prefilter: { label: run.prefilter.label, reason: run.prefilter.reason },

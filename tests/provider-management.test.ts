@@ -44,7 +44,7 @@ test('actual chat dispatch preserves prefix, connection identity, credentials an
  }
  network.assertNoPendingInterceptors();
 });
-test('display edits retain routing; model and connection changes save but block current calls',async()=>{
+test('model and connection edits keep enabled routing without requiring new probes',async()=>{
  const c=await createConnection(connection(),'test','test'),input=model(c.id);
  let m=await createRegisteredModel(input,'test','test');await certify(m.id);
  m=await updateRegisteredModel(m.id,{...input,routeEnabled:true},m.version,'route','test');
@@ -52,13 +52,12 @@ test('display edits retain routing; model and connection changes save but block 
  assert.deepEqual(m.routing.eligibleCapabilities,['text']);
  assert.equal((await registeredRuntime(m.id,'text')).m.id,m.id);
  m=await updateRegisteredModel(m.id,{...input,requestDefaults:{temperature:0.8},routeEnabled:true},m.version,'params','test');
- assert.equal(m.routeEnabled,true);assert.deepEqual(m.routing.eligibleCapabilities,[]);assert.match(m.routing.reasons.join(' '),/model/);
- await assert.rejects(registeredRuntime(m.id,'text'),/cannot route/);
- await certify(m.id);
+ assert.equal(m.routeEnabled,true);assert.deepEqual(m.routing.eligibleCapabilities,['text']);
+ assert.equal((await registeredRuntime(m.id,'text')).m.id,m.id);
  const changed=await updateConnection(c.id,connection({baseUrl:'https://provider.invalid/new-prefix',credential:{action:'keep'}}),c.version,'address','test');
  assert.ok(changed);
- assert.match((await getRegisteredModel(m.id)).routing.reasons.join(' '),/address/);
- await assert.rejects(requestRegisteredModel(m.id,'text',{}),/cannot route/);
+ assert.deepEqual((await getRegisteredModel(m.id)).routing.eligibleCapabilities,['text']);
+ assert.equal((await registeredRuntime(m.id,'text')).m.id,m.id);
  network.assertNoPendingInterceptors();
 });
 test('disabled deployment rejects a manual model test before reserving a receipt',async()=>{
@@ -78,8 +77,8 @@ test('test results authorize only their matching capability and configuration; s
  network.get('https://provider.invalid').intercept({path:'/prefix/v4/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'OK'}}]});
  assert.equal((await testRegisteredModel(m.id,'text','test')).status,'verified');
  m=await updateRegisteredModel(m.id,{...input,routeEnabled:true},m.version,'route','test');
- assert.deepEqual(m.routing.eligibleCapabilities,['text']);
- await assert.rejects(registeredRuntime(m.id,'vision'),/capability has no current successful test/);
+ assert.deepEqual(m.routing.eligibleCapabilities,['text','vision']);
+ assert.equal((await registeredRuntime(m.id,'vision')).m.id,m.id);
  const old=await registeredRuntime(m.id,'text');
  m=await updateRegisteredModel(m.id,{...input,routeEnabled:true,modelId:'changed'},m.version,'rename','test');
  await certify(m.id);
@@ -100,6 +99,31 @@ test('discovery is optional and absent models stay configured; repeat import pre
  await assert.rejects(discoverModels(c.id),/HTTP 404/);
  assert.ok(await createRegisteredModel(model(c.id,{modelId:'manual-after-discovery-failure'}),'manual','test'));
 });
+test('bulk import preserves free classification on NVIDIA trial connections',async()=>{
+ const c=await createConnection(connection({name:'NVIDIA trial import',vendor:'nvidia',baseUrl:'https://integrate.api.nvidia.com/v1'}),'test','test');
+ const imported=await importModels(c.id,['openai/gpt-oss-20b'],'import free model','test');
+ const m=imported.models.find(x=>x.modelId==='openai/gpt-oss-20b');
+ assert.equal(m?.billing,'free','NVIDIA trial model is free when imported as well as when created');
+ const generic=await createConnection(connection({name:'Generic suffix',vendor:'example'}),'test','test');
+ const suffix=await importModels(generic.id,['model-20b:free'],'import custom model','test');
+ assert.equal(suffix.models.find(x=>x.modelId==='model-20b:free')?.billing,'paid','untrusted custom suffix does not mark provider as free');
+});
+
+test('changing provider or model ID cannot carry a stale free billing classification',async()=>{
+ const freeConnection=await createConnection(connection({name:'free-identity',vendor:'openrouter'}),'test','test');
+ const paidConnection=await createConnection(connection({name:'paid-identity',vendor:'example'}),'test','test');
+ let original=await createRegisteredModel(model(freeConnection.id,{modelId:'example/20b:free'}),'test','test');
+ assert.equal(original.billing,'free');
+ // This is what a stale edit form would send: explicit free for a new paid identity.
+ const moved=await updateRegisteredModel(original.id,model(paidConnection.id,{modelId:'example/20b',billing:'free'}),original.version,'move model','test');
+ assert.equal(moved.billing,'paid');
+ const other=await createRegisteredModel(model(freeConnection.id,{modelId:'example/30b:free'}),'test','test');
+ // A catalog sync can leave old free metadata on the row after an ID edit.
+ await sql`UPDATE registered_models SET upstream_metadata=${sql.json({openrouterFreeSync:{free:true}})} WHERE id=${other.id}::uuid`;
+ const renamed=await updateRegisteredModel(other.id,model(freeConnection.id,{modelId:'example/30b',billing:'free'}),other.version,'rename model','test');
+ assert.equal(renamed.billing,'paid');
+});
+
 test('provider redirects are refused and upstream error bodies never expose credentials',async()=>{
  const c=await createConnection(connection({credential:{action:'replace',value:'do-not-echo-this-key'}}),'test','test');
  network.get('https://provider.invalid').intercept({path:'/prefix/v4/models',method:'GET'}).reply(302,'',{headers:{location:'https://other.invalid/capture'}});

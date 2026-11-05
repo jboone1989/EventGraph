@@ -115,12 +115,12 @@ test('verification follows configuration fingerprints, including external creden
     verified_at:new Date(Date.now()-25*60*60*1000),latency_ms:null};
  const stillVerified=routingState(eligibleRow,eligibleConnection,[oldCheck]);
  assert.deepEqual(stillVerified.eligibleCapabilities,['text']);
- // A future-dated or unsuccessful check must never enable routing.
+ // Probes report diagnostics but do not block actual-request routing.
  const future=routingState(eligibleRow,eligibleConnection,[{...oldCheck,status:'verified',
    verified_at:new Date(Date.now()+60*60*1000)}]);
- assert.deepEqual(future.eligibleCapabilities,[]);
+ assert.deepEqual(future.eligibleCapabilities,['text']);
  const failed=routingState(eligibleRow,eligibleConnection,[{...oldCheck,status:'failed'}]);
- assert.deepEqual(failed.eligibleCapabilities,[]);
+ assert.deepEqual(failed.eligibleCapabilities,['text']);
  const renamed=await updateConnection(c.id,connection({name:'New display name'}),c.version,'display',actor);
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
  process.env.PROVIDER_TEST_KEY='rotated';
@@ -128,7 +128,8 @@ test('verification follows configuration fingerprints, including external creden
  process.env.PROVIDER_TEST_KEY='first';
  const edited=await updateRegisteredModel(m.id,model(c.id,{requestDefaults:{temperature:0.8}}),m.version,'params',actor);
  assert.equal(edited.checks[0]?.status,'unverified');
- await assert.rejects(updateRegisteredModel(m.id,model(c.id,{requestDefaults:{temperature:0.8},enabled:true,routeEnabled:true}),edited.version,'route',actor),/successful capability test/);
+ const routed=await updateRegisteredModel(m.id,model(c.id,{requestDefaults:{temperature:0.8},enabled:true,routeEnabled:true}),edited.version,'route',actor);
+ assert.deepEqual(routed.routing.eligibleCapabilities,['text']);
  const changed=await updateConnection(c.id,connection({baseUrl:'https://example.com/another/v1'}),renamed.version,'address',actor);
  assert.equal(changed.baseUrl,'https://example.com/another/v1');
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.verifiedAt,null);
