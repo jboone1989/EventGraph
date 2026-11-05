@@ -14,6 +14,14 @@ function fail(message) {
   process.exit(1);
 }
 if (!hash.test(base) || !hash.test(head)) fail("Missing or invalid PR base/head SHA.");
+// Prevent new main-only application history: production promotion may only come
+// from this repository's develop branch. A main hotfix must go through develop first.
+if (process.env.SPEC_BASE_REF === "main" &&
+    (process.env.SPEC_HEAD_REF !== "develop" ||
+     !process.env.SPEC_REPOSITORY ||
+     process.env.SPEC_HEAD_REPO !== process.env.SPEC_REPOSITORY)) {
+  fail("main accepts only same-repository develop -> main promotions; merge fixes into develop first.");
+}
 if (process.env.SPEC_BASE_REF === "main" &&
     process.env.SPEC_HEAD_REF === "develop" &&
     process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY &&
@@ -21,6 +29,22 @@ if (process.env.SPEC_BASE_REF === "main" &&
   // Promotion is already checked by individual implementation PRs into develop.
   console.log("Spec gate PASS: same-repo develop -> main promotion.");
   process.exit(0);
+}
+// Allow main -> develop history synchronization if main adds no application code.
+// Compare main to the common ancestor, not develop's current tip: develop may
+// already have subsequent feature commits by the time the back-sync PR opens.
+// Regular Spec/CI/review rules still apply to all other changes.
+if (process.env.SPEC_BASE_REF === "develop" &&
+    process.env.SPEC_HEAD_REF === "main" &&
+    process.env.SPEC_REPOSITORY &&
+    process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY) {
+  const syncBase = git("merge-base", base, head).trim();
+  const changed = git("diff", "--no-renames", "--name-only", "-z", syncBase, head)
+    .split("\0").filter(Boolean);
+  if (changed.every(file => file === ".github/production-image.env")) {
+    console.log("Spec gate PASS: verified main -> develop release-history synchronization.");
+    process.exit(0);
+  }
 }
 const ancestor = git("merge-base", base, head).trim();
 const files = git("diff", "--no-renames", "--name-only", "-z", ancestor, head).split("\0").filter(Boolean);
