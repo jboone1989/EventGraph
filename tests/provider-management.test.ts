@@ -99,6 +99,16 @@ test('discovery is optional and absent models stay configured; repeat import pre
  await assert.rejects(discoverModels(c.id),/HTTP 404/);
  assert.ok(await createRegisteredModel(model(c.id,{modelId:'manual-after-discovery-failure'}),'manual','test'));
 });
+test('bulk import preserves free classification on NVIDIA trial connections',async()=>{
+ const c=await createConnection(connection({name:'NVIDIA trial import',vendor:'nvidia',baseUrl:'https://integrate.api.nvidia.com/v1'}),'test','test');
+ const imported=await importModels(c.id,['openai/gpt-oss-20b'],'import free model','test');
+ const m=imported.models.find(x=>x.modelId==='openai/gpt-oss-20b');
+ assert.equal(m?.billing,'free','NVIDIA trial model is free when imported as well as when created');
+ const generic=await createConnection(connection({name:'Generic suffix',vendor:'example'}),'test','test');
+ const suffix=await importModels(generic.id,['model-20b:free'],'import custom model','test');
+ assert.equal(suffix.models.find(x=>x.modelId==='model-20b:free')?.billing,'paid','untrusted custom suffix does not mark provider as free');
+});
+
 test('provider redirects are refused and upstream error bodies never expose credentials',async()=>{
  const c=await createConnection(connection({credential:{action:'replace',value:'do-not-echo-this-key'}}),'test','test');
  network.get('https://provider.invalid').intercept({path:'/prefix/v4/models',method:'GET'}).reply(302,'',{headers:{location:'https://other.invalid/capture'}});
