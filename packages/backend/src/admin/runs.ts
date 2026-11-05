@@ -127,7 +127,10 @@ export async function currentNewsQueueOverview(): Promise<Runs["currentNews"]> {
     FROM articles a JOIN sources s ON s.id = a.source_id
     LEFT JOIN active ON active.article_id = a.id
     WHERE a.processing_state IN ('new', 'failed')
-      AND a.discovered_at >= ${utcDayStart()} AND a.discovered_at <= now()
+      AND (a.discovered_at >= ${utcDayStart()} OR
+        (a.updated_at >= ${utcDayStart()} AND EXISTS
+          (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+      AND a.discovered_at <= now()
       AND NOT a.backfill AND s.participation_mode = 'editorial'`;
   return row ?? { pending: 0, processing: 0, failed: 0 };
 }
@@ -213,11 +216,18 @@ export async function runsOverview(): Promise<Runs> {
     sql<Runs["errors"]>`
       -- Match the exact eligibility set used by requeueFailed; the action must
       -- never requeue more articles than this error group tells the operator.
-      SELECT ${failureGroupSql()} AS error, count(*)::int AS n, max(discovered_at) AS last,
-             (array_agg(id ORDER BY discovered_at DESC))[1] AS example
-      FROM articles
-      WHERE processing_state = 'failed'
-        AND discovered_at >= ${utcDayStart()}
+      SELECT ${failureGroupSql("a.processing_error")} AS error, count(*)::int AS n, max(a.discovered_at) AS last,
+             (array_agg(a.id ORDER BY a.discovered_at DESC))[1] AS example
+      FROM articles a
+      WHERE a.processing_state = 'failed'
+        AND (a.discovered_at >= ${utcDayStart()} OR
+          (a.updated_at >= ${utcDayStart()} AND EXISTS
+            (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+        -- Unknown or pending provider results require explicit verification, not bulk retry.
+        AND NOT EXISTS (
+          SELECT 1 FROM receipts r WHERE r.status IN ('pending','unknown')
+            AND substring(r.subject from '^article:([^@:#]+)') = a.id
+        )
       GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
     sql<Runs["ingest"]>`SELECT client, kind, status, left(error, 200) AS error, summary, created_at FROM ingest_events ORDER BY created_at DESC, id DESC LIMIT 20`,
     waitingSelectedNews(),

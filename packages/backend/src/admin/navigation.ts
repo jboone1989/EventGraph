@@ -13,7 +13,9 @@ export async function navCounts(): Promise<AdminNavCounts> {
            (SELECT count(*)::int FROM sources WHERE enabled AND health = 'failing') AS sources,
            (SELECT count(*)::int
               FROM articles a JOIN sources s ON s.id = a.source_id
-              WHERE a.discovered_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+              WHERE (a.discovered_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+                OR (a.updated_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
+                  AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
                 AND a.discovered_at <= now()
                 AND NOT a.backfill AND s.participation_mode = 'editorial'
                 AND a.processing_state IN ('new','failed')) AS runs`,

@@ -297,14 +297,18 @@ export async function rerun(id: string, step: "extract" | "analyze" | "group", r
   z.enum(["extract", "analyze", "group"]).parse(step);
   z.string().regex(/^[\w-]{8,80}$/, "a stable request id is required").parse(requestId);
   return sql.begin(async (tx) => {
-    const [a] = await tx<{ id: string; discovered_at: Date; updated_at: Date }[]>`SELECT id, discovered_at, updated_at FROM articles WHERE id = ${id} FOR UPDATE`;
+    const [a] = await tx<{ id: string; discovered_at: Date; updated_at: Date; has_publication: boolean }[]> `
+      SELECT a.id, a.discovered_at, a.updated_at,
+        EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id) AS has_publication
+      FROM articles a WHERE a.id = ${id} FOR UPDATE OF a`;
     if (!a) return null;
     // Queue singleton keys expire when a job completes. The committed command remains in the audit.
     const [prior] = await tx<{ after: { jobId: string | null } }[]>`
       SELECT after FROM audit_log WHERE subject = ${`content:${id}`} AND action = ${`content.rerun.${step}`}
         AND actor = ${actor} AND request_id = ${requestId} ORDER BY id DESC LIMIT 1`;
     if (prior) return { jobId: prior.after.jobId };
-    if (a.discovered_at.getTime() < utcDayStart().getTime()) {
+    if (a.discovered_at.getTime() < utcDayStart().getTime() &&
+        !(a.has_publication && a.updated_at.getTime() >= utcDayStart().getTime())) {
       throw Object.assign(new Error("不是当前 UTC 日的新闻，不再重新处理"), { statusCode: 409 });
     }
     let jobId: string | null;

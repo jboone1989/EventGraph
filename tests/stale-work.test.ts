@@ -6,7 +6,7 @@ import { upsertMaterial } from "@aihot/backend/content/materials";
 import { stopBoss } from "@aihot/backend/jobs/queue";
 import { rerun } from "@aihot/backend/admin/content";
 import { expireStaleWork, utcDayStart } from "@aihot/backend/operations/stale-work";
-import { sweepUnprocessed, queueProcessing, resumeAfterRelease } from "@aihot/backend/jobs/content";
+import { sweepUnprocessed, queueProcessing, resumeAfterRelease, requeueFailed } from "@aihot/backend/jobs/content";
 
 const unique = tag();
 const source = `freshness-${unique}`;
@@ -91,6 +91,52 @@ test("updating a stale unfinished article does not extend its UTC-day lifetime",
   const [after] = await sql<{ processing_state: string }[]>`
     SELECT processing_state FROM articles WHERE id = ${id}`;
   assert.equal(after, undefined, "the unfinished old article must be deleted");
+});
+
+test("yesterday's published work is cleared without deleting the article, and today's published revision still queues", async () => {
+  const make = async (name: string) => (await upsertMaterial({
+    sourceId: source, url: `https://example.org/${unique}/${name}`,
+    title: `Published ${name}`, bodyText: "Published source body",
+    bodyStatus: "ok", via: "fetch", publishedAt: new Date(),
+  })).articleId;
+  const old = await make("published-old");
+  const revised = await make("published-revised");
+  await sql`
+    INSERT INTO publications (article_id, title, source_id, channel, url, discovered_at, timeline_at)
+    SELECT a.id, a.title, a.source_id, 'news', a.url, a.discovered_at, a.timeline_at
+    FROM articles a WHERE a.id IN (${old}, ${revised})`;
+  await sql`UPDATE articles SET discovered_at = now() - interval '2 days',
+    updated_at = now() - interval '2 days'
+    WHERE id IN (${old}, ${revised})`;
+  await sql`UPDATE articles SET updated_at = now() WHERE id = ${revised}`;
+
+  const job = await queueProcessing(revised);
+  assert.ok(job, "today's correction to yesterday's published news must be queued");
+  await expireStaleWork();
+  const rows = await sql<{ id: string; processing_state: string }[]>`
+    SELECT id, processing_state FROM articles WHERE id IN (${old}, ${revised})`;
+  assert.equal(rows.find(r => r.id === old)?.processing_state, "skipped");
+  assert.equal(rows.find(r => r.id === revised)?.processing_state, "new");
+  assert.equal((await sql`SELECT 1 FROM publications WHERE article_id IN (${old}, ${revised})`).length, 2);
+  assert.equal((await sql`SELECT 1 FROM pgboss.job WHERE id = ${job}`).length, 1);
+});
+
+test("the explicit 'all' retry resumes more than 500 eligible news items", async () => {
+  const group = "bulk all test";
+  const prefix = `bulk-${unique}`;
+  await sql`
+    INSERT INTO articles (id, source_id, identity_key, url, title, discovered_at, timeline_at,
+      processing_state, processing_error, body_status)
+    SELECT ${prefix} || '-' || i, ${source}, ${prefix} || '-' || i,
+      'https://example.org/bulk/' || ${unique} || '/' || i,
+      'Bulk retry', now(), now(), 'failed', ${group}, 'ok'
+    FROM generate_series(1, 501) AS i`;
+  const result = await requeueFailed(group);
+  assert.equal(result.requeued, 501, "all must not silently stop at 500");
+  const [state] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM articles
+    WHERE identity_key LIKE ${prefix + "-%"} AND processing_state = 'new'`;
+  assert.equal(state!.n, 501);
 });
 
 test("UTC day boundary is independent of local timezone", () => {

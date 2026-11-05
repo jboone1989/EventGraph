@@ -68,11 +68,11 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           <Stat label="待处理" value={num(r.currentNews.pending)} hint="排队或等待自动重试" />
           <Stat label="处理中" value={num(r.currentNews.processing)} hint="Worker 正在执行" />
           <Stat label="失败" value={num(r.currentNews.failed)} tone={r.currentNews.failed ? "bad" : "ok"}
-            hint="可手动重新入队" />
+            hint="未知计费回执需核对后才能重试" />
         </div>
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="text-[12px] text-ink-4">仅统计当天未完成新闻；已发布新闻不清空。</p>
-          <Button size="sm" onClick={() => setRequeue("")} disabled={r.currentNews.failed === 0}>重试失败新闻</Button>
+          <Button size="sm" onClick={() => setRequeue("")} disabled={r.errors.length === 0}>重试失败新闻</Button>
         </div>
       </Card>
       <Card className="mb-5" title={attentionCount ? "需要关注 · " + attentionCount + " 类问题" : "需要关注"}>
@@ -80,7 +80,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           ? <p className="text-[13px] text-ink-3">最近 24 小时新闻未出现本页跟踪的处理异常；队列历史和模型请求可在下方诊断查看。</p>
           : <div className="space-y-2 text-[13px]">
             {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")} className="ml-2 text-accent">进程明细</a></p>}
-            {r.currentNews.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.currentNews.failed)}</Badge> 可手动重新排队。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
+            {r.currentNews.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.currentNews.failed)}</Badge> 已核对的可手动重排，未知回执先核对。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
             {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">信源明细</a></p>}
             {failing.length > 0 && <p><Badge tone="warn">定时任务最近失败 {num(failing.length)}</Badge> 按失败任务类型统计，不等于新闻失败篇数。<a href="#runs-queues" onClick={() => showSection("runs-queues")} className="ml-2 text-accent">查看任务</a></p>}
           </div>}

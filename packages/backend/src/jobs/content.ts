@@ -43,13 +43,15 @@ interface Route {
  * history adds no heat).
  */
 async function route(articleId: string, db: Db): Promise<Route | null> {
-  const [row] = await db<{ body_status: string; participation_mode: string; tier: string; kind: string; config: Record<string, unknown>; url: string; bare: boolean; backfill: boolean; published_at: Date | null; discovered_at: Date; updated_at: Date }[]>`
+  const [row] = await db<{ body_status: string; participation_mode: string; tier: string; kind: string; config: Record<string, unknown>; url: string; bare: boolean; backfill: boolean; published_at: Date | null; discovered_at: Date; updated_at: Date; has_publication: boolean }[]>`
     SELECT a.body_status, s.participation_mode, s.tier, s.kind, s.config, a.url, (coalesce(a.body_text, '') = '' AND a.x_post IS NULL) AS bare,
-           a.backfill, a.published_at, a.discovered_at, a.updated_at
+           a.backfill, a.published_at, a.discovered_at, a.updated_at,
+           EXISTS(SELECT 1 FROM publications p WHERE p.article_id = a.id) AS has_publication
     FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
   if (!row) return null;
   // Do not automatically revive news that has aged out of the operational queue.
-  if (row.discovered_at.getTime() < utcDayStart().getTime()) return null;
+  if (row.discovered_at.getTime() < utcDayStart().getTime() &&
+      !(row.has_publication && row.updated_at.getTime() >= utcDayStart().getTime())) return null;
   const historical = isHistorical(row);
   const signal = row.participation_mode !== "editorial";
   const pending = row.body_status === "pending";
@@ -107,8 +109,10 @@ export async function settleNonEditorial(articleId: string): Promise<{ group: bo
 }
 
 async function processingInput(articleId: string) {
-  const [row] = await sql<{ participation_mode: string; tier: string; revision: number; backfill: boolean; published_at: Date | null; discovered_at: Date }[]>`
-    SELECT s.participation_mode, s.tier, a.revision, a.backfill, a.published_at, a.discovered_at FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
+  const [row] = await sql<{ participation_mode: string; tier: string; revision: number; backfill: boolean; published_at: Date | null; discovered_at: Date; updated_at: Date; has_publication: boolean }[]>`
+    SELECT s.participation_mode, s.tier, a.revision, a.backfill, a.published_at, a.discovered_at, a.updated_at,
+           EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id) AS has_publication
+    FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
   return row ? { ...row, historical: isHistorical(row) } : null;
 }
 
@@ -120,8 +124,9 @@ async function processingInput(articleId: string) {
 export async function processArticle(articleId: string, opts: { attemptTag?: string } = {}): Promise<{ state: string; retryAt?: Date }> {
   const row = await processingInput(articleId);
   if (!row) return { state: "missing" };
-  // A job claimed before UTC midnight may still run afterwards; never start its next model call.
-  if (row.discovered_at.getTime() < utcDayStart().getTime()) return { state: "expired" };
+  // An old published article with a fresh source revision still needs analysis.
+  if (row.discovered_at.getTime() < utcDayStart().getTime() &&
+      !(row.has_publication && row.updated_at.getTime() >= utcDayStart().getTime())) return { state: "expired" };
   try {
     return await processRevision(articleId, row, opts);
   } catch (error) {
@@ -245,9 +250,11 @@ export async function registerExtractionJobs(boss: PgBoss) {
  */
 export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
   const rows = await sql<{ id: string }[]>`
-    SELECT id FROM articles
-    WHERE processing_state = 'new' AND created_at < now() - interval '3 minutes'
-      AND discovered_at >= ${utcDayStart()}
+    SELECT a.id FROM articles a
+    WHERE a.processing_state = 'new' AND a.created_at < now() - interval '3 minutes'
+      AND (a.discovered_at >= ${utcDayStart()} OR
+        (a.updated_at >= ${utcDayStart()} AND EXISTS
+          (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
       AND (processing_retry_at IS NULL OR processing_retry_at <= now())
       AND (processing_queued_at IS NULL OR processing_queued_at < now() - ${QUEUED_STALE}::interval)
     ORDER BY discovered_at DESC LIMIT 500`;
@@ -262,7 +269,9 @@ export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
     SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
     WHERE a.processing_state = 'analyzed' AND a.grouping_status = 'pending'
       AND a.grouped_at IS NULL AND s.participation_mode = 'editorial'
-      AND a.discovered_at >= ${utcDayStart()}
+      AND (a.discovered_at >= ${utcDayStart()} OR
+        (a.updated_at >= ${utcDayStart()} AND EXISTS
+          (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
       AND greatest(a.discovered_at, a.updated_at) < now() - interval '3 minutes'
     ORDER BY (s.tier = 'T1') DESC, coalesce(a.published_at, a.discovered_at) DESC
     LIMIT 12`;
@@ -287,7 +296,9 @@ export async function resumeAfterRelease(receipt: { purpose: string; subject: st
   if (!article) return false;
   const [a] = await db`UPDATE articles SET processing_state = 'new', processing_attempts = 0, processing_retry_at = NULL, processing_error = NULL
                         WHERE id = ${article} AND processing_state = 'failed'
-                          AND discovered_at >= ${utcDayStart()} RETURNING id`;
+                          AND (discovered_at >= ${utcDayStart()} OR
+                            (updated_at >= ${utcDayStart()} AND EXISTS
+                              (SELECT 1 FROM publications p WHERE p.article_id = articles.id))) RETURNING id`;
   return !!a && !!(await queueProcessing(article, { step: "analyze", db }));
 }
 
@@ -298,7 +309,7 @@ export const failureGroupSql = (column = "processing_error") =>
 /**
  * Admin: reset failed articles, optionally in a bounded batch. An explicit batch cap is useful when
  * recovering a now-routable *paid* model without restarting hundreds of calls at once.
- * Without a cap, process all recent failures within the 24-hour news freshness window.
+ * Without a cap, reset all eligible current-day failures; the sweep handles overflow after the first 500.
  */
 export async function requeueFailed(group: string | null, limit: number | null = null): Promise<{ requeued: number }> {
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 500)) throw new Error("requeue limit must be 1..500");
@@ -306,7 +317,10 @@ export async function requeueFailed(group: string | null, limit: number | null =
     const selected = await tx<{ id: string }[]>`
       WITH picked AS (
         SELECT id FROM articles
-        WHERE processing_state = 'failed' AND discovered_at >= ${utcDayStart()}
+        WHERE processing_state = 'failed'
+          AND (discovered_at >= ${utcDayStart()} OR
+            (updated_at >= ${utcDayStart()} AND EXISTS
+              (SELECT 1 FROM publications p WHERE p.article_id = articles.id)))
           AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
           -- Never retry an unverified provider call: it may already have been billed.
           AND NOT EXISTS (
@@ -315,13 +329,14 @@ export async function requeueFailed(group: string | null, limit: number | null =
               AND substring(r.subject from '^article:([^@:#]+)') = articles.id
           )
         ORDER BY discovered_at DESC, id
-        LIMIT ${limit ?? 500} FOR UPDATE SKIP LOCKED
+        LIMIT ${limit ?? 1000000} FOR UPDATE SKIP LOCKED
       )
       UPDATE articles a SET processing_state = 'new', processing_attempts = 0,
         processing_retry_at = NULL, processing_error = NULL
       FROM picked WHERE a.id = picked.id RETURNING a.id`;
     return selected;
   });
-  for (const row of rows) await queueProcessing(row.id);
+  for (const row of rows.slice(0, 500)) await queueProcessing(row.id);
+  // Remaining rows stay 'new' and are picked up by content.sweep, without a burst of paid calls.
   return { requeued: rows.length };
 }
