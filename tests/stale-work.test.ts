@@ -32,11 +32,22 @@ test("UTC midnight removes yesterday unfinished news and jobs, keeps today and p
     processing_retry_at = now() + interval '1 hour' WHERE id = ${oldFailed}`;
   await sql`UPDATE pgboss.job SET created_on = now() - interval '2 days'
     WHERE id = ${oldJob}`;
+  const pendingKey = `midnight-pending-${unique}`;
+  const unknownKey = `midnight-unknown-${unique}`;
+  await sql`INSERT INTO receipts (logical_key,service,purpose,subject,status) VALUES
+    (${pendingKey},'test','analyze_article',${`article:${old}@1`},'pending'),
+    (${unknownKey},'test','analyze_article',${`article:${oldFailed}@1`},'unknown')`;
   assert.equal(await resumeAfterRelease({ purpose: "score_article", subject: `article:${oldFailed}@1` }, sql), false);
   assert.equal((await sql`SELECT processing_state FROM articles WHERE id = ${oldFailed}`)[0]!.processing_state, "failed");
   const first = await expireStaleWork();
   assert.ok(first.deletedStaleJobs >= 1);
   assert.equal(first.deletedStaleArticles, 2);
+  assert.equal(first.markedUnknownReceipts, 1);
+  const preserved = await sql<{ logical_key: string; status: string }[]>`
+    SELECT logical_key,status FROM receipts WHERE logical_key IN (${pendingKey},${unknownKey})`;
+  assert.equal(preserved.length, 2);
+  assert.ok(preserved.every(r => r.status === "unknown"),
+    "pending and unknown provider outcomes must remain protected from re-billing");
   const states = await sql<{ id: string; processing_state: string; processing_retry_at: Date | null }[]>`
     SELECT id,processing_state,processing_retry_at FROM articles WHERE id IN (${old},${oldFailed},${fresh})`;
   assert.equal(states.length, 1, "both unfinished old rows must be deleted");

@@ -88,6 +88,21 @@ test("operator can requeue only two articles from a recoverable model error grou
     AND reason='limited paid model recovery'`)[0]!.n, 1);
 });
 
+test("manual bulk retry skips unresolved provider receipts to prevent double billing", async () => {
+  const id = await article("unverified-receipt");
+  const group = "receipt outcome unknown";
+  await sql`UPDATE articles SET processing_state='failed', processing_error=${group} WHERE id=${id}`;
+  const [receipt] = await sql<{ id: number }[]>`
+    INSERT INTO receipts (logical_key,service,purpose,subject,status)
+    VALUES (${`unverified-${T}`},'test','analyze_article',${`article:${id}@1`},'unknown')
+    RETURNING id`;
+  const result = await requeueFailedArticles({ group, reason: "operator retry", limit: 5 }, "test");
+  assert.equal(result.requeued, 0);
+  assert.equal((await sql`SELECT processing_state FROM articles WHERE id=${id}`)[0]!.processing_state, "failed");
+  assert.equal((await sql`SELECT status FROM receipts WHERE id=${receipt!.id}`)[0]!.status, "unknown");
+  assert.equal((await sql`SELECT 1 FROM pgboss.job WHERE data->>'articleId'=${id}`).length, 0);
+});
+
 test("a failed audit rolls back the receipt release and the processing job", async () => {
   const id = await article("atomic");
   await sql`UPDATE articles SET processing_state='failed',processing_error='unknown receipt' WHERE id=${id}`;

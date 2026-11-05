@@ -35,6 +35,12 @@ test("live dashboard excludes old and backfilled articles", async () => {
         now() - ${age}::interval,now() - ${age}::interval,now() - ${age}::interval,
         ${backfill},${state},${group},${group === "complete" ? new Date() : null})`;
   }
+  // The current-day queue must be deterministic even when tests run just after 00:00 UTC.
+  const startOfUtcDay = sql`date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
+  await sql`UPDATE articles
+    SET discovered_at = greatest(discovered_at, ${startOfUtcDay}),
+        timeline_at = greatest(timeline_at, ${startOfUtcDay})
+    WHERE id IN (${source + "-waiting"}, ${source + "-failed"})`;
   // Updated timestamps must not turn old discoveries into new news or reset the 15-minute SLA.
   await sql`UPDATE articles SET updated_at = now()
     WHERE id = ${source + "-waiting"} OR id = ${source + "-historic"}`;
@@ -53,7 +59,10 @@ test("live dashboard excludes old and backfilled articles", async () => {
   assert.equal(after.grouped - before.grouped, 1);
   assert.equal(after.filtered - before.filtered, 1);
   assert.equal(after.failed - before.failed, 1);
-  assert.equal(after.stalled - before.stalled, 1);
+  const [waiting] = await sql<{ stalled: boolean }[]>`
+    SELECT discovered_at < now() - interval '15 minutes' AS stalled FROM articles
+    WHERE id = ${source + "-waiting"}`;
+  assert.equal(after.stalled - before.stalled, waiting?.stalled ? 1 : 0);
   // Navigation is a count of distinct problem articles, not attempts or unknown receipts.
   assert.equal((navAfter.runs ?? 0) - (navBefore.runs ?? 0), 2);
   assert.ok(after.newestAt);

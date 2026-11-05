@@ -11,7 +11,7 @@ import { analyzeArticle, AnalysisInterruptedError } from "../editorial/analyze.t
 import { storeAnalyzedEnglish } from "../editorial/english.ts";
 import { isHistorical } from "../content/materials.ts";
 import { publishArticle } from "../publication/publish.ts";
-import { BudgetExceededError, ProviderRejectedError, ReceiptBusyError, ReceiptUnknownError, closeUnresolvedArticleReceipts } from "../providers/receipts.ts";
+import { BudgetExceededError, ProviderRejectedError, ReceiptBusyError, ReceiptUnknownError } from "../providers/receipts.ts";
 import { ModelOutputError } from "../providers/llm.ts";
 import { ProviderConfigError } from "../providers/registry/connection-types.ts";
 import { enqueue, QUEUES, shutdownSignal, work } from "./queue.ts";
@@ -308,18 +308,18 @@ export async function requeueFailed(group: string | null, limit: number | null =
         SELECT id FROM articles
         WHERE processing_state = 'failed' AND discovered_at >= ${utcDayStart()}
           AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
+          -- Never retry an unverified provider call: it may already have been billed.
+          AND NOT EXISTS (
+            SELECT 1 FROM receipts r
+            WHERE r.status IN ('pending', 'unknown')
+              AND substring(r.subject from '^article:([^@:#]+)') = articles.id
+          )
         ORDER BY discovered_at DESC, id
         LIMIT ${limit ?? 500} FOR UPDATE SKIP LOCKED
       )
       UPDATE articles a SET processing_state = 'new', processing_attempts = 0,
         processing_retry_at = NULL, processing_error = NULL
       FROM picked WHERE a.id = picked.id RETURNING a.id`;
-    if (selected.length) {
-      // A manual retry also releases unresolved model attempts for these news items.
-      // Do not delete cost history; the explicit operator action authorizes a fresh call.
-      const ids = selected.map(a => a.id);
-      await closeUnresolvedArticleReceipts(tx, ids, "Manual news retry");
-    }
     return selected;
   });
   for (const row of rows) await queueProcessing(row.id);
