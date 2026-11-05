@@ -336,6 +336,8 @@ export interface AdminRuns {
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
   /** Articles first discovered within the last 24 hours, excluding historical backfills and signal-only feeds. */
   live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
+  /** Unresolved editorial articles first discovered over 24 hours ago; not included in live24h. */
+  legacyUnresolved: number;
   failedJobs: Array<{ name: string; failed: number; last: Timestamp | null; last_output: string | null }>;
   grouping: {
     waiting: number;

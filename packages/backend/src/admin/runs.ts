@@ -102,6 +102,16 @@ export async function livePipelineOverview(): Promise<Runs["live24h"]> {
   return row ?? { discovered: 0, analyzed: 0, grouped: 0, waiting: 0, failed: 0, filtered: 0, stalled: 0, newestAt: null };
 }
 
+/** Currently unresolved editorial articles first discovered before the last 24-hour window. */
+export async function legacyUnresolvedOverview(): Promise<number> {
+  const [row] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM articles a JOIN sources s ON s.id = a.source_id
+    WHERE a.discovered_at <= now() - interval '24 hours'
+      AND a.processing_state IN ('new', 'failed')
+      AND NOT a.backfill AND s.participation_mode = 'editorial'`;
+  return row?.n ?? 0;
+}
+
 export async function runsOverview(): Promise<Runs> {
   const currentJobs = (await Promise.all(serverModules().flatMap((m) => m.admin?.currentJobs ? [m.admin.currentJobs()] : []))).flat();
   const [
@@ -111,6 +121,7 @@ export async function runsOverview(): Promise<Runs> {
     queues,
     [articleProcessing],
     live24h,
+    legacyUnresolved,
     failedJobs,
     lagging,
     receipts,
@@ -157,6 +168,7 @@ export async function runsOverview(): Promise<Runs> {
         AND a.discovered_at <= now()
         AND NOT a.backfill AND s.participation_mode = 'editorial'`,
     livePipelineOverview(),
+    legacyUnresolvedOverview(),
     sql<Runs["failedJobs"]>`
       SELECT name, count(*)::int AS failed, max(completed_on) AS last, left((array_agg(output::text ORDER BY completed_on DESC))[1], 300) AS last_output
       FROM pgboss.job WHERE state = 'failed' AND completed_on > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC, 1`,
@@ -209,6 +221,7 @@ export async function runsOverview(): Promise<Runs> {
     queues,
     articleProcessing: articleProcessing ?? {waiting:0,retrying:0,failed:0,filtered:0,unavailableModel:0},
     live24h,
+    legacyUnresolved,
     routingEffect,
     failedJobs,
     grouping: groupingOverview(grouping, now),

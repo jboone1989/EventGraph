@@ -3,7 +3,7 @@ import { tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
-import { livePipelineOverview } from "@aihot/backend/admin/runs";
+import { livePipelineOverview, legacyUnresolvedOverview } from "@aihot/backend/admin/runs";
 import { navCounts } from "@aihot/backend/admin/navigation";
 
 after(closeDb);
@@ -11,6 +11,7 @@ after(closeDb);
 test("live dashboard excludes old and backfilled articles", async () => {
   const before = await livePipelineOverview();
   const navBefore = await navCounts();
+  const oldBefore = await legacyUnresolvedOverview();
   const source = `live-dashboard-${tag()}`;
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
             VALUES (${source},'Live dashboard','rss','T1','editorial','2100-01-01')`;
@@ -21,6 +22,7 @@ test("live dashboard excludes old and backfilled articles", async () => {
     ["failed", "4 minutes", false, "failed", "pending"],
     ["backfill", "3 minutes", true, "failed", "pending"],
     ["historic", "30 hours", false, "failed", "pending"],
+    ["historic-waiting", "30 hours", false, "new", "pending"],
   ] as const) {
     const id = `${source}-${suffix}`;
     await sql`INSERT INTO articles
@@ -37,7 +39,9 @@ test("live dashboard excludes old and backfilled articles", async () => {
     VALUES (${source + "-unknown"}, 'test', 'analyze_article', ${"article:" + source + "-failed@1"}, 'unknown')`;
   const after = await livePipelineOverview();
   const navAfter = await navCounts();
+  const oldAfter = await legacyUnresolvedOverview();
   assert.equal(after.discovered - before.discovered, 4);
+  assert.equal(oldAfter - oldBefore, 2, "unresolved pre-24h articles remain visible outside new-news totals");
   assert.equal(after.waiting - before.waiting, 1);
   assert.equal(after.analyzed - before.analyzed, 1);
   assert.equal(after.grouped - before.grouped, 1);

@@ -12,6 +12,7 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     jobs: [{ job: "reports.compose", started_at: now, finished_at: now, status: "failed", error: "Failed composing report", failed_24h: 1, runs_24h: 1 }], timeline: [], queues: [{ name: "cron.reports.compose", state: "retry", n: 31, oldest: now }],
     articleProcessing: { waiting: 4, retrying: 3, failed: 2, filtered: 7, unavailableModel: 0 },
     live24h: { discovered: 25, analyzed: 14, grouped: 12, waiting: 6, failed: 2, filtered: 7, stalled: 3, newestAt: now },
+    legacyUnresolved: 2,
     failedJobs: [{ name: "cron.reports.compose", failed: 4, last: now, last_output: "Provider HTTP 500" }],
     grouping: { waiting: 0, needsAttention: 0, items: [] },
     lagging: [], receipts: { counts: {}, unknownTotal: 0, issues: [] }, deliveries: [], errors: [],
@@ -37,6 +38,7 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     await expect(page.getByText("超时新闻 3")).toBeVisible();
     await expect(page.getByText("失败新闻 2")).toBeVisible();
     await expect(page.getByText("定时任务最近失败 1")).toBeVisible();
+    await expect(page.getByText("遗留未完成新闻 2")).toBeVisible();
     await expect(page.getByText("侧栏红色数字只统计最近 24 小时", { exact: false })).toBeVisible();
     await expect(page.getByText("超时未完成", { exact: true })).toBeVisible();
     const queue = page.locator("#runs-queues");
