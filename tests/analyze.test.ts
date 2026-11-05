@@ -9,7 +9,8 @@ import { after, before, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
 import { upsertMaterial } from "@aihot/backend/content/materials";
 import { analyzeArticle, buildMaterial, loadAnalyzeInput, normalizeStructure, StructureSchema, tierThreshold, UNDERSTAND_FLOOR } from "@aihot/backend/editorial/analyze";
-import { queueProcessing } from "@aihot/backend/jobs/content";
+import { processArticle, queueProcessing } from "@aihot/backend/jobs/content";
+import { publishArticle } from "@aihot/backend/publication/publish";
 import { QUEUES, stopBoss } from "@aihot/backend/jobs/queue";
 import { compactAnswerFirstSummary, enforceIdentity, MAX_BODY_CHARS, parseTranslateOutput } from "@aihot/backend/editorial/writing";
 import { READER_WORDING } from "@aihot/industry/wording";
@@ -43,6 +44,30 @@ const provider = await stub((_hit, req) => {
   const marker = MARKERS.find((m) => user.includes(m)) ?? "";
   requests.push({ step, marker, user });
   const answer = (content: unknown) => ({ id: `stub-${requests.length}`, model: "stub", choices: [{ message: { content: typeof content === "string" ? content : JSON.stringify(content) } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
+  if (step === "combined") {
+    if (marker === "SENSITIVE") return new Reply(400, { contentFilter: [{ level: 1, role: "user" }], error: { code: "1301", message: "系统检测到输入或生成内容可能包含不安全或敏感内容" } });
+    const values = scoreAnswers[marker] ?? [BAR, BAR];
+    const attentionScore = Math.ceil((values[0] + values[1]) / 2);
+    const low = attentionScore <= FLOOR;
+    const wordy = WORDY.includes(marker);
+    const sensitive = marker === "SENSITIVE";
+    return answer({
+      label: marker === "OFFTOPIC" || marker === "BARE" ? "BLOCK" : marker === "VAGUE" ? "UNKNOWN" : "PASS",
+      reason: "测试", attentionScore,
+      scope: "single", category: "ai", tags: ["实用教程", "数据分析"],
+      subjects: ["anthropic", "unknown-co"],
+      fact: { title: `事实 ${marker}`, subject: "某公司", action: "发布",
+        object: "模型", occurredAt: null, evidence: "a lab released a model", conditions: [] },
+      titleZh: wordy ? `标题里有禁用词 ${marker}` : low || sensitive ? `翻译标题 ${marker}` : `理解标题 ${marker}`,
+      summaryZh: wordy ? `${marker} 的摘要。第二句补充 3 个数字。` :
+        low || sensitive ? `翻译摘要 ${marker}。第二句补充影响。` : `理解摘要 ${marker}。第二句补充一个关键数字。`,
+      titleEn: `A laboratory releases a model for ${marker}`,
+      summaryEn: `A laboratory introduced a new model, with performance measurements and pricing details for ${marker}.`,
+      reasonZh: wordy ? `理由里有禁用词 ${marker}` : `理由 ${marker}`,
+      reasonEn: `The announcement has documented impact and implications for readers interested in ${marker}.`,
+      itemType: "model_release", authorRole: "principal",
+    });
+  }
   if (step === "prefilter") return answer({ label: marker === "OFFTOPIC" || marker === "BARE" ? "BLOCK" : marker === "VAGUE" ? "UNKNOWN" : "PASS", reason: "测试" });
   if (step === "score") return answer({ attentionScore: scoreAnswers[marker]!.shift() });
   // Copy with a word a site keeps from readers (added to the pack's list below), and its mended form: whole (WORDY),
@@ -91,51 +116,24 @@ test("a selected item: prefilter, two scores, the content understanding and the 
   const id = await article("CLEAR");
   const res = await analyzeArticle(id);
   assert.deepEqual([res!.output!.selected, res!.output!.score], [true, BAR + 1], `${BAR + 3} + ${BAR - 1} >= 2 × ${BAR}; the mean is shown`);
-  assert.deepEqual(calls("CLEAR").sort(), ["prefilter", "score", "score", "structure", "understand"]);
+  assert.deepEqual(calls("CLEAR"), ["combined"], "one model call covers all editorial fields");
   const r = await row(id);
-  assert.deepEqual([r.title_zh, r.reason_zh, r.category, r.receipt_ids.length], ["理解标题 CLEAR", "理由 CLEAR", "ai", 5]);
+  assert.deepEqual([r.title_zh, r.reason_zh, r.category, r.receipt_ids.length], ["理解标题 CLEAR", "理由 CLEAR", "ai", 1]);
   // Failure case: the writer's independent labels contradict the structural category.
   assert.deepEqual(r.tags, ["实用教程", "数据分析", "Anthropic"], "category and tags come from the same structural judgement, plus the verified subject tag");
   assert.deepEqual(r.subjects, ["anthropic"]);
   assert.deepEqual([r.output.writer, r.output.itemType, r.output.prefilter.label, r.output.fact.title], ["understand", "model_release", "PASS", "事实 CLEAR"]);
   assert.equal(r.output.scope, "single");
   assert.equal(r.output.fact.evidence, "a lab released a model");
-  const score = requests.find((q) => q.marker === "CLEAR" && q.step === "score")!;
-  assert.match(score.user, /【标题】\nCLEAR model release/, "the score reads the original title, before any writing");
+  const score = requests.find((q) => q.marker === "CLEAR" && q.step === "combined")!;
+  assert.match(score.user, /【原标题】\nCLEAR model release/, "the score reads the original title, before any writing");
 });
 
-test("a word the site keeps from readers goes back once to be changed; copy without one is not sent", async () => {
-  // A word only this test bans: the pack's list is the site's own (empty in the template).
-  (READER_WORDING as Array<readonly [RegExp, string]>).push([/禁用词/u, "换一个说法"]);
-  try {
-    const id = await article("WORDY");
-    await analyzeArticle(id);
-    assert.equal(calls("WORDY").filter((s) => s === "wording").length, 1);
-    const r = await row(id);
-    assert.deepEqual([r.title_zh, r.reason_zh], ["标题里换了说法 WORDY", "理由里换了说法 WORDY"], "the mended copy is stored");
-    const sent = requests.find((q) => q.marker === "WORDY" && q.step === "wording")!;
-    assert.ok(sent.user.includes("标题用了“禁用词”") && sent.user.includes("推荐理由用了“禁用词”"), "each use named");
-    assert.ok(!requests.some((q) => q.step === "wording" && q.marker !== "WORDY"), "the other items' copy uses none");
-  } finally {
-    (READER_WORDING as Array<readonly [RegExp, string]>).pop();
-  }
-});
-
-test("the first copy stands when the provider refuses the mend, the mend changes a number or leaves as many such words", async () => {
-  (READER_WORDING as Array<readonly [RegExp, string]>).push([/禁用词/u, "换一个说法"]);
-  try {
-    for (const marker of ["REFUSAL", "RENUMBER", "UNMENDED"]) {
-      const id = await article(marker);
-      await analyzeArticle(id);
-      const r = await row(id);
-      assert.deepEqual([r.title_zh, r.reason_zh], [`标题里有禁用词 ${marker}`, `理由里有禁用词 ${marker}`], `${marker}: the first copy is stored`);
-      assert.equal(calls(marker).filter((s) => s === "wording").length, 1, `${marker}: mended once`);
-      const [receipt] = await sql<{ status: string }[]>`SELECT status FROM receipts WHERE purpose = 'mend_wording' AND subject LIKE ${`article:${id}@%`}`;
-      assert.equal(receipt!.status, marker === "REFUSAL" ? "failed" : "completed", `${marker}: the mend's receipt`);
-    }
-  } finally {
-    (READER_WORDING as Array<readonly [RegExp, string]>).pop();
-  }
+test("one-pass analysis does not trigger a second wording model call", async () => {
+  const id = await article("WORDY");
+  const out = await analyzeArticle(id);
+  assert.equal(calls("WORDY").length, 1);
+  assert.equal(out!.receiptIds.length, 1);
 });
 
 test("structure retains grounded conditions, rejects invented or unseen quotes, and does not infer missing scope", async () => {
@@ -178,14 +176,14 @@ test("a near-selected item is written like a selected one; below the floor it is
   const lowId = await article("LOW");
   const low = await analyzeArticle(lowId);
   assert.deepEqual([low!.output!.selected, low!.output!.titleZh, low!.output!.reasonZh], [false, "翻译标题 LOW", null]);
-  assert.deepEqual(calls("LOW").sort(), ["prefilter", "score", "score", "structure", "summarize"]);
+  assert.deepEqual(calls("LOW"), ["combined"]);
   assert.deepEqual((await row(lowId)).tags, ["实用教程", "数据分析", "Anthropic"], "structure tags");
 });
 
 test("the prefilter's BLOCK stops everything; UNKNOWN with material goes on like PASS", async () => {
   const off = await analyzeArticle(await article("OFFTOPIC"));
   assert.deepEqual([off!.output!.relevance, off!.output!.selected], ["block", false]);
-  assert.deepEqual(calls("OFFTOPIC"), ["prefilter"]);
+  assert.deepEqual(calls("OFFTOPIC"), ["combined"]);
   // An UNKNOWN with material is judged and written like a PASS, up to 精选 (BAR + BAR + 2 ≥ 2 × BAR).
   const vagueId = await article("VAGUE");
   const vague = await analyzeArticle(vagueId);
@@ -194,7 +192,7 @@ test("the prefilter's BLOCK stops everything; UNKNOWN with material goes on like
   // Nothing but a title and no page to fetch: the BLOCK counts as UNKNOWN and waits for material.
   const bare = await analyzeArticle(await article("BARE", { bodyText: null, excerpt: null, bodyStatus: "none" }));
   assert.deepEqual([bare!.output!.relevance, bare!.output!.selected, bare!.output!.score], ["unknown", false, null]);
-  assert.deepEqual(calls("BARE"), ["prefilter"]);
+  assert.deepEqual(calls("BARE"), ["combined"]);
 });
 
 test("a feed summary alone: the article page is fetched first, then the whole article is judged", async () => {
@@ -223,10 +221,11 @@ test("a short post in Chinese is its own copy; a content-filter refusal is trans
   });
   const post = await analyzeArticle(articleId);
   assert.deepEqual([post!.output!.titleZh, post!.output!.summaryZh], [text, text]);
-  assert.ok(!calls("推文").includes("summarize"), "no translation call");
+  assert.deepEqual(calls("推文"), ["combined"], "the original post needs no separate writing request");
   const sensitive = await analyzeArticle(await article("SENSITIVE"));
-  assert.deepEqual([sensitive!.output!.selected, sensitive!.output!.titleZh], [true, "翻译标题 SENSITIVE"]);
-  assert.deepEqual(calls("SENSITIVE").filter((s) => s === "understand" || s === "summarize"), ["understand", "summarize"]);
+  assert.deepEqual([sensitive!.output!.selected, sensitive!.output!.titleZh, sensitive!.output!.score], [false, "翻译标题 SENSITIVE", null]);
+  assert.deepEqual(calls("SENSITIVE"), ["combined", "summarize"], "content filter invokes only a grounded summarizer fallback");
+  assert.equal(sensitive!.receiptIds.length, 1, "rejected request is not a completed receipt");
 });
 
 test("guards: a company the input does not name is not written in; long summaries are cut at sentences", () => {
@@ -240,6 +239,37 @@ test("guards: a company the input does not name is not written in; long summarie
   assert.ok(compactAnswerFirstSummary(long).length <= 190);
   assert.deepEqual(parseTranslateOutput("title_zh: 标题\nsummary_zh: 第一句。\n第二句。"), { titleZh: "标题", summaryZh: "第一句。\n第二句。", bodyZh: "" });
   assert.equal(parseTranslateOutput("title_zh: 标题\nbody_zh: 我们懂你。\n\n来源：X：PixVerse (@PixVerse)").bodyZh, "我们懂你。", "a repeated prompt line is dropped");
+});
+
+test("Chinese sources get real English titles and summaries in the same analysis call", async () => {
+  const id = await article("CLEAR", {
+    url: `https://example.com/chinese-source-${T}`,
+    title: "某实验室发布新模型",
+    bodyText: "CLEAR：某实验室正式发布了一款人工智能模型，同时公布评测数据与价格。" + "这是一条可核实的官方公告。".repeat(8),
+    language: "zh",
+  });
+  const hits = provider.hits();
+  assert.equal((await processArticle(id)).state, "pass");
+  assert.equal(provider.hits(), hits + 1, "Chinese and English text must be generated by one provider request");
+  const [row] = await sql<{ title: string; summary: string; inputs_hash: string; current_hash: string; eligible: boolean }[]>`
+    SELECT ec.title, ec.summary, ec.inputs_hash,
+      md5(concat_ws(chr(31), p.title, p.original_title, p.summary, p.reason)) AS current_hash, p.eligible
+    FROM english_copies ec JOIN publications p ON p.article_id = ec.article_id
+    WHERE ec.article_id = ${id} AND ec.outcome = 'written'`;
+  assert.ok(row?.eligible, "ordinary news is publicly eligible before grouping");
+  assert.equal(row?.inputs_hash, row?.current_hash);
+  assert.ok(row?.title.length && row?.summary.length >= 40);
+  assert.doesNotMatch(row!.title + row!.summary, /[㐀-鿿]/u);
+  await sql`UPDATE articles SET grouping_status='complete', grouped_at=now(), selection_adds_value=true WHERE id=${id}`;
+  await publishArticle(id);
+  const [regrouped] = await sql<{ inputs_hash: string; current_hash: string; selected: boolean; reason: string | null }[]>`
+    SELECT ec.inputs_hash, md5(concat_ws(chr(31), p.title, p.original_title, p.summary, p.reason)) AS current_hash, p.selected, ec.reason
+    FROM english_copies ec JOIN publications p ON p.article_id=ec.article_id WHERE ec.article_id=${id}`;
+  assert.ok(regrouped?.selected, "grouping may admit the article to the selected edition");
+  assert.equal(regrouped?.inputs_hash, regrouped?.current_hash,
+    "asynchronous grouping must not erase the already-generated English summary");
+  assert.match(regrouped!.reason ?? "", /documented impact/, "selection retains the original English why-it-matters paragraph");
+  assert.equal(provider.hits(), hits + 1, "grouping's publication rebuild must not buy an English translation");
 });
 
 test("analysing the same revision again reuses every paid answer", async () => {

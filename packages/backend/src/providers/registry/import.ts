@@ -1,3 +1,4 @@
+import {complexityFromModelId} from '@aihot/contracts/providers';
 import {randomUUID} from 'node:crypto';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
@@ -15,10 +16,10 @@ export async function importModels(providerId:string,modelIds:unknown,reason:str
   await tx`SELECT id FROM provider_connections WHERE id=${providerId}::uuid FOR UPDATE`;
   for(const modelId of new Set(modelIds as string[])) {
    const input:ModelInput={providerId,modelId,adapter:'chat',endpointOverride:null,capabilities:[],requestDefaults:{},probeSpec:null,
-    stream:false,complexity:'medium',documentationUrl:null,notes:null,enabled:false,routeEnabled:false};
+    stream:false,complexity:complexityFromModelId(modelId),documentationUrl:null,notes:null,enabled:false,routeEnabled:false};
    checkModel(input,connectionView(connection));
-   await tx`INSERT INTO registered_models(id,provider_id,model_id,adapter,upstream_metadata,updated_by)
-    VALUES (${randomUUID()}::uuid,${providerId}::uuid,${modelId},'chat',${tx.json({importedAt:new Date().toISOString()})},${actor})
+   await tx`INSERT INTO registered_models(id,provider_id,model_id,adapter,complexity,billing,upstream_metadata,updated_by)
+    VALUES (${randomUUID()}::uuid,${providerId}::uuid,${modelId},'chat',${complexityFromModelId(modelId)},${((connection.vendor.toLowerCase()==='openrouter'&&(modelId.endsWith(':free')||modelId==='openrouter/free'))||(connection.vendor.toLowerCase()==='nvidia'&&connection.policy==='nvidia-free-trial'))?'free':'paid'},${tx.json({importedAt:new Date().toISOString()})},${actor})
     ON CONFLICT(provider_id,model_id) DO UPDATE SET upstream_metadata=registered_models.upstream_metadata||EXCLUDED.upstream_metadata`;
   }
   await audit(actor,'provider.models.import',providerId,reason,null,{modelIds},{db:tx});

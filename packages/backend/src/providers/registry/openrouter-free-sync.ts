@@ -42,17 +42,18 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
   for(const modelId of freeIds){
    const metadata=tx.json({openrouterFreeSync:{free:true,checkedAt:timestamp}});
    await tx`INSERT INTO registered_models
-    (id,provider_id,model_id,adapter,capabilities,probe_spec,enabled,route_enabled,upstream_metadata,updated_by)
+    (id,provider_id,model_id,adapter,capabilities,probe_spec,enabled,route_enabled,billing,upstream_metadata,updated_by)
     VALUES (${randomUUID()}::uuid,${providerId}::uuid,${modelId},'chat',${tx.json(['text'])},
       ${tx.json({capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'})},
-      true,false,${metadata},${actor})
+      true,false,'free',${metadata},${actor})
     ON CONFLICT(provider_id,model_id) DO UPDATE SET
-      upstream_metadata=registered_models.upstream_metadata || EXCLUDED.upstream_metadata`;
+      upstream_metadata=registered_models.upstream_metadata || EXCLUDED.upstream_metadata,
+      billing='free'`;
   }
   let noLongerFree=0;
   for(const row of existing){
    if(freeIds.has(row.model_id)||!row.upstream_metadata?.openrouterFreeSync)continue;
-   await tx`UPDATE registered_models SET upstream_metadata=upstream_metadata ||
+   await tx`UPDATE registered_models SET billing='paid',upstream_metadata=upstream_metadata ||
     ${tx.json({openrouterFreeSync:{free:false,checkedAt:timestamp}})}
     WHERE provider_id=${providerId}::uuid AND model_id=${row.model_id}`;
    noLongerFree++;

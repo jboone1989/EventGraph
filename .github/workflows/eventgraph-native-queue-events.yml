@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: eventgraph-native-queue-continuation
@@ -33,15 +32,13 @@ jobs:
             contains(github.event.pull_request.labels.*.name, 'agent-work')) ||
            (github.event_name == 'workflow_run' &&
             github.event.workflow_run.head_repository.full_name == github.repository &&
+            github.event.workflow_run.conclusion == 'success' &&
             ((github.event.workflow_run.path == '.github/workflows/check.yml' &&
               github.event.workflow_run.head_branch == 'develop' &&
               (github.event.workflow_run.event == 'push' ||
-               github.event.workflow_run.event == 'workflow_dispatch') &&
-              (github.event.workflow_run.conclusion == 'success' ||
-               github.event.workflow_run.conclusion == 'failure')) ||
+               github.event.workflow_run.event == 'workflow_dispatch')) ||
              (github.event.workflow_run.path == '.github/workflows/eventgraph-worker.lock.yml' &&
-              github.event.workflow_run.event == 'workflow_dispatch' &&
-              github.event.workflow_run.conclusion == 'success')))) }}
+              github.event.workflow_run.event == 'workflow_dispatch')))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -58,42 +55,12 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      # Failed VM13 preview must not block queue continuation after core CI passes.
-      - name: 核验 Check 核心任务与镜像发布
-        id: check_gate
-        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CHECK_RUN_ID: ${{ github.event.workflow_run.id }}
-          CHECK_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$CHECK_CONCLUSION" == success ]]; then
-            echo 'eligible=true' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CHECK_RUN_ID/jobs?per_page=100" --jq '.jobs[] | [.name, .conclusion] | @tsv')"
-          for name in check e2e 'release_develop / publish'; do
-            if ! grep -Fxq "$(printf '%s\tsuccess' "$name")" <<< "$jobs"; then
-              echo "::notice::Core job missing or not successful: $name"
-              echo 'eligible=false' >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          done
-          if ! grep -Fq "$(printf '%s\tfailure' 'release_develop / 部署 VM13 开发预览')" <<< "$jobs" &&
-             ! grep -Fq "$(printf '%s\tfailure' 'release_develop / 验证 VM13 在线预览')" <<< "$jobs"; then
-            echo '::notice::Failed Check is not a preview-only failure'
-            echo 'eligible=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo 'eligible=true' >> "$GITHUB_OUTPUT"
       - name: Install official pinned GH-AW CLI
         uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
         with:
           version: v1.0.1
       - name: Admit approved Spec tasks only from current verified develop
-        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && steps.check_gate.outputs.eligible == 'true'
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
           EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
@@ -115,7 +82,6 @@ jobs:
             gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-graph --file "$graph_file"
           done
       - name: Dispatch at most one eligible native Work
-        if: github.event_name != 'workflow_run' || github.event.workflow_run.path != '.github/workflows/check.yml' || steps.check_gate.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
           EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}

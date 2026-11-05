@@ -22,12 +22,9 @@ IMAGE_REF="$(printf '%s\n' "$PIN" | sed -n 's/^IMAGE_REF=//p')"
 [[ "$IMAGE_REF" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]] || { echo "Invalid pinned digest" >&2; exit 1; }
 git fetch github "$SOURCE_SHA"
 # Changes outside automation/docs/host-only deployment tools must be the proven build inputs.
-# Keep the same reviewed governance-only exclusions as CI's promotion-source-equivalence.mjs.
 git diff --quiet "$SOURCE_SHA" "$NEW_SHA" -- . \
-  ':(exclude).github/**' ':(exclude)scripts/ci/**' ':(exclude)specs/**' \
-  ':(exclude)scripts/deploy-prod.sh' \
-  ':(exclude)docs/ci-cd.md' ':(exclude)docs/spec-review.md' \
-  ':(exclude)docs/production-deployment.md' ||
+  ':(exclude).github/**' ':(exclude)scripts/deploy-prod.sh' \
+  ':(exclude)docs/ci-cd.md' ':(exclude)docs/production-deployment.md' ||
   { echo "Main contains unverified application changes" >&2; exit 1; }
 TAG="${NEW_SHA:0:12}"
 read_tag() { sed -n "s/^$1=//p" .env | tail -n1; }
