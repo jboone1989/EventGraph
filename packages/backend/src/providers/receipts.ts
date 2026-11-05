@@ -37,10 +37,13 @@ export class ReceiptUnknownError extends Error {
 export class ProviderRejectedError extends Error {
   readonly status: number | null;
   readonly retryable: boolean;
-  constructor(message: string, status: number | null, retryable: boolean) {
+  /** Sanitized, structured error from a registered provider; never a raw HTTP body. */
+  readonly providerDetail?: string;
+  constructor(message: string, status: number | null, retryable: boolean, providerDetail?: string) {
     super(message);
     this.status = status;
     this.retryable = retryable;
+    this.providerDetail = providerDetail;
   }
 }
 
