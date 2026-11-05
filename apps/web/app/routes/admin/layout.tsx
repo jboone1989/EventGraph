@@ -60,7 +60,16 @@ function NavCount({ counts, countsKey, name, className }: Counts & { name: strin
   return (
     <Suspense key={countsKey} fallback={null}>
       <Await resolve={counts} errorElement={null}>
-        {(resolved: AdminNavCounts) => resolved[name] ? <span className={className}>{resolved[name]}</span> : null}
+        {(resolved: AdminNavCounts) => {
+          const value = resolved[name];
+          if (!value) return null;
+          // The runs badge counts problem articles, not failed job/receipt attempts.
+          // Keep it readable without the high-alert style used for actionable source failures.
+          return name === "runs"
+            ? <span className="relative ml-1 rounded-full bg-bg-sunk px-1.5 py-0.5 text-[11px] font-medium text-ink-3 ring-1 ring-line"
+                title="最近24小时超时或失败的新闻（按篇计数）">{value}</span>
+            : <span className={className}>{value}</span>;
+        }}
       </Await>
     </Suspense>
   );

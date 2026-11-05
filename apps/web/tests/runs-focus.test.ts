@@ -23,7 +23,7 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     res.setHeader("content-type", "application/json");
     if (path === "/api/site/meta") return res.end(JSON.stringify({ changelogVersion: null }));
     if (path === "/api/admin/me") return res.end(JSON.stringify({ name: "Runs test", csrf: "fixture", dev: true }));
-    if (path === "/api/admin/nav-counts") return res.end("{}");
+    if (path === "/api/admin/nav-counts") return res.end(JSON.stringify({ runs: 5 }));
     if (path === "/api/admin/runs") return res.end(JSON.stringify(runs));
     res.statusCode = 404;
     return res.end("{}");
@@ -39,7 +39,10 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     await expect(page.getByText("失败新闻 2")).toBeVisible();
     await expect(page.getByText("定时任务最近失败 1")).toBeVisible();
     await expect(page.getByText("遗留未完成新闻 2")).toBeVisible();
-    await expect(page.getByText("侧栏红色数字只统计最近 24 小时", { exact: false })).toBeVisible();
+    await expect(page.getByText("侧栏数字只统计最近 24 小时", { exact: false })).toBeVisible();
+    const navBadge = page.locator('a[href="/admin/runs"] span[title="最近24小时超时或失败的新闻（按篇计数）"]');
+    await expect(navBadge).toHaveText("5");
+    await expect(navBadge).toHaveClass(/bg-bg-sunk/);
     await expect(page.getByText("超时未完成", { exact: true })).toBeVisible();
     const queue = page.locator("#runs-queues");
     const news = page.locator("#runs-news");
