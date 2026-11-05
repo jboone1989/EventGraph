@@ -204,7 +204,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           />
         </Card>
         <Card
-          title="处理失败（最近 24 小时，按错误归类）"
+          title="可重新处理的失败文章（最近 24 小时有活动）"
           right={
             <span className="flex items-center gap-3">
               {r.retrying.count > 0 && <span>等待重试 {num(r.retrying.count)} 条 · 下一次 <Time at={r.retrying.next} /></span>}
@@ -213,6 +213,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           }
           pad={false} scrollable
         >
+          <p className="px-4 py-3 text-[12px] text-ink-3">这里的数量与“重新处理”可操作范围一致：包含最近 24 小时内新发现或更新的失败文章，也可能包含历史新闻及回填记录。重新处理会触发新的模型调用，不等于上方“最近 24 小时新发现新闻”的失败数。</p>
           <DataTable scrollable
             dense
             rows={r.errors}
