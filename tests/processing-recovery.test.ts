@@ -1,6 +1,6 @@
 // Recovery must finish the same evaluation that failed, and commit the release, queue and audit together.
 import { gate, pointModels, Reply, stub, tag } from "./setup.ts";
-import { analysisStep, SELECTING_SCORE } from "./analysis-steps.ts";
+import { analysisStep, combinedAnswer } from "./analysis-steps.ts";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, test } from "node:test";
@@ -28,14 +28,11 @@ const provider = await stub(async (_hit, request) => {
   }
   const step = analysisStep(request.body);
   calls.push(step);
-  if (step === "score" && refuseScore) {
+  if (step === "combined" && !original && refuseScore) {
     refuseScore = false;
     return new Reply(503, { error: "temporary outage" });
   }
-  const content = step === "prefilter" ? { label: original ? "BLOCK" : "PASS", reason: "local fixture" }
-    : step === "score" ? { attentionScore: SELECTING_SCORE }
-    : step === "structure" ? { category: "guide", tags: [], subjects: [], fact: null }
-    : { itemType: "model_release", authorRole: "principal", tags: ["模型发布"], editorialJudgment: "模型能力提升", titleZh: `新判断 ${T}`, summaryZh: "模型发布并提供评测和价格。" };
+  const content = combinedAnswer({ label: original ? "BLOCK" : "PASS", titleZh: `新判断 ${T}` });
   return { choices: [{ message: { content: JSON.stringify(content) } }] };
 });
 pointModels(provider.url);
@@ -174,8 +171,7 @@ test("a temporary provider failure resumes the manual evaluation instead of rein
   await waitFor(async () => (await sql`SELECT 1 FROM pgboss.job WHERE name=${QUEUES.analyze} AND data->>'articleId'=${id} AND state<'completed'`).length === 0);
   assert.equal((await sql`SELECT processing_state FROM articles WHERE id=${id}`)[0]!.processing_state, "analyzed");
   assert.equal((await sql`SELECT selection_candidate FROM publications WHERE article_id=${id}`)[0]!.selection_candidate, true);
-  assert.equal(calls.filter((s) => s === "prefilter").length, 2, "one original and one manual prefilter; recovery buys neither again");
-  assert.equal(calls.filter((s) => s === "structure").length, 1, "the paid structure response survives the score failure");
+  assert.equal(calls.filter((s) => s === "combined").length, 3, "one original, one rejected retry, one settled bilingual analysis");
 });
 
 // Failure modes: an old paid call can fail after a new material revision has already finished;
