@@ -111,6 +111,8 @@ test("single-pass explanation is hidden after an editor changes the published su
     reason: "Regression test: corrected editorial copy", version: 0 }, "test");
   assert.equal(await explanation(id, "original"), null,
     "corrected published copy must not keep the older inline explanation");
+  // Keep this fixture out of the next test's single-item pending explainer batch.
+  await sql`UPDATE publications SET selected = false WHERE article_id = ${id}`;
 });
 
 test("a selected report gets an explanation in its own language, on that language's page only, and it is written again after a correction", async () => {
