@@ -44,7 +44,7 @@ test('actual chat dispatch preserves prefix, connection identity, credentials an
  }
  network.assertNoPendingInterceptors();
 });
-test('display edits retain routing; model and connection changes save but block current calls',async()=>{
+test('model and connection edits keep enabled routing without requiring new probes',async()=>{
  const c=await createConnection(connection(),'test','test'),input=model(c.id);
  let m=await createRegisteredModel(input,'test','test');await certify(m.id);
  m=await updateRegisteredModel(m.id,{...input,routeEnabled:true},m.version,'route','test');
@@ -52,13 +52,12 @@ test('display edits retain routing; model and connection changes save but block 
  assert.deepEqual(m.routing.eligibleCapabilities,['text']);
  assert.equal((await registeredRuntime(m.id,'text')).m.id,m.id);
  m=await updateRegisteredModel(m.id,{...input,requestDefaults:{temperature:0.8},routeEnabled:true},m.version,'params','test');
- assert.equal(m.routeEnabled,true);assert.deepEqual(m.routing.eligibleCapabilities,[]);assert.match(m.routing.reasons.join(' '),/model/);
- await assert.rejects(registeredRuntime(m.id,'text'),/cannot route/);
- await certify(m.id);
+ assert.equal(m.routeEnabled,true);assert.deepEqual(m.routing.eligibleCapabilities,['text']);
+ assert.equal((await registeredRuntime(m.id,'text')).m.id,m.id);
  const changed=await updateConnection(c.id,connection({baseUrl:'https://provider.invalid/new-prefix',credential:{action:'keep'}}),c.version,'address','test');
  assert.ok(changed);
- assert.match((await getRegisteredModel(m.id)).routing.reasons.join(' '),/address/);
- await assert.rejects(requestRegisteredModel(m.id,'text',{}),/cannot route/);
+ assert.deepEqual((await getRegisteredModel(m.id)).routing.eligibleCapabilities,['text']);
+ assert.equal((await registeredRuntime(m.id,'text')).m.id,m.id);
  network.assertNoPendingInterceptors();
 });
 test('disabled deployment rejects a manual model test before reserving a receipt',async()=>{
@@ -78,8 +77,8 @@ test('test results authorize only their matching capability and configuration; s
  network.get('https://provider.invalid').intercept({path:'/prefix/v4/chat/completions',method:'POST'}).reply(200,{choices:[{message:{content:'OK'}}]});
  assert.equal((await testRegisteredModel(m.id,'text','test')).status,'verified');
  m=await updateRegisteredModel(m.id,{...input,routeEnabled:true},m.version,'route','test');
- assert.deepEqual(m.routing.eligibleCapabilities,['text']);
- await assert.rejects(registeredRuntime(m.id,'vision'),/capability has no current successful test/);
+ assert.deepEqual(m.routing.eligibleCapabilities,['text','vision']);
+ assert.equal((await registeredRuntime(m.id,'vision')).m.id,m.id);
  const old=await registeredRuntime(m.id,'text');
  m=await updateRegisteredModel(m.id,{...input,routeEnabled:true,modelId:'changed'},m.version,'rename','test');
  await certify(m.id);
