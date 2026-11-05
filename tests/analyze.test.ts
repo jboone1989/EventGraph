@@ -23,7 +23,7 @@ const X_SOURCE = `test-analyze-x-${T}`;
 
 interface Req { step: AnalysisStep; marker: string; user: string }
 const requests: Req[] = [];
-const MARKERS = ["CLEAR", "RESCUE", "LOW", "OFFTOPIC", "BARE", "VAGUE", "THIN", "SENSITIVE", "推文", "WORDY", "REFUSAL", "RENUMBER", "UNMENDED"];
+const MARKERS = ["DATEZH", "DATEEN", "DATEPUB", "CLEAR", "RESCUE", "LOW", "OFFTOPIC", "BARE", "VAGUE", "THIN", "SENSITIVE", "推文", "WORDY", "REFUSAL", "RENUMBER", "UNMENDED"];
 // The scores sit a few points around the pack's T1_5 threshold (a tier above the understand floor) and the floor, so each case means
 // the same after a site recalibrates them: selected when the two add up to 2 × BAR, written like a
 // selected item when they add up to more than 2 × FLOOR, translated otherwise.
@@ -68,7 +68,10 @@ const provider = await stub((_hit, req) => {
       reasonEn: `The announcement has documented impact and implications for readers interested in ${marker}.`,
       itemType: "model_release", authorRole: "principal",
       explanation: { who: "某实验室", what: `来源确认发布了 ${marker} 模型`, when: null, where: null,
-        why: null, how: null, soWhat: "读者可从原文核实性能和价格", watchpoints: [] },
+        why: null, how: null, soWhat: "读者可从原文核实性能和价格",
+        watchpoints: marker.startsWith("DATE")
+          ? [{ text: "Check the deadline stated in the original", date: marker === "DATEPUB" ? "2026-09-28" : "2026-11-05" }]
+          : [] },
     });
   }
   if (step === "prefilter") return answer({ label: marker === "OFFTOPIC" || marker === "BARE" ? "BLOCK" : marker === "VAGUE" ? "UNKNOWN" : "PASS", reason: "测试" });
@@ -113,6 +116,25 @@ const calls = (marker: string) => requests.filter((r) => r.marker === marker).ma
 const row = async (id: string) =>
   (await sql<{ selected: boolean; relevance: string; score: string | null; title_zh: string; reason_zh: string | null; category: string | null; tags: string[]; subjects: string[]; receipt_ids: string[]; output: Record<string, any> }[]>`
     SELECT selected, relevance, score, title_zh, reason_zh, category, tags, subjects, receipt_ids, output FROM analyses WHERE article_id = ${id} ORDER BY id DESC LIMIT 1`)[0]!;
+
+
+test("one-pass watchpoint dates use source date forms, never the site's own publication time", async () => {
+  const zh = await analyzeArticle(await article("DATEZH", {
+    title: `DATEZH：规则将在2026年11月5日生效 ${T}`,
+  }));
+  assert.equal(zh!.output!.explanation?.watchpoints[0]?.date, "2026-11-05",
+    "a source-stated Chinese date must survive ISO normalization");
+
+  const en = await analyzeArticle(await article("DATEEN", {
+    title: `DATEEN: Rule takes effect November 5, 2026 ${T}`,
+  }));
+  assert.equal(en!.output!.explanation?.watchpoints[0]?.date, "2026-11-05",
+    "a source-stated English month date must survive ISO normalization");
+
+  const publicationOnly = await analyzeArticle(await article("DATEPUB"));
+  assert.equal(publicationOnly!.output!.explanation?.watchpoints[0]?.date, null,
+    "the site's 发布时间 line is not source evidence for a watchpoint date");
+});
 
 test("a selected item: prefilter, two scores, the content understanding and the structure", async () => {
   assert.ok(FLOOR >= 4 && FLOOR < BAR && BAR <= 97, "the cases need the understand floor below the BAR threshold, and a few points either side");

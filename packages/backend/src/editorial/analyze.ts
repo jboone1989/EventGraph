@@ -19,7 +19,7 @@ import { chatJson, ModelOutputError, type ContentPart } from "../providers/llm.t
 import { completeReceipt, ProviderRejectedError, ReceiptUnknownError } from "../providers/receipts.ts";
 import { collapseWhitespace } from "../lib/text.ts";
 import { modelFor, modelSupportsVision } from "./models.ts";
-import { ExplainSchema } from "./explain-schema.ts";
+import { ExplainSchema, fullDatesIn } from "./explain-schema.ts";
 import { buildMaterial, firstImagePart, loadAnalyzeInput, type AnalyzeInputArticle } from "./input.ts";
 import { pageFetchable } from "../content/extract.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
@@ -540,13 +540,18 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
     : { kind: near ? "understand" : "summarize", model: res.model, titleZh: copy.titleZh, summaryZh: copy.summaryZh,
         reasonZh: near ? d.reasonZh || null : null, itemType: d.itemType, authorRole: d.authorRole,
         identityGuard: copy.identityGuard, receiptIds: [res.receiptId], reused: res.reused };
+  // Ground dates in original source text, never the site-generated publication time or translation.
+  const supportedWatchpointDates = d.explanation
+    ? fullDatesIn([a.title, a.bodyText ?? a.excerpt, a.xPost?.text, a.xPost?.quoted?.text]
+      .filter((text): text is string => typeof text === "string").join("\n"))
+    : null;
   return {
     prefilter, scores, writing,
     structure: { ...normalizeStructure(StructureSchema.parse(d), a), model: res.model, receiptId: res.receiptId, reused: res.reused },
     english: usableEnglish(d.titleEn, d.summaryEn, d.reasonEn),
     explanation: d.explanation ? { ...d.explanation,
       watchpoints: d.explanation.watchpoints.map(point => ({ ...point,
-        date: point.date && buildMaterial(a).includes(point.date) ? point.date : null })) } : null,
+        date: point.date && supportedWatchpointDates?.has(point.date) ? point.date : null })) } : null,
   };
 }
 
