@@ -103,13 +103,10 @@ test("Markdown preserves a table's headings, caption, links, alignment and multi
   const response = await get(`/items/${id}/markdown`);
   assert.equal(response.status, 200);
   const $ = cheerio.load(marked.parse(response.body, { async: false, gfm: true }));
-  assert.equal($('table').length, 2, 'both original and translated tables survive export');
-  assert.deepEqual($('table th').toArray().map((node) => $(node).text()), ['模型', '分数', 'Model', 'Score']);
-  assert.equal($('table th').last().attr('align'), 'right');
-  assert.equal($('table td a').last().text(), 'A|B');
-  assert.equal($('table td a').last().attr('href'), 'https://example.com/model');
-  assert.equal($('table td').last().find('br').length, 1);
-  assert.ok($.text().includes('基准结果') && $.text().includes('Benchmark results'));
+  assert.equal($('table').length, 0, 'the summary export must not rehost the original or translated tables');
+  assert.ok(response.body.includes('SUMMARY-'), 'a news export retains its summary');
+  assert.ok(response.body.includes('原文：'), 'a news export links to the publisher');
+  assert.ok(!response.body.includes('Benchmark results') && !response.body.includes('基准结果'));
 });
 
 test("Markdown retains tables that cannot be represented without changing their meaning", async () => {
@@ -118,11 +115,9 @@ test("Markdown retains tables that cannot be represented without changing their 
   await sql`UPDATE articles SET language = 'zh', body_html = ${html} WHERE id = ${id}`;
   await publishArticle(id, released());
   const $ = cheerio.load(marked.parse((await get(`/items/${id}/markdown`)).body, { async: false, gfm: true }));
-  assert.equal($('table').length, 3);
-  assert.equal($('table').first().find('th').length, 0, 'a data row must not become an invented heading');
-  assert.equal($('th[colspan="2"]').text(), 'Merged');
-  assert.equal($('td[rowspan="2"]').text(), 'A');
-  assert.equal($('table pre code').text(), 'print(1)\nprint(2)');
+  assert.equal($('table').length, 0, 'aggregator Markdown is summary-only regardless of source licence');
+  assert.ok($.text().includes('SUMMARY-'));
+  assert.ok(!$.text().includes('print(1)'));
 });
 
 test("Markdown retains numeric superscripts, subscripts and fenced code while respecting full-text permission", async () => {
@@ -132,10 +127,10 @@ test("Markdown retains numeric superscripts, subscripts and fenced code while re
   await publishArticle(id, released());
   const response = await get(`/items/${id}/markdown`);
   const $ = cheerio.load(marked.parse(response.body, { async: false, gfm: true }));
-  assert.equal($('sup').text(), '24');
-  assert.equal($('sub').text(), '2');
-  assert.equal($('pre code').attr('class'), 'language-python');
-  assert.equal($('pre code').text(), 'print(2 ** 3)\n');
+  assert.equal($('sup').length, 0);
+  assert.equal($('sub').length, 0);
+  assert.equal($('pre code').length, 0);
+  assert.ok(response.body.includes('SUMMARY-'));
   await sql`UPDATE sources SET site_fulltext = false WHERE id = ${SOURCE}`;
   await publishArticle(id, released());
   const limited = await get(`/items/${id}/markdown`);
@@ -152,17 +147,16 @@ test("site reading sends one language while exports retain both, including after
   await publishArticle(id, released());
   const normal = JSON.parse((await get(`/api/site/items/${id}`)).body);
   const original = JSON.parse((await get(`/api/site/items/${id}/original`)).body);
-  assert.equal(normal.bodyLanguage, 'zh');
-  assert.equal(normal.hasTranslation, true);
-  assert.equal(normal.body.original, null);
-  assert.ok(normal.body.zh.includes('中文完整正文'));
-  assert.equal(normal.outline[0].text, '译文标题');
+  assert.equal(normal.bodyLanguage, 'original');
+  assert.equal(normal.hasTranslation, false);
+  assert.equal(normal.body, null);
+  assert.deepEqual(normal.outline, []);
   assert.equal(original.bodyLanguage, 'original');
-  assert.equal(original.body.zh, null);
-  assert.ok(original.body.original.includes('Original full body'));
-  assert.equal(original.outline[0].text, 'Original heading');
+  assert.equal(original.body, null);
+  assert.deepEqual(original.outline, []);
   const md = (await get(`/items/${id}/markdown`)).body;
-  assert.ok(md.includes('Original full body') && md.includes('中文完整正文'));
+  assert.ok(md.includes('SUMMARY-') && md.includes('原文：'));
+  assert.ok(!md.includes('Original full body') && !md.includes('中文完整正文'));
   await setVisibility(id, { visibility: 'withdrawn', reason: 'test', version: 0 }, 'test');
   assert.equal((await get(`/api/site/items/${id}/original`)).status, 404);
 });
@@ -213,7 +207,7 @@ test("revoking only redistribution keeps the website body and removes it from fu
     assert.ok(!item.includes("<content:encoded>"));
     const detail = await get(`/api/site/items/${id}`);
     assert.equal(detail.status, 200);
-    assert.ok(detail.body.includes(`FULLTEXT-${T}`), "the website retains its separate full-text permission");
+    assert.equal(JSON.parse(detail.body).body, null, "site aggregations only provide summaries and original links");
   } finally {
     await sql`UPDATE sources SET syndicate_fulltext = true WHERE id = ${SOURCE}`;
   }
@@ -327,8 +321,9 @@ test("item pages follow one rule: unsummarised editorial items keep one, hot_sig
   const page = await get(`/api/site/items/${plain}`);
   assert.equal(page.status, 200, "an unsummarised editorial item keeps its page");
   const detail = JSON.parse(page.body) as { summary: string | null; indexable: boolean; markdownAvailable: boolean };
-  assert.deepEqual([detail.summary, detail.indexable, detail.markdownAvailable], [null, false, true], "noindex, with its body for export");
-  assert.equal((await get(`/items/${plain}/markdown`)).status, 200);
+  assert.deepEqual([detail.summary, detail.indexable, detail.markdownAvailable], [null, false, false],
+    "a body without a summary is not exported by this aggregator");
+  assert.equal((await get(`/items/${plain}/markdown`)).status, 404);
   assert.equal((await get(`/api/site/items/${signal}`)).status, 404, "hot_signal material has no page");
   assert.equal((await get(`/items/${signal}/markdown`)).status, 404);
 

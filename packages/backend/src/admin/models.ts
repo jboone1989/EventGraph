@@ -6,7 +6,7 @@ import {registeredRuntime} from '../providers/registry/runtime.ts';
 // new work only.
 import type { AdminModelBindings } from "@aihot/contracts/admin";
 import { sql } from "../db.ts";
-import { capabilities, invalidateModelCache, modelSources } from "../editorial/models.ts";
+import { ACTIVE_MODEL_BINDINGS, CAPABILITIES, capabilities, invalidateModelCache, modelSources } from "../editorial/models.ts";
 import { audit } from "../audit.ts";
 
 /** Registry choices and settings-based auto routes share the same admin page. */
@@ -24,7 +24,7 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
  };
  return {
   defaultModel:selection('default'),
-  steps:Object.entries(capabilities()).map(([key,c])=>({
+  steps:Object.entries(capabilities()).filter(([key])=>!(key in CAPABILITIES) || ACTIVE_MODEL_BINDINGS.has(key)).map(([key,c])=>({
    key,label:c.label,vision:!!c.vision,embedding:!!c.embedding,current:selection(key),effective:effective[key]!
   })),
   choices:models.map(m=>({

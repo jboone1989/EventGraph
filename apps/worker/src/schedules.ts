@@ -5,9 +5,7 @@ import { ensureQueue, recordRun } from "@aihot/backend/jobs/queue";
 import { responder, serverModules, type Scheduled } from "@aihot/backend/modules";
 import { sweepUnprocessed } from "@aihot/backend/jobs/content";
 import { ingestGraphitiOnce } from "@aihot/backend/knowledge/graphiti";
-import { translatePending } from "@aihot/backend/editorial/translate";
 import { writeEnglishPending } from "@aihot/backend/editorial/english";
-import { writeExplanationsPending } from "@aihot/backend/editorial/explain";
 import { adaptIntervals, scheduleDueSources } from "@aihot/backend/sources/collect";
 import { scheduleMpReconcile } from "@aihot/backend/sources/mp";
 import { dajialaConfigured } from "@aihot/backend/providers/dajiala";
@@ -36,12 +34,8 @@ const ENGINE_SCHEDULES: Scheduled[] = [
   ...(retestEnabled() ? [{ name: "models.registry.retest", cron: "*/30 * * * *", run: () => retestExpiringModels() }] : []),
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
   { name: "ops.expire-stale-work", cron: "0 0 * * *", timezone: "UTC", missed: "once", run: expireStaleWork },
-  // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).
-  { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },
-  // English copy of selected reports and story digests for the /en edition (model calls; off with MODEL_CALLS_ENABLED=false).
+  // Only missing/edited/historical English copies and English story digests need separate calls.
   { name: "content.english", cron: "*/5 * * * *", run: () => writeEnglishPending() },
-  // 5W1H + So What + What Next for recent selected reports (model calls; off with MODEL_CALLS_ENABLED=false).
-  { name: "content.explain", cron: "*/15 * * * *", run: () => writeExplanationsPending() },
   { name: "hot.rank", cron: "*/5 * * * *", run: () => computeHotRanking() },
   { name: "hot.snapshot", cron: "2 * * * *", run: () => snapshotHeat() },
   { name: "stories.links", cron: "12 * * * *", run: linkRelatedStories },
