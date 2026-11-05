@@ -120,6 +120,8 @@ async function processingInput(articleId: string) {
 export async function processArticle(articleId: string, opts: { attemptTag?: string } = {}): Promise<{ state: string; retryAt?: Date }> {
   const row = await processingInput(articleId);
   if (!row) return { state: "missing" };
+  // A job claimed before UTC midnight may still run afterwards; never start its next model call.
+  if (row.discovered_at.getTime() < utcDayStart().getTime()) return { state: "expired" };
   try {
     return await processRevision(articleId, row, opts);
   } catch (error) {
