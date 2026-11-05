@@ -25,3 +25,16 @@ export function analysisStep(body: string): AnalysisStep {
  * so is material from a T1 source (this site's T1 threshold is lower: Ferro's own work).
  */
 export const SELECTING_SCORE = tierThreshold("T1_5")!;
+
+/** A complete one-pass provider response for concurrency and retry integration tests. */
+export function combinedAnswer(overrides: Record<string, unknown> = {}) {
+  return {
+    label: "PASS", reason: "confirmed news", attentionScore: SELECTING_SCORE,
+    scope: "single", category: "ai", tags: ["模型发布"], subjects: [], fact: null,
+    titleZh: "实验室发布新模型", summaryZh: "实验室发布了新模型，公布了性能评测结果以及价格。",
+    titleEn: "A laboratory releases a new AI model",
+    summaryEn: "A laboratory has launched a new AI model and published benchmark results and pricing details.",
+    reasonZh: "模型发布具备新闻价值", itemType: "model_release", authorRole: "principal",
+    ...overrides,
+  };
+}
