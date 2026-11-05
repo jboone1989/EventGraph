@@ -37,7 +37,7 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     assert.equal(res?.status(), 200);
     await expect(page.getByText("新闻处理 · 当前队列（UTC）", { exact: true })).toBeVisible();
     await expect(page.getByText("待处理", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("失败新闻 2")).toBeVisible();
+    await expect(page.getByText("失败新闻 2", { exact: true })).toBeVisible();
     await expect(page.getByText("定时任务最近失败 1")).toBeVisible();
     await expect(page.getByText("每天 UTC 00:00 清空未完成项", { exact: false })).toBeVisible();
     await expect(page.getByText("实时积压只按当前 UTC 日", { exact: false })).toBeVisible();
