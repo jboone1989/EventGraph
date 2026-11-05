@@ -36,7 +36,13 @@ async function loadRow(id: string, language: "zh" | "original" = "zh", explanati
       CASE WHEN ${EXPLAINABLE_PUBLICATION} AND
         (a.language = ${explanationLanguage} OR
          (a.language IS NULL AND (CASE WHEN a.title ~ '[一-龥]' THEN 'zh' ELSE 'en' END) = ${explanationLanguage}))
-        THEN coalesce(an.output->'explanation', ie.content)
+        THEN coalesce(
+          CASE WHEN NOT EXISTS (
+            SELECT 1 FROM editorial_overrides eo WHERE eo.article_id = p.article_id
+              AND eo.fields ?| ARRAY['title','summary','reason']
+          ) THEN an.output->'explanation' END,
+          ie.content
+        )
         ELSE ie.content END AS explanation
     ${ITEM_FROM}
     LEFT JOIN translations en_tr ON en_tr.article_id = p.article_id AND en_tr.lang = 'en' AND en_tr.revision >= a.revision

@@ -47,7 +47,7 @@ export const CAPABILITIES = {
 
 // The active runtime bindings; legacy individual-step entry points remain for evaluators only.
 export const ACTIVE_MODEL_BINDINGS = new Set([
-  "understand", "group", "groupReview", "digest", "report", "english", "graphiti", "graphitiEmbedding",
+  "understand", "summarize", "group", "groupReview", "digest", "report", "english", "graphiti", "graphitiEmbedding",
 ]);
 
 export type CapabilityKey = keyof typeof CAPABILITIES;

@@ -8,6 +8,7 @@ import { ExplainSchema, EnglishExplainSchema, explanationCandidateFor, explanati
 import { stopBoss } from "@aihot/backend/jobs/queue";
 import { loadItemDetail } from "@aihot/backend/publication/detail";
 import { publishArticle } from "@aihot/backend/publication/publish";
+import { overrideFields } from "@aihot/backend/admin/content";
 import { buildApp } from "../apps/api/src/app.ts";
 
 const T = tag();
@@ -98,6 +99,18 @@ after(async () => {
   await provider.close();
   await stopBoss();
   await closeDb();
+});
+
+test("single-pass explanation is hidden after an editor changes the published summary", async () => {
+  const id = await report("single-pass-correction", 625);
+  const original = "Original single-pass explanation of the old published summary.";
+  await sql`UPDATE analyses SET output = ${sql.json({ explanation: { what: original } })}
+    WHERE id = (SELECT analysis_id FROM publications WHERE article_id = ${id})`;
+  assert.equal((await explanation(id, "original"))?.what, original);
+  await overrideFields(id, { fields: { summary: "Corrected summary supersedes the old analysis." },
+    reason: "Regression test: corrected editorial copy", version: 0 }, "test");
+  assert.equal(await explanation(id, "original"), null,
+    "corrected published copy must not keep the older inline explanation");
 });
 
 test("a selected report gets an explanation in its own language, on that language's page only, and it is written again after a correction", async () => {
