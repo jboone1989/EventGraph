@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { setAnalyticsConfig, trackAnalytics } from "../apps/web/app/lib/analytics.client.ts";
+import { pageType, setAnalyticsConfig, trackAnalytics } from "../apps/web/app/lib/analytics.client.ts";
 
 test("PostHog captures pageviews and a session identity without query strings or person profiles", t => {
   const originals = new Map(["window", "location", "document", "sessionStorage"].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
@@ -28,4 +28,13 @@ test("PostHog captures pageviews and a session identity without query strings or
   assert.equal(capture.properties.site_host,"www.example.com");
   assert.equal(capture.properties.$current_url,"https://www.example.com/story/public");
   assert.equal(JSON.stringify(capture).includes("private-query"),false);
+});
+
+
+test("localized English routes retain their page category for PV reporting", () => {
+  assert.equal(pageType("/en"), "home");
+  assert.equal(pageType("/en/items/article1"), "item");
+  assert.equal(pageType("/en/story/event1"), "story");
+  assert.equal(pageType("/en/daily/2026-11-05"), "daily");
+  assert.equal(pageType("/en/knowledge"), "knowledge");
 });
