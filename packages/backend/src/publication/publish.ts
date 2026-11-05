@@ -412,6 +412,20 @@ export async function publishArticleTx(tx: Tx, articleId: string, options: Publi
         EXCLUDED.indexable, EXCLUDED.story_id, EXCLUDED.fact_id, EXCLUDED.search_text,
         EXCLUDED.sort_at)`;
 
+  // Completing grouping can add a Chinese recommendation reason without changing either
+  // English title or summary. Preserve the valid one-pass English copy in that case; clear
+  // only its optional translated reason rather than needlessly asking another model.
+  if (previous && previous.reason !== reason
+    && previous.title === next.title && previous.original_title === originalTitle
+    && previous.summary === summary) {
+    await tx`UPDATE english_copies
+      SET inputs_hash = md5(concat_ws(chr(31), ${next.title}, ${originalTitle}, ${summary}, ${reason})),
+          reason = NULL, updated_at = now()
+      WHERE article_id = ${articleId} AND outcome = 'written'
+        AND inputs_hash = md5(concat_ws(chr(31), ${previous.title}, ${previous.original_title},
+          ${previous.summary}, ${previous.reason}))`;
+  }
+
   // The pool search row follows eligibility; its body part only covers full text the site may show.
   if (eligible) {
     const body = bodyMode === "full" ? (article.body_text ?? "").slice(0, 12000).toLowerCase() : "";
