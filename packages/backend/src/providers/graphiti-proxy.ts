@@ -97,7 +97,7 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
    if(!automatic||!(error instanceof ProviderRejectedError)||
       ![403,429,502,503,504].includes(error.status??0))throw error;
    excluded.add(id);
-   await coolDownReference(ref,error.status===429?60:30,error.status===429);
+   coolDownReference(ref,error.status===429?60:30);
   }
  }
  throw new BudgetExceededError('free-models','graphiti_no_eligible_provider',300);
