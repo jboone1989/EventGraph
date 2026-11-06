@@ -9,6 +9,8 @@ test("runs page shows actionable backlog, every grouping item through pagination
   const grouped = Array.from({ length: 33 }, (_, i) => ({
     articleId: `selected-${i + 1}`, title: `待去重精选 ${i + 1}`, since: now,
     failed: false, recovery: "automatic", receiptId: null, error: null,
+    jobState: i === 0 ? "active" : i < 30 ? "created" : null,
+    queueSince: i < 30 ? now : null, activeSince: i === 0 ? now : null,
   }));
   const runs = {
     checkedAt: now,
@@ -57,6 +59,8 @@ test("runs page shows actionable backlog, every grouping item through pagination
     await expect(page.getByText("Provider HTTP 429 rate limit", { exact: false })).toBeVisible();
     await expect(page.getByText("新闻处理最终失败", { exact: true })).toBeVisible();
     await expect(page.getByText("归组待启动（尚未超时）", { exact: false })).toBeVisible();
+    await expect(page.getByText("归组队列正在等待 Worker 消费", { exact: false })).toBeVisible();
+    await expect(page.getByText("归组正在执行", { exact: true })).toBeVisible();
     await expect(page.getByText("精选去重 · 尚未完成")).toBeVisible();
     await expect(page.getByText("共 33 条 · 第 1/2 页")).toBeVisible();
     await expect(page.getByText("待去重精选 1", { exact: true })).toBeVisible();
