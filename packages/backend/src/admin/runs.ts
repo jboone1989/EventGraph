@@ -219,8 +219,8 @@ export async function runsOverview(): Promise<Runs> {
       -- never requeue more articles than this error group tells the operator.
       SELECT ${failureGroupSql("a.processing_error")} AS error, count(*)::int AS n, max(a.discovered_at) AS last,
              (array_agg(a.id ORDER BY a.discovered_at DESC))[1] AS example
-      FROM articles a
-      WHERE a.processing_state = 'failed'
+      FROM articles a JOIN sources s ON s.id = a.source_id
+      WHERE a.processing_state = 'failed' AND NOT a.backfill AND s.participation_mode = 'editorial'
         AND (a.discovered_at >= ${utcDayStart()} OR
           (a.updated_at >= ${utcDayStart()} AND EXISTS
             (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
