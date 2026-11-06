@@ -13,9 +13,7 @@ export async function waitingSelectedNews(period: 'rolling-24h' | 'utc-day' = 'r
   const rows = await sql<Array<Omit<WaitingNews, "recovery"> & { running: boolean; receipt_status: string | null; released: boolean }>>`
     SELECT p.article_id AS "articleId", p.title,
            -- Waiting since it became a candidate, its last revision or an admin's regroup request (requestRegroup's job).
-           greatest(coalesce(p.selected_ready_at, p.discovered_at), revision.created_at,
-                    (SELECT max(j.created_on) FROM pgboss.job j WHERE j.name = 'events.group' AND j.data->>'articleId' = a.id
-                       AND j.singleton_key LIKE 'manual:group:%')) AS since,
+           group_wait.since,
            a.grouping_status = 'failed' AS failed, a.grouping_receipt_id AS "receiptId", a.grouping_error AS error,
            r.status AS receipt_status,
            EXISTS (SELECT 1 FROM pgboss.job j WHERE j.name = 'events.group' AND j.state IN ('created', 'retry', 'active')
@@ -24,9 +22,15 @@ export async function waitingSelectedNews(period: 'rolling-24h' | 'utc-day' = 'r
                    AND attempt.error LIKE ${AUTO_RELEASE_NOTE + "%"}) AS released
     FROM publications p JOIN articles a ON a.id = p.article_id LEFT JOIN receipts r ON r.id = a.grouping_receipt_id
     LEFT JOIN article_revisions revision ON revision.article_id = a.id AND revision.revision = a.revision
+    CROSS JOIN LATERAL (
+      SELECT greatest(coalesce(p.selected_ready_at, p.discovered_at), revision.created_at,
+        (SELECT max(j.created_on) FROM pgboss.job j WHERE j.name = 'events.group'
+           AND j.data->>'articleId' = a.id AND j.singleton_key LIKE 'manual:group:%')) AS since
+    ) group_wait
     WHERE p.selection_candidate AND p.eligible AND p.visibility = 'public' AND a.grouping_status <> 'complete'
-      AND greatest(a.discovered_at, a.updated_at) >= ${cutoff}
-    ORDER BY since, p.article_id`;
+      -- A routine article.updated_at change must not revive yesterday's grouping diagnostic.
+      AND group_wait.since >= ${cutoff}
+    ORDER BY group_wait.since, p.article_id`;
   return rows.map(({ running, receipt_status, released, ...row }) => ({
     ...row,
     recovery: receipt_status === "unknown" ? (released ? "manual" : "receipt")
