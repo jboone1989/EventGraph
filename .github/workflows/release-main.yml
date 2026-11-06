@@ -92,7 +92,8 @@ jobs:
               run_id="${BASH_REMATCH[1]}"
               run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")" || continue
               if jq -e --arg sha "$SOURCE_SHA" '
-                .path == ".github/workflows/release-develop.yml" and
+                (.path == ".github/workflows/release-develop.yml" or
+                 (.path | endswith("/.github/workflows/release-develop.yml"))) and
                 .event == "workflow_dispatch" and .head_branch == "develop" and
                 .head_sha == $sha
               ' <<< "$run_json" >/dev/null; then
