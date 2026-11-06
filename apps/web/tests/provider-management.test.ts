@@ -139,8 +139,8 @@ test("model rows without probe show actionable test feedback without modifying o
   browser=await chromium.launch({channel:"chromium"});
   const page=await browser.newPage();
   await page.goto(web.origin+"/admin/models");
-  await page.getByRole("button",{name:"测试",exact:true}).click();
-  await expect(page.getByRole("status").filter({hasText:"未配置测试请求"})).toBeVisible();
+  await expect(page.getByRole("button",{name:"暂不支持测试"})).toBeDisabled();
+  await expect(page.getByText("未配置测试请求")).toHaveCount(0);
   await expect(page.getByText("custom-model",{exact:true})).toBeVisible();
  }finally{await browser?.close();await web.stop();}
 });
