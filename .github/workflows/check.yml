@@ -330,6 +330,7 @@ jobs:
       - name: Browser checks
         run: |
           docker run --rm --init --ipc=host --network host \
+            --user "$(id -u):$(id -g)" -e HOME=/tmp \
             -v "$PWD:/work" -w /work -e E2E_BASE_URL -e E2E_SEEDED -e CI=true \
             mcr.microsoft.com/playwright:v1.61.1-noble \
             npm run e2e
