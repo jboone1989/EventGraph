@@ -667,8 +667,14 @@
 .lr-night-head, .lr-graph-topline, .lr-graph-bottomline { display: flex; justify-content: space-between; gap: 12px; align-items: center; font: 500 10.5px var(--font-mono); letter-spacing: .1em; color: var(--night-ink-3); }
 .lr-night-head { padding: 14px 18px 0; text-transform: uppercase; }
 
-/* Home: pulse strip. */
-.lr-pulse-strip { display: flex; margin-bottom: 16px; border-radius: var(--radius-sheet); background: var(--surface); box-shadow: var(--shadow-card); border: 1px solid var(--line-soft); overflow: hidden; }
+/* Home: pulse strip. Keep its horizontal swipe inside the viewport on phones. */
+.lr-home { min-width: 0; max-width: 100%; }
+@media (max-width: 760px) {
+  /* Keep the news strip's scrollable content from widening the document while
+     retaining the 16px edge-bleed used by the phone bar and day headers. */
+  .lr-home { overflow-x: clip; overflow-clip-margin: max(var(--gutter-l), var(--gutter-r)); }
+}
+.lr-pulse-strip { display: flex; width: 100%; min-width: 0; max-width: 100%; margin-bottom: 16px; border-radius: var(--radius-sheet); background: var(--surface); box-shadow: var(--shadow-card); border: 1px solid var(--line-soft); overflow: hidden; }
 .lr-pulse-strip > div { flex: 1; min-width: 0; display: grid; padding: 11px 16px; border-left: 1px solid var(--line-soft); }
 .lr-pulse-strip > div:first-child { border-left: 0; }
 .lr-pulse-strip > div.is-split { border-left: 1px solid var(--line); }
