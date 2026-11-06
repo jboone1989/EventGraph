@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import os
 
+from embedding_batches import embedding_batches
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from graphiti_core import Graphiti
@@ -28,13 +30,16 @@ class GraphitiEmbedder(OpenAIEmbedder):
         return self._dimension_checked(r.data[0].embedding)
 
     async def create_batch(self, texts):
-        if not texts:
-            return []
-        r = await self.client.embeddings.create(
-            model=self.config.embedding_model, input=texts,
-            extra_body={"input_type": "passage"},
-        )
-        return [self._dimension_checked(item.embedding) for item in r.data]
+        vectors = []
+        for batch in embedding_batches(texts):
+            r = await self.client.embeddings.create(
+                model=self.config.embedding_model, input=batch,
+                extra_body={"input_type": "passage"},
+            )
+            if len(r.data) != len(batch):
+                raise ValueError("Graphiti embedding response count mismatch")
+            vectors.extend(self._dimension_checked(item.embedding) for item in r.data)
+        return vectors
 
 
 class Episode(BaseModel):
