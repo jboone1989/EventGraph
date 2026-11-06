@@ -19,6 +19,8 @@ export const EDITION_WHEN = {
 export const SITE = {
   /** 站名：导航、页面标题、分享图、RSS、MCP、后台都用它。 */
   name: "EventGraph",
+  /** Optional site-specific dashboard URL, no Cloudflare account IDs in shared UI. */
+  cloudflareAnalyticsUrl: "https://dash.cloudflare.com/68a620fd4773a257c4a6738add2c8fbe/livingruntime.com/analytics/requests" as string | null,
   /** Public GitHub Discussions identity for the optional giscus reader module. Category ID is a build variable. */
   discussions: { repo: "jboone1989/EventGraph", repoId: "R_kgDOVHEeYA" },
   /**
