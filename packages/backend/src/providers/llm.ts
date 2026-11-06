@@ -182,7 +182,8 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
         if (!selected.startsWith('model:')) throw error;
         if (refused) rejectedModel = selected;
         excluded.add(selected.slice(6));
-        await coolDownReference(selected, quota || error instanceof ProviderRejectedError && error.status === 429 ? 60 : staleProbe ? 300 : 30);
+        const cooldownSeconds = (quota || (error instanceof ProviderRejectedError && error.status === 429)) ? 60 : staleProbe ? 300 : 30;
+        coolDownReference(selected, cooldownSeconds);
       }
     }
   }
