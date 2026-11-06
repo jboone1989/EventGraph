@@ -57,6 +57,7 @@ jobs:
       contents: read
       packages: read
       checks: read
+      actions: read
     outputs:
       image_ref: ${{ steps.pin.outputs.image_ref }}
     steps:
@@ -79,10 +80,31 @@ jobs:
           node scripts/ci/promotion-source-equivalence.mjs "$SOURCE_SHA" HEAD
           gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100" \
             --jq '.check_runs[] | select(.conclusion == "success") | .name' > "$RUNNER_TEMP/develop-checks"
-          grep -Fxq 'release_develop / publish' "$RUNNER_TEMP/develop-checks" || {
-            echo '::error::Pinned source must have passed the current develop publish job'
-            exit 1
-          }
+          if ! grep -Fxq 'release_develop / publish' "$RUNNER_TEMP/develop-checks"; then
+            # A manually recovered develop image uses the same tested build/smoke
+            # job but its GitHub check-run is named "publish" without a caller prefix.
+            # Verify the successful check belongs to the expected workflow and SHA.
+            manual_urls="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100" \
+              --jq '.check_runs[] | select(.name == "publish" and .conclusion == "success" and .app.slug == "github-actions") | .details_url')"
+            manual_verified=false
+            while IFS= read -r details; do
+              [[ "$details" =~ /actions/runs/([0-9]+)/job/[0-9]+ ]] || continue
+              run_id="${BASH_REMATCH[1]}"
+              run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")" || continue
+              if jq -e --arg sha "$SOURCE_SHA" '
+                .path == ".github/workflows/release-develop.yml" and
+                .event == "workflow_dispatch" and .head_branch == "develop" and
+                .head_sha == $sha
+              ' <<< "$run_json" >/dev/null; then
+                manual_verified=true
+                break
+              fi
+            done <<< "$manual_urls"
+            [[ "$manual_verified" == true ]] || {
+              echo '::error::Pinned source has no verified automatic or manual develop publish'
+              exit 1
+            }
+          fi
           echo "image_ref=$IMAGE_REF" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR (read only)
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
