@@ -96,7 +96,7 @@ export function LeadStory({ news, storyGraph, overview }: { news: HeroNews | nul
             </h1>
             {summary && <p className="lr-lead-sum">{summary}</p>}
             <div className="lr-lead-facts">
-              <span>{t("来源：", "Source: ")}<b>{lang === "zh" ? item.source.name : englishSourceName(item.source.name)}</b></span>
+              <span>{t("来源：", "Source: ")}<b>{lang === "zh" ? item.source.name : englishSourceName(item.source.name, item.links?.original)}</b></span>
               {published && item.publishedAt && <time dateTime={item.publishedAt}>{published}</time>}
               {own && <span><b className="mono">{storyGraph.edges.length}</b> {t("条图谱关系", "graph relations")}</span>}
               <IntentLink viewTransition to={link} className="lr-lead-more">{t("阅读新闻", "Read report")} <IconArrowRight size={14} /></IntentLink>
