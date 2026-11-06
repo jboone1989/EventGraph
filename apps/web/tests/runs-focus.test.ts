@@ -56,7 +56,7 @@ test("runs page shows actionable backlog, every grouping item through pagination
     await expect(page.getByText("模型/Provider 错误，等待重试", { exact: true })).toBeVisible();
     await expect(page.getByText("Provider HTTP 429 rate limit", { exact: false })).toBeVisible();
     await expect(page.getByText("新闻处理最终失败", { exact: true })).toBeVisible();
-    await expect(page.getByText("归组未完成，当前仍由系统负责", { exact: false })).toBeVisible();
+    await expect(page.getByText("归组待启动（尚未超时）", { exact: false })).toBeVisible();
     await expect(page.getByText("精选去重 · 尚未完成")).toBeVisible();
     await expect(page.getByText("共 33 条 · 第 1/2 页")).toBeVisible();
     await expect(page.getByText("待去重精选 1", { exact: true })).toBeVisible();
