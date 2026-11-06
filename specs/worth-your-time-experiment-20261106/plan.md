@@ -29,6 +29,12 @@ Humans read original works and contribute feedback
 
 EventGraph's existing news/public facts are an optional research input to Ferro, not its only input. Ferro may discover outside works (videos, articles, art) with its existing capabilities. **No automatic value scorer is hosted in EventGraph. No fixed daily quota or recommender.**
 
+## Shared Ferro content contract (2026-11-06 owner decision)
+
+Ferro already operates as a channel-independent Content Agent in `jboone1989/wechat-traffic-agent` (`ARCHITECTURE.md`, `docs/CONTENT_AGENT_PLAN.md`). `fun`, `research` and `worth` are typed outputs of **one source-to-evidence-to-authoring-to-feedback loop**, not three EventGraph workers. Existing `modules/research` is the source of truth for research articles; fun's site-specific public surface belongs to `specs/fun-independent-editorial-distribution-20261106` (Draft PR #434). Ferro-side delivery and evidence learning are now scoped in Ferro Issue [#297](https://github.com/jboone1989/wechat-traffic-agent/issues/297), reusing Ferro's PRs #296/#288 rather than introducing a new crawler.
+
+**Exactly one common authorized author submission mechanism** should be reused for all authored content kinds. This Worth Spec owns its own case representation and anonymized feedback aggregation, *not* another generic credential/service/author endpoint when the fun/research interface already provides it. Integration sequence can be staged with current admin-mediated publication; do not mark automatic Ferro delivery complete until the real shared interface is available and exercised. Neither Spec creates an independent content Agent.
+
 ## Search Before Build: concrete evidence
 
 1. `docs/product-thesis.md` explicitly separates EventGraph's sourced facts and public knowledge from Ferro/other authors' independent hypotheses. It also rules out another Agent runtime and another database/graph engine for unproven needs.
