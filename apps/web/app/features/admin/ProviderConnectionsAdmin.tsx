@@ -222,7 +222,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
      const status=latest?.status??record?.status;
      return <div className="flex flex-wrap items-center gap-1">
       <Button size="sm" disabled={busy||!!testing[m.id]} onClick={()=>{setProblem(null);setEditor(m);}}>编辑</Button>
-      <Button size="sm" disabled={!!testing[m.id]} onClick={()=>testModel(m)}>{testing[m.id]?"测试中…":"测试"}</Button>
+      <Button size="sm" disabled={!m.probeSpec||!!testing[m.id]} onClick={()=>testModel(m)}>{testing[m.id]?"测试中…":!m.probeSpec?(m.adapter==="special"?"暂不支持测试":"未配置测试"):"测试"}</Button>
       {status&&<Badge tone={status==="verified"?"ok":status==="unverified"?"muted":"bad"}>
        {status==="verified"?"通过":status==="unverified"?"待测":"失败"}</Badge>}
       <Button size="sm" disabled={busy||!!testing[m.id]} onClick={()=>{setProblem(null);setDeleting(m);}}>删除</Button>
