@@ -8,10 +8,14 @@ import type {ConnectionInput,ModelInput} from '@aihot/backend/providers/registry
 import {discoverModels,testConnection,testRegisteredModel} from '@aihot/backend/providers/registry/runtime';
 import {importModels} from '@aihot/backend/providers/registry/import';
 import {syncOpenRouterFreeModels} from '@aihot/backend/providers/registry/openrouter-free-sync';
+import {syncFreePool} from '@aihot/backend/providers/registry/free-provider-sync';
 import {adminHandler} from './admin-auth.ts';
 import {body,param} from './admin.ts';
 
 export function registerProviderConnections(app:FastifyInstance) {
+ app.post('/api/admin/providers/:id/free-catalog/sync',adminHandler(async(req,_reply,admin)=>
+  syncFreePool(param(req,'id'),actorOf(admin),body<{confirmFreeTier?:boolean}>(req).confirmFreeTier===true)));
+
  app.post('/api/admin/providers/:id/openrouter-free/sync',adminHandler(async(req,_reply,admin)=>
   syncOpenRouterFreeModels(param(req,'id'),actorOf(admin))));
  // Explicit operator refresh: no polling, notifications or automatic sync.
