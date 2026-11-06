@@ -1,5 +1,4 @@
 import {randomUUID} from 'node:crypto';
-import {complexityFromModelId} from '@aihot/contracts/providers';
 import {classifyOpenRouterFreeCatalog} from './openrouter-free-catalog.ts';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
