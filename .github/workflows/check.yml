@@ -508,11 +508,16 @@ jobs:
   release_develop:
     name: release_develop # 开发发布调用入口；保持生产镜像核验所用的状态名称
     needs: [changes, check, e2e]
+    # The optional spec-review is skipped on develop pushes. Without an explicit
+    # status function, GitHub's implicit success() also checks skipped ancestors
+    # and silently suppresses this deploy despite successful check + e2e.
     if: >-
-      ${{ (github.event_name == 'push' ||
+      ${{ always() &&
+          (github.event_name == 'push' ||
            (github.event_name == 'workflow_dispatch' &&
             inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
           github.ref_name == 'develop' &&
+          needs.changes.result == 'success' &&
           needs.changes.outputs.docs_only != 'true' &&
           needs.check.result == 'success' &&
           needs.e2e.result == 'success' }}
