@@ -223,6 +223,12 @@ jobs:
       SESSION_SECRET: ci-session-secret-0123456789abcdef
       IMG_PROXY_SIGN_SECRET: ci-img-secret-0123456789abcdef
     steps:
+      - name: Require Spec review before green required check
+        if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.docs_only == 'true' && needs.changes.outputs.spec_changed == 'true' }}
+        env:
+          SPEC_REVIEW_RESULT: ${{ needs.spec_review.result }}
+        run: |
+          [[ "$SPEC_REVIEW_RESULT" == success ]] || { echo "::error::Spec Review failed or skipped"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -677,6 +683,7 @@ jobs:
           github.event.pull_request.base.ref == 'develop' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
           github.event.pull_request.draft == false &&
+          needs.changes.outputs.spec_changed != 'true' &&
           needs.changes.result == 'success' &&
           needs.check.result == 'success' &&
           (needs.docker.result == 'success' || (needs.changes.outputs.docs_only == 'true' && needs.docker.result == 'skipped')) &&
