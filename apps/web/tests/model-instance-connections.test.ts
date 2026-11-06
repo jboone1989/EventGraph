@@ -49,8 +49,8 @@ test("same-name models on separate Groq connections remain distinguishable and s
   await page.goto(web.origin+"/admin/models");
   await expect(page.getByText(modelA,{exact:true})).toBeVisible();
   await expect(page.getByText(modelB,{exact:true})).toBeVisible();
-  await expect(page.getByText("Groq-A · Groq",{exact:true})).toBeVisible();
-  await expect(page.getByText("Groq-B · Groq",{exact:true})).toBeVisible();
+  await expect(page.getByRole("cell",{name:"Groq-A · Groq",exact:true})).toBeVisible();
+  await expect(page.getByRole("cell",{name:"Groq-B · Groq",exact:true})).toBeVisible();
   const search=page.getByLabel("搜索模型");
   await search.fill("Groq-B");
   await expect(page.getByText(modelB,{exact:true})).toBeVisible();
