@@ -59,7 +59,7 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
   else {
     if (!worker || !worker.alive) failures.push({ label: "Worker 心跳缺失或中断", to: "/admin/runs" });
     if (runs.currentNews.failed > 0) failures.push({ label: `${num(runs.currentNews.failed)} 条当前新闻处理失败`, to: "/admin/runs" });
-    if (runs.articleProcessing.unavailableModel > 0) failures.push({ label: `${num(runs.articleProcessing.unavailableModel)} 条UTC 今日新新闻存在模型路由错误记录（与等待/失败重叠）`, to: "/admin/models" });
+    if (runs.articleProcessing.unavailableModel > 0) failures.push({ label: `${num(runs.articleProcessing.unavailableModel)} 条 UTC 今日新新闻存在模型路由错误记录（与等待/失败重叠）`, to: "/admin/models" });
     if ((failedSchedules?.length ?? 0) > 0) failures.push({ label: `${num(failedSchedules!.length)} 个定时任务最近一次运行失败`, to: "/admin/runs" });
     if (runs.lagging.length > 0) failures.push({ label: `${num(runs.lagging.length)} 个信源采集异常或延迟`, to: "/admin/sources" });
   }
@@ -136,7 +136,7 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
         </Card>
         <Card title="最近失败的作业" right={runs && <span className="text-[12px] text-ink-4">UTC 今日</span>}>
           {!runs ? <p className="text-[13px] text-amber">未获取运行数据</p> :
-            runs.failedJobs.length === 0 ? <p className="text-[13px] text-ink-3">未记录UTC 今日的失败作业。</p> :
+            runs.failedJobs.length === 0 ? <p className="text-[13px] text-ink-3">未记录 UTC 今日的失败作业。</p> :
             <ul className="divide-y divide-line">
               {runs.failedJobs.slice(0,6).map(j => (
                 <li key={j.name} className="py-2.5 first:pt-0">
