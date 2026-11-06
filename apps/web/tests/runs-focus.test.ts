@@ -4,20 +4,28 @@ import { test } from "node:test";
 import { chromium, expect } from "@playwright/test";
 import { startWebServer } from "./web-server.ts";
 
-test("runs page prioritizes active problems while retaining detailed diagnostics", async () => {
+test("runs page shows actionable backlog, every grouping item through pagination, and no raw diagnostic KPI noise", async () => {
   const now = new Date().toISOString();
+  const grouped = Array.from({ length: 33 }, (_, i) => ({
+    articleId: `selected-${i + 1}`, title: `待去重精选 ${i + 1}`, since: now,
+    failed: false, recovery: "automatic", receiptId: null, error: null,
+  }));
   const runs = {
     checkedAt: now,
     processes: [{ role: "worker", pid: 123, host: "worker-1", release: "dev", startedAt: now, at: now, alive: true }],
-    jobs: [{ job: "reports.compose", started_at: now, finished_at: now, status: "failed", error: "Failed composing report", failed_24h: 1, runs_24h: 1 }], timeline: [], queues: [{ name: "cron.reports.compose", state: "retry", n: 31, oldest: now }],
+    jobs: [{ job: "reports.compose", started_at: now, finished_at: now, status: "failed", error: "Report failed", failed_today: 1, runs_today: 1 }],
+    timeline: Array.from({ length: 80 }, (_, i) => ({ id: i, job: "unused", started_at: now, status: "ok" })),
+    queues: [{ name: "cron.reports.compose", state: "retry", n: 31, oldest: now }],
     articleProcessing: { waiting: 4, retrying: 3, failed: 2, filtered: 7, unavailableModel: 0 },
     live24h: { discovered: 25, analyzed: 14, grouped: 12, waiting: 6, failed: 2, filtered: 7, stalled: 3, newestAt: now },
     legacyUnresolved: 2,
     currentNews: { pending: 4, processing: 2, failed: 2 },
     failedJobs: [{ name: "cron.reports.compose", failed: 4, last: now, last_output: "Provider HTTP 500" }],
-    grouping: { waiting: 0, needsAttention: 0, items: [] },
-    lagging: [], receipts: { counts: {}, unknownTotal: 0, issues: [] }, deliveries: [], errors: [],
+    grouping: { waiting: grouped.length, needsAttention: 10, items: grouped },
+    lagging: [], receipts: { counts: {}, unknownTotal: 0, issues: [] }, deliveries: [],
+    errors: [{ error: "Temporary model error", n: 2, last: now, example: "article-1" }],
     retrying: { count: 3, next: now }, ingest: [], modules: {},
+    routingEffect: { attempts: 200, successful: 111, failed: 89, unknown: 0, pending: 0, fallbackSuccess: 1, p95Ms: 1200, providers: [], stages: [] },
   };
   const api = createServer((req, res) => {
     const path = new URL(req.url!, "http://api.local").pathname;
@@ -35,35 +43,30 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const res = await page.goto(web.origin + "/admin/runs");
     assert.equal(res?.status(), 200);
-    await expect(page.getByText("新闻处理 · 当前队列（UTC）", { exact: true })).toBeVisible();
+    await expect(page.getByText("新闻处理 · 当前队列", { exact: true })).toBeVisible();
     await expect(page.getByText("待处理", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("失败新闻 2", { exact: true })).toBeVisible();
-    await expect(page.getByText("定时任务最近失败 1")).toBeVisible();
-    await expect(page.getByText("每天 UTC 00:00 清空未完成项", { exact: false })).toBeVisible();
-    await expect(page.getByText("实时积压只按当前 UTC 日", { exact: false })).toBeVisible();
-    const navBadge = page.locator('aside a[href="/admin/runs"] span[title="当前 UTC 日未完成新闻（按篇计数）"]');
-    await expect(navBadge).toHaveText("5");
-    await expect(navBadge).toHaveClass(/bg-bg-sunk/);
     await expect(page.getByText("处理中", { exact: true }).first()).toBeVisible();
-    const queue = page.locator("#runs-queues");
-    const news = page.locator("#runs-news");
-    await page.getByRole("link", { name: "新闻处理" }).click();
-    await expect(news).toHaveJSProperty("open", true);
-    await expect(page.getByText("新新闻只处于待处理、处理中或失败三类之一。", { exact: false })).toBeVisible();
-    const problems = page.locator("#runs-issues");
-    await expect(queue).toHaveJSProperty("open", false);
-    await expect(problems).toHaveJSProperty("open", false);
-    await page.locator('a[href="#runs-issues"]').first().click();
-    await expect(problems).toHaveJSProperty("open", true);
-    await expect(page.getByText("Provider HTTP 500")).toBeVisible();
-    await page.locator('a[href="#runs-queues"]').first().click();
-    await expect(queue).toHaveJSProperty("open", true);
-    await expect(page.getByText("cron.reports.compose").first()).toBeVisible();
+    await expect(page.getByText("失败新闻 2 条")).toBeVisible();
+    await expect(page.getByText("Worker 运行中")).toBeVisible();
+    await expect(page.getByText("精选去重 · 尚未完成")).toBeVisible();
+    await expect(page.getByText("共 33 条 · 第 1/2 页")).toBeVisible();
+    await expect(page.getByText("待去重精选 1", { exact: true })).toBeVisible();
+    await expect(page.getByText("待去重精选 21", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "下一页" }).click();
+    await expect(page.getByText("共 33 条 · 第 2/2 页")).toBeVisible();
+    await expect(page.getByText("待去重精选 33", { exact: true })).toBeVisible();
+    await expect(page.getByText("待去重精选 1", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("今日失败的定时任务", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("Report failed", { exact: true })).toBeVisible();
+    for (const removed of ["新闻队列说明 · UTC 当天", "队列与定时任务 · 技术诊断", "今日记录与诊断", "模型请求诊断"]) {
+      await expect(page.getByText(removed, { exact: true })).toHaveCount(0);
+    }
+    await expect(page.getByText("55.5%", { exact: true })).toHaveCount(0);
     await page.clock.install();
     await page.clock.runFor(20_100);
-    await expect(queue).toHaveJSProperty("open", true);
-    await queue.locator("summary").click();
-    await expect(queue).toHaveJSProperty("open", false);
+    await expect(page.getByText("待去重精选 33", { exact: true })).toBeVisible();
+    const navBadge = page.locator('aside a[href="/admin/runs"] span[title="当前 UTC 日未完成新闻（按篇计数）"]');
+    await expect(navBadge).toHaveText("5");
   } finally {
     await browser.close();
     await web.stop();
