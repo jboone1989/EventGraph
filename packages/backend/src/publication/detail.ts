@@ -28,6 +28,7 @@ export type DetailResult =
 
 /** An English page is indexed when its report is one of several on its event: the page then has an event to stand in. */
 
+/** Use the saved bilingual analysis on any public report; legacy receipts remain source-language only. */
 async function loadRow(id: string, language: "zh" | "original" = "zh", explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
