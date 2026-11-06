@@ -418,7 +418,7 @@ jobs:
           needs.docker.result == 'success' &&
           needs.e2e.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
       pull-requests: write
@@ -494,7 +494,7 @@ jobs:
             END UNTRUSTED DIFF
           claude_args: >-
             --disallowedTools mcp__*
-            --max-turns 2
+            --max-turns 4
       - name: 校验第一次代码审核结果
         id: review_validation
         env:
@@ -527,7 +527,7 @@ jobs:
             END PREVIOUS VERDICT
           claude_args: >-
             --disallowedTools mcp__*
-            --max-turns 1
+            --max-turns 4
 
       - name: 发布评审结论并阻止有明确缺陷的 PR 合并
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
