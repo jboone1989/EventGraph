@@ -20,6 +20,10 @@ test("runs page shows actionable backlog, every grouping item through pagination
     live24h: { discovered: 25, analyzed: 14, grouped: 12, waiting: 6, failed: 2, filtered: 7, stalled: 3, newestAt: now },
     legacyUnresolved: 2,
     currentNews: { pending: 4, processing: 2, failed: 2 },
+    backlogCauses: [
+      { kind: "provider_retry", count: 3, oldest: now, exampleArticleId: "article-2", exampleError: "Provider HTTP 429 rate limit", nextRetryAt: now },
+      { kind: "article_failed", count: 2, oldest: now, exampleArticleId: "article-1", exampleError: "No eligible configured model", nextRetryAt: null },
+    ],
     failedJobs: [{ name: "cron.reports.compose", failed: 4, last: now, last_output: "Provider HTTP 500" }],
     grouping: { waiting: grouped.length, needsAttention: 10, items: grouped },
     lagging: [], receipts: { counts: {}, unknownTotal: 0, issues: [] }, deliveries: [],
@@ -48,6 +52,11 @@ test("runs page shows actionable backlog, every grouping item through pagination
     await expect(page.getByText("处理中", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("失败新闻 2 条")).toBeVisible();
     await expect(page.getByText("Worker 运行中")).toBeVisible();
+    await expect(page.getByText("积压原因诊断", { exact: true })).toBeVisible();
+    await expect(page.getByText("模型/Provider 错误，等待重试", { exact: true })).toBeVisible();
+    await expect(page.getByText("Provider HTTP 429 rate limit", { exact: false })).toBeVisible();
+    await expect(page.getByText("新闻处理最终失败", { exact: true })).toBeVisible();
+    await expect(page.getByText("归组未完成，当前仍由系统负责", { exact: false })).toBeVisible();
     await expect(page.getByText("精选去重 · 尚未完成")).toBeVisible();
     await expect(page.getByText("共 33 条 · 第 1/2 页")).toBeVisible();
     await expect(page.getByText("待去重精选 1", { exact: true })).toBeVisible();
