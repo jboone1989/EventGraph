@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto';
+import {randomUUIDv7} from 'node:crypto';
 import {classifyOpenRouterFreeCatalog} from './openrouter-free-catalog.ts';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
@@ -40,7 +40,7 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
    const metadata=tx.json({openrouterFreeSync:{free:true,checkedAt:timestamp,adapter:model.adapter}});
    await tx`INSERT INTO registered_models
     (id,provider_id,model_id,adapter,capabilities,probe_spec,enabled,route_enabled,billing,upstream_metadata,updated_by)
-    VALUES (${randomUUID()}::uuid,${providerId}::uuid,${modelId},${model.adapter},${tx.json(model.capabilities)},
+    VALUES (${randomUUIDv7()}::uuid,${providerId}::uuid,${modelId},${model.adapter},${tx.json(model.capabilities)},
       ${model.probe?tx.json(model.probe):null},
       ${model.adapter!=='special'},false,'free',${metadata},${actor})
     ON CONFLICT(provider_id,model_id) DO UPDATE SET
