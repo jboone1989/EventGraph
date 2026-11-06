@@ -228,3 +228,15 @@ test("workflow_dispatch without a base cannot classify only HEAD^ and skip execu
   assert.ok(docsStep.includes("Cannot validate documentation without a trusted base commit"));
   assert.ok(!docsStep.includes("git rev-parse HEAD^"));
 });
+
+
+test("develop release manual recovery remains exact-SHA gated after real checks", () => {
+  const workflow = readFileSync(resolve(".github/workflows/check.yml"), "utf8");
+  const release = workflow.split("\n  release_develop:\n")[1]?.split("\n  claude_review:\n")[0];
+  assert.ok(release, "release_develop job missing");
+  assert.match(release, /always\(\)/);
+  assert.match(release, /needs\.check\.result == 'success'/);
+  assert.match(release, /needs\.e2e\.result == 'success'/);
+  assert.match(release, /inputs\.expected_sha == github\.sha/);
+  assert.match(release, /github\.event_name == 'push' && needs\.changes\.outputs\.docs_only != 'true'/);
+});
