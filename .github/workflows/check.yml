@@ -507,14 +507,18 @@ jobs:
   release_develop:
     name: release_develop # 开发发布调用入口；保持生产镜像核验所用的状态名称
     needs: [changes, check, e2e]
+    # An explicit exact-SHA dispatch is a deliberate recovery release even when
+    # change-scope detection has no push base. Still require real CI and E2E.
+    # always() makes skipped upstream jobs explicit rather than implicit gating.
     if: >-
-      ${{ (github.event_name == 'push' ||
-           (github.event_name == 'workflow_dispatch' &&
-            inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
+      ${{ always() &&
           github.ref_name == 'develop' &&
-          needs.changes.outputs.docs_only != 'true' &&
+          needs.changes.result == 'success' &&
           needs.check.result == 'success' &&
-          needs.e2e.result == 'success' }}
+          needs.e2e.result == 'success' &&
+          ((github.event_name == 'push' && needs.changes.outputs.docs_only != 'true') ||
+           (github.event_name == 'workflow_dispatch' &&
+            inputs.expected_sha != '' && inputs.expected_sha == github.sha)) }}
     permissions:
       contents: read
       packages: write
