@@ -540,16 +540,15 @@ jobs:
             echo "::notice::History-preserving sync PR; skip squash auto-merge"
             exit 0
           fi
-          # Strict develop rules require an up-to-date branch. Updating creates a
-          # new PR head and a fresh CI run; never merge using the old verdict.
-          if jq -e '.mergeable_state == "behind"' <<< "$pr" >/dev/null; then
-            gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
-              -f expected_head_sha="$EXPECTED_HEAD" >/dev/null
-            echo "Updated PR branch; the next exact-head CI run will decide auto-merge"
+          # Auto-merge can already be enabled for a behind PR. Never attempt a
+          # workflow-file update with the token before checking that condition:
+          # GitHub rejects such updates without a separate workflow scope.
+          if jq -e '.auto_merge != null' <<< "$pr" >/dev/null; then
+            echo "Auto-merge already enabled; the exact-head review gate succeeded"
             exit 0
           fi
-          if jq -e '.auto_merge != null' <<< "$pr" >/dev/null; then
-            echo "Auto-merge already enabled"
+          if jq -e '.mergeable_state == "behind"' <<< "$pr" >/dev/null; then
+            echo "::notice::Branch is behind develop; requires an updated branch and a fresh CI verdict"
             exit 0
           fi
           gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash
