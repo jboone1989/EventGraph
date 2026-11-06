@@ -428,9 +428,11 @@ test("a single analyze_article response accepts both language explanations and r
     explanationEn: { what: "The announcement describes new financing terms.", soWhat: "The financing structure changes.", watchpoints: [] },
   });
   assert.equal(AnalyzeOnceSchema.safeParse(bilingual).success, true);
-  assert.equal(AnalyzeOnceSchema.safeParse({
+  const malformed = AnalyzeOnceSchema.parse({
     ...bilingual, explanationEn: { what: "This description includes 中文.", watchpoints: [] },
-  }).success, false, "Chinese text cannot be silently stored as an English explanation");
+  });
+  assert.equal(malformed.explanationEn, null, "invalid English explanation is dropped without rejecting valid article analysis");
+  assert.ok(malformed.explanationZh?.what, "valid Chinese explanation is preserved");
 });
 
 test("the saved bilingual single-pass analysis appears in both editions of an ordinary non-selected news page", async () => {
