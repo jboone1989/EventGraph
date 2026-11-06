@@ -208,12 +208,11 @@ export async function runsOverview(): Promise<Runs> {
     sql<Runs["receipts"]["issues"]>`
       SELECT id, service, model, purpose, subject, status, attempts, left(error, 240) AS error, created_at, updated_at FROM receipts
       WHERE status = 'unknown' OR (status = 'pending' AND updated_at < now() - interval '15 minutes')
-        OR (status = 'failed' AND created_at >= ${utcDayStart()})
+        OR (status = 'failed' AND updated_at >= ${utcDayStart()})
       ORDER BY status = 'unknown' DESC, updated_at DESC, id DESC LIMIT 40`,
     sql<Runs["deliveries"]>`
       SELECT id, target_key, subject_kind, subject_id, status, attempts, left(response, 240) AS response, created_at, updated_at FROM deliveries
-      WHERE status = 'unknown' OR (status = 'sending' AND updated_at < now() - interval '15 minutes')
-        OR (status = 'failed' AND created_at >= ${utcDayStart()})
+      WHERE status IN ('unknown', 'failed') OR (status = 'sending' AND updated_at < now() - interval '15 minutes')
       ORDER BY status = 'unknown' DESC, updated_at DESC, id DESC LIMIT 40`,
     sql<Runs["errors"]>`
       -- Match the exact eligibility set used by requeueFailed; the action must
