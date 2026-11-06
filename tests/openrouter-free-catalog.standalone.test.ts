@@ -58,3 +58,32 @@ test('catalog rows without endpoint paths classify by output modality instead',(
  assert.equal(r.models[1]?.probe?.response,'embedding');
  assert.equal(r.models.filter(m=>m.id==='openrouter/free').length,1);
 });
+
+
+test('paid video and other output prices are never classified as free, even with zero token rates',()=>{
+ const data=[
+  {...model('runway/gen-4.5',['/api/v1/videos'],['video']),pricing:{prompt:'0',completion:'0',video_output:'0.12'}},
+  {...model('paid/audio',['/api/v1/audio/speech'],['audio']),pricing:{prompt:'0',completion:'0',audio_output:'0.02'}},
+  {...model('paid/image',['/api/v1/images'],['image']),pricing:{prompt:'0',completion:'0',image_output:'0.01'}},
+  {...model('paid/cache',['/api/v1/chat/completions'],['text']),pricing:{prompt:'0',completion:'0',input_cache_write:'0.002'}},
+  {...model('paid/search',['/api/v1/chat/completions'],['text']),pricing:{prompt:'0',completion:'0',web_search:'0.01'}},
+  {...model('free/media',['/api/v1/videos'],['video']),pricing:{prompt:'0',completion:'0',video_output:'0'}},
+  {...model('free/audio',['/api/v1/audio/speech'],['audio']),pricing:{prompt:'0',completion:'0',audio_output:'0'}},
+ ];
+ const result=classifyOpenRouterFreeCatalog(data);
+ assert.deepEqual(result.models.map(m=>m.id),['free/media','free/audio','openrouter/free']);
+ assert.equal(result.other,2);
+});
+
+test('conditional paid overrides, unquoted video rates and missing pricing do not enter free pool',()=>{
+ const rows=[
+  {...model('paid/override',['/api/v1/chat/completions'],['text']),pricing:{prompt:'0',completion:'0',overrides:[{min_prompt_tokens:50000,prompt:'0.00001'}]}},
+  {...model('paid/unknown',['/api/v1/chat/completions'],['text']),pricing:{prompt:'0',completion:'0',new_charge_dimension:'0.1'}},
+  {...model('paid/ambiguous-video',['/api/v1/videos'],['video']),pricing:{prompt:'0',completion:'0'}},
+  {...model('paid/unknown-price',['/api/v1/chat/completions'],['text']),pricing:{prompt:'0',completion:'unknown'}},
+  {...model('unpriced',['/api/v1/chat/completions'],['text']),pricing:undefined},
+  {...model('free/overrides',['/api/v1/chat/completions'],['text']),pricing:{prompt:'0',completion:'0',overrides:[{min_prompt_tokens:50000,prompt:'0',completion:'0'}]}},
+ ];
+ const result=classifyOpenRouterFreeCatalog(rows);
+ assert.deepEqual(result.models.map(m=>m.id),['free/overrides','openrouter/free']);
+});

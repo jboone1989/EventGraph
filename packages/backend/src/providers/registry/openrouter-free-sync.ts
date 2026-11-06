@@ -32,8 +32,9 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
  const timestamp=new Date().toISOString();
  const result=await sql.begin(async tx=>{
   await tx`SELECT id FROM provider_connections WHERE id=${providerId}::uuid FOR UPDATE`;
-  const existing=await tx<{model_id:string;upstream_metadata:Record<string,unknown>}[]>`
-   SELECT model_id,upstream_metadata FROM registered_models WHERE provider_id=${providerId}::uuid FOR UPDATE`;
+  const existing=await tx<{id:string;model_id:string;version:number;enabled:boolean;route_enabled:boolean;upstream_metadata:Record<string,unknown>}[]>`
+   SELECT id,model_id,version,enabled,route_enabled,upstream_metadata
+   FROM registered_models WHERE provider_id=${providerId}::uuid FOR UPDATE`;
   const previous=new Set(existing.map(m=>m.model_id));
   for(const model of catalog.models){
    const modelId=model.id;
@@ -47,9 +48,18 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
       upstream_metadata=registered_models.upstream_metadata || EXCLUDED.upstream_metadata,
       billing='free'`;
   }
-  let noLongerFree=0;
+  let noLongerFree=0,removed=0;
   for(const row of existing){
    if(freeIds.has(row.model_id)||!row.upstream_metadata?.openrouterFreeSync)continue;
+   // Only remove untouched, unbound auto-imports; preserve operator-edited models.
+   if(row.version===1&&!row.enabled&&!row.route_enabled){
+    const references=await tx`SELECT 1 FROM provider_workflow_models WHERE model_id=${row.id}::uuid
+     UNION ALL SELECT 1 FROM provider_model_aliases WHERE registered_model_id=${row.id}::uuid LIMIT 1`;
+    if(!references.length){
+     await tx`DELETE FROM registered_models WHERE id=${row.id}::uuid`;
+     removed++;noLongerFree++;continue;
+    }
+   }
    await tx`UPDATE registered_models SET billing='paid',upstream_metadata=upstream_metadata ||
     ${tx.json({openrouterFreeSync:{free:false,checkedAt:timestamp}})}
     WHERE provider_id=${providerId}::uuid AND model_id=${row.model_id}`;
@@ -57,7 +67,7 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
   }
   const summary={catalogTotal,freeCatalog:catalog.freeCatalog,
    chat:catalog.chat,embedding:catalog.embedding,other:catalog.other,invalid:catalog.invalid,
-   total:freeIds.size,added:[...freeIds].filter(id=>!previous.has(id)).length,noLongerFree};
+   total:freeIds.size,added:[...freeIds].filter(id=>!previous.has(id)).length,noLongerFree,removed};
   await audit(actor,'provider.models.openrouter-free-sync',providerId,'后台手动同步 OpenRouter 免费模型',null,summary,{db:tx});
   return summary;
  });
