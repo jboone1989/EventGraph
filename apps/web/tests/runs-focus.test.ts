@@ -56,7 +56,7 @@ test("runs page shows actionable backlog, every grouping item through pagination
     await expect(page.getByText("共 33 条 · 第 2/2 页")).toBeVisible();
     await expect(page.getByText("待去重精选 33", { exact: true })).toBeVisible();
     await expect(page.getByText("待去重精选 1", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("今日失败的定时任务", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("UTC 今日仍失败的定时任务", { exact: true })).toBeVisible();
     await expect(page.getByText("Report failed", { exact: true })).toBeVisible();
     for (const removed of ["新闻队列说明 · UTC 当天", "队列与定时任务 · 技术诊断", "今日记录与诊断", "模型请求诊断"]) {
       await expect(page.getByText(removed, { exact: true })).toHaveCount(0);
