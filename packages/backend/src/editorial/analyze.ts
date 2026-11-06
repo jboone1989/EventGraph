@@ -554,13 +554,14 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
     })) } : null;
   // New analyses supply both editions in the same receipt. Old provider output
   // belongs to its source language; it must never appear as the other edition.
-  const legacyChinese = looksZh(a.title);
+  const legacyChinese = a.language === "zh" || (a.language == null && looksZh(a.title));
+  const legacyEnglish = a.language === "en" || (a.language == null && !looksZh(a.title));
   return {
     prefilter, scores, writing,
     structure: { ...normalizeStructure(StructureSchema.parse(d), a), model: res.model, receiptId: res.receiptId, reused: res.reused },
     english: usableEnglish(d.titleEn, d.summaryEn, d.reasonEn),
     explanation: groundExplanation(d.explanationZh ?? (legacyChinese ? d.explanation : null)),
-    explanationEn: groundExplanation(d.explanationEn ?? (!legacyChinese ? d.explanation : null)),
+    explanationEn: groundExplanation(d.explanationEn ?? (legacyEnglish ? d.explanation : null)),
   };
 }
 
