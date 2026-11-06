@@ -48,25 +48,21 @@ function readVerdict(executionFile) {
 
 function prepareFirstPass(executionFile, outputFile) {
   const raw = reviewText(executionFile);
+  const lf = String.fromCharCode(10);
   try {
     parseVerdict(raw);
-    fs.appendFileSync(outputFile, 'needs_retry=false
-');
+    fs.appendFileSync(outputFile, 'needs_retry=false' + lf);
     return false;
   } catch (error) {
-    // Never truncate findings or silently approve based on a partial verdict.
+    // Never truncate findings or approve on a partial verdict.
     if (Buffer.byteLength(raw, 'utf8') > 20_000) {
       throw new Error('Malformed review exceeds safe repair limit; merge blocked', { cause: error });
     }
     const delimiter = 'REVIEW_REPAIR_' + randomUUID().replace(/-/g, '');
-    fs.appendFileSync(outputFile,
-      'needs_retry=true
-format_input<<' + delimiter + '
-' + raw + '
-' + delimiter + '
-');
-    process.stdout.write('Model verdict malformed; requesting one format-only retry.
-');
+    fs.appendFileSync(outputFile, [
+      'needs_retry=true', 'format_input<<' + delimiter, raw, delimiter, ''
+    ].join(lf));
+    process.stdout.write('Model verdict malformed; requesting one format-only retry.' + lf);
     return true;
   }
 }
@@ -75,15 +71,14 @@ module.exports = { reviewText, parseVerdict, readVerdict, prepareFirstPass };
 
 if (require.main === module) {
   const [mode, executionFile, outputFile] = process.argv.slice(2);
+  const lf = String.fromCharCode(10);
   if (mode !== 'validate' || !outputFile) {
-    process.stderr.write('Usage: node review-verdict.cjs validate EXECUTION_FILE GITHUB_OUTPUT
-');
+    process.stderr.write('Usage: node review-verdict.cjs validate EXECUTION_FILE GITHUB_OUTPUT' + lf);
     process.exitCode = 2;
   } else {
     try { prepareFirstPass(executionFile, outputFile); }
     catch (error) {
-      process.stderr.write('Review validation error: ' + error.message + '
-');
+      process.stderr.write('Review validation error: ' + error.message + lf);
       process.exitCode = 1;
     }
   }
