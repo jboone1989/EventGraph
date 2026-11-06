@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -507,13 +507,32 @@ export function readNativeQueueState(repo, spawn = spawnSync) {
   }
 }
 
-export async function runProducer({ env = process.env, api, root = process.cwd(), readQueueState } = {}) {
-  if (env.GITHUB_EVENT_NAME !== "push" || env.GITHUB_REF_NAME !== "develop") {
-    return { kind: "not-a-develop-push" };
+// A workflow_run continuation executes from main: GITHUB_SHA and GITHUB_REF_NAME
+// therefore describe main, NOT the verified develop Check that triggered it.
+export function resolveProducerHead(env, suppliedEvent) {
+  if (env.GITHUB_EVENT_NAME === "push") {
+    return env.GITHUB_REF_NAME === "develop" ? env.GITHUB_SHA : null;
   }
+  if (env.GITHUB_EVENT_NAME !== "workflow_run") return null;
+  const event = suppliedEvent ?? JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
+  const run = event.workflow_run;
+  if (event.action !== "completed" ||
+      event.repository?.full_name !== env.GITHUB_REPOSITORY ||
+      run?.status !== "completed" || run.conclusion !== "success" ||
+      run.path !== ".github/workflows/check.yml" ||
+      run.head_branch !== "develop" ||
+      !["push", "workflow_dispatch"].includes(run.event) ||
+      run.head_repository?.full_name !== env.GITHUB_REPOSITORY) {
+    return null;
+  }
+  return run.head_sha;
+}
+
+export async function runProducer({ env = process.env, api, root = process.cwd(), readQueueState } = {}) {
+  const headSha = resolveProducerHead(env);
+  if (!headSha) return { kind: "not-a-verified-develop-check" };
   const repo = env.GITHUB_REPOSITORY;
-  const headSha = env.GITHUB_SHA;
-  if (!repo || !/^[0-9a-f]{40}$/.test(headSha ?? "")) fail("Missing repository or exact develop SHA");
+  if (!repo || !/^[0-9a-f]{40}$/.test(headSha)) fail("Missing repository or exact develop SHA");
   if (!api) api = createGitHubApi(env.GH_TOKEN);
   return processDevelopRange({
     api, repo, headSha, root,
@@ -523,8 +542,8 @@ export async function runProducer({ env = process.env, api, root = process.cwd()
 
 async function main() {
   const env = process.env;
-  if (env.GITHUB_EVENT_NAME !== "push" || env.GITHUB_REF_NAME !== "develop") {
-    console.log("Spec Producer skipped: only successful develop push continuations are eligible.");
+  if (!resolveProducerHead(env)) {
+    console.log("Spec Producer skipped: not a verified develop Check continuation.");
     return;
   }
   const outputDirectory = env.SPEC_WORK_GRAPH_DIR;
