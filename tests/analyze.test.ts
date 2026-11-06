@@ -128,11 +128,11 @@ test("one-pass watchpoint dates use source date forms, never the site's own publ
   const en = await analyzeArticle(await article("DATEEN", {
     title: `DATEEN: Rule takes effect November 5, 2026 ${T}`,
   }));
-  assert.equal(en!.output!.explanation?.watchpoints[0]?.date, "2026-11-05",
+  assert.equal(en!.output!.explanationEn?.watchpoints[0]?.date, "2026-11-05",
     "a source-stated English month date must survive ISO normalization");
 
   const publicationOnly = await analyzeArticle(await article("DATEPUB"));
-  assert.equal(publicationOnly!.output!.explanation?.watchpoints[0]?.date, null,
+  assert.equal(publicationOnly!.output!.explanationEn?.watchpoints[0]?.date, null,
     "the site's 发布时间 line is not source evidence for a watchpoint date");
 });
 
