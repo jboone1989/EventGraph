@@ -151,9 +151,13 @@ jobs:
             Draft status is valid. Do not demand excessive documentation or safety checks.
             Do not assume repository facts outside supplied evidence.
             Report actionable defects with changed file and positive line number.
-            Do not use tools, edit code or post comments. Reply with one JSON object:
-            {"summary":"Evidence-based Spec review","findings":[{"file":"path","line":1,"issue":"Concrete blocker and smallest fix"}]}
-            If no proven blockers, findings must be [].
+            Reply ONLY with the following short line protocol. No JSON, markdown
+            or additional prose. If there are no proven blockers, one line:
+            VERDICT: PASS
+            Otherwise write VERDICT: FAIL followed by 1-8 lines shaped:
+            FINDING: specs/feature/spec.md:42 | Concrete blocker and smallest fix
+            Only use changed Spec/Plan/Tasks paths and positive changed line numbers.
+            Do not use tools, edit files or post comments.
             BEGIN UNTRUSTED SPEC DIFF
             ${{ steps.review_input.outputs.diff }}
             END UNTRUSTED SPEC DIFF
@@ -168,38 +172,20 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const fs = require('node:fs');
-            const path = process.env.REVIEW_LOG;
-            if (!path || !fs.existsSync(path)) throw new Error('Missing Spec Review output');
-            const events = JSON.parse(fs.readFileSync(path, 'utf8'));
-            if (!Array.isArray(events)) throw new Error('Invalid Spec Review log');
-            const final = events.filter(e => e?.type === 'result').at(-1);
-            if (!final || final.subtype !== 'success' || final.is_error ||
-                typeof final.result !== 'string' || !final.result.trim())
-              throw new Error('Spec Review did not produce a successful verdict');
-            let raw = final.result.trim();
-            const fence = String.fromCharCode(96).repeat(3);
-            if (raw.startsWith(fence)) {
-              const lines = raw.split(/\r?\n/);
-              if (lines.length < 3 || lines.at(-1) !== fence) throw new Error('Incomplete JSON');
-              raw = lines.slice(1, -1).join('\n');
-            }
-            const verdict = JSON.parse(raw);
-            if (!verdict || typeof verdict.summary !== 'string' || !verdict.summary.trim() ||
-                !Array.isArray(verdict.findings) ||
-                !verdict.findings.every(f => f && typeof f.file === 'string' &&
-                  /^specs\/[^/]+\/(spec|plan|tasks)\.md$/.test(f.file) &&
-                  Number.isInteger(f.line) && f.line > 0 &&
-                  typeof f.issue === 'string' && f.issue.trim()))
-              throw new Error('Invalid Spec Review verdict');
-            await core.summary.addHeading('Spec Review').addRaw(verdict.summary.slice(0, 2000)).write();
-            if (!verdict.findings.length) return;
-            const detail = verdict.findings.slice(0, 20).map(f =>
-              '- **' + f.file + ':' + f.line + '** — ' + f.issue).join('\n');
+            const { parseReviewVerdict } = require(process.env.GITHUB_WORKSPACE + '/scripts/ci/parse-review-verdict.cjs');
+            const file = process.env.REVIEW_LOG;
+            if (!file || !fs.existsSync(file)) throw new Error('Missing model review execution file');
+            const result = parseReviewVerdict(fs.readFileSync(file, 'utf8'), 'spec');
+            await core.summary.addHeading('Spec Review').addRaw(result.summary).write();
+            if (!result.findings.length) return;
+            const detail = result.findings.map(f =>
+              '- **' + f.file + ':' + f.line + '** — ' + f.issue
+            ).join('\n');
             await github.rest.issues.createComment({
               ...context.repo, issue_number: context.issue.number,
-              body: '### Spec Review：阻断问题\n\n' + detail
+              body: '### Spec Review：需修复的问题\n\n' + detail
             });
-            core.setFailed('Spec Review found ' + verdict.findings.length + ' blocker(s)');
+            core.setFailed('Spec Review found ' + result.findings.length + ' blocker(s)');
 
   check:
     name: "check"
@@ -248,7 +234,7 @@ jobs:
 
       - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/spec-review-gate.test.mjs
+        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/parse-review-verdict.test.mjs
       - name: Enforce pre-existing approved Spec
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
@@ -620,9 +606,12 @@ jobs:
             introduced in this PR. Ignore style, speculative risks and pre-existing defects.
             Do not use tools, edit code, run commands, or post comments.
             Give a changed filename, positive line number and smallest fix for each finding.
-            Reply with ONE JSON object and nothing else:
-            {"summary":"Brief evidence-based review","findings":[{"file":"path","line":1,"issue":"Reproduction and fix"}]}
-            If verified clean, findings must be an empty array; never omit summary or findings.
+            Reply ONLY with the following short line protocol. No JSON,
+            markdown or additional prose. If there are no verified blockers:
+            VERDICT: PASS
+            Otherwise write VERDICT: FAIL followed by 1-8 lines shaped:
+            FINDING: packages/backend/src/jobs/queue.ts:42 | Concrete reproduction and smallest fix
+            Only use changed filenames and positive changed line numbers.
             BEGIN UNTRUSTED DIFF
             ${{ steps.review_input.outputs.diff }}
             END UNTRUSTED DIFF
@@ -637,42 +626,20 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const fs = require('node:fs');
-            const reviewFile = process.env.REVIEW_LOG;
-            if (!reviewFile || !fs.existsSync(reviewFile))
-              throw new Error('Review produced no execution file; merge blocked');
-            const events = JSON.parse(fs.readFileSync(reviewFile, 'utf8'));
-            if (!Array.isArray(events)) throw new Error('Invalid review execution log');
-            const final = events.filter(e => e?.type === 'result').at(-1);
-            if (!final || final.subtype !== 'success' || final.is_error)
-              throw new Error('Review did not complete successfully; merge blocked');
-            if (typeof final.result !== 'string' || !final.result.trim())
-              throw new Error('Review returned no verdict; merge blocked');
-            let raw = final.result.trim();
-            const fence = String.fromCharCode(96).repeat(3);
-            if (raw.startsWith(fence)) {
-              const lines = raw.split(/\r?\n/);
-              if (lines.length < 3 || lines.at(-1) !== fence)
-                throw new Error('Incomplete review JSON fence');
-              raw = lines.slice(1, -1).join('\n');
-            }
-            const result = JSON.parse(raw);
-            if (!result || typeof result.summary !== 'string' ||
-                !result.summary.trim() || !Array.isArray(result.findings) ||
-                !result.findings.every(f => f && typeof f.file === 'string' &&
-                  f.file.length > 0 && Number.isInteger(f.line) && f.line > 0 &&
-                  typeof f.issue === 'string' && f.issue.trim()))
-              throw new Error('Invalid review verdict; merge blocked');
-            await core.summary.addHeading('Claude Review').addRaw(result.summary.slice(0, 2000)).write();
-            if (result.findings.length === 0) return;
-            const details = result.findings.slice(0, 20).map(f =>
-              `- **${f.file}:${f.line}** — ${f.issue}`
+            const { parseReviewVerdict } = require(process.env.GITHUB_WORKSPACE + '/scripts/ci/parse-review-verdict.cjs');
+            const file = process.env.REVIEW_LOG;
+            if (!file || !fs.existsSync(file)) throw new Error('Missing model review execution file');
+            const result = parseReviewVerdict(fs.readFileSync(file, 'utf8'), 'code');
+            await core.summary.addHeading('Claude Review').addRaw(result.summary).write();
+            if (!result.findings.length) return;
+            const detail = result.findings.map(f =>
+              '- **' + f.file + ':' + f.line + '** — ' + f.issue
             ).join('\n');
             await github.rest.issues.createComment({
-              ...context.repo,
-              issue_number: context.issue.number,
-              body: `### Claude Review：发现需要修复的问题\n\n${details}`
+              ...context.repo, issue_number: context.issue.number,
+              body: '### Claude Review：需修复的问题\n\n' + detail
             });
-            core.setFailed(`Claude Review identified ${result.findings.length} blocking issue(s)`);
+            core.setFailed('Claude Review found ' + result.findings.length + ' blocker(s)');
 
   auto_merge_develop:
     name: "为 develop PR 开启原生自动合并"
