@@ -31,6 +31,27 @@ test('runtime model cache hits until cleared, while CRUD invalidates it automati
  await assert.rejects(loadModel(m.id),/Model not found/);
 });
 
+test('new connection and model IDs use time-sortable UUIDv7 while old v4 keys remain usable',async()=>{
+ const before=Date.now();
+ const c=await createConnection(connection({name:'ordered-'+randomUUID()}),'create',actor);
+ const m=await createRegisteredModel(model(c.id,{modelId:'ordered-model'}),'create',actor);
+ const timestamp=(id:string)=>Number.parseInt(id.replaceAll('-','').slice(0,12),16);
+ for(const id of [c.id,m.id]){
+  assert.match(id,/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.ok(timestamp(id)>=before-1000&&timestamp(id)<=Date.now()+1000);
+ }
+ assert.equal((await getRegisteredModel(m.id)).providerId,c.id);
+ // Existing UUIDv4 records still resolve and can be edited by their original primary key.
+ const legacyModelId=randomUUID();
+ const [legacy]=await sql<{id:string}[]>`UPDATE registered_models SET id=${legacyModelId}::uuid WHERE id=${m.id}::uuid RETURNING id`;
+ assert.equal(legacy?.id,legacyModelId);
+ clearRegisteredModelCache();
+ const oldRecord=await getRegisteredModel(legacyModelId);
+ assert.equal(oldRecord.id,legacyModelId);
+ const edited=await updateRegisteredModel(oldRecord.id,model(c.id,{modelId:'legacy-edited'}),oldRecord.version,'edit',actor);
+ assert.equal(edited.id,legacyModelId);
+});
+
 test('persisted credential fingerprint is keyed, never the offline SHA-256 of an API secret',()=>{
  const weak='weak-secret-for-test',plain=createHash('sha256').update(weak).digest('hex');
  assert.notEqual(credentialDigest(weak),plain);
