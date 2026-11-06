@@ -29,4 +29,16 @@ test("Spec PRs retain owner approval and code PRs retain code review", () => {
   assert.match(workflow, /name: claude-review/);
   assert.match(workflow, /needs\.changes\.outputs\.docs_only != 'true'/);
   assert.doesNotMatch(workflow, /ready_for_review/);
+  assert.match(workflow, /always\(\) && github\.event_name == 'pull_request'/);
+});
+test("successful Spec reviews auto-approve only via owner token and re-review changed head", () => {
+  assert.match(merge, /needs\.spec_review\.result == 'success'/);
+  assert.match(merge, /Approve reviewed Spec on its own PR branch/);
+  assert.match(merge, /Owner-approved \(owner-delegated Spec Review/);
+  assert.match(merge, /Spec status stamped; new HEAD must pass Spec Review again/);
+  assert.match(merge, /gh pr ready/);
+  assert.match(merge, /needs\.changes\.outputs\.spec_changed/);
+  assert.match(merge, /GH_AW_GITHUB_TOKEN/);
+  assert.match(merge, /steps\.spec_approval\.outputs\.changed != 'true'/);
+  assert.match(merge, /update-branch/);
 });
