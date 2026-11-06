@@ -65,6 +65,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const [kind, setKind] = useState("all");
   const [page, setPage] = useState(0);
   const [receiptId, setReceiptId] = useState<number | null>(null);
+  const [deliveryId, setDeliveryId] = useState<number | null>(null);
+  const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
   const [billed, setBilled] = useState("false");
 
   useEffect(() => {
@@ -122,7 +124,13 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       return <Button size="sm" disabled={pending !== null} onClick={() => void requeue(item)}>重新入队</Button>;
     }
     if (item.kind === "model") return <span className="text-[12px] text-ink-3">由原任务恢复</span>;
-    return <span className="text-[12px] text-ink-3">需核对投递</span>;
+    if (item.kind === "delivery") {
+      const id = Number(item.key.slice("delivery:".length));
+      return Number.isSafeInteger(id) && id > 0
+        ? <Button size="sm" disabled={pending !== null} onClick={() => setDeliveryId(id)}>处理投递</Button>
+        : <span className="text-[12px] text-ink-3">投递 ID 无效</span>;
+    }
+    return null;
   };
 
   return (
@@ -204,6 +212,24 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           <Select value={billed} onChange={e => setBilled(e.target.value)}>
             <option value="false">未计费</option>
             <option value="true">已计费（未取回结果）</option>
+          </Select>
+        </Field>
+      </ReasonDialog>
+      <ReasonDialog open={deliveryId !== null} title={"处理消息投递 #" + (deliveryId ?? "")}
+        description="先核实消息是否送达；确认未送达后才选择重新发送。"
+        confirmLabel="确认处理" danger={outcome === "resend"} busy={pending === "delivery"}
+        onClose={() => setDeliveryId(null)}
+        onSubmit={async note => {
+          const result = await run("POST", "/api/admin/deliveries/" + deliveryId + "/resolve",
+            { outcome, note }, { label: "delivery", revalidate: false });
+          if (result !== null) { setDeliveryId(null); refresh.load("/admin/runs"); }
+          return result !== null;
+        }}>
+        <Field label="处理结果">
+          <Select value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>
+            <option value="sent">已送达</option>
+            <option value="drop">不再发送</option>
+            <option value="resend">尚未送达，重新发送</option>
           </Select>
         </Field>
       </ReasonDialog>
