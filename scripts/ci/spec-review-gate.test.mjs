@@ -15,7 +15,8 @@ test("only Spec changes in a documentation PR activate one Spec review", () => {
   assert.match(reviewer, /needs\.changes\.outputs\.docs_only == 'true'/);
   assert.match(reviewer, /needs\.changes\.outputs\.spec_changed == 'true'/);
   assert.match(reviewer, /Claude Code Action/);
-  assert.match(reviewer, /reviewer\.outputs\.execution_file/);
+  assert.match(reviewer, /reviewer\.outputs\.structured_output/);
+  assert.match(reviewer, /--json-schema/);
   assert.match(reviewer, /core\.setFailed/);
 });
 test("the existing required check is fail-closed on Spec Review", () => {
@@ -27,6 +28,8 @@ test("the existing required check is fail-closed on Spec Review", () => {
 test("Spec PRs retain owner approval and code PRs retain code review", () => {
   assert.match(merge, /needs\.changes\.outputs\.spec_changed != 'true'/);
   assert.match(workflow, /name: claude-review/);
+  assert.equal((workflow.match(/--json-schema/g) ?? []).length, 2);
+  assert.equal((workflow.match(/steps\.reviewer\.outputs\.structured_output/g) ?? []).length, 2);
   assert.match(workflow, /needs\.changes\.outputs\.docs_only != 'true'/);
   assert.doesNotMatch(workflow, /ready_for_review/);
   assert.match(workflow, /always\(\) && github\.event_name == 'pull_request'/);
