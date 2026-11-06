@@ -17,6 +17,7 @@ export async function waitingSelectedNews(period: 'rolling-24h' | 'utc-day' = 'r
            a.grouping_status = 'failed' AS failed, a.grouping_receipt_id AS "receiptId", a.grouping_error AS error,
            r.status AS receipt_status,
            live_job."jobState", live_job."queueSince", live_job."activeSince",
+           failed_job."lastFailedJobError",
            live_job."jobState" IS NOT NULL AS running,
            EXISTS (SELECT 1 FROM receipt_attempts attempt WHERE attempt.receipt_id = r.id
                    AND attempt.error LIKE ${AUTO_RELEASE_NOTE + "%"}) AS released
@@ -31,6 +32,12 @@ export async function waitingSelectedNews(period: 'rolling-24h' | 'utc-day' = 'r
       WHERE j.name = 'events.group' AND j.data->>'articleId' = a.id
         AND j.state IN ('active', 'created', 'retry')
     ) live_job ON true
+    LEFT JOIN LATERAL (
+      SELECT left(j.output::text, 200) AS "lastFailedJobError"
+      FROM pgboss.job j WHERE j.name = 'events.group' AND j.data->>'articleId' = a.id
+        AND j.state = 'failed' AND j.completed_on >= ${cutoff}
+      ORDER BY j.completed_on DESC, j.id DESC LIMIT 1
+    ) failed_job ON true
     CROSS JOIN LATERAL (
       SELECT greatest(coalesce(p.selected_ready_at, p.discovered_at), revision.created_at,
         (SELECT max(j.created_on) FROM pgboss.job j WHERE j.name = 'events.group'
