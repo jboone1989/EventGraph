@@ -330,7 +330,7 @@ export interface AdminRuns {
   routingEffect?: AdminRoutingEffect;
   checkedAt: Timestamp;
   processes: Array<{ role: string; pid: number; host: string; release: string; startedAt: Timestamp; at: Timestamp; alive: boolean }>;
-  jobs: Array<{ job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null; failed_today: number; runs_today: number }>;
+  jobs: Array<{ job: string; started_at: Timestamp | null; finished_at: Timestamp | null; status: string | null; error: string | null; failed_today: number; runs_today: number }>;
   timeline: Array<{ id: number; job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null }>;
   queues: Array<{ name: string; state: string; n: number; oldest: Timestamp }>;
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
