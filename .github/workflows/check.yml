@@ -512,7 +512,7 @@ jobs:
     # status function, GitHub's implicit success() also checks skipped ancestors
     # and silently suppresses this deploy despite successful check + e2e.
     if: >-
-      ${{ always() &&
+      ${{ always() && !cancelled() &&
           (github.event_name == 'push' ||
            (github.event_name == 'workflow_dispatch' &&
             inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
