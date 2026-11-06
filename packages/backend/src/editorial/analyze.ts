@@ -548,7 +548,7 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
   // Ground dates in original source text, never the site-generated publication time or translation.
   const supportedWatchpointDates = fullDatesIn([a.title, a.bodyText ?? a.excerpt, a.xPost?.text, a.xPost?.quoted?.text]
     .filter((text): text is string => typeof text === "string").join("\n"));
-  const groundExplanation = <T extends z.infer<typeof ExplainSchema>>(data: T | null | undefined): T | null =>
+  const groundExplanation = (data: z.infer<typeof ExplainSchema> | null | undefined): z.infer<typeof ExplainSchema> | null =>
     data ? { ...data, watchpoints: data.watchpoints.map(point => ({
       ...point, date: point.date && supportedWatchpointDates.has(point.date) ? point.date : null,
     })) } : null;
