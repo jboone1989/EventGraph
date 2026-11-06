@@ -41,5 +41,8 @@ export async function expireStaleWork(now = new Date()) {
     totals.markedUnknownReceipts += batch.markedUnknown;
     if (batch.count < 200) break;
   }
-  return totals;
+  // Clear old operational diagnostics at UTC midnight, but preserve paid request receipts.
+  const oldRuns = await sql`DELETE FROM job_runs WHERE started_at < ${cutoff} AND status <> 'running'`;
+  const oldFailures = await sql`DELETE FROM pgboss.job WHERE state = 'failed' AND completed_on < ${cutoff}`;
+  return { ...totals, deletedRunHistory: oldRuns.count, deletedFailedJobHistory: oldFailures.count };
 }
