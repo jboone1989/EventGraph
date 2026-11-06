@@ -545,7 +545,7 @@ jobs:
     name: claude-review
     needs: [changes, check, docker, e2e]
     if: >-
-      ${{ github.event_name == 'pull_request' &&
+      ${{ always() && github.event_name == 'pull_request' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
           needs.changes.outputs.docs_only != 'true' &&
           needs.check.result == 'success' &&
@@ -676,14 +676,14 @@ jobs:
 
   auto_merge_develop:
     name: "为 develop PR 开启原生自动合并"
-    needs: [changes, check, docker, e2e, claude_review]
+    needs: [changes, check, docker, e2e, claude_review, spec_review]
     if: >-
       ${{ always() &&
           github.event_name == 'pull_request' &&
           github.event.pull_request.base.ref == 'develop' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
-          github.event.pull_request.draft == false &&
-          needs.changes.outputs.spec_changed != 'true' &&
+          (github.event.pull_request.draft == false || needs.changes.outputs.spec_changed == 'true') &&
+          (needs.changes.outputs.spec_changed != 'true' || needs.spec_review.result == 'success') &&
           needs.changes.result == 'success' &&
           needs.check.result == 'success' &&
           (needs.docker.result == 'success' || (needs.changes.outputs.docs_only == 'true' && needs.docker.result == 'skipped')) &&
@@ -695,7 +695,63 @@ jobs:
       contents: read
       pull-requests: read
     steps:
+      - name: Approve reviewed Spec on its own PR branch
+        id: spec_approval
+        if: ${{ needs.changes.outputs.docs_only == 'true' && needs.changes.outputs.spec_changed == 'true' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo "::error::Missing GH_AW_GITHUB_TOKEN"; exit 1; }
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          if ! jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$EXPECTED_HEAD" \
+            '.state == "open" and .base.ref == "develop" and .head.repo.full_name == $repo and .head.sha == $sha' <<< "$pr" >/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Spec PR moved or closed; do not approve this SHA"
+            exit 0
+          fi
+          head_ref="$(jq -r '.head.ref' <<< "$pr")"
+          files="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100")"
+          [[ "$(jq length <<< "$files")" -lt 100 ]] || { echo "::error::Split large Spec PR"; exit 1; }
+          spec_paths="$(jq -r '.[].filename | select(test("^specs/[^/]+/spec\\.md$"))' <<< "$files")"
+          [[ "$(wc -l <<< "$spec_paths")" == 1 && -n "$spec_paths" ]] || {
+            echo "::error::Spec auto-approval requires exactly one spec.md"; exit 1;
+          }
+          spec_path="$spec_paths"
+          metadata="$(gh api "repos/$GITHUB_REPOSITORY/contents/$spec_path?ref=$EXPECTED_HEAD")"
+          blob_sha="$(jq -r '.sha' <<< "$metadata")"
+          jq -r '.content' <<< "$metadata" | tr -d '\n' | base64 -d > "$RUNNER_TEMP/approved-spec.md"
+          if grep -Eq '^\*\*Status:\*\*[[:space:]]*Draft\b' "$RUNNER_TEMP/approved-spec.md"; then
+            REVIEWED_SHA="$EXPECTED_HEAD" node -e '
+              const fs = require("fs");
+              const file = process.argv[1];
+              const old = fs.readFileSync(file,"utf8");
+              const line = /^\*\*Status:\*\*[ \t]*Draft[^\r\n]*$/m;
+              if (!line.test(old)) process.exit(2);
+              fs.writeFileSync(file,old.replace(line,
+                "**Status:** Owner-approved (owner-delegated Spec Review of " + process.env.REVIEWED_SHA + ")"));
+            ' "$RUNNER_TEMP/approved-spec.md"
+            content="$(base64 -w 0 "$RUNNER_TEMP/approved-spec.md")"
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/$spec_path" \
+              -f message="docs(spec): auto-approve reviewed Spec PR #$PR_NUMBER" \
+              -f content="$content" -f sha="$blob_sha" -f branch="$head_ref" >/dev/null
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Spec status stamped; new HEAD must pass Spec Review again"
+          elif grep -Eq '^\*\*Status:\*\*[[:space:]]*Owner-approved\b' "$RUNNER_TEMP/approved-spec.md"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unsupported Spec status; only Draft or Owner-approved permitted"
+            exit 1
+          fi
+          if [[ "$(jq -r '.draft' <<< "$pr")" == true ]]; then
+            gh pr ready "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"
+          fi
+
       - name: Verify exact PR head then enable native squash auto-merge
+        if: ${{ steps.spec_approval.outputs.changed != 'true' }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
@@ -725,7 +781,12 @@ jobs:
             exit 0
           fi
           if jq -e '.mergeable_state == "behind"' <<< "$pr" >/dev/null; then
-            echo "::notice::Branch is behind develop; requires an updated branch and a fresh CI verdict"
+            if [[ "${{ needs.changes.outputs.spec_changed }}" == true ]]; then
+              gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" -f expected_head_sha="$EXPECTED_HEAD" >/dev/null
+              echo "::notice::Updated Spec PR branch; new HEAD requires a fresh review"
+            else
+              echo "::notice::Branch is behind develop; requires an updated branch and a fresh CI verdict"
+            fi
             exit 0
           fi
           gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash
