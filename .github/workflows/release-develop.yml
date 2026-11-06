@@ -6,9 +6,16 @@ on:
       source_sha:
         required: true
         type: string
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact immutable develop HEAD to publish, after passing Check and E2E
+        required: true
+        type: string
 permissions:
   contents: read
   packages: write
+  checks: read
 jobs:
   publish:
     name: publish # 发布验证成功的 GHCR 镜像；供生产发布核验
@@ -18,6 +25,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      checks: read
     outputs:
       image_ref: ${{ steps.ref.outputs.image_ref }}
       source_sha: ${{ github.sha }}
@@ -27,6 +35,29 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+
+      - name: Verify manual publish requires previously successful checks
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == develop && "$SOURCE_SHA" == "$GITHUB_SHA" ]] ||
+            { echo '::error::Manual publish must pin current develop HEAD'; exit 1; }
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
+          [[ "$current" == "$SOURCE_SHA" ]] ||
+            { echo '::error::Develop moved; publish the new HEAD instead'; exit 1; }
+          checks="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100")"
+          for required in check e2e; do
+            jq -s -e --arg required "$required" '
+              [.[].check_runs[]? | select(.name == $required and .conclusion == "success")] | length > 0
+            ' <<< "$checks" >/dev/null || {
+              echo "::error::No successful $required check for exact source SHA"; exit 1;
+            }
+          done
+          echo "Manual publish authorized by exact SHA checks: $SOURCE_SHA"
 
       - name: Skip superseded commits
         id: current

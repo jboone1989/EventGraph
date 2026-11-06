@@ -518,6 +518,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      checks: read
     uses: ./.github/workflows/release-develop.yml
     with:
       source_sha: ${{ github.sha }}
