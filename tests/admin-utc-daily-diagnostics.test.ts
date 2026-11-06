@@ -32,6 +32,9 @@ test("dashboard resets old task, receipt and routing diagnostics without losing 
   const [oldFailedReceipt] = await sql<{ id: number }[]>`
     INSERT INTO receipts (logical_key, service, purpose, subject, status, created_at, updated_at)
     VALUES (${id + "-old-failed"}, ${id}, 'analyze_article', ${id}, 'failed', ${yesterday}, ${yesterday}) RETURNING id`;
+  const [failedTodayFromOldReceipt] = await sql<{ id: number }[]>`
+    INSERT INTO receipts (logical_key, service, purpose, subject, status, created_at, updated_at)
+    VALUES (${id + "-failed-today"}, ${id}, 'analyze_article', ${id}, 'failed', ${yesterday}, ${today}) RETURNING id`;
   await sql`
     INSERT INTO receipt_attempts (receipt_id, attempt, service, status, started_at)
     VALUES (${oldReceipt!.id}, 1, ${id}, 'unknown', ${yesterday}),
@@ -43,6 +46,9 @@ test("dashboard resets old task, receipt and routing diagnostics without losing 
   const [oldSendingDelivery] = await sql<{ id: number }[]>`
     INSERT INTO deliveries (target_key, subject_kind, subject_id, dedupe_key, status, created_at, updated_at)
     VALUES (${id}, 'selected', ${id}, ${id + "-sending"}, 'sending', ${yesterday}, ${yesterday}) RETURNING id`;
+  const [oldFailedDelivery] = await sql<{ id: number }[]>`
+    INSERT INTO deliveries (target_key, subject_kind, subject_id, dedupe_key, status, created_at, updated_at)
+    VALUES (${id}, 'selected', ${id}, ${id + "-failed"}, 'failed', ${yesterday}, ${yesterday}) RETURNING id`;
 
   const [oldRun] = await sql<{ id: number }[]>`
     INSERT INTO job_runs (job, status, started_at, finished_at, error)
@@ -58,6 +64,18 @@ test("dashboard resets old task, receipt and routing diagnostics without losing 
     INSERT INTO job_runs (job, status, started_at, finished_at)
     VALUES ('reports.compose', 'failed', ${yesterday}, ${yesterday}) RETURNING id`;
 
+  // A receipt released just before midnight still needs its failed pg-boss job at the next recovery sweep.
+  const boss = await getBoss();
+  const queue = `test.released-${id}`;
+  await boss.createQueue(queue);
+  const releasedJobId = await boss.send(queue, { fixture: true });
+  assert.ok(releasedJobId);
+  await sql`UPDATE pgboss.job SET state='failed', started_on=${yesterday},
+    completed_on=${yesterday}, output=${sql.json({ receiptId: oldFailedReceipt!.id })}
+    WHERE id=${releasedJobId}`;
+  await sql`INSERT INTO audit_log (actor,action,subject,created_at)
+    VALUES ('test','receipt.release',${`receipt:${oldFailedReceipt!.id}`},${new Date(start.getTime()-5000)})`;
+
   const routing = await routingEffectOverview();
   assert.equal(routing.period, "utc-day");
   assert.equal(routing.providers.find((p) => p.provider === id)?.attempts, 1);
@@ -66,19 +84,24 @@ test("dashboard resets old task, receipt and routing diagnostics without losing 
   assert.ok(!dashboard.timeline.some((r) => r.id === oldRun!.id));
   assert.ok(dashboard.receipts.issues.some((r) => r.id === newReceipt!.id));
   assert.ok(dashboard.receipts.issues.some((r) => r.id === oldReceipt!.id), "unresolved unknown receipts survive midnight in the recovery UI");
-  assert.ok(!dashboard.receipts.issues.some((r) => r.id === oldFailedReceipt!.id), "resolved old-day failures are hidden");
+  assert.ok(!dashboard.receipts.issues.some((r) => r.id === oldFailedReceipt!.id), "old-day failed receipt diagnostics reset");
+  assert.ok(dashboard.receipts.issues.some((r) => r.id === failedTodayFromOldReceipt!.id),
+    "a failure occurring today stays visible even when the receipt was created yesterday");
   assert.ok(dashboard.receipts.unknownTotal >= 2, "outstanding paid outcomes are not an ephemeral daily counter");
   assert.ok(dashboard.deliveries.some((d) => d.id === oldUnknownDelivery!.id), "unknown deliveries remain actionable across days");
   assert.ok(dashboard.deliveries.some((d) => d.id === oldSendingDelivery!.id), "stuck sending deliveries remain actionable across days");
+  assert.ok(dashboard.deliveries.some((d) => d.id === oldFailedDelivery!.id), "old failed deliveries remain actionable until resolved");
 
   const cleaned = await expireStaleWork();
   assert.ok(cleaned.deletedRunHistory >= 1);
   const oldJobs = await sql`SELECT id FROM job_runs WHERE id = ${oldRun!.id}`;
   const todayJobs = await sql`SELECT id FROM job_runs WHERE id = ${newRun!.id}`;
   const oldBillingEvidence = await sql`SELECT id FROM receipts WHERE id = ${oldReceipt!.id}`;
+  const releasedJob = await sql`SELECT id FROM pgboss.job WHERE id = ${releasedJobId}`;
   const preservedBaseline = await sql`SELECT id FROM job_runs WHERE id IN (${backupRun!.id}, ${composeRun!.id})`;
   assert.equal(oldJobs.length, 0);
   assert.equal(todayJobs.length, 1);
   assert.equal(oldBillingEvidence.length, 1);
+  assert.equal(releasedJob.length, 1, "midnight must not discard a released job awaiting retry");
   assert.equal(preservedBaseline.length, 2, "backup and daily report alerts must keep cross-day run baselines");
 });
