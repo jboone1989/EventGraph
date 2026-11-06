@@ -151,31 +151,27 @@ jobs:
             Draft status is valid. Do not demand excessive documentation or safety checks.
             Do not assume repository facts outside supplied evidence.
             Report actionable defects with changed file and positive line number.
-            Reply ONLY with the following short line protocol. No JSON, markdown
-            or additional prose. If there are no proven blockers, one line:
-            VERDICT: PASS
-            Otherwise write VERDICT: FAIL followed by 1-8 lines shaped:
-            FINDING: specs/feature/spec.md:42 | Concrete blocker and smallest fix
-            Only use changed Spec/Plan/Tasks paths and positive changed line numbers.
-            Do not use tools, edit files or post comments.
+            Return a structured review verdict matching the configured JSON schema.
+            If no proven blockers, status PASS and findings [].
+            For blockers, status FAIL and 1-8 findings with changed Spec/Plan/Tasks
+            file, positive changed line, and specific reproduction/smallest fix.
+            Keep each issue concise. Do not use tools, edit files or post comments.
             BEGIN UNTRUSTED SPEC DIFF
             ${{ steps.review_input.outputs.diff }}
             END UNTRUSTED SPEC DIFF
-          claude_args: >-
+          claude_args: |
             --disallowedTools mcp__*
             --max-turns 2
+            --json-schema '{"type":"object","properties":{"status":{"type":"string","enum":["PASS","FAIL"]},"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"issue":{"type":"string"}},"required":["file","line","issue"],"additionalProperties":false}}},"required":["status","findings"],"additionalProperties":false}'
       - name: Publish Spec verdict and fail on blockers
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          REVIEW_LOG: ${{ steps.reviewer.outputs.execution_file }}
+          REVIEW_OUTPUT: ${{ steps.reviewer.outputs.structured_output }}
         with:
           github-token: ${{ github.token }}
           script: |
-            const fs = require('node:fs');
-            const { parseReviewVerdict } = require(process.env.GITHUB_WORKSPACE + '/scripts/ci/parse-review-verdict.cjs');
-            const file = process.env.REVIEW_LOG;
-            if (!file || !fs.existsSync(file)) throw new Error('Missing model review execution file');
-            const result = parseReviewVerdict(fs.readFileSync(file, 'utf8'), 'spec');
+            const { parseStructuredReviewVerdict } = require(process.env.GITHUB_WORKSPACE + '/scripts/ci/parse-review-verdict.cjs');
+            const result = parseStructuredReviewVerdict(process.env.REVIEW_OUTPUT, 'spec');
             await core.summary.addHeading('Spec Review').addRaw(result.summary).write();
             if (!result.findings.length) return;
             const detail = result.findings.map(f =>
@@ -606,30 +602,27 @@ jobs:
             introduced in this PR. Ignore style, speculative risks and pre-existing defects.
             Do not use tools, edit code, run commands, or post comments.
             Give a changed filename, positive line number and smallest fix for each finding.
-            Reply ONLY with the following short line protocol. No JSON,
-            markdown or additional prose. If there are no verified blockers:
-            VERDICT: PASS
-            Otherwise write VERDICT: FAIL followed by 1-8 lines shaped:
-            FINDING: packages/backend/src/jobs/queue.ts:42 | Concrete reproduction and smallest fix
-            Only use changed filenames and positive changed line numbers.
+            Return a structured review verdict matching the configured JSON schema.
+            If verified clean, status PASS and findings [].
+            Otherwise status FAIL with 1-8 concrete blockers: changed filename,
+            positive changed line number, and smallest reproducible fix.
+            Keep each issue concise. Do not use tools or post comments.
             BEGIN UNTRUSTED DIFF
             ${{ steps.review_input.outputs.diff }}
             END UNTRUSTED DIFF
-          claude_args: >-
+          claude_args: |
             --disallowedTools mcp__*
             --max-turns 2
+            --json-schema '{"type":"object","properties":{"status":{"type":"string","enum":["PASS","FAIL"]},"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"issue":{"type":"string"}},"required":["file","line","issue"],"additionalProperties":false}}},"required":["status","findings"],"additionalProperties":false}'
       - name: 发布评审结论并阻止有明确缺陷的 PR 合并
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          REVIEW_LOG: ${{ steps.reviewer.outputs.execution_file }}
+          REVIEW_OUTPUT: ${{ steps.reviewer.outputs.structured_output }}
         with:
           github-token: ${{ github.token }}
           script: |
-            const fs = require('node:fs');
-            const { parseReviewVerdict } = require(process.env.GITHUB_WORKSPACE + '/scripts/ci/parse-review-verdict.cjs');
-            const file = process.env.REVIEW_LOG;
-            if (!file || !fs.existsSync(file)) throw new Error('Missing model review execution file');
-            const result = parseReviewVerdict(fs.readFileSync(file, 'utf8'), 'code');
+            const { parseStructuredReviewVerdict } = require(process.env.GITHUB_WORKSPACE + '/scripts/ci/parse-review-verdict.cjs');
+            const result = parseStructuredReviewVerdict(process.env.REVIEW_OUTPUT, 'code');
             await core.summary.addHeading('Claude Review').addRaw(result.summary).write();
             if (!result.findings.length) return;
             const detail = result.findings.map(f =>
