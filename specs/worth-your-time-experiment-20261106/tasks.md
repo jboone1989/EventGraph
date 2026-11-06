@@ -1,65 +1,51 @@
-# Tasks: 值得看（Worth Your Time）实验栏目
+# Tasks: Ferro「值得看」内容价值发现实验 · EventGraph scope only
 
-**Spec:** [spec.md](./spec.md)
-**Plan:** [plan.md](./plan.md)
-**Status:** Draft — tasks are authorized only after Spec Review approval and merged Spec SHA.
+**Spec:** [spec.md](./spec.md)  
+**Plan:** [plan.md](./plan.md)  
+**Status:** Draft; no Work Item authorized until revised Spec is independently reviewed and merged into develop.
 
-## Execution rules
+## Execution policy
 
-- Each Work Item is an independently reviewable implementation PR against develop and references the exact approved Spec SHA plus the owning Issue.
-- Do not create a second Work Queue, GitHub scheduler, news analysis pipeline, user account, video scraper or model configuration system.
-- Keep a single open implementation PR for each Task ID, fix CI/review findings on that PR's branch; respect existing Check/Docker/E2E/review/auto-merge gates.
-- Match acceptance to actual code/tests and document which behavior is tested or verified in running develop.
+Each task is one focused EventGraph implementation PR tied to its GitHub Issue and immutable merged approved Spec SHA. Only use existing GitHub Spec Producer/Projects/GH-AW Work Queue. No duplicate PR or new scheduler. **These tasks implement the experiment's public evidence and feedback interface, not Ferro's independent cognition or discovery loop.** Ferro-side feature work is not automatically dispatched to EventGraph's repository.
 
 ## Work Items
 
-### T001 — Store and expose a minimal public Worth collection
+### T001 — Expose source-grounded Ferro discovery experiment cases
 
-**Scope:** Add the smallest persistent Worth entry model, typed public API/read layer and existing-admin CRUD, following current publication visibility rules and audit/session/CSRF patterns.
+**Scope:** Reuse the existing research module's public/editor framework to persist and display authored value-discovery cases with original works, research evidence scope, corrections and clear source attribution on /worth and /en/worth.
 
 **Depends on:** none
 
 **Acceptance:**
-- Two localized public read paths can fetch at most five published entries for a selected UTC day, with category, original source URL, attribution, short reason, order and nullable estimated duration.
-- Draft/hidden entries and now-ineligible internal publications do not appear; archive days remain accessible and duplicate URL/item within one day is rejected.
-- Existing administrator can add an external URL with explicit metadata, update/reorder/publish/hide an entry; unauthorized writes fail and audited edits are visible.
-- New additive migrations comply with repo migration numbering/one-statement rule; typed contracts and focused DB/API tests cover empty, hidden, duplicate, invalid URL and UTC date cases.
+- Public experiment pages exist at /worth and /en/worth, showing independently authored cases in chronological order, with author (initially Ferro), original work URL/source, media type, judgement reason, material actually examined, limitations and revision history.
+- Cases are not scored, ranked by popularity, rendered as a personalized feed or forced to publish a daily quota; 0/1/many cases display correctly on desktop/mobile and navigation is limited to existing More/mobile My entry.
+- A case that only has a title/summary is labelled as metadata-level judgement; it must not imply the agent watched or understood the full video. AI-made works are neither excluded nor privileged.
+- Existing admin-authorized operations allow a case to be created, edited, published, revised or withdrawn with provenance and audit. Hidden/withdrawn cases never appear in public reads, and modifying cases does not affect EventGraph news publication/SEO.
+- Tests cover typed contracts, external URLs, internal public source references, revisions, bilingual cases/fallback, unauthorized writes, empty states and news isolation; no model/provider request runs during page load.
 
-### T002 — Select high-value entries with the existing worker and model receipts
+### T002 — Provide an author-neutral, controlled case submission and feedback read boundary
 
-**Scope:** Add an independent once-a-day UTC 00:30 curation task, deterministic candidate narrowing and at most one bounded LLM batch assessment, reusing live model config, paid receipts and existing worker infrastructure.
-
-**Depends on:** T001
-
-**Acceptance:**
-- Selection reads no more than 30 eligible recent public article summaries plus admin-entered candidate metadata, filters duplicate/recently selected URLs and same-event repeats, and publishes 0–5 entries; it never modifies news publishing, analysis, scoring, Hero or hot ranking.
-- Default run makes at most one batch model request through the existing provider routing, budget/receipt records and daily logical key; same-day reruns reuse completed results and do not create unbounded attempts.
-- Admin can request a single explicit controlled rerun without losing manually published, reordered or hidden overrides; selection is idempotent for the same date/source.
-- Model outage, invalid output, missing configured model and zero valid candidates produce visible diagnostics and no fabricated results; tested failure path leaves the existing news pipeline operational.
-- AI-created videos or posts are not automatically excluded or rewarded; the recommendation must have a grounded reason and no unsupported emotional-certainty claims.
-
-### T003 — Add bilingual responsive Worth Your Time pages
-
-**Scope:** Add /worth and /en/worth Beta pages with small curated cards and historic-day navigation, using existing site route, public API loader, localized copy and navigation components.
+**Scope:** Reuse an existing EventGraph authenticated writer/integration pattern to enable Ferro or another attributed author to supply and revise cases and obtain aggregate feedback; no Ferro-specific agent runtime or secret subsystem in EventGraph.
 
 **Depends on:** T001
 
 **Acceptance:**
-- Desktop More navigation and mobile /more expose the new experimental section without replacing homepage, Hero or existing five-tab phone navigation.
-- Cards show real title/source/short explanation/value category/nullable duration, image when a supported existing source image is available, and a working original-content link (internal item or external URL).
-- Both language variants have localized UI and recommendation copy; untranslated content does not masquerade as translated, empty days state no available picks, and each day shows 0–5 entries without infinite scroll.
-- Server-side render/HTTP API cache and item visibility changes behave consistently; page rendering makes no model calls.
-- Focused web tests cover both locale paths, mobile layout/nav, external links, missing media, missing time and 0/1/5-entry states.
+- Submit/correct operations validate author ID, original URL, content scope and evidence, reject unknown/incomplete sources and are idempotent by stable case identity without duplicating cases on retry.
+- No Ferro-only scheduler, model evaluator, polling agent, credential service, generic news-ingest hijack or new independent work queue is added; if current existing authenticated writer cannot support direct Agent delivery without new infrastructure, retain admin-mediated publication and document the precise missing Ferro-side integration rather than claiming autonomous publishing.
+- A changed judgment creates inspectable case revision history, including false positives; a withdrawn work is hidden from public output but not erased from operator audit.
+- Authenticated readers can retrieve only aggregated feedback to support Ferro's own reflection; never expose session identifiers or pretend this has updated Ferro cognition.
+- Focused tests cover authorized/unauthorized/corrupt submissions, duplicate delivery, revision history, retrieval of aggregated feedback and the unchanged news-processing pipeline.
 
-### T004 — Capture value feedback and evaluate the experiment
+### T003 — Capture human value feedback and compare against a transparent baseline
 
-**Scope:** Add three anonymous per-recommendation votes, reuse session-based analytics to report value outcomes by UTC day, and document a repeatable 14-day observational review.
+**Scope:** Let readers evaluate finished cases as worth/okay/wasted and optional new-to-me, then summarize the exploratory experiment against a documented, manually selected popular-content comparison set.
 
-**Depends on:** T003
+**Depends on:** T001, T002
 
 **Acceptance:**
-- Visitors can submit Worth / Okay / Wasted-time and change their response for the same entry in the same anonymous browser session, with one current vote per entry+session; no account or fingerprinting added.
-- Backend validates input, uses same-origin/rate-limiting conventions and isolates feedback failures from recommendation reading; prior votes can be changed without inflating current vote count.
-- Existing analytics records Worth page opens and original-link clicks with unambiguous denominators, and admin displays recommendations/clicks/feedback counts by UTC day; vote counts are not mislabeled as unique people.
-- Measurement includes effective-sample count, the three-way feedback distribution, exceptions and model cost evidence; under 30 votes is explicitly labelled exploratory.
-- Tests cover duplicate vote/update, missing or removed entry, malformed input, rate limit, anonymous/session storage unavailability and a failed feedback request without broken page rendering.
+- Visitors can choose Worth / Okay / Wasted time, optionally marking the original as previously unknown, and change their choice in the same anonymous browser session; one current case vote per session is counted.
+- Reuse existing anonymous session and same-origin/rate-limiting conventions, with a nonblocking error/disabled state when client storage or vote submission is unavailable; do not add login, fingerprinting, user preference models or recommender targeting.
+- Show per-case feedback counts, disagreement and denominators; report known/not-known ratio and value among previously unknown works separately from raw clicks and time-on-page, without labelling session IDs as unique people.
+- A small transparent comparison set with original links and matching topic/media/time criteria can be entered without an automatic popularity crawler. Capture case successes, misses and systematic selection biases, including the possibility that Ferro's picks are no better than the baseline.
+- A 14-day exploratory report can be produced with evidence, raw valid feedback count, limitations and cost/integration status; under 30 valid votes is labelled exploratory, never "statistically proven".
+- Focused API/web tests cover no votes, duplicate/changed votes, hidden cases, comparison-case attribution and aggregate feedback; a mocked Ferro submission does not qualify as a proven real Ferro runtime integration.
