@@ -58,10 +58,6 @@ export async function selectConfiguredProviderForStage(stage:string,needsVision=
   return 'model:'+candidates[0]!.id;
 }
 
-export async function coolDownReference(reference:string,seconds=60):Promise<void> {
-  if(!reference.startsWith('model:'))return;
-  const id=reference.slice(6);
-  const models=await listRegisteredModels();
-  const m=models.find(item=>item.id===id);
-  if(m)coolDownModel(id,seconds);
+export function coolDownReference(reference:string,seconds=60):void {
+  if(reference.startsWith('model:'))coolDownModel(reference.slice(6),seconds);
 }
