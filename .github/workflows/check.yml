@@ -533,6 +533,14 @@ jobs:
             echo "::notice::PR changed or is no longer eligible; skip auto-merge"
             exit 0
           fi
+          # Strict develop rules require an up-to-date branch. Updating creates a
+          # new PR head and a fresh CI run; never merge using the old verdict.
+          if jq -e '.mergeable_state == "behind"' <<< "$pr" >/dev/null; then
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" \
+              -f expected_head_sha="$EXPECTED_HEAD" >/dev/null
+            echo "Updated PR branch; the next exact-head CI run will decide auto-merge"
+            exit 0
+          fi
           if jq -e '.auto_merge != null' <<< "$pr" >/dev/null; then
             echo "Auto-merge already enabled"
             exit 0
