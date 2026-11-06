@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
 import { getBoss, stopBoss } from "@aihot/backend/jobs/queue";
-import { backlogCausesOverview } from "@aihot/backend/admin/runs";
+import { allFlowItemsOverview, backlogCausesOverview } from "@aihot/backend/admin/runs";
 import { utcDayStart } from "@aihot/backend/operations/stale-work";
 
 after(async () => { await stopBoss(); await closeDb(); });
@@ -46,4 +46,26 @@ test("diagnosis explains model retry and unverified receipts without double-coun
   }
   assert.ok(!causes.some(c => c.exampleArticleId === `${prefix}-backfill`), "backfill is not current news");
   assert.equal(utcDayStart(today).getTime() <= today.getTime(), true);
+});
+
+test("full operations table includes failing model calls with exact provider, model and purpose", async () => {
+  await getBoss(); // ensures the existing pg-boss job and schedule tables are present
+  const key = "flow-model-" + tag();
+  const [receipt] = await sql<{ id: number }[]>`
+    INSERT INTO receipts (logical_key,service,model,purpose,subject,status,error)
+    VALUES (${key}, 'Groq', 'test-model-70b', 'group_article', ${"story:" + key}, 'failed', 'Provider HTTP 429')
+    RETURNING id`;
+  try {
+    const items = await allFlowItemsOverview([]);
+    const row = items.find(item => item.key === "model:" + receipt!.id);
+    assert.ok(row, "the unresolved model call must be visible");
+    assert.equal(row.kind, "model");
+    assert.equal(row.status, "failed");
+    assert.equal(row.provider, "Groq");
+    assert.equal(row.model, "test-model-70b");
+    assert.equal(row.process, "group_article");
+    assert.match(row.error ?? "", /429/);
+  } finally {
+    await sql`DELETE FROM receipts WHERE id = ${receipt!.id}`;
+  }
 });

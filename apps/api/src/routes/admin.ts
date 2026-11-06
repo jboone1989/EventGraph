@@ -13,7 +13,7 @@ import { contentChain, curatePending, overrideFields, rerun, searchContent, setS
 import { listNotes, saveNote } from "@aihot/backend/admin/notes";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
 import { banSource, eraseFeedback, feedbackScreenshot, listFeedback, unbanSource, updateFeedback } from "@aihot/backend/admin/feedback";
-import { requeueFailedArticles, runsOverview } from "@aihot/backend/admin/runs";
+import { requeueFailedArticles, requeueFailedJob, requeueFailedSchedule, runsOverview } from "@aihot/backend/admin/runs";
 import { listCandidates, reviveCandidate } from "@aihot/backend/admin/candidates";
 import { evaluateCandidate, holdCandidate, previewCandidate, startTrial } from "@aihot/backend/admin/lifecycle";
 import { resolveDelivery } from "@aihot/backend/notify/deliver";
@@ -106,6 +106,8 @@ export function registerAdmin(app: FastifyInstance) {
   app.post("/api/admin/receipts/:id/release", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await releaseReceipt(Number(param(req, "id")), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/deliveries/:id/resolve", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await resolveDelivery(Number(param(req, "id")), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/processing/requeue", adminHandler(async (req, _reply, admin) => requeueFailedArticles(body(req) as never, actorOf(admin))));
+  app.post("/api/admin/jobs/:id/retry", adminHandler(async (req, _reply, admin) => requeueFailedJob(param(req, "id"), actorOf(admin))));
+  app.post("/api/admin/schedules/:name/retry", adminHandler(async (req, _reply, admin) => requeueFailedSchedule(param(req, "name"), actorOf(admin))));
 
   // Settings
   app.get("/api/admin/settings", adminHandler(async () => settingsOverview()));

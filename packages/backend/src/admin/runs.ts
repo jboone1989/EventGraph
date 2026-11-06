@@ -7,6 +7,7 @@ import { utcDayStart } from "../operations/stale-work.ts";
 import type { Heartbeat } from "../operations/heartbeat.ts";
 import { audit } from "../audit.ts";
 import { failureGroupSql, requeueFailed, queueProcessing } from "../jobs/content.ts";
+import { getBoss } from "../jobs/queue.ts";
 import { groupingOverview, waitingSelectedNews } from "../operations/grouping.ts";
 import { serverModules } from "../modules.ts";
 
@@ -123,6 +124,7 @@ export async function currentNewsQueueItems(): Promise<NonNullable<Runs["current
       left(CASE WHEN a.processing_state = 'analyzed' THEN a.grouping_error ELSE a.processing_error END, 2000) AS error,
       j.name AS "jobName", j.state AS "jobState", j.created_on AS "queuedAt", j.started_on AS "startedAt",
       receipt.id AS "unverifiedReceiptId", receipt.status AS "receiptStatus",
+      latest_model.service AS provider, latest_model.model,
       CASE WHEN a.processing_state = 'analyzed'
          THEN CASE WHEN a.grouping_status = 'failed' THEN 'failed'
                    WHEN j.state = 'active' THEN 'processing' ELSE 'pending' END
@@ -147,6 +149,14 @@ export async function currentNewsQueueItems(): Promise<NonNullable<Runs["current
           OR (a.processing_state <> 'analyzed' AND substring(r.subject from '^article:([^@:#]+)') = a.id))
       ORDER BY r.id DESC LIMIT 1
     ) receipt ON true
+    LEFT JOIN LATERAL (
+      SELECT r.service, r.model FROM receipts r
+      WHERE substring(r.subject from '^article:([^@:#]+)') = a.id AND r.model IS NOT NULL
+        AND ((a.processing_state = 'analyzed' AND r.purpose IN ('group_article','group_review','group_signal'))
+          OR (a.processing_state <> 'analyzed' AND r.purpose IN
+            ('analyze_article','understand_article','summarize_article','prefilter_article','score_article','structure_article','mend_wording')))
+      ORDER BY r.updated_at DESC, r.id DESC LIMIT 1
+    ) latest_model ON true
     WHERE (
         a.processing_state IN ('new', 'failed')
         OR (a.processing_state = 'analyzed' AND a.grouping_status IN ('pending', 'failed')
@@ -219,6 +229,131 @@ export async function backlogCausesOverview(): Promise<NonNullable<Runs["backlog
     FROM classified WHERE kind IS NOT NULL
     GROUP BY kind ORDER BY count DESC, kind
   `;
+}
+
+
+/** Current data already written by every execution family; no probes, guesses or new queues. */
+export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsItems"]>): Promise<NonNullable<Runs["flowItems"]>> {
+  type Rows = NonNullable<Runs["flowItems"]>;
+  const [jobs, schedules, models, sources, deliveries] = await Promise.all([
+    sql<Rows>`
+      WITH ranked AS (
+        SELECT j.*, row_number() OVER (
+          PARTITION BY j.name, CASE WHEN j.name LIKE 'cron.%' THEN j.name
+            ELSE coalesce(j.data->>'articleId', j.data->>'sourceId',
+              j.data->>'storyId', j.singleton_key, j.id::text) END
+          ORDER BY j.created_on DESC, j.id DESC
+        ) AS n
+        FROM pgboss.job j
+        WHERE j.created_on >= ${utcDayStart()} AND j.state IN ('created', 'retry', 'active', 'failed', 'completed')
+      )
+      SELECT 'job:' || j.id::text AS key, 'job' AS kind,
+        CASE WHEN j.state = 'active' THEN 'processing'
+             WHEN j.state = 'failed' THEN 'failed' ELSE 'pending' END AS status,
+        j.name AS process,
+        coalesce(a.title, src.name, j.data->>'storyId', j.data->>'url',
+                 j.data->>'key', j.singleton_key, j.name) AS subject,
+        j.data->>'articleId' AS "articleId",
+        NULL::text AS provider, NULL::text AS model,
+        CASE WHEN j.state = 'failed' THEN left(coalesce(j.output->>'error',
+             j.output->>'message', j.output::text, '任务失败，未记录错误内容'), 2000)
+             ELSE NULL END AS error,
+        coalesce(j.completed_on, j.started_on, j.created_on) AS at,
+        NULL::timestamptz AS "retryAt", j.id::text AS "jobId", NULL::integer AS "receiptId"
+      FROM ranked j
+      LEFT JOIN articles a ON a.id = j.data->>'articleId'
+      LEFT JOIN sources src ON src.id = j.data->>'sourceId'
+      WHERE j.n = 1 AND j.state IN ('created','retry','active','failed')
+    `,
+    sql<Rows>`
+      WITH latest AS (
+        SELECT DISTINCT ON (job) job, status, error, started_at, finished_at
+        FROM job_runs WHERE started_at >= ${utcDayStart()}
+        ORDER BY job, started_at DESC, id DESC
+      )
+      SELECT 'schedule:' || last.job AS key, 'schedule' AS kind, 'failed' AS status,
+        'cron.' || last.job AS process, last.job AS subject,
+        NULL::text AS "articleId", NULL::text AS provider, NULL::text AS model,
+        left(last.error, 2000) AS error,
+        coalesce(last.finished_at,last.started_at) AS at,
+        NULL::timestamptz AS "retryAt", NULL::text AS "jobId",
+        NULL::integer AS "receiptId"
+      FROM latest last
+      WHERE last.status = 'failed' AND EXISTS (
+        SELECT 1 FROM pgboss.schedule sch WHERE sch.name = 'cron.' || last.job)
+    `,
+    sql<Rows>`
+      SELECT 'model:' || r.id::text AS key, 'model' AS kind,
+        CASE WHEN r.status = 'pending' THEN 'processing' ELSE 'failed' END AS status,
+        r.purpose AS process,
+        coalesce(a.title, r.subject, r.purpose) AS subject,
+        substring(r.subject from '^article:([^@:#]+)') AS "articleId",
+        r.service AS provider, r.model,
+        left(coalesce(r.error, last_attempt.error), 2000) AS error,
+        r.updated_at AS at, NULL::timestamptz AS "retryAt",
+        NULL::text AS "jobId", r.id AS "receiptId", r.status AS "receiptStatus"
+      FROM receipts r
+      LEFT JOIN articles a ON a.id = substring(r.subject from '^article:([^@:#]+)')
+      LEFT JOIN LATERAL (
+        SELECT attempt.error FROM receipt_attempts attempt
+        WHERE attempt.receipt_id = r.id ORDER BY attempt.id DESC LIMIT 1
+      ) last_attempt ON true
+      WHERE r.created_at >= ${utcDayStart()}
+        AND r.model IS NOT NULL AND r.purpose <> 'model_provider_probe'
+        AND r.status IN ('failed', 'unknown', 'pending')
+        AND NOT EXISTS (
+          SELECT 1 FROM receipts newer
+          WHERE newer.subject IS NOT DISTINCT FROM r.subject
+            AND newer.purpose = r.purpose
+            AND newer.status IN ('received', 'completed') AND newer.updated_at > r.updated_at
+        )
+    `,
+    sql<Rows>`
+      SELECT 'source:' || s.id AS key, 'source' AS kind, 'failed' AS status,
+        'sources.fetch' AS process, s.name AS subject,
+        NULL::text AS "articleId", NULL::text AS provider, NULL::text AS model,
+        left(s.last_error, 2000) AS error, s.last_fetch_at AS at,
+        NULL::timestamptz AS "retryAt", NULL::text AS "jobId", NULL::integer AS "receiptId"
+      FROM sources s WHERE s.enabled AND s.health = 'failing'
+        AND s.last_fetch_at >= ${utcDayStart()}
+    `,
+    sql<Rows>`
+      SELECT 'delivery:' || d.id::text AS key, 'delivery' AS kind, 'failed' AS status,
+        'notify.selected' AS process, coalesce(a.title, d.target_key) AS subject,
+        CASE WHEN d.subject_kind IN ('article','selected') THEN d.subject_id ELSE NULL END AS "articleId",
+        NULL::text AS provider, NULL::text AS model,
+        left(d.response, 2000) AS error, d.updated_at AS at,
+        NULL::timestamptz AS "retryAt", NULL::text AS "jobId", NULL::integer AS "receiptId"
+      FROM deliveries d LEFT JOIN articles a ON a.id = d.subject_id
+      WHERE d.status IN ('unknown','failed') AND d.updated_at >= ${utcDayStart()}
+    `,
+  ]);
+  const rows: Rows = news.map(article => ({
+    key: "article:" + article.id, kind: "article", status: article.status,
+    process: article.stage, subject: article.title, articleId: article.id,
+    provider: article.provider ?? null, model: article.model ?? null, error: article.error,
+    at: article.startedAt ?? article.queuedAt ?? article.discoveredAt,
+    retryAt: article.retryAt, jobId: null, receiptId: article.unverifiedReceiptId,
+    receiptStatus: article.receiptStatus,
+  }));
+  const newsIds = new Set(news.map(article => article.id));
+  for (const job of jobs) {
+    // The article row already represents its live extraction/analysis/grouping job.
+    if (job.articleId && newsIds.has(job.articleId) &&
+        ['content.analyze', 'content.extract-body', 'events.group'].includes(job.process)) continue;
+    rows.push(job);
+  }
+  // The latest cron state has one row: use the recorded failure text instead of raw pg-boss output.
+  for (const schedule of schedules) {
+    const running = rows.some(row => row.process === schedule.process && row.kind === 'job' && row.status !== 'failed');
+    if (running) continue;
+    const old = rows.findIndex(row => row.process === schedule.process && row.kind === 'job');
+    if (old >= 0) rows.splice(old, 1);
+    rows.push(schedule);
+  }
+  rows.push(...models, ...sources, ...deliveries);
+  const asMillis = (time: Date | string) => typeof time === "string" ? Date.parse(time) : time.getTime();
+  return rows.sort((a,b) => asMillis(b.at) - asMillis(a.at) || a.key.localeCompare(b.key));
 }
 
 export async function runsOverview(): Promise<Runs> {
@@ -331,6 +466,7 @@ export async function runsOverview(): Promise<Runs> {
     Promise.all(serverModules().flatMap((m) => (m.admin?.runs ? [m.admin.runs().then((part) => [m.name, part] as const)] : []))),
   ]);
   const currentNews = queueCounts(currentNewsItems);
+  const flowItems = await allFlowItemsOverview(currentNewsItems);
   const now = Date.now();
   return {
     checkedAt: new Date(now).toISOString(),
@@ -347,6 +483,7 @@ export async function runsOverview(): Promise<Runs> {
     live24h,
     currentNews,
     currentNewsItems,
+    flowItems,
     backlogCauses,
     legacyUnresolved,
     routingEffect,
@@ -394,4 +531,43 @@ export async function requeueFailedArticles(input: { group?: string | null; arti
   const result = await requeueFailed(input.group ?? null, input.limit ?? null);
   await audit(actor, "processing.requeue", input.group ? "failure:" + input.group.slice(0, 80) : "failure:all", input.reason, null, result);
   return result;
+}
+
+/** Retry an actual failed pg-boss task, without replaying an unverified model request. */
+export async function requeueFailedJob(id: string, actor: string) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw Object.assign(new Error("无效任务 ID"), { statusCode: 400 });
+  const [job] = await sql<{ id: string; name: string; article_id: string | null }[]>`
+    SELECT id::text, name, data->>'articleId' AS article_id FROM pgboss.job
+    WHERE id = ${id}::uuid AND state = 'failed' AND created_on >= ${utcDayStart()}`;
+  if (!job) throw Object.assign(new Error("任务已恢复或过期，请刷新"), { statusCode: 409 });
+  if (job.article_id) {
+    const [unverified] = await sql`
+      SELECT 1 FROM receipts r WHERE r.status IN ('pending','unknown')
+        AND substring(r.subject from '^article:([^@:#]+)') = ${job.article_id} LIMIT 1`;
+    if (unverified) throw Object.assign(new Error("模型回执未确认，不能重复发送"), { statusCode: 409 });
+  }
+  const boss = await getBoss();
+  await boss.retry(job.name, job.id);
+  await audit(actor, "processing.requeue.job", "job:" + job.id, "后台手动重试失败任务", null, { queue: job.name });
+  return { requeued: 1 };
+}
+
+/** A failed cron run is a real task that can be sent back to its existing scheduled queue. */
+export async function requeueFailedSchedule(jobName: string, actor: string) {
+  if (!/^[a-z0-9._-]{2,100}$/.test(jobName)) throw Object.assign(new Error("无效流程名称"), { statusCode: 400 });
+  const queue = 'cron.' + jobName;
+  const [schedule] = await sql`SELECT 1 FROM pgboss.schedule WHERE name = ${queue} LIMIT 1`;
+  if (!schedule) throw Object.assign(new Error("定时任务已停用"), { statusCode: 409 });
+  const [last] = await sql<{ status: string }[]>`
+    SELECT status FROM job_runs WHERE job = ${jobName} AND started_at >= ${utcDayStart()}
+    ORDER BY started_at DESC, id DESC LIMIT 1`;
+  if (last?.status !== 'failed') throw Object.assign(new Error("流程已重新运行，请刷新"), { statusCode: 409 });
+  const [active] = await sql`
+    SELECT 1 FROM pgboss.job WHERE name = ${queue} AND state IN ('created','retry','active') LIMIT 1`;
+  if (active) throw Object.assign(new Error("任务已经在队列中"), { statusCode: 409 });
+  const boss = await getBoss();
+  const jobId = await boss.send(queue, {}, { singletonKey: 'admin:' + jobName });
+  if (!jobId) throw Object.assign(new Error("任务未成功入队"), { statusCode: 409 });
+  await audit(actor, 'processing.requeue.schedule', queue, "后台手动重试失败流程", null, { jobId });
+  return { requeued: 1, jobId };
 }

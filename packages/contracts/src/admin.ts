@@ -286,6 +286,24 @@ export interface AdminFeedback {
 
 // Runs
 
+/** A live execution unit; an article and its model request can appear separately. */
+export interface AdminFlowItem {
+  key: string;
+  kind: "article" | "job" | "schedule" | "model" | "source" | "delivery";
+  status: "pending" | "processing" | "failed";
+  process: string;
+  subject: string;
+  articleId: string | null;
+  provider: string | null;
+  model: string | null;
+  error: string | null;
+  at: Timestamp;
+  retryAt: Timestamp | null;
+  jobId: string | null;
+  receiptId: number | null;
+  receiptStatus?: string | null;
+}
+
 export interface AdminReceiptIssue {
   id: number;
   service: string;
@@ -336,11 +354,14 @@ export interface AdminRuns {
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
   /** Live unfinished editorial articles from this UTC day, mutually exclusive counts. */
   currentNews: { pending: number; processing: number; failed: number };
+  /** Every current execution unit from article work, pg-boss, schedules and model receipts. */
+  flowItems?: AdminFlowItem[];
   /** One row per unfinished news item: extraction, unified analysis or selected-event grouping. */
   currentNewsItems?: Array<{
     id: string; title: string; status: "pending" | "processing" | "failed"; stage: string;
     discoveredAt: Timestamp; retryAt: Timestamp | null; attempts: number; error: string | null;
     jobName: string | null; jobState: string | null; queuedAt: Timestamp | null; startedAt: Timestamp | null;
+    provider?: string | null; model?: string | null;
     unverifiedReceiptId: number | null; receiptStatus: string | null;
   }>;
   /** Articles first discovered today (UTC), excluding historical backfills and signal-only feeds. */
