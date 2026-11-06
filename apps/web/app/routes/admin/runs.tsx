@@ -54,10 +54,16 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const attentionCount = Number(!worker?.alive) + Number(r.currentNews.failed > 0) +
     Number(r.grouping.needsAttention > 0) + Number(r.lagging.length > 0) +
     Number(failing.length > 0) + Number(unknownReceipts > 0);
+  const automaticGrouping = r.grouping.items.filter(x => x.recovery === "automatic");
+  const groupingOverdue = (value: string) => Date.now() - new Date(value).getTime() > 10 * 60_000;
   const groupedCauseRows = [
     { kind: "manual", label: "归组失败，需人工处理", items: r.grouping.items.filter(x => x.recovery === "manual") },
     { kind: "receipt", label: "归组模型结果待核对", items: r.grouping.items.filter(x => x.recovery === "receipt") },
-    { kind: "automatic", label: "归组未完成，当前仍由系统负责", items: r.grouping.items.filter(x => x.recovery === "automatic") },
+    { kind: "active_overdue", label: "归组任务实际执行超过 10 分钟", items: automaticGrouping.filter(x => x.jobState === "active" && groupingOverdue(x.activeSince ?? x.since)) },
+    { kind: "active", label: "归组正在执行", items: automaticGrouping.filter(x => x.jobState === "active" && !groupingOverdue(x.activeSince ?? x.since)) },
+    { kind: "queue", label: "归组队列正在等待 Worker 消费", items: automaticGrouping.filter(x => x.jobState === "created" || x.jobState === "retry") },
+    { kind: "missing", label: "超过 10 分钟仍没有归组任务", items: automaticGrouping.filter(x => !x.jobState && groupingOverdue(x.since)) },
+    { kind: "starting", label: "归组待启动（尚未超时）", items: automaticGrouping.filter(x => !x.jobState && !groupingOverdue(x.since)) },
   ].filter(x => x.items.length > 0);
   const overdueNewsCount = r.backlogCauses?.reduce((sum, cause) => sum + cause.count, 0) ?? 0;
   const groupingPageSize = 20;
@@ -106,9 +112,14 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
                 <h3 className="mb-2 font-semibold text-ink">精选去重与归组（不同于新闻分析积压）</h3>
                 {groupedCauseRows.map(group => <p key={group.kind} className="py-1 text-[13px]">
                   <strong>{group.label}：{num(group.items.length)} 条</strong>
-                  <span className="ml-2 text-ink-3">{group.kind === "automatic"
-                    ? "尚不足以判断是模型慢还是排队；检查归组任务与回执"
-                    : group.items.find(x => x.error)?.error ?? "打开明细核对处理原因"}</span>
+                  <span className="ml-2 text-ink-3">{
+                    group.kind === "queue" ? "归组 Worker 串行处理；确认队列是否持续出队" :
+                    group.kind === "missing" ? "归组任务缺失，检查 content.sweep / events.group 调度" :
+                    group.kind === "active_overdue" ? "正在执行但已超时，检查归组模型响应和任务超时" :
+                    group.kind === "active" ? "当前归组 Worker 正在执行" :
+                    group.kind === "starting" ? "还不能判断为故障" :
+                    group.items.find(x => x.error)?.error ?? "打开明细核对处理原因"
+                  }</span>
                   {" · "}<a className="text-accent hover:underline" href="#grouping-backlog">查看明细</a>
                 </p>)}
               </div>}
