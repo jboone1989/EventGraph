@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Link, Outlet, useLoaderData, useLocation, useNavigation, useOutletContext, useSearchParams } from "react-router";
 import type { Route } from "./+types/feed-layout";
-import type { HotResponse, ReportIndexResponse, SiteStats } from "@aihot/contracts/site";
+import type { HeroNews, HotResponse, ReportIndexResponse, SiteStats } from "@aihot/contracts/site";
 import { subjectAfter } from "@aihot/site";
 import { cachedPage, apiGet } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
@@ -28,21 +28,21 @@ export async function loader({ request }: Route.LoaderArgs) {
   const showTrending = scope !== "filtered";
   const upstream = new Headers();
   const signal = request.signal;
-  const [graph, stats, hot, site, dailies] = await Promise.all([
+  const [graph, stats, hot, hero, site, dailies] = await Promise.all([
     showOverview ? apiGet<KnowledgeGraph>("/api/site/knowledge/overview", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH) : EMPTY_GRAPH,
     showOverview ? apiGet<KnowledgeStats>("/api/site/knowledge/stats", { signal, timeoutMs: 1_800 }).catch(() => EMPTY_STATS) : EMPTY_STATS,
     showTrending ? apiGet<HotResponse>("/api/site/hot", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
+    showOverview ? apiGet<HeroNews | null>("/api/site/hero", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
     showOverview ? apiGet<SiteStats>("/api/site/stats", { signal, timeoutMs: 1_800 }).catch(() => null) : null,
     apiGet<ReportIndexResponse>("/api/site/reports/daily", { signal, timeoutMs: 1_800 }).catch(() => null),
   ]);
-  const lead = hot?.entries[0] ?? null;
-  const storyGraph = showOverview && lead
-    ? await apiGet<KnowledgeGraph>(`/api/site/knowledge/stories/${encodeURIComponent(lead.story.publicId)}`, { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH)
+  const storyGraph = showOverview && hero?.storyPublicId
+    ? await apiGet<KnowledgeGraph>(`/api/site/knowledge/stories/${encodeURIComponent(hero.storyPublicId)}`, { signal, timeoutMs: 1_800 }).catch(() => EMPTY_GRAPH)
     : EMPTY_GRAPH;
   // Preserve ordinary page caching, including offline revisits. Only fallback reuse
   // checks which optional upstream requests actually succeeded.
   return cachedPage(60, {
-    graph, stats, hot: hot?.entries ?? [], site, storyGraph,
+    graph, stats, hot: hot?.entries ?? [], hero, site, storyGraph,
     daily: dailies?.items[0] ?? null,
     hotOk: hot !== null, dailyOk: dailies !== null,
   }, upstream);
@@ -57,7 +57,7 @@ export const handle: Screen = { tab: "featured" };
 const ALL_TITLE = subjectAfter("全部", "动态");
 
 export default function FeedLayout() {
-  const { hot, site, stats, graph, daily, storyGraph } = useLoaderData<typeof loader>();
+  const { hot, hero, site, stats, graph, daily, storyGraph } = useLoaderData<typeof loader>();
   const t = useText();
   const location = useLocation();
   const navigation = useNavigation();
@@ -78,12 +78,12 @@ export default function FeedLayout() {
       {!filtered && !q && (
         <>
           <PulseStrip site={site} graph={stats} />
-          <LeadStory entry={hot[0] ?? null} storyGraph={storyGraph} overview={graph} />
+          <LeadStory news={hero} storyGraph={storyGraph} overview={graph} />
         </>
       )}
       <div className="lr-home-grid">
         <div className="min-w-0">
-          {!filtered && inNav("/hot") && <Trending entries={hot.slice(1, 5)} />}
+          {!filtered && inNav("/hot") && <Trending entries={hot.slice(0, 5)} />}
           {base === "/" ? (
             <div className="lr-feed-heading">
               <div>
