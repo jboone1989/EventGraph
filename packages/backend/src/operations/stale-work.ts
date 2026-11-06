@@ -41,8 +41,12 @@ export async function expireStaleWork(now = new Date()) {
     totals.markedUnknownReceipts += batch.markedUnknown;
     if (batch.count < 200) break;
   }
-  // Clear old operational diagnostics at UTC midnight, but preserve paid request receipts.
-  const oldRuns = await sql`DELETE FROM job_runs WHERE started_at < ${cutoff} AND status <> 'running'`;
-  const oldFailures = await sql`DELETE FROM pgboss.job WHERE state = 'failed' AND completed_on < ${cutoff}`;
+  // Clear day-scoped diagnostics, but keep the backup/report alert baselines and paid evidence.
+  const oldRuns = await sql`DELETE FROM job_runs WHERE started_at < ${cutoff} AND status <> 'running' AND job NOT IN ('ops.backup', 'reports.compose')`;
+  // Retain failed jobs tied to unresolved paid receipts: receipt.release may need to retry them.
+  const oldFailures = await sql`DELETE FROM pgboss.job j WHERE j.state = 'failed' AND j.completed_on < ${cutoff}
+    AND NOT EXISTS (
+      SELECT 1 FROM receipts r WHERE r.status = 'unknown' AND r.id::text = j.output->>'receiptId'
+    )`;
   return { ...totals, deletedRunHistory: oldRuns.count, deletedFailedJobHistory: oldFailures.count };
 }
