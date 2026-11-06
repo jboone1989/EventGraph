@@ -77,7 +77,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       </Card>
       <Card className="mb-5" title={attentionCount ? "需要关注 · " + attentionCount + " 类问题" : "需要关注"}>
         {attentionCount === 0
-          ? <p className="text-[13px] text-ink-3">UTC 今日新闻未出现本页跟踪的处理异常；队列历史和模型请求可在下方诊断查看。</p>
+          ? <p className="text-[13px] text-ink-3">UTC 今日新闻未出现本页跟踪的处理异常；今日任务和模型请求可在下方诊断查看。</p>
           : <div className="space-y-2 text-[13px]">
             {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")} className="ml-2 text-accent">进程明细</a></p>}
             {r.currentNews.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.currentNews.failed)}</Badge> 已核对的可手动重排，未知回执先核对。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
@@ -190,7 +190,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           }
           pad={false} scrollable
         >
-          <p className="px-4 py-3 text-[12px] text-ink-3">这里的数量与“重新处理”可操作范围一致：包含UTC 今日新发现或更新的失败文章，也可能包含历史新闻及回填记录。重新处理会触发新的模型调用，不等于上方“UTC 今日发现新闻”的失败数。</p>
+          <p className="px-4 py-3 text-[12px] text-ink-3">这里的数量与“重新处理”可操作范围一致：包含 UTC 今日新发现或更新的失败文章，也可能包含历史新闻及回填记录。重新处理会触发新的模型调用，不等于上方“UTC 今日发现新闻”的失败数。</p>
           <DataTable scrollable
             dense
             rows={r.errors}
