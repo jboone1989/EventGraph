@@ -190,8 +190,9 @@ export const AnalyzeOnceSchema = StructureSchema.extend({
   authorRole: z.enum(["principal", "observer", "relayer"]).catch("relayer"),
   // Legacy single-language result remains readable for older providers and receipts.
   explanation: ExplainSchema.nullish().catch(null),
-  explanationZh: ExplainSchema.nullish().catch(null),
-  explanationEn: EnglishExplainSchema.nullish().catch(null),
+  // New bilingual fields must validate rather than silently dropping bad language output.
+  explanationZh: ExplainSchema.nullish(),
+  explanationEn: EnglishExplainSchema.nullish(),
 });
 
 const usableEnglish = (title: string, summary: string, reason: string) =>
