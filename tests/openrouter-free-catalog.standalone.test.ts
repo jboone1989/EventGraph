@@ -40,3 +40,21 @@ test('vision chat models can be configured for vision; unadvertised chat endpoin
  assert.deepEqual(r.models[0]?.capabilities,['text','vision']);
  assert.equal(r.models[1]?.adapter,'special');
 });
+
+test('catalog rows without endpoint paths classify by output modality instead',()=>{
+ const entry=(id:string,output_modalities:string[])=>({
+  id,pricing:{prompt:'0',completion:'0'},
+  architecture:{input_modalities:['text'],output_modalities}
+ });
+ const r=classifyOpenRouterFreeCatalog([
+  entry('free/no-endpoints-chat',['text']),
+  entry('free/no-endpoints-embedding',['embeddings']),
+  entry('free/no-endpoints-rerank',['rerank']),
+  entry('free/legacy-text',[]),
+  {...entry('openrouter/free',['text']),endpoints:['/api/v1/responses']}
+ ]);
+ assert.deepEqual(r.models.map(m=>m.adapter),['chat','embedding','special','chat','chat']);
+ assert.equal(r.chat,3);assert.equal(r.embedding,1);assert.equal(r.other,1);
+ assert.equal(r.models[1]?.probe?.response,'embedding');
+ assert.equal(r.models.filter(m=>m.id==='openrouter/free').length,1);
+});

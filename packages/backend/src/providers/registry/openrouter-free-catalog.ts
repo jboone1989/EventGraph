@@ -38,11 +38,15 @@ export function classifyOpenRouterFreeCatalog(data:unknown[]):{
   const endpoints=strings(m.endpoints);
   const output=strings(m.architecture?.output_modalities);
   const input=strings(m.architecture?.input_modalities);
-  if(endpoints.includes('/api/v1/chat/completions')&&(output.length===0||output.includes('text'))){
+  // Catalog versions can omit endpoint paths; output modalities remain authoritative.
+  const textOutput=output.length===0||output.includes('text');
+  const inferFromModality=endpoints.length===0;
+  const chatEndpoint=endpoints.includes('/api/v1/chat/completions');
+  if(m.id==='openrouter/free'||((chatEndpoint||(inferFromModality&&!output.includes('embeddings')))&&textOutput)){
    chat++;
    models.push({id:m.id,adapter:'chat',capabilities:input.includes('image')?['text','vision']:['text'],
     probe:{capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'}});
-  }else if(endpoints.includes('/api/v1/embeddings')){
+  }else if(endpoints.includes('/api/v1/embeddings')||(inferFromModality&&output.includes('embeddings'))){
    embedding++;
    models.push({id:m.id,adapter:'embedding',capabilities:['embedding'],
     probe:{capability:'embedding',body:{input:'Hello world'},response:'embedding'}});
