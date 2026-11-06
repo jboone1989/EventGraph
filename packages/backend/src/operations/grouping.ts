@@ -16,12 +16,21 @@ export async function waitingSelectedNews(period: 'rolling-24h' | 'utc-day' = 'r
            group_wait.since,
            a.grouping_status = 'failed' AS failed, a.grouping_receipt_id AS "receiptId", a.grouping_error AS error,
            r.status AS receipt_status,
-           EXISTS (SELECT 1 FROM pgboss.job j WHERE j.name = 'events.group' AND j.state IN ('created', 'retry', 'active')
-                   AND j.data->>'articleId' = a.id) AS running,
+           live_job."jobState", live_job."queueSince", live_job."activeSince",
+           live_job."jobState" IS NOT NULL AS running,
            EXISTS (SELECT 1 FROM receipt_attempts attempt WHERE attempt.receipt_id = r.id
                    AND attempt.error LIKE ${AUTO_RELEASE_NOTE + "%"}) AS released
     FROM publications p JOIN articles a ON a.id = p.article_id LEFT JOIN receipts r ON r.id = a.grouping_receipt_id
     LEFT JOIN article_revisions revision ON revision.article_id = a.id AND revision.revision = a.revision
+    LEFT JOIN LATERAL (
+      SELECT
+        (array_agg(j.state ORDER BY CASE j.state WHEN 'active' THEN 0 WHEN 'retry' THEN 1 ELSE 2 END, j.created_on DESC))[1] AS "jobState",
+        min(j.created_on) FILTER (WHERE j.state IN ('created', 'retry')) AS "queueSince",
+        min(j.started_on) FILTER (WHERE j.state = 'active') AS "activeSince"
+      FROM pgboss.job j
+      WHERE j.name = 'events.group' AND j.data->>'articleId' = a.id
+        AND j.state IN ('active', 'created', 'retry')
+    ) live_job ON true
     CROSS JOIN LATERAL (
       SELECT greatest(coalesce(p.selected_ready_at, p.discovered_at), revision.created_at,
         (SELECT max(j.created_on) FROM pgboss.job j WHERE j.name = 'events.group'
