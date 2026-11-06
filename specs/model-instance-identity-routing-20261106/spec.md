@@ -1,6 +1,6 @@
 # Model-instance identity and failover for multiple Provider Connections
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of f4ad7091181c0ab97d4a13079dcbaf04f8b8f2a1)
 **Owner decision:** 2026-11-06: EventGraph treats each database model UUID as an independent routing candidate even when multiple Groq accounts, or other accounts/providers, advertise the same upstream model name. The operator explicitly asked to redesign and implement this behavior.
 **Target:** develop only; main/production not in scope.
 
