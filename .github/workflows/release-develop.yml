@@ -51,8 +51,8 @@ jobs:
             { echo '::error::Develop moved; publish the new HEAD instead'; exit 1; }
           checks="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100")"
           for required in check e2e; do
-            jq -e --arg required "$required" '
-              [.check_runs[] | select(.name == $required and .conclusion == "success")] | length > 0
+            jq -s -e --arg required "$required" '
+              [.[].check_runs[]? | select(.name == $required and .conclusion == "success")] | length > 0
             ' <<< "$checks" >/dev/null || {
               echo "::error::No successful $required check for exact source SHA"; exit 1;
             }
