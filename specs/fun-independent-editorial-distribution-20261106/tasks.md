@@ -29,11 +29,3 @@ EventGraph 的 GitHub Projects / GH-AW Agent 只实现**栏目展示与已有作
 - 只有已确认 EventGraph 的发布回执/URL 可作为 Ferro 后续 Omnipost 分发的前置条件；无后端调用 Omnipost，无独立平台发送 job。
 - 已有新闻分析、发布、后台研究、来源审计功能回归通过，并有非法来源/鉴权/重复修订的聚焦测试。
 
-### T003 — Surface confirmed channel receipts without building distribution workers
-**Scope:** 可选复用已有统计/后台字段呈现 Ferro 回填的实际确认渠道链接和简单回流结果，保持事件与独立作品状态清楚分离。
-**Depends on:** T002
-**Acceptance:**
-- 对指定 artifact revision 展示已有可确认的渠道 URL/ref 和明确状态，未知结果标记 unverified，未支持图文渠道标记 manual_required，不能仅根据请求已发送就显示成功。
-- Ferro 侧 Omnipost 保留唯一发送执行权；EventGraph 不实现社交 API、图文上传、重试队列或单独 Omnipost 客户端。
-- 站点可以区分真实可得的页面浏览、社交回流和明确录入的收益；未知收入显示未知，不把点击数推算为收入。
-- 渠道部分失败或重复回执不会更改已发布作品/新闻；测试验证不盲目重复发送、不污染新闻运维数据。
