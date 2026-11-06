@@ -493,7 +493,6 @@ jobs:
             ${{ steps.review_input.outputs.diff }}
             END UNTRUSTED DIFF
           claude_args: >-
-            --tools ""
             --disallowedTools mcp__*
             --max-turns 2
       - name: 发布评审结论并阻止有明确缺陷的 PR 合并
