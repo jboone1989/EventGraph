@@ -353,7 +353,7 @@ export interface AdminRuns {
   grouping: {
     waiting: number;
     needsAttention: number;
-    items: Array<{ articleId: string; title: string; since: Timestamp; failed: boolean; recovery: "automatic" | "receipt" | "manual"; receiptId: number | null; error: string | null }>;
+    items: Array<{ articleId: string; title: string; since: Timestamp; failed: boolean; recovery: "automatic" | "receipt" | "manual"; receiptId: number | null; error: string | null; jobState?: "active" | "created" | "retry" | null; queueSince?: Timestamp | null; activeSince?: Timestamp | null }>;
   };
   lagging: Array<{
     id: string; name: string; kind: string; health: string; fail_count: number; last_ok_at: Timestamp | null; last_fetch_at: Timestamp | null;
