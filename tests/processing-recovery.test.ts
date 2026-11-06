@@ -38,6 +38,7 @@ const provider = await stub(async (_hit, request) => {
 pointModels(provider.url);
 
 before(async () => {
+  await getBoss(); // The first recovery test must not depend on a previous test creating pg-boss tables.
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
     VALUES (${SOURCE},'Recovery','rss','T1','editorial','2100-01-01')`;
 });
@@ -46,10 +47,10 @@ afterEach(async () => {
   await sql`DELETE FROM pgboss.job WHERE data->>'articleId' IN (SELECT id FROM articles WHERE source_id=${SOURCE})`;
 });
 
-async function article(name: string) {
+async function article(name: string, backfill: string | null = "test fixture") {
   return (await upsertMaterial({ sourceId: SOURCE, url: `https://example.org/${T}/${name}`, title: `AI model ${T} ${name}`,
     bodyText: `AI lab release ${T} ${name}. ` + "The new model includes benchmark and price details. ".repeat(12),
-    bodyStatus: "ok", via: "fetch", backfill: "test fixture", publishedAt: new Date() })).articleId;
+    bodyStatus: "ok", via: "fetch", ...(backfill ? { backfill } : {}), publishedAt: new Date() })).articleId;
 }
 
 /** Wakes this process's analysis workers to fetch now, instead of waiting out their polling interval. */
@@ -67,7 +68,7 @@ async function waitFor(check: () => Promise<boolean>) {
 }
 
 test("operator can requeue only two articles from a recoverable model error group", async () => {
-  const ids = await Promise.all(["bounded-a", "bounded-b", "bounded-c"].map(article));
+  const ids = await Promise.all(["bounded-a", "bounded-b", "bounded-c"].map(name => article(name, null)));
   const group = "Model cannot route text: retest required for selected model";
   await sql`UPDATE articles SET processing_state='failed',processing_error=${group},processing_attempts=8
     WHERE id=ANY(${ids}::text[])`;
@@ -89,7 +90,7 @@ test("operator can requeue only two articles from a recoverable model error grou
 });
 
 test("manual bulk retry skips unresolved provider receipts to prevent double billing", async () => {
-  const id = await article("unverified-receipt");
+  const id = await article("unverified-receipt", null);
   const group = "receipt outcome unknown";
   await sql`UPDATE articles SET processing_state='failed', processing_error=${group} WHERE id=${id}`;
   const [receipt] = await sql<{ id: number }[]>`

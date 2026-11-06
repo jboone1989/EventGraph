@@ -4,28 +4,50 @@ import { test } from "node:test";
 import { chromium, expect } from "@playwright/test";
 import { startWebServer } from "./web-server.ts";
 
-test("runs page prioritizes active problems while retaining detailed diagnostics", async () => {
+test("three live queues cover news, worker, schedules and model failures with their original errors", async () => {
   const now = new Date().toISOString();
-  const runs = {
-    checkedAt: now,
-    processes: [{ role: "worker", pid: 123, host: "worker-1", release: "dev", startedAt: now, at: now, alive: true }],
-    jobs: [{ job: "reports.compose", started_at: now, finished_at: now, status: "failed", error: "Failed composing report", failed_24h: 1, runs_24h: 1 }], timeline: [], queues: [{ name: "cron.reports.compose", state: "retry", n: 31, oldest: now }],
-    articleProcessing: { waiting: 4, retrying: 3, failed: 2, filtered: 7, unavailableModel: 0 },
-    live24h: { discovered: 25, analyzed: 14, grouped: 12, waiting: 6, failed: 2, filtered: 7, stalled: 3, newestAt: now },
-    legacyUnresolved: 2,
-    currentNews: { pending: 4, processing: 2, failed: 2 },
-    failedJobs: [{ name: "cron.reports.compose", failed: 4, last: now, last_output: "Provider HTTP 500" }],
-    grouping: { waiting: 0, needsAttention: 0, items: [] },
-    lagging: [], receipts: { counts: {}, unknownTotal: 0, issues: [] }, deliveries: [], errors: [],
-    retrying: { count: 3, next: now }, ingest: [], modules: {},
-  };
-  const api = createServer((req, res) => {
+  const rows = [
+    { key: "article:news-1", kind: "article", status: "failed", process: "新闻统一分析",
+      subject: "失败新闻", articleId: "news-1", provider: "groq", model: "llama-3.3-70b",
+      error: "Provider HTTP 429", at: now, retryAt: null, jobId: null, receiptId: null },
+    { key: "job:aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", kind: "job", status: "failed", process: "events.digest",
+      subject: "事件 99", articleId: null, provider: null, model: null,
+      error: "digest exception", at: now, retryAt: null, jobId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa", receiptId: null },
+    { key: "schedule:knowledge.graphiti.ingest", kind: "schedule", status: "failed", process: "cron.knowledge.graphiti.ingest",
+      subject: "knowledge.graphiti.ingest", articleId: null, provider: null, model: null,
+      error: "Graphiti HTTP 500", at: now, retryAt: null, jobId: null, receiptId: null },
+    { key: "model:17", kind: "model", status: "failed", process: "group_article",
+      subject: "新闻关联分析", articleId: "news-2", provider: "OpenRouter", model: "nemotron-model",
+      error: "Provider HTTP 503", at: now, retryAt: null, jobId: null, receiptId: 17, receiptStatus: "failed" },
+    { key: "article:news-3", kind: "article", status: "pending", process: "正文提取",
+      subject: "等待新闻", articleId: "news-3", provider: null, model: null,
+      error: null, at: now, retryAt: null, jobId: null, receiptId: null },
+    { key: "job:bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb", kind: "job", status: "processing", process: "sources.fetch",
+      subject: "信源采集中", articleId: null, provider: null, model: null,
+      error: null, at: now, retryAt: null, jobId: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb", receiptId: null },
+  ];
+  const runs = { checkedAt: now, processes: [{ role: "worker", pid: 1, host: "worker", release: "dev", startedAt: now, at: now, alive: true }],
+    flowItems: rows, currentNews: { pending: 1, processing: 0, failed: 1 } };
+  let retried = 0;
+  const api = createServer(async (req, res) => {
     const path = new URL(req.url!, "http://api.local").pathname;
     res.setHeader("content-type", "application/json");
     if (path === "/api/site/meta") return res.end(JSON.stringify({ changelogVersion: null }));
     if (path === "/api/admin/me") return res.end(JSON.stringify({ name: "Runs test", csrf: "fixture", dev: true }));
-    if (path === "/api/admin/nav-counts") return res.end(JSON.stringify({ runs: 5 }));
+    if (path === "/api/admin/nav-counts") return res.end(JSON.stringify({ runs: 1 }));
     if (path === "/api/admin/runs") return res.end(JSON.stringify(runs));
+    if (req.method === "POST" && (path === "/api/admin/processing/requeue" ||
+        path === "/api/admin/jobs/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/retry" ||
+        path === "/api/admin/schedules/knowledge.graphiti.ingest/retry")) {
+      if (path === "/api/admin/processing/requeue") {
+        let body = ""; for await (const chunk of req) body += String(chunk);
+        assert.equal(JSON.parse(body).articleId, "news-1");
+        rows[0]!.status = "pending";
+      } else if (path.includes("/jobs/")) rows[1]!.status = "pending";
+      else rows[2]!.status = "pending";
+      retried += 1;
+      return res.end(JSON.stringify({ requeued: 1 }));
+    }
     res.statusCode = 404;
     return res.end("{}");
   });
@@ -33,37 +55,26 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
   const browser = await chromium.launch({ channel: "chromium" });
   try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
-    const res = await page.goto(web.origin + "/admin/runs");
-    assert.equal(res?.status(), 200);
-    await expect(page.getByText("新闻处理 · 当前队列（UTC）", { exact: true })).toBeVisible();
-    await expect(page.getByText("待处理", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("失败新闻 2", { exact: true })).toBeVisible();
-    await expect(page.getByText("定时任务最近失败 1")).toBeVisible();
-    await expect(page.getByText("每天 UTC 00:00 清空未完成项", { exact: false })).toBeVisible();
-    await expect(page.getByText("实时积压只按当前 UTC 日", { exact: false })).toBeVisible();
-    const navBadge = page.locator('aside a[href="/admin/runs"] span[title="当前 UTC 日未完成新闻（按篇计数）"]');
-    await expect(navBadge).toHaveText("5");
-    await expect(navBadge).toHaveClass(/bg-bg-sunk/);
-    await expect(page.getByText("处理中", { exact: true }).first()).toBeVisible();
-    const queue = page.locator("#runs-queues");
-    const news = page.locator("#runs-news");
-    await page.getByRole("link", { name: "新闻处理" }).click();
-    await expect(news).toHaveJSProperty("open", true);
-    await expect(page.getByText("新新闻只处于待处理、处理中或失败三类之一。", { exact: false })).toBeVisible();
-    const problems = page.locator("#runs-issues");
-    await expect(queue).toHaveJSProperty("open", false);
-    await expect(problems).toHaveJSProperty("open", false);
-    await page.locator('a[href="#runs-issues"]').first().click();
-    await expect(problems).toHaveJSProperty("open", true);
-    await expect(page.getByText("Provider HTTP 500")).toBeVisible();
-    await page.locator('a[href="#runs-queues"]').first().click();
-    await expect(queue).toHaveJSProperty("open", true);
-    await expect(page.getByText("cron.reports.compose").first()).toBeVisible();
-    await page.clock.install();
-    await page.clock.runFor(20_100);
-    await expect(queue).toHaveJSProperty("open", true);
-    await queue.locator("summary").click();
-    await expect(queue).toHaveJSProperty("open", false);
+    assert.equal((await page.goto(web.origin + "/admin/runs"))?.status(), 200);
+    await expect(page.getByText("所有流程 · 三个实时状态")).toBeVisible();
+    await expect(page.getByRole("button", { name: /待处理/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /正在处理/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /处理失败/ })).toBeVisible();
+    await expect(page.getByText("Graphiti HTTP 500")).toBeVisible();
+    await expect(page.getByText("Provider HTTP 503")).toBeVisible();
+    await expect(page.getByText("OpenRouter / nemotron-model")).toBeVisible();
+    await expect(page.getByText("digest exception")).toBeVisible();
+    for (const obsolete of ["积压原因诊断", "模型请求诊断", "今日记录与诊断", "队列与定时任务 · 技术诊断"]) {
+      await expect(page.getByText(obsolete, { exact: true })).toHaveCount(0);
+    }
+    await page.getByRole("button", { name: "重新入队" }).first().click();
+    await expect(page.getByRole("link", { name: "失败新闻", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: /待处理/ }).click();
+    await expect(page.getByRole("link", { name: "失败新闻", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /处理失败/ }).click();
+    await page.getByRole("button", { name: "重新入队" }).first().click();
+    await expect(page.getByText("digest exception")).toHaveCount(0);
+    assert.equal(retried, 2);
   } finally {
     await browser.close();
     await web.stop();
