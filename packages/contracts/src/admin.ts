@@ -338,6 +338,15 @@ export interface AdminRuns {
   currentNews: { pending: number; processing: number; failed: number };
   /** Articles first discovered today (UTC), excluding historical backfills and signal-only feeds. */
   live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
+  /** Evidence-backed diagnosis of UTC-day unresolved articles. A delayed item may still be recoverable automatically. */
+  backlogCauses?: Array<{
+    kind: "receipt_unknown" | "article_failed" | "provider_retry" | "retry_wait" | "missing_job" | "queue_wait" | "long_running" | "unclassified";
+    count: number;
+    oldest: Timestamp;
+    exampleArticleId: string;
+    exampleError: string | null;
+    nextRetryAt: Timestamp | null;
+  }>;
   /** Unresolved editorial articles first discovered over 24 hours ago; not included in live24h. */
   legacyUnresolved: number;
   failedJobs: Array<{ name: string; failed: number; last: Timestamp | null; last_output: string | null }>;
