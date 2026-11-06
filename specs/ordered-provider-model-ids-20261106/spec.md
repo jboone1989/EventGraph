@@ -1,6 +1,6 @@
 # Use time-ordered UUIDv7 for new provider connections and models
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 5f2a3019520577becd24a0c616bf0a88760262b7)
 **Owner decision:** 2026-11-06: Do not generate random UUIDv4 for new model identities; prefer a time-ordered UUID version (UUIDv7).
 **Target:** develop; amendment to specs/model-instance-identity-routing-20261106/spec.md approved in PR #456. Implement in the existing PR #457, not a duplicate implementation PR.
 
