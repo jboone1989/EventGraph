@@ -12,7 +12,7 @@ export async function loader({request}:Route.LoaderArgs){
 export const meta:Route.MetaFunction=()=>[{title:"模型管理 · "+SITE.name+" 后台"}];
 export default function ModelsAdmin({loaderData}:Route.ComponentProps){
  const {run,busy}=useAdminAction();
- const [summary,setSummary]=useState<{name:string;catalogTotal:number;freeCatalog:number;chat:number;embedding:number;other:number;invalid:number;total:number;added:number;noLongerFree:number}|null>(null);
+ const [summary,setSummary]=useState<{name:string;catalogTotal:number;freeCatalog:number;chat:number;embedding:number;other:number;invalid:number;total:number;added:number;noLongerFree:number;removed:number}|null>(null);
  async function sync(name:string,id:string){
   const result=await run<Omit<NonNullable<typeof summary>,"name">>("POST","/api/admin/providers/"+id+"/openrouter-free/sync",{});
   if(result)setSummary({name,...result});
@@ -33,7 +33,7 @@ export default function ModelsAdmin({loaderData}:Route.ComponentProps){
    <Button disabled={busy} onClick={()=>void run("POST","/api/admin/provider-models/cache/refresh",{},
     {success:"已清空本服务的模型缓存"})}>刷新模型</Button>
   </div>}>
-  {summary&&<p role="status" className="mb-3 text-sm">OpenRouter（{summary.name}）：官方目录 {summary.catalogTotal} 个，免费 {summary.freeCatalog} 个（聊天 {summary.chat}、向量 {summary.embedding}、其他 {summary.other}），已登记 {summary.total} 个（含 openrouter/free），本次新增 {summary.added} 个，失去免费资格 {summary.noLongerFree} 个{summary.invalid?`，无效 ID ${summary.invalid} 个`:""}。</p>}
+  {summary&&<p role="status" className="mb-3 text-sm">OpenRouter（{summary.name}）：官方目录 {summary.catalogTotal} 个，免费 {summary.freeCatalog} 个（聊天 {summary.chat}、向量 {summary.embedding}、其他 {summary.other}），已登记 {summary.total} 个（含 openrouter/free），本次新增 {summary.added} 个，失去免费资格 {summary.noLongerFree} 个（已清理未使用的误导入记录 {summary.removed??0} 个）{summary.invalid?`，无效 ID ${summary.invalid} 个`:""}。</p>}
   {syncResult&&<p role="status" className="mb-3 text-sm">{syncResult}</p>}
   <p className="mb-3 text-xs text-ink-4">Groq、Gemini、Cloudflare 只有在免费套餐或免费额度内才不会收费。Cloudflare 付费套餐超额后会计费；新模型不会自动参与路由。</p>
   <RegisteredModelsAdmin data={loaderData}/>
