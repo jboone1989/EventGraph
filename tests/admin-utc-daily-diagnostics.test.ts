@@ -24,7 +24,7 @@ test("dashboard resets old task, receipt and routing diagnostics without losing 
   const [oldReceipt] = await sql<{ id: number }[]>`
     INSERT INTO receipts (logical_key, service, purpose, subject, status, request, created_at, updated_at)
     VALUES (${id + "-old"}, ${id}, 'analyze_article', ${id}, 'unknown',
-      ${sql.json({ routing: { stage: "analyze_article" } })}, ${yesterday}, ${yesterday}) RETURNING id`;
+      ${sql.json({ routing: { stage: "analyze_article" } })}, ${yesterday}, ${today}) RETURNING id`;
   const [newReceipt] = await sql<{ id: number }[]>`
     INSERT INTO receipts (logical_key, service, purpose, subject, status, request, created_at, updated_at)
     VALUES (${id + "-new"}, ${id}, 'analyze_article', ${id}, 'unknown',
