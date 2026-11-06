@@ -311,9 +311,9 @@ export interface AdminDeliveryIssue {
   updated_at: Timestamp;
 }
 
-/** Only live receipt attempts explicitly marked as auto-routed, over the last 24 hours. */
+/** Live auto-routed attempts since 00:00 UTC of the current calendar day. */
 export interface AdminRoutingEffect {
-  hours: 24;
+  period: 'utc-day';
   attempts: number;
   successful: number;
   failed: number;
@@ -330,13 +330,13 @@ export interface AdminRuns {
   routingEffect?: AdminRoutingEffect;
   checkedAt: Timestamp;
   processes: Array<{ role: string; pid: number; host: string; release: string; startedAt: Timestamp; at: Timestamp; alive: boolean }>;
-  jobs: Array<{ job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null; failed_24h: number; runs_24h: number }>;
+  jobs: Array<{ job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null; failed_today: number; runs_today: number }>;
   timeline: Array<{ id: number; job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null }>;
   queues: Array<{ name: string; state: string; n: number; oldest: Timestamp }>;
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
   /** Live unfinished editorial articles from this UTC day, mutually exclusive counts. */
   currentNews: { pending: number; processing: number; failed: number };
-  /** Articles first discovered within the last 24 hours, excluding historical backfills and signal-only feeds. */
+  /** Articles first discovered today (UTC), excluding historical backfills and signal-only feeds. */
   live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
   /** Unresolved editorial articles first discovered over 24 hours ago; not included in live24h. */
   legacyUnresolved: number;
