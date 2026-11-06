@@ -40,7 +40,7 @@ test("live dashboard excludes old and backfilled articles", async () => {
   await sql`UPDATE articles
     SET discovered_at = greatest(discovered_at, ${startOfUtcDay}),
         timeline_at = greatest(timeline_at, ${startOfUtcDay})
-    WHERE id IN (${source + "-waiting"}, ${source + "-failed"})`;
+    WHERE id IN (${source + "-waiting"}, ${source + "-done"}, ${source + "-filtered"}, ${source + "-failed"}, ${source + "-backfill"})`;
   // Updated timestamps must not turn old discoveries into new news or reset the 15-minute SLA.
   await sql`UPDATE articles SET updated_at = now()
     WHERE id = ${source + "-waiting"} OR id = ${source + "-historic"}`;

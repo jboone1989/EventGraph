@@ -10,7 +10,7 @@ test('routing effectiveness includes only measured rollups, preserves provider a
     {kind:'stage',name:'prefilter',attempts:7,successful:5,failed:2,unknown:0,pending:0,fallback_success:1,p95_ms:700},
     {kind:'stage',name:'group',attempts:5,successful:4,failed:0,unknown:1,pending:0,fallback_success:2,p95_ms:1900},
   ]);
-  assert.equal(result.hours,24);
+  assert.equal(result.period,'utc-day');
   assert.equal(result.attempts,12);
   assert.equal(result.successful,9);
   assert.equal(result.failed,2);

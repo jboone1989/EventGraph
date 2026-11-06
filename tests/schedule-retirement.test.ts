@@ -26,7 +26,7 @@ test("retired schedules leave the current overview and execution queues while li
   }
   await sql`INSERT INTO job_runs (job, started_at, finished_at, status) VALUES
     ('kept', now() - interval '2 days', now() - interval '2 days', 'failed'),
-    ('renamed.new', now() - interval '1 hour', now() - interval '1 hour', 'failed'),
+    ('renamed.new', now(), now(), 'failed'),
     ('renamed.new', now(), now(), 'ok')`;
   await sql`INSERT INTO job_runs (job, status, finished_at) VALUES
     ('external.kept', 'failed', now()), ('external.retired', 'failed', now())`;
@@ -55,10 +55,10 @@ test("retired schedules leave the current overview and execution queues while li
   const overview = await runsOverview();
   const fixtureNames = new Set([...retired, "cron.kept", "cron.renamed.new"].map((name) => name.slice("cron.".length)));
   const jobs = overview.jobs.filter((j) => fixtureNames.has(j.job));
-  assert.deepEqual(jobs.map((j) => j.job), ["kept", "renamed.new"]);
-  assert.deepEqual(jobs.filter((j) => j.status === "failed").map((j) => j.job), ["kept"]);
-  assert.deepEqual(jobs.map((j) => [j.failed_24h, j.runs_24h]), [[0, 0], [1, 2]]);
-  assert.deepEqual(overview.jobs.filter((j) => j.job.startsWith("external.")).map((j) => [j.job, j.status, j.failed_24h, j.runs_24h]),
+  assert.deepEqual(jobs.map((j) => j.job), ["kept", "renamed.new"], "all active schedules stay visible across UTC midnight");
+  assert.deepEqual(jobs.filter((j) => j.status === "failed").map((j) => j.job), ["kept"], "latest old failed run stays visible without becoming a today failure");
+  assert.deepEqual(jobs.map((j) => [j.failed_today, j.runs_today]), [[0, 0], [1, 2]]);
+  assert.deepEqual(overview.jobs.filter((j) => j.job.startsWith("external.")).map((j) => [j.job, j.status, j.failed_today, j.runs_today]),
     [["external.kept", "failed", 1, 1]]);
   for (const job of ["external.kept", "external.retired"]) assert.ok(overview.timeline.some((r) => r.job === job));
   externalJobs = [];

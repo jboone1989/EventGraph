@@ -208,8 +208,12 @@ test("selected identity delays show reader impact, recovery state and the affect
   const source = "grouping-alert-source";
   const make = async (id: string, age: number, state: "pending" | "failed" | "complete", candidate = true, visibility = "public") => {
     const at = new Date(now - age * 60_000);
+    // Even just after UTC midnight, this fixture represents a recently updated live item.
+    // Keep its selected_ready_at unchanged so alert delay still measures the true wait.
+    const updated = age <= 30 ? new Date(Math.max(at.getTime(), Date.UTC(
+      new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate()))) : at;
     await sql`INSERT INTO articles(id,source_id,identity_key,url,title,published_at,discovered_at,timeline_at,updated_at,grouping_status,grouping_error)
-      VALUES(${id},${source},${id},${`https://example.com/${id}`},${id},${at},${at},${at},${at},${state},${state === "failed" ? "identity provider timed out" : null})`;
+      VALUES(${id},${source},${id},${`https://example.com/${id}`},${id},${at},${at},${at},${updated},${state},${state === "failed" ? "identity provider timed out" : null})`;
     await sql`INSERT INTO publications(article_id,source_id,title,summary,eligible,selected,selection_candidate,visibility,
       selected_ready_at,discovered_at,timeline_at,sort_at,url,category,channel)
       VALUES(${id},${source},${`新闻 ${id}`},'摘要',true,false,${candidate},${visibility},${at},${at},${at},${at},${`https://example.com/${id}`},'industry','news')`;
