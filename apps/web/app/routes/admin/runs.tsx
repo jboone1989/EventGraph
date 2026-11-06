@@ -131,7 +131,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="模型回执诊断" right={<span>今日未知结果 {num(unknownReceipts)} 条 · 仅显示最近 40 条</span>} pad={false} scrollable>
+        <Card title="模型回执诊断" right={<span>待核对未知结果 {num(unknownReceipts)} 条（含跨日）· 最多显示 40 条</span>} pad={false} scrollable>
           <DataTable scrollable
             dense
             rows={r.receipts.issues}
