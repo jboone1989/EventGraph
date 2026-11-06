@@ -71,3 +71,17 @@ test('NVIDIA Ultra uses non-reasoning mode only for schema-constrained grouping'
  assert.deepEqual(requestExtrasForTask({ ...spec, extra: undefined }, 'group_article'), { reasoning_effort: 'none' });
  assert.equal(requestExtrasForTask({ ...spec, extra: undefined }, 'score_article'), undefined);
 });
+
+test('automatic free routing can fail over across six providers without selecting a paid model',()=>{
+ const owners=[provider('pool-or','openrouter'),provider('pool-nv','nvidia','nvidia-free-trial'),
+  provider('pool-groq','groq'),provider('pool-gemini','gemini'),
+  provider('pool-zai','zai'),provider('pool-cf','cloudflare')];
+ const choices=owners.map((p,i)=>model('candidate-'+i,p.id,'test/free-20b','light'));
+ const paid={...model('candidate-paid','pool-groq','paid-20b','light'),billing:'paid' as const};
+ const first=rankFreeModels([...choices,paid],owners,'light');
+ assert.equal(first.length,6);
+ for(const entry of first.slice(0,5))coolDownModel(entry.id,entry.providerId,60,true);
+ const last=rankFreeModels([...choices,paid],owners,'light');
+ assert.deepEqual(last.map(m=>m.id),[first[5]!.id]);
+ assert.equal(last.some(m=>m.id==='candidate-paid'),false);
+});
