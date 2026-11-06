@@ -7,7 +7,7 @@ on:
     branches: [develop]
   pull_request:
     branches: [develop, main]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      spec_changed: ${{ steps.scope.outputs.spec_changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -72,6 +73,14 @@ jobs:
           docs_only="$({ node "$detector" || true; } | sed -n 's/^docs_only=//p' | head -n1)"
           [[ "$docs_only" == true ]] || docs_only=false
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          spec_changed=false
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && [[ -n "$SCOPE_BASE_SHA" ]] && [[ -n "$SCOPE_HEAD_SHA" ]]; then
+            merge_base="$(git merge-base "$SCOPE_BASE_SHA" "$SCOPE_HEAD_SHA" 2>/dev/null || true)"
+            if [[ -n "$merge_base" ]] && git diff --no-renames --name-only "$merge_base" "$SCOPE_HEAD_SHA" -- specs/ | grep -Eq '^specs/[^/]+/(spec|plan|tasks)\.md$'; then
+              spec_changed=true
+            fi
+          fi
+          echo "spec_changed=$spec_changed" >> "$GITHUB_OUTPUT"
 
   check:
     name: "check"
