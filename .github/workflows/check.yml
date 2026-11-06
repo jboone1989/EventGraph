@@ -498,3 +498,43 @@ jobs:
             });
             core.setFailed(`Claude Review identified ${result.findings.length} blocking issue(s)`);
 
+  auto_merge_develop:
+    name: "为 develop PR 开启原生自动合并"
+    needs: [changes, check, docker, e2e, claude_review]
+    if: >-
+      ${{ always() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.base.ref == 'develop' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.draft == false &&
+          needs.changes.result == 'success' &&
+          needs.check.result == 'success' &&
+          (needs.docker.result == 'success' || (needs.changes.outputs.docs_only == 'true' && needs.docker.result == 'skipped')) &&
+          (needs.e2e.result == 'success' || (needs.changes.outputs.docs_only == 'true' && needs.e2e.result == 'skipped')) &&
+          (needs.claude_review.result == 'success' || (needs.changes.outputs.docs_only == 'true' && needs.claude_review.result == 'skipped')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Verify exact PR head then enable native squash auto-merge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "::error::GH_AW_GITHUB_TOKEN missing"; exit 1; }
+          pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")"
+          if ! jq -e --arg sha "$EXPECTED_HEAD" --arg repo "$GITHUB_REPOSITORY" \
+            '.state == "open" and .draft == false and .base.ref == "develop" and .head.repo.full_name == $repo and .head.sha == $sha' <<< "$pr" >/dev/null; then
+            echo "::notice::PR changed or is no longer eligible; skip auto-merge"
+            exit 0
+          fi
+          if jq -e '.auto_merge != null' <<< "$pr" >/dev/null; then
+            echo "Auto-merge already enabled"
+            exit 0
+          fi
+          gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash
