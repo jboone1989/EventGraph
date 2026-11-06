@@ -6,12 +6,14 @@ import {useAdminAction} from "./action";
 
 type Problem={detail:string;fieldErrors?:Record<string,string>;dependencies?:Array<{kind:string;id:string;name:string}>};
 type TestResult={status:string;elapsedMs:number;detail:string};
-const vendors=[["deepseek","DeepSeek"],["openai","OpenAI"],["anthropic","Anthropic"],["nvidia","NVIDIA"],["zhipu","智谱 AI"],["openrouter","OpenRouter"],["custom","自定义"]] as const;
+const vendors=[["deepseek","DeepSeek"],["openai","OpenAI"],["anthropic","Anthropic"],["nvidia","NVIDIA"],["zhipu","智谱 AI"],["openrouter","OpenRouter"],["groq","Groq"],["gemini","Google Gemini"],["zai","Z.AI"],["cloudflare","Cloudflare Workers AI"],["custom","自定义"]] as const;
 const vendorLabel=(id:string)=>vendors.find(v=>v[0]===id)?.[1]??id;
 const defaultUrl=(id:string)=>({
  deepseek:"https://api.deepseek.com",openai:"https://api.openai.com/v1",
  anthropic:"https://api.anthropic.com",nvidia:"https://integrate.api.nvidia.com/v1",
- zhipu:"https://open.bigmodel.cn/api/paas/v4",openrouter:"https://openrouter.ai/api/v1"
+ zhipu:"https://open.bigmodel.cn/api/paas/v4",openrouter:"https://openrouter.ai/api/v1",
+  groq:"https://api.groq.com/openai/v1",gemini:"https://generativelanguage.googleapis.com/v1beta/openai",
+  zai:"https://api.z.ai/api/paas/v4",cloudflare:"https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/ai/v1"
 } as Record<string,string>)[id]??"";
 const defaultProtocol=(id:string):ConnectionInput["protocol"]=>id==="anthropic"?"anthropic-compatible":"openai-compatible";
 const capabilitiesFor=(adapter:ModelInput["adapter"]):ModelInput["capabilities"]=>({
@@ -134,6 +136,8 @@ function ConnectionDialog({connection,connections,busy,problem,onClose,onSave}:{
   </label>
   <label className="block space-y-1 text-sm">API Base URL
    <Input aria-label="API Base URL" disabled={busy} value={baseUrl} onChange={e=>setBaseUrl(e.target.value)}/>
+   {vendor==="cloudflare"&&<span className="text-xs text-ink-4">请将 ACCOUNT_ID 换成 Cloudflare 的 32 位账户 ID，使用 Workers Free 套餐以避免超额扣费。</span>}
+   {vendor==="gemini"&&<span className="text-xs text-ink-4">Gemini 仅 Free Tier 请求免费，付费项目按量收费。</span>}
   </label>
   <label className="block space-y-1 text-sm">API 协议
    <Select aria-label="API 协议" disabled={busy} value={protocol} onChange={e=>setProtocol(e.target.value as ConnectionInput["protocol"])}>
