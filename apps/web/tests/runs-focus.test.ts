@@ -13,6 +13,7 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     articleProcessing: { waiting: 4, retrying: 3, failed: 2, filtered: 7, unavailableModel: 0 },
     live24h: { discovered: 25, analyzed: 14, grouped: 12, waiting: 6, failed: 2, filtered: 7, stalled: 3, newestAt: now },
     legacyUnresolved: 2,
+    currentNews: { pending: 4, processing: 2, failed: 2 },
     failedJobs: [{ name: "cron.reports.compose", failed: 4, last: now, last_output: "Provider HTTP 500" }],
     grouping: { waiting: 0, needsAttention: 0, items: [] },
     lagging: [], receipts: { counts: {}, unknownTotal: 0, issues: [] }, deliveries: [], errors: [],
@@ -34,21 +35,21 @@ test("runs page prioritizes active problems while retaining detailed diagnostics
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const res = await page.goto(web.origin + "/admin/runs");
     assert.equal(res?.status(), 200);
-    await expect(page.getByText("新闻处理概览 · 最近 24 小时", { exact: true })).toBeVisible();
-    await expect(page.getByText("超时新闻 3")).toBeVisible();
-    await expect(page.getByText("失败新闻 2")).toBeVisible();
+    await expect(page.getByText("新闻处理 · 当前队列（UTC）", { exact: true })).toBeVisible();
+    await expect(page.getByText("待处理", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("失败新闻 2", { exact: true })).toBeVisible();
     await expect(page.getByText("定时任务最近失败 1")).toBeVisible();
-    await expect(page.getByText("遗留未完成新闻 2")).toBeVisible();
-    await expect(page.getByText("侧栏数字只统计最近 24 小时", { exact: false })).toBeVisible();
-    const navBadge = page.locator('aside a[href="/admin/runs"] span[title="最近24小时超时或失败的新闻（按篇计数）"]');
+    await expect(page.getByText("每天 UTC 00:00 清空未完成项", { exact: false })).toBeVisible();
+    await expect(page.getByText("实时积压只按当前 UTC 日", { exact: false })).toBeVisible();
+    const navBadge = page.locator('aside a[href="/admin/runs"] span[title="当前 UTC 日未完成新闻（按篇计数）"]');
     await expect(navBadge).toHaveText("5");
     await expect(navBadge).toHaveClass(/bg-bg-sunk/);
-    await expect(page.getByText("超时未完成", { exact: true })).toBeVisible();
+    await expect(page.getByText("处理中", { exact: true }).first()).toBeVisible();
     const queue = page.locator("#runs-queues");
     const news = page.locator("#runs-news");
     await page.getByRole("link", { name: "新闻处理" }).click();
     await expect(news).toHaveJSProperty("open", true);
-    await expect(page.getByText("分析完成", { exact: true })).toBeVisible();
+    await expect(page.getByText("新新闻只处于待处理、处理中或失败三类之一。", { exact: false })).toBeVisible();
     const problems = page.locator("#runs-issues");
     await expect(queue).toHaveJSProperty("open", false);
     await expect(problems).toHaveJSProperty("open", false);

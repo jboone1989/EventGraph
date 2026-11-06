@@ -52,14 +52,13 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
   const runs = view.runs.data;
   const sources = view.sources.data;
   const worker = runs?.processes.find(p => p.role === "worker");
-  const queued = runs ? runs.queues.filter(q => q.state !== "active").reduce((sum, q) => sum + q.n, 0) : null;
+  const queued = runs ? runs.currentNews.pending : null;
   const failedSchedules = runs?.jobs.filter(j => j.status === "failed");
   const failures: { label: string; to: string }[] = [];
   if (!runs) failures.push({ label: "运行状态未获取，无法判断 Worker 和处理队列是否正常", to: "/admin/runs" });
   else {
     if (!worker || !worker.alive) failures.push({ label: "Worker 心跳缺失或中断", to: "/admin/runs" });
-    if (runs.live24h.stalled > 0) failures.push({ label: `${num(runs.live24h.stalled)} 条新新闻等待超过 15 分钟`, to: "/admin/runs" });
-    if (runs.live24h.failed > 0) failures.push({ label: `${num(runs.live24h.failed)} 条新新闻处理失败`, to: "/admin/runs" });
+    if (runs.currentNews.failed > 0) failures.push({ label: `${num(runs.currentNews.failed)} 条当前新闻处理失败`, to: "/admin/runs" });
     if (runs.articleProcessing.unavailableModel > 0) failures.push({ label: `${num(runs.articleProcessing.unavailableModel)} 条近 24 小时新新闻存在模型路由错误记录（与等待/失败重叠）`, to: "/admin/models" });
     if ((failedSchedules?.length ?? 0) > 0) failures.push({ label: `${num(failedSchedules!.length)} 个定时任务最近一次运行失败`, to: "/admin/runs" });
     if (runs.lagging.length > 0) failures.push({ label: `${num(runs.lagging.length)} 个信源采集异常或延迟`, to: "/admin/sources" });
@@ -102,33 +101,29 @@ export default function AdminOverview({ loaderData }: Route.ComponentProps) {
 
       <section className="mb-5" aria-labelledby="pipeline-title">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="pipeline-title" className="text-[16px] font-semibold text-ink">最近 24 小时 · 新新闻处理链路</h2>
-          <span className="text-[12px] text-ink-4">仅新发现的编辑信源新闻，不含历史回填</span>
+          <h2 id="pipeline-title" className="text-[16px] font-semibold text-ink">新闻处理 · 实时队列</h2>
+          <span className="text-[12px] text-ink-4">UTC 当天 · 00:00 清空未完成新闻</span>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-3 gap-3">
           {([
-            ["新发现", runs?.live24h.discovered, ""],
-            ["已分析", runs?.live24h.analyzed, ""],
-            ["已归组", runs?.live24h.grouped, ""],
-            ["等待处理", runs?.live24h.waiting, ""],
-            ["等待超时", runs?.live24h.stalled, "bad"],
-            ["处理失败", runs?.live24h.failed, "bad"],
-          ] as const).map(([label, value, kind]) => (
+            ["待处理", runs?.currentNews.pending],
+            ["处理中", runs?.currentNews.processing],
+            ["失败", runs?.currentNews.failed],
+          ] as const).map(([label, value]) => (
             <Stat key={label} label={label} value={value === undefined ? <Unavailable /> : num(value)}
-              tone={value && kind === "bad" ? "bad" : undefined}
-              hint={label === "等待超时" ? "超过 15 分钟" : label === "处理失败" ? "最近发现的新闻" : undefined} />
+              tone={value && label === "失败" ? "bad" : undefined} />
           ))}
         </div>
-        <p className="mt-2 text-[12px] text-ink-4">等待超时包含在等待处理中；已归组可能包含在已分析中。这两组不能相加。正常预筛过滤不计为故障。</p>
+        <p className="mt-2 text-[12px] text-ink-4">按新闻 ID 去重，失败可在运行页面手动重试；已完成新闻保留。</p>
       </section>
 
       <section className="mb-5 grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)]" aria-label="系统详情">
         <Card title="系统与积压" right={<Link className="text-accent hover:underline" to="/admin/runs">运行详情</Link>}>
-          <p className="mb-3 text-[12px] text-ink-3">新闻按篇统计，pg-boss 队列按作业统计；队列为 0 不代表没有新闻等待处理。</p>
+          <p className="mb-3 text-[12px] text-ink-3">实时新闻队列按唯一新闻 ID 统计；队列重试不重复计算。</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Stat label="Worker" value={runs ? <span className="inline-flex items-center gap-2 text-[16px]"><Dot tone={worker?.alive ? "ok" : "bad"} />{worker?.alive ? "运行中" : "未确认"}</span> : <Unavailable />}
               hint={worker ? <>最近心跳 <Time at={worker.at} /></> : "没有心跳数据"} />
-            <Stat label="排队中的作业" value={queued === null ? <Unavailable /> : num(queued)} hint="pg-boss 排队或重试，不是待处理新闻篇数" tone={queued !== null && queued > 500 ? "warn" : undefined} />
+            <Stat label="待处理新闻" value={queued === null ? <Unavailable /> : num(queued)} hint="UTC 当天尚未执行或等待重试的新闻" tone={queued !== null && queued > 500 ? "warn" : undefined} />
             <Stat label="失败定时任务" value={failedSchedules ? num(failedSchedules.length) : <Unavailable />}
               tone={failedSchedules?.length ? "bad" : undefined} hint="最近一次运行失败" />
             <Stat label="信源总数" value={sources ? num(sources.total) : <Unavailable />} hint={sources ? `启用 ${num(sources.enabled)}` : "采集统计未获取"} />

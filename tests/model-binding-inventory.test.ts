@@ -27,27 +27,27 @@ test("model list and bindings use the same inventory and support CRUD",async()=>
   new Set((await listRegisteredModels()).map(m=>'model:'+m.id)));
  assert.ok(before.choices.some(c=>c.key==='model:'+modelId));
  // Binding saves a relational assignment, not a verification/preset state.
- await switchModel('prefilter','model:'+modelId,'select new model','test');
+ await switchModel('understand','model:'+modelId,'select new model','test');
  const [binding]=await sql<{model_id:string}[]>`
-  SELECT model_id FROM provider_workflow_models WHERE setting_key='models.prefilter'`;
+  SELECT model_id FROM provider_workflow_models WHERE setting_key='models.understand'`;
  assert.equal(binding?.model_id,modelId);
  const afterBind=await modelBindingsOverview();
- assert.deepEqual(afterBind.steps.find(s=>s.key==='prefilter')!.current,
+ assert.deepEqual(afterBind.steps.find(s=>s.key==='understand')!.current,
   {model:'model:'+modelId,source:'admin'});
  // Removing a model also removes its workflow assignment and compatibility setting.
  assert.deepEqual(await deleteRegisteredModel(modelId,1,'delete model','test'),{deleted:true});
- const [exists]=await sql`SELECT 1 FROM provider_workflow_models WHERE setting_key='models.prefilter'`;
- const [setting]=await sql`SELECT 1 FROM settings WHERE key='models.prefilter'`;
+ const [exists]=await sql`SELECT 1 FROM provider_workflow_models WHERE setting_key='models.understand'`;
+ const [setting]=await sql`SELECT 1 FROM settings WHERE key='models.understand'`;
  assert.equal(exists,undefined);assert.equal(setting,undefined);
  const afterDelete=await modelBindingsOverview();
  assert.ok(!afterDelete.choices.some(c=>c.key==='model:'+modelId));
- assert.deepEqual(afterDelete.steps.find(s=>s.key==='prefilter')!.current,
+ assert.deepEqual(afterDelete.steps.find(s=>s.key==='understand')!.current,
   {model:'',source:'default'});
  await sql`DELETE FROM provider_connections WHERE id=${connectionId}::uuid`;
 });
 test("binding API accepts only registered chat models and rejects old presets",async()=>{
  await assert.rejects(
-  switchModel('prefilter','qwen3-vl-flash','should reject unregistered preset','test'),
+  switchModel('understand','qwen3-vl-flash','should reject unregistered preset','test'),
   /Choose a model from Model Management/);
 });
 

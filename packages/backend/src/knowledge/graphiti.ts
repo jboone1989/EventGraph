@@ -37,6 +37,7 @@ export async function ingestGraphitiOnce() {
     SELECT a.id, a.revision, a.title, a.url, a.excerpt, a.body_text,
            a.published_at, s.name AS source_name
     FROM articles a JOIN sources s ON s.id=a.source_id
+    JOIN publications p ON p.article_id=a.id AND p.visibility='public' AND p.selected AND p.seat
     LEFT JOIN graphiti_ingestions g ON g.article_id=a.id AND g.revision=a.revision
     LEFT JOIN settings cooldown
       ON cooldown.key = 'graphiti.ingest.failure:' || a.id || ':r' || a.revision::text

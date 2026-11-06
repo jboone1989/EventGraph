@@ -31,6 +31,7 @@ function api(fail: { runs?: boolean; sources?: boolean }) {
         processes: [{ role: "worker", alive: true, host: "cn-dev", at: observedAt }],
         queues: [], jobs: [], lagging: [], failedJobs: [],
         live24h: { discovered: 3, analyzed: 3, grouped: 2, waiting: 0, stalled: 0, failed: 0 },
+        currentNews: { pending: 3, processing: 1, failed: 0 },
         articleProcessing: { unavailableModel: 0 },
       }));
     }
@@ -63,7 +64,7 @@ test("a failing runs API shows 未获取, not zeros or a healthy banner, while h
   try {
     browser = await chromium.launch({ channel: "chromium" });
     const { page, stat } = await overview(browser, web);
-    await expect(stat("新发现")).toHaveText("未获取");
+    await expect(stat("待处理")).toHaveText("未获取");
     await expect(stat("Worker")).toHaveText("未获取");
     // The healthy endpoint keeps its real numbers: one failure must not flatten the page to zeros.
     await expect(stat("信源总数")).toHaveText("12");
@@ -85,7 +86,7 @@ test("a failing sources API alone shows 未获取 while healthy runs remain visi
     const { page, stat } = await overview(browser, web);
     await expect(stat("信源总数")).toHaveText("未获取");
     await expect(stat("失败信源")).toHaveText("未获取");
-    await expect(stat("新发现")).toHaveText("3");
+    await expect(stat("待处理")).toHaveText("3");
     await expect(stat("Worker")).toContainText("运行中");
     await expect(page.getByText("信源统计未获取，无法确认采集健康度")).toBeVisible();
     await expect(page.getByText("部分数据未获取")).toBeVisible();
@@ -102,7 +103,7 @@ test("both overview APIs failing must never produce a false healthy or zero-data
   try {
     browser = await chromium.launch({ channel: "chromium" });
     const { page, stat } = await overview(browser, web);
-    for (const label of ["新发现", "Worker", "信源总数", "失败信源"]) {
+    for (const label of ["待处理", "Worker", "信源总数", "失败信源"]) {
       await expect(stat(label)).toHaveText("未获取");
     }
     await expect(page.getByText("运行数据未获取 · 不能判定系统健康")).toBeVisible();
@@ -123,7 +124,7 @@ test("healthy overview baseline retains real Worker and source counts", async ()
   try {
     browser = await chromium.launch({ channel: "chromium" });
     const { page, stat } = await overview(browser, web);
-    await expect(stat("新发现")).toHaveText("3");
+    await expect(stat("待处理")).toHaveText("3");
     await expect(stat("Worker")).toContainText("运行中");
     await expect(stat("信源总数")).toHaveText("12");
     await expect(stat("失败信源")).toHaveText("2");

@@ -32,7 +32,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const [billed, setBilled] = useState("false");
   const [delivery, setDelivery] = useState<AdminDeliveryIssue | null>(null);
   const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
-  // Failure group to put back into processing ("" = failures within the last 24 hours).
+  // Failure group to put back into processing ("" = all failures from this UTC day).
   const [requeue, setRequeue] = useState<string | null>(null);
   const [requeueLimit, setRequeueLimit] = useState("5");
   // Keep expanded diagnostics stable while the page auto-refreshes.
@@ -54,27 +54,25 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const worker = r.processes.find((p) => p.role === "worker");
   const failing = r.jobs.filter((j) => j.status === "failed");
   const unknownReceipts = r.receipts.unknownTotal;
-  const failedQueueJobs = r.failedJobs.reduce((sum, j) => sum + j.failed, 0);
-  const legacyUnresolved = r.legacyUnresolved ?? 0;
   // Current article problems are unique by article ID; task history is diagnostics only.
-  const attentionCount = Number(!worker?.alive) + Number(r.live24h.stalled > 0) +
-    Number(r.live24h.failed > 0) + Number(r.lagging.length > 0) + Number(failing.length > 0) +
-    Number(legacyUnresolved > 0);
+  const attentionCount = Number(!worker?.alive) + Number(r.currentNews.failed > 0) +
+    Number(r.lagging.length > 0) + Number(failing.length > 0);
   const sectionClass = "mb-4 rounded-panel border border-line bg-surface px-4 py-3";
   const summaryClass = "cursor-pointer text-[14px] font-medium text-ink hover:text-accent";
 
   return (
     <AdminPage title="运行与积压" subtitle={<>先看系统状态与需要处理的问题，展开下方区域查看明细。每 20 秒自动刷新 · 更新于 {bj(r.checkedAt)}</>}>
-      <Card className="mb-5" title="新闻处理概览 · 最近 24 小时"
-        right={<span className="text-[12px] text-ink-4">按唯一新闻 ID 统计，重试和任务记录不重复计数</span>}>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <Stat label="新发现新闻" value={num(r.live24h.discovered)} hint="按首次发现时间，排除历史回填和信号源" />
-          <Stat label="等待处理" value={num(r.live24h.waiting)} hint="包含超时及等待重试的新闻" />
-          <Stat label="超时未完成" value={num(r.live24h.stalled)} tone={r.live24h.stalled ? "bad" : "ok"}
-            hint="发现已超过 15 分钟，仍未完成分析；包含在等待处理中" />
-          <Stat label="处理失败" value={num(r.live24h.failed)} tone={r.live24h.failed ? "bad" : "ok"}
-            hint="不同新闻的最终失败状态，不是失败任务次数" />
-          <Stat label="执行中任务" value={num(active)} hint="所有队列正在执行的任务数，非新闻篇数" />
+      <Card className="mb-5" title="新闻处理 · 当前队列（UTC）"
+        right={<span className="text-[12px] text-ink-4">按新闻去重 · 每天 UTC 00:00 清空未完成项</span>}>
+        <div className="grid grid-cols-3 gap-3">
+          <Stat label="待处理" value={num(r.currentNews.pending)} hint="排队或等待自动重试" />
+          <Stat label="处理中" value={num(r.currentNews.processing)} hint="Worker 正在执行" />
+          <Stat label="失败" value={num(r.currentNews.failed)} tone={r.currentNews.failed ? "bad" : "ok"}
+            hint="未知计费回执需核对后才能重试" />
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <p className="text-[12px] text-ink-4">仅统计当天未完成新闻；已发布新闻不清空。</p>
+          <Button size="sm" onClick={() => setRequeue("")} disabled={r.errors.length === 0}>重试失败新闻</Button>
         </div>
       </Card>
       <Card className="mb-5" title={attentionCount ? "需要关注 · " + attentionCount + " 类问题" : "需要关注"}>
@@ -82,13 +80,11 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           ? <p className="text-[13px] text-ink-3">最近 24 小时新闻未出现本页跟踪的处理异常；队列历史和模型请求可在下方诊断查看。</p>
           : <div className="space-y-2 text-[13px]">
             {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")} className="ml-2 text-accent">进程明细</a></p>}
-            {r.live24h.stalled > 0 && <p><Badge tone="bad">超时新闻 {num(r.live24h.stalled)}</Badge> 与等待处理重叠，不应相加。<a href="#runs-news" onClick={() => showSection("runs-news")} className="ml-2 text-accent">查看新闻</a></p>}
-            {r.live24h.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.live24h.failed)}</Badge> 按文章去重，失败任务另列。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
+            {r.currentNews.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.currentNews.failed)}</Badge> 已核对的可手动重排，未知回执先核对。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
             {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">信源明细</a></p>}
             {failing.length > 0 && <p><Badge tone="warn">定时任务最近失败 {num(failing.length)}</Badge> 按失败任务类型统计，不等于新闻失败篇数。<a href="#runs-queues" onClick={() => showSection("runs-queues")} className="ml-2 text-accent">查看任务</a></p>}
-            {legacyUnresolved > 0 && <p><Badge tone="warn">遗留未完成新闻 {num(legacyUnresolved)}</Badge> 首次发现于 24 小时之前，当前仍等待处理或失败，不计入新新闻。<Link className="ml-2 text-accent" to="/admin/content">查看新闻</Link></p>}
           </div>}
-        <p className="mt-3 text-[12px] text-ink-3">侧栏数字只统计最近 24 小时超时或失败的独立新闻；更早发现但仍未完成的新闻，以及 Worker、信源和定时任务异常单独提示，不累加到新新闻数。历史重试与失败任务记录只用于诊断。</p>
+        <p className="mt-3 text-[12px] text-ink-3">实时积压只按当前 UTC 日的新闻 ID 计数。任务失败次数与模型回执仅供诊断，不增加新闻数量。</p>
         <div className="mt-3 flex flex-wrap gap-4 text-[12px]">
           <a className="text-accent hover:underline" href="#runs-news" onClick={() => showSection("runs-news")}>新闻处理</a>
           <a className="text-accent hover:underline" href="#runs-issues" onClick={() => showSection("runs-issues")}>异常与恢复</a>
@@ -99,32 +95,13 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       </Card>
       <details id="runs-news" open={expanded.includes("runs-news")} className={sectionClass}>
         <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-news"); }}>
-          新闻处理状态 · 最近 24 小时 <span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.live24h.discovered)} 篇新发现</span>
+          新闻队列说明 · UTC 当天
         </summary>
-        <div className="mt-4">
-          <Card title="单次新闻分析 · 按文章统计"
-            right={<span className="text-[11px]">排除回填与信号源 · 最近发现 <Time at={r.live24h.newestAt} /></span>}>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-              <Stat label="新发现" value={num(r.live24h.discovered)} />
-              <Stat label="分析完成" value={num(r.live24h.analyzed)} tone="ok" />
-              <Stat label="正常过滤" value={num(r.live24h.filtered)} hint="不符合内容标准，并非故障" />
-              <Stat label="等待处理" value={num(r.live24h.waiting)} hint="含等待重试及超时新闻" />
-              <Stat label="最终失败" value={num(r.live24h.failed)} tone={r.live24h.failed ? "bad" : "ok"} />
-            </div>
-            <p className="mt-3 text-[12px] text-ink-3">
-              处理状态互斥；超时 {num(r.live24h.stalled)} 篇是等待处理的子集，已归组 {num(r.live24h.grouped)} 篇是分析完成后的事件状态。
-              一次新闻分析的模型请求、重试次数、归组任务都不增加新闻篇数。
-            </p>
-            <div className="mt-3 flex flex-wrap gap-3 text-[12px]">
-              <Link className="text-accent" to="/admin/content">查看新闻</Link>
-              <Link className="text-accent" to="/admin/models">检查模型</Link>
-              <Link className="text-accent" to="/admin/sources">检查信源</Link>
-            </div>
-          </Card>
-        </div>
+        <p className="mt-3 text-[13px] text-ink-3">新新闻只处于待处理、处理中或失败三类之一。
+          失败可重新排队；每晚 UTC 00:00 清空前一日尚未完成的新闻和关联任务，已发布内容保留。</p>
       </details>
       <details id="runs-issues" open={expanded.includes("runs-issues")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-issues"); }}>异常与恢复<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.live24h.failed)} 篇失败新闻 · {num(failedQueueJobs)} 条历史失败任务记录（非新闻数）</span></summary>
+        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-issues"); }}>异常与恢复<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.currentNews.failed)} 篇当前失败新闻</span></summary>
         <div className="mt-4">      {r.grouping.waiting > 0 && (
         <Card className="mb-5" title="等待去重确认的精选" right={<span>{num(r.grouping.waiting)} 条等待 · {num(r.grouping.needsAttention)} 条超过 10 分钟</span>} pad={false} scrollable>
           <p className="px-4 py-3 text-[13px] text-ink-3">这些新闻已达到精选条件，确认是否重复后才会进入精选。最多展示等待最久的 30 条。</p>
