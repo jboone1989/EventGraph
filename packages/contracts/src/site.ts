@@ -87,6 +87,12 @@ export interface FeedItemSummary extends Pick<ItemSummary, "id" | "title" | "sum
   sameEvent?: { id: string; title: string } | null;
 }
 
+/** Recently selected article for the home hero; independent of the 48-hour hot ranking. */
+export interface HeroNews {
+  item: FeedItemSummary;
+  storyPublicId: string | null;
+}
+
 /** The event a report belongs to as its page's What Next layer (specs/news-explainer): the same status,
  *  scale and newest evidence the event page shows, never a separate judgement. */
 export interface ItemStoryContext {

@@ -1,9 +1,8 @@
-// The home page's top: a pulse strip (the last 24 hours and the graph's size), the lead story beside its
-// relations in the knowledge graph and one piece of evidence, the rest of the hot ranking, and a side
-// column with exchange quotes, the latest daily and the ways in for agents. Events → relations → evidence.
+// The home page's top: a pulse strip, a recent selected report beside its event graph evidence,
+// the independent hot ranking, and a side column with quotes, daily reports and agent access.
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import type { HotEntryView, ReportIndexEntry, SiteStats } from "@aihot/contracts/site";
+import type { HeroNews, HotEntryView, ReportIndexEntry, SiteStats } from "@aihot/contracts/site";
 import { IntentLink } from "../../components/ui/IntentLink";
 import { IconArrowRight, IconArrowUpRight, IconCode, IconPlug, IconRss } from "../../components/icons";
 import { KnowledgeCanvas, type KnowledgeGraph, type KnowledgeStats } from "../../components/KnowledgeNetwork";
@@ -11,7 +10,6 @@ import { useText, useUiLanguage } from "../../components/LanguageSwitch";
 import { englishSourceName } from "../../lib/english";
 import { trackAnalytics } from "../../lib/analytics.client";
 import { Sparkline } from "../hot/Sparkline";
-import { Delta } from "../hot/Delta";
 
 const hasHan = (s: string) => /[㐀-鿿]/u.test(s);
 const count = (n: number | undefined) => (n === undefined ? "—" : n.toLocaleString("en-US"));
@@ -71,55 +69,42 @@ function Evidence({ graph }: { graph: KnowledgeGraph }) {
   );
 }
 
-/**
- * No. 1 in the hot ranking beside the relations its reports put into the graph. Without a ranking the
- * left side introduces the site and the right side shows the latest relations in the graph.
- */
-export function LeadStory({ entry, storyGraph, overview }: { entry: HotEntryView | null; storyGraph: KnowledgeGraph; overview: KnowledgeGraph }) {
+/** Today's most relevant recent selected article, independent of the heat leaderboard. */
+export function LeadStory({ news, storyGraph, overview }: { news: HeroNews | null; storyGraph: KnowledgeGraph; overview: KnowledgeGraph }) {
   const t = useText();
   const lang = useUiLanguage();
-  const title = useEventTitle();
-  const eventPath = useEventPath();
+  const item = news?.item ?? null;
   const own = storyGraph.edges.length > 0;
   const graph = own ? storyGraph : overview;
-  const voices = (entry?.sourceNames ?? []).map(n => englishSourceName(n)).filter((n) => n !== "Untranslated source").slice(0, 3);
+  const link = item ? `${lang === "en" ? "/en" : ""}/items/${item.id}` : "";
+  const englishTitle = item?.english?.title ?? (item?.originalTitle && !hasHan(item.originalTitle) ? item.originalTitle : null);
+  const title = lang === "zh" ? item?.title : englishTitle ?? t("今日精选新闻", "Today's selected report");
+  const summary = lang === "zh" ? item?.summary : item?.english?.summary;
+  const published = item?.publishedAt
+    ? new Date(item.publishedAt).toLocaleString(lang === "en" ? "en-US" : "zh-CN",
+        { timeZone: "Asia/Shanghai", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    : null;
   return (
     <section className="lr-lead" aria-labelledby="lead-title">
       <div className="lr-lead-story">
-        <div className="lr-layers"><b>{t("事件", "EVENT")}</b><i>→</i>{t("关系", "RELATIONS")}<i>→</i>{t("证据", "EVIDENCE")}</div>
-        {entry ? (
+        <div className="lr-layers"><b>{t("今日精选", "FRESH PICK")}</b><i>→</i>{t("事实", "FACTS")}<i>→</i>{t("证据", "EVIDENCE")}</div>
+        {item ? (
           <>
-            <div className="lr-lead-top">
-              <span className="lr-lead-rank numeral" aria-label={t("热度第 1", "Ranked first by heat")}>1</span>
-              {entry.badges.includes("surge") && <span className="lr-badge is-hot">{t("爆", "SURGE")}</span>}
-              {entry.badges.includes("rising") && <span className="lr-badge is-rising">{t("发酵中", "RISING")}</span>}
-              {entry.badges.includes("new") && <span className="lr-badge is-new">{t("新", "NEW")}</span>}
-              <Delta trend={entry.trend} pct={entry.trendPct} className="lr-lead-delta" />
-            </div>
+            <div className="lr-lead-top"><span className="lr-badge is-new">{t("最近 24 小时", "PAST 24 HOURS")}</span></div>
             <h1 id="lead-title" className="lr-lead-title">
-              <IntentLink viewTransition to={eventPath(entry)}>{title(entry)}</IntentLink>
+              <IntentLink viewTransition to={link}>{title}</IntentLink>
             </h1>
-            {lang === "zh" ? entry.summary && <p className="lr-lead-sum">{entry.summary}</p> : entry.english && <p className="lr-lead-sum">{entry.english.summary}</p>}
-            {lang === "en" && voices.length > 0 && (
-              <p className="lr-lead-voices">Reported by <b>{voices.join(", ")}</b>{entry.sourceCount > voices.length ? ` and ${entry.sourceCount - voices.length} more` : ""}</p>
-            )}
-            <div className="lr-lead-data">
-              <div>
-                <strong className="numeral">{Math.round(entry.heat)}</strong>
-                <small>{t("热度指数", "Heat index")}</small>
-              </div>
-              <Sparkline values={entry.spark} className="lr-lead-spark text-heat-3!" />
-            </div>
+            {summary && <p className="lr-lead-sum">{summary}</p>}
             <div className="lr-lead-facts">
-              <span><b className="mono">{entry.sourceCount}</b> {t("个来源", entry.sourceCount === 1 ? "source" : "sources")}</span>
-              <span><b className="mono">{entry.participantCount}</b> {t("位参与者", "participants")}</span>
+              <span>{t("来源：", "Source: ")}<b>{lang === "zh" ? item.source.name : englishSourceName(item.source.name)}</b></span>
+              {published && item.publishedAt && <time dateTime={item.publishedAt}>{published}</time>}
               {own && <span><b className="mono">{storyGraph.edges.length}</b> {t("条图谱关系", "graph relations")}</span>}
-              <IntentLink viewTransition to={eventPath(entry)} className="lr-lead-more">{t("打开事件", "Open event")} <IconArrowRight size={14} /></IntentLink>
+              <IntentLink viewTransition to={link} className="lr-lead-more">{t("阅读新闻", "Read report")} <IconArrowRight size={14} /></IntentLink>
             </div>
           </>
         ) : (
           <>
-            <h1 id="lead-title" className="lr-lead-title is-slogan">{t("看见事件。", "Follow events.")}<br /><em>{t("连接事实。", "Connect the facts.")}</em></h1>
+            <h1 id="lead-title" className="lr-lead-title is-slogan">{t("看见事件。", "Follow events.")}<em>{t("连接事实。", " Connect the facts.")}</em></h1>
             <p className="lr-lead-sum">{t("我们把公开报道组织成事件，再把其中有依据的实体关系沉淀为持续更新的知识网络。", "We organize reporting into evolving events and keep evidence-backed relationships in a living knowledge graph.")}</p>
             <div className="mt-2 flex flex-wrap gap-2.5">
               <Link to="/knowledge" className="lr-button-primary" onClick={()=>trackAnalytics("graph_node_select")}>{t("探索知识网络", "Explore the graph")} <IconArrowUpRight size={16} /></Link>
@@ -130,7 +115,7 @@ export function LeadStory({ entry, storyGraph, overview }: { entry: HotEntryView
       </div>
       <div className="lr-lead-graph">
         <div className="lr-night-head">
-          <span>{own ? t("这个事件在图谱里", "THIS EVENT IN THE GRAPH") : t("图谱最新关系", "LATEST IN THE GRAPH")}</span>
+          <span>{own ? t("这条新闻的关联图谱", "RELATED KNOWLEDGE") : t("图谱最新关系", "LATEST IN THE GRAPH")}</span>
           <Link to="/knowledge" className="hover:text-night-ink">GRAPHITI ↗</Link>
         </div>
         <KnowledgeCanvas edges={graph.edges} compact />
@@ -140,7 +125,7 @@ export function LeadStory({ entry, storyGraph, overview }: { entry: HotEntryView
   );
 }
 
-/** Ranks 2–5 of the hot ranking: serif rank, title with its sources, the day's curve and the heat. */
+/** Ranks 1–5 of the separate hot ranking: serif rank, title, trend and heat. */
 export function Trending({ entries }: { entries: HotEntryView[] }) {
   const t = useText();
   const title = useEventTitle();
