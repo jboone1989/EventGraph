@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto';
+import {randomUUIDv7} from 'node:crypto';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
 import {loadConnection,clearRegisteredModelCache} from './connections.ts';
@@ -27,7 +27,7 @@ export async function syncFreePool(providerId:string,actor:string,confirmedFreeT
    const meta=tx.json({freePool:{vendor,reviewedAt:'2026-11-06',freeTierOnly:requiresFreeTier(vendor)}});
    await tx`INSERT INTO registered_models
     (id,provider_id,model_id,adapter,capabilities,probe_spec,complexity,enabled,route_enabled,billing,upstream_metadata,updated_by)
-    VALUES (${randomUUID()}::uuid,${providerId}::uuid,${m.modelId},${m.adapter},
+    VALUES (${randomUUIDv7()}::uuid,${providerId}::uuid,${m.modelId},${m.adapter},
      ${tx.json([...m.capabilities])},${tx.json(m.probeSpec)},${m.complexity},false,false,'free',${meta},${actor})
     ON CONFLICT(provider_id,model_id) DO NOTHING`;
   }
