@@ -15,6 +15,19 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export const meta: Route.MetaFunction = () => [{ title: `运行 · ${SITE.name} 后台` }];
 
+const CAUSES = {
+  receipt_unknown: { label: "模型结果未知，等待人工核对", action: "先核对回执，不能直接重发", target: "#receipt-backlog" },
+  article_failed: { label: "新闻处理最终失败", action: "查看错误原因，修复后分批重试", target: "#runs-issues" },
+  provider_retry: { label: "模型/Provider 错误，等待重试", action: "检查模型连接与路由，系统到点自动重试", target: "/admin/models" },
+  retry_wait: { label: "新闻处理错误，等待自动重试", action: "查看具体错误及下次重试时间", target: "#runs-issues" },
+  missing_job: { label: "新闻超时，未找到可执行任务", action: "检查 content.sweep 与 Worker；不能直接归因为模型错误", target: "#job-failures" },
+  queue_wait: { label: "新闻排队超过 15 分钟", action: "检查 Worker 是否在线和消费是否正常", target: "#runs-issues" },
+  long_running: { label: "新闻执行超过 15 分钟", action: "查看文章处理链路，检查模型超时与正文提取", target: "#runs-issues" },
+  unclassified: { label: "新闻超时，原因待定位", action: "打开示例新闻，查看处理链路与任务状态", target: "#runs-issues" },
+} as const;
+
+
+
 export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const refresh = useFetcher<typeof loader>();
   const r = refresh.data ?? loaderData;
@@ -41,6 +54,12 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const attentionCount = Number(!worker?.alive) + Number(r.currentNews.failed > 0) +
     Number(r.grouping.needsAttention > 0) + Number(r.lagging.length > 0) +
     Number(failing.length > 0) + Number(unknownReceipts > 0);
+  const groupedCauseRows = [
+    { kind: "manual", label: "归组失败，需人工处理", items: r.grouping.items.filter(x => x.recovery === "manual") },
+    { kind: "receipt", label: "归组模型结果待核对", items: r.grouping.items.filter(x => x.recovery === "receipt") },
+    { kind: "automatic", label: "归组未完成，当前仍由系统负责", items: r.grouping.items.filter(x => x.recovery === "automatic") },
+  ].filter(x => x.items.length > 0);
+  const overdueNewsCount = r.backlogCauses?.reduce((sum, cause) => sum + cause.count, 0) ?? 0;
   const groupingPageSize = 20;
   const groupingPages = Math.max(1, Math.ceil(r.grouping.items.length / groupingPageSize));
   const currentGroupingPage = Math.min(groupingPage, groupingPages - 1);
@@ -60,6 +79,40 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           <p className="text-[12px] text-ink-4">当前未完成新闻，不含已发布完成项和历史回填；失败后可分批重试。</p>
           <Button size="sm" onClick={() => setRequeue("")} disabled={r.errors.length === 0}>重试失败新闻</Button>
         </div>
+      </Card>
+      <Card className="mb-5" title="积压原因诊断" right={<span className="text-[12px] text-ink-4">根据当前新闻、任务与模型回执自动归因；非历史失败次数</span>}>
+        {r.backlogCauses === undefined
+          ? <p className="text-[13px] text-ink-3">诊断数据未获取，不能判断积压原因；请核对 API 与部署版本。</p>
+          : r.backlogCauses.length === 0 && r.grouping.waiting === 0
+            ? <p className="text-[13px] text-ink-3">当前没有超时或最终失败的新闻，也没有未完成的精选归组。</p>
+            : <>
+              {r.backlogCauses.length > 0 && <>
+                <p className="mb-3 text-[12px] text-ink-3">新闻处理：{num(overdueNewsCount)} 条超时或已失败。每条只归到一类，正常排队未超时的不计入。</p>
+                <div className="space-y-3">
+                  {r.backlogCauses.map(cause => {
+                    const info = CAUSES[cause.kind];
+                    return <div key={cause.kind} className="rounded-control border border-line p-3 text-[13px]">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <strong>{info.label}</strong>
+                        <span className="font-semibold">{num(cause.count)} 条</span>
+                      </div>
+                      <p className="mt-1 text-ink-3">示例错误：{cause.exampleError || "没有记录具体错误"} · 最早发现 <Time at={cause.oldest} />{cause.nextRetryAt && <> · 下次重试 <Time at={cause.nextRetryAt} /></>}</p>
+                      <p className="mt-1">{info.action} · <Link className="text-accent" to={`/admin/content/${cause.exampleArticleId}`}>查看示例新闻</Link>{info.target.startsWith("/") && <> · <Link className="text-accent" to={info.target}>检查模型</Link></>}</p>
+                    </div>;
+                  })}
+                </div>
+              </>}
+              {groupedCauseRows.length > 0 && <div className="mt-4 border-t border-line pt-3">
+                <h3 className="mb-2 font-semibold text-ink">精选去重与归组（不同于新闻分析积压）</h3>
+                {groupedCauseRows.map(group => <p key={group.kind} className="py-1 text-[13px]">
+                  <strong>{group.label}：{num(group.items.length)} 条</strong>
+                  <span className="ml-2 text-ink-3">{group.kind === "automatic"
+                    ? "尚不足以判断是模型慢还是排队；检查归组任务与回执"
+                    : group.items.find(x => x.error)?.error ?? "打开明细核对处理原因"}</span>
+                  {" · "}<a className="text-accent hover:underline" href="#grouping-backlog">查看明细</a>
+                </p>)}
+              </div>}
+            </>}
       </Card>
       <Card className="mb-5" title={attentionCount ? `需要处理 · ${attentionCount} 类问题` : "运行状态"}>
         <div className="mb-3 text-[13px] text-ink-2">
