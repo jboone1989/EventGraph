@@ -1,55 +1,39 @@
-# 今日整活 — Implementation Tasks
+# 今日整活 · Implementation Work Items（EventGraph 范围）
 
-**Status:** Draft。单独 Spec PR 审批并合入 develop 后，按照 Spec 015 的原生 GitHub Projects / GH-AW Work Queue 机制自动处理。不得在本 Spec PR 中实现。
+**Spec:** [spec.md](./spec.md)
+**Plan:** [plan.md](./plan.md)
+**Status:** Draft；当前只修订职责，不得依据旧 Spec 把 EventGraph 自动生成流水线入队。
+
+## Scope guard
+
+EventGraph 的 GitHub Projects / GH-AW Agent 只实现**栏目展示与已有作者投稿边界**，不实现 Ferro 的选题、写作、Omnipost 客户端或 Evolution Engine。Ferro 端的三种内容类型与工作循环归 Ferro 自身项目，不由此 Spec 的 Work Items 触发。每项任务独立 PR，引用已合入 develop 的不可变 Spec SHA。先 Search Before Build，不重复创建正在实现的同类 PR。
 
 ## Work Items
 
-### T001 — Audit Omnipost and create independent fun discovery
-**Scope:** 核验现有 Omnipost MCP 真实能力，新增整活独立数据与候选发现/去重。
+### T001 — Add original Fun column using existing authored-content facilities
+**Scope:** 用已有网站路由、研究/作者后台与媒体公开读取层实现 /fun、/fun/:id 及最薄的草稿/已发布/撤回内容承载能力，不新增自动创作作业。
 **Depends on:** none
 **Acceptance:**
-- 明确记录 Omnipost tools/list、publish schema、dry_run 对微头条、微信贴图及多图上传的实际支持情况；未证实不能标为可用。
-- 新增 fun_posts、fun_distributions 两张表，topic_key 与作品版本/平台唯一键具备幂等保证。
-- fun.discover 每 15 分钟独立查询已提交公开新闻、事件和图片，不改动新闻发布事务。
-- 同一事件的 10 条新闻默认只生成一个候选；无新候选不调用模型。
-- 关闭/失败整活发现时，原新闻仍可正常处理并发布；有自动化测试。
+- 有来源、作者、作品 ID/revision、短评正文、可选新闻图片与公开 URL 的整活作品能通过现有管理员鉴权/审计模式保存、更新、公开及撤回；已隐藏/未公开作品不在公共 API、页面或 sitemap。
+- /fun 与 /fun/:id 在桌面/手机可读，链接回原始事件/新闻，有图正常展示、无图可以纯文本呈现；无发布内容时不显示首页空组件。
+- Ferro 不可用、Omnipost 失败和图片 URL 无效时，EventGraph 新闻分析、分组和发布路径不受影响。
+- 不新增 fun.discover/fun.compose/fun.distribute、pg-boss 定时创作、模型评审、自动推荐或复杂用户系统；聚焦 web/API/DB 回归测试通过。
 
-### T002 — Compose human-writing commentary with existing news photos
-**Scope:** 从现有事件中选图并使用现有动态轻量模型路由生成短评草稿，支持低成本编辑。
+### T002 — Reuse a shared Ferro authored-artifact publication interface
+**Scope:** 让经过授权的 Ferro 产物在 EventGraph 被受控保存并产生可靠发布回执；复用现有研究稿件提交模式，最小化扩展，不建第二套 agent-auth 或发送系统。
 **Depends on:** T001
 **Acceptance:**
-- 复用 articles.media、coversForStories、现有媒体缓存与 Sharp，推荐 1–4 张原图，支持换图与调序；无图跳过，不使用 AI 生图。
-- fun.compose 独立 pg-boss 队列，默认 localConcurrency=1、每天最多 5 件自动成品，模型用途与新闻 analyze_article 分离。
-- 按固定 human-writing 规则从有出处的新闻材料生成约 30–120 字短评，含短标题、关联事实 IDs、图片顺序与跳过原因。
-- 管理员可重生成、改文案、跳过，不影响原新闻状态；模型失败只影响整活。
-- 单元/集成测试覆盖限额、事实不足、图片缺失、模型失败和重复重试。
+- 能用 `artifact_id + revision + content_kind` 幂等关联内容草稿、最终公开状态、作者、原始来源与稳定公共 URL；失败/重复提交不产生额外公开作品。
+- 研究稿件沿用现有 modules/research 的 method/source/author/published 规则，不从 fun 类型的短评自动转成研究事实；不建立第二套研究页面或 LLM 生成器。
+- 缺少可用的受控 Agent 写入能力时，保留现有管理员发布接口作为实际可行路径，报告 Ferro 端集成缺口，不能冒称已经打通自动投稿；与相关 worth Spec 的公共 author 接入避免重复实现。
+- 只有已确认 EventGraph 的发布回执/URL 可作为 Ferro 后续 Omnipost 分发的前置条件；无后端调用 Omnipost，无独立平台发送 job。
+- 已有新闻分析、发布、后台研究、来源审计功能回归通过，并有非法来源/鉴权/重复修订的聚焦测试。
 
-### T003 — Publish EventGraph fun column and editor UI
-**Scope:** 在网站和后台增加「今日整活」，本站为唯一原创作品源，外部渠道仅消费已发布版本。
+### T003 — Surface confirmed channel receipts without building distribution workers
+**Scope:** 可选复用已有统计/后台字段呈现 Ferro 回填的实际确认渠道链接和简单回流结果，保持事件与独立作品状态清楚分离。
 **Depends on:** T002
 **Acceptance:**
-- /fun、/fun/:id、首页轻量入口和 /admin/fun 页面可用，支持预览、编辑、图片排序、发布和隐藏。
-- 作品页面图片优先，附简短评论、来源、相关新闻和事件链接；移动端可正常浏览多图。
-- 草稿不公开、不出现在站点地图；没有已发布作品时首页不显示空模块。
-- 站内发布成功后异步产生两个平台任务，但不等待任何平台执行结果。
-- 修改、隐藏或撤回 fun 内容不改变 articles、analyses、publications 或原新闻发布结果。
-
-### T004 — Distribute via existing Omnipost MCP with manual export fallback
-**Scope:** 复用 Omnipost MCP 对微头条、微信贴图统一分发，按平台保存回执，并支持无接口时的人工发布包。
-**Depends on:** T003
-**Acceptance:**
-- 实测确认支持的渠道可通过已有 MCP publish 发布图片与文案，回写 job_id、remote_ref、remote_url、结果状态。
-- 对不支持微头条/贴图/图片上传的平台显示 manual_required，提供稳定实际图片文件下载、复制文案和回填已发 URL。
-- 不把限时 img-proxy 链接作为平台永久媒体素材，不在 EventGraph 自建另一套平台适配器。
-- 微信失败不回滚成功的头条记录或站内作品；每个平台记录唯一且可重放验证。
-- 连接超时等结果未知标记 unverified，不自动盲目重发；MCP mock 覆盖所有结果分支。
-
-### T005 — Analytics and end-to-end failure isolation
-**Scope:** 添加渠道归因与已知收益统计，验证整活全链路不拖慢原新闻。
-**Depends on:** T004
-**Acceptance:**
-- 后台展示网站访问量、两平台分发状态/链接、能获取或手动录入的阅读量与收入，缺失指标显示未知。
-- 统计 EventGraph 内容带来的平台收益与由平台回流的站内访问，不把流量当作收入。
-- 模拟模型长时间延迟、图片下载失败、MCP 掉线、整活队列停机、渠道部分成功；新闻采集分析、归组、发布和通知不受影响。
-- 验证同事件去重、日生成上限、并发、重试幂等与禁止不确定重发。
-- 完成聚焦的 backend、worker、Web 测试，并通过 develop 既有 Check/E2E；不发布 main。
+- 对指定 artifact revision 展示已有可确认的渠道 URL/ref 和明确状态，未知结果标记 unverified，未支持图文渠道标记 manual_required，不能仅根据请求已发送就显示成功。
+- Ferro 侧 Omnipost 保留唯一发送执行权；EventGraph 不实现社交 API、图文上传、重试队列或单独 Omnipost 客户端。
+- 站点可以区分真实可得的页面浏览、社交回流和明确录入的收益；未知收入显示未知，不把点击数推算为收入。
+- 渠道部分失败或重复回执不会更改已发布作品/新闻；测试验证不盲目重复发送、不污染新闻运维数据。
