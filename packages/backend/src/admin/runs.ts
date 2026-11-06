@@ -38,7 +38,7 @@ export async function routingEffectOverview(): Promise<NonNullable<Runs['routing
         r.request->'routing'->>'fallbackFrom' AS fallback_from
       FROM receipt_attempts a
       JOIN receipts r ON r.id = a.receipt_id
-      WHERE a.origin = 'live' AND a.started_at >= now() - interval '24 hours'
+      WHERE a.origin = 'live' AND a.started_at >= ${utcDayStart()}
         AND jsonb_typeof(r.request->'routing') = 'object'
         AND r.request->'routing'->>'stage' IS NOT NULL
     )
@@ -65,7 +65,7 @@ export async function routingEffectOverview(): Promise<NonNullable<Runs['routing
 export function summarizeRoutingRows(rows: RoutingRow[]): NonNullable<Runs['routingEffect']> {
   const overall = rows.find(row => row.kind === 'total');
   return {
-    hours: 24,
+    period: 'utc-day',
     attempts: overall?.attempts ?? 0,
     successful: overall?.successful ?? 0,
     failed: overall?.failed ?? 0,
@@ -84,7 +84,7 @@ export function summarizeRoutingRows(rows: RoutingRow[]): NonNullable<Runs['rout
   };
 }
 
-/** New-news operational funnel; backfills and signal-only records cannot obscure current reliability. */
+/** UTC-day new-news funnel; backfills and signal-only records cannot obscure current reliability. */
 export async function livePipelineOverview(): Promise<Runs["live24h"]> {
   const [row] = await sql<Runs["live24h"][]>`
     SELECT count(*)::int AS discovered,
@@ -97,7 +97,7 @@ export async function livePipelineOverview(): Promise<Runs["live24h"]> {
         AND a.discovered_at < now() - interval '15 minutes')::int AS stalled,
       max(a.discovered_at) AS "newestAt"
     FROM articles a JOIN sources s ON s.id = a.source_id
-    WHERE a.discovered_at > now() - interval '24 hours'
+    WHERE a.discovered_at >= ${utcDayStart()}
       AND a.discovered_at <= now()
       AND NOT a.backfill AND s.participation_mode = 'editorial'`;
   return row ?? { discovered: 0, analyzed: 0, grouped: 0, waiting: 0, failed: 0, filtered: 0, stalled: 0, newestAt: null };
@@ -166,17 +166,17 @@ export async function runsOverview(): Promise<Runs> {
         SELECT substring(name FROM 6) AS job FROM pgboss.schedule WHERE name LIKE 'cron.%'
         UNION SELECT unnest(${currentJobs}::text[])
       )
-      SELECT current_jobs.job, latest.*, counts.failed_24h, counts.runs_24h
+      SELECT current_jobs.job, latest.*, counts.failed_today, counts.runs_today
       FROM current_jobs
-      JOIN LATERAL (
+      LEFT JOIN LATERAL (
         SELECT started_at, finished_at, status, left(error, 400) AS error FROM job_runs
         WHERE job = current_jobs.job ORDER BY started_at DESC, id DESC LIMIT 1
       ) latest ON true
       CROSS JOIN LATERAL (
-        SELECT count(*) FILTER (WHERE status = 'failed')::int AS failed_24h, count(*)::int AS runs_24h
-        FROM job_runs WHERE job = current_jobs.job AND started_at > now() - interval '24 hours'
+        SELECT count(*) FILTER (WHERE status = 'failed')::int AS failed_today, count(*)::int AS runs_today
+        FROM job_runs WHERE job = current_jobs.job AND started_at >= ${utcDayStart()}
       ) counts ORDER BY current_jobs.job`,
-    sql<Runs["timeline"]>`SELECT id, job, started_at, finished_at, status, left(error, 300) AS error FROM job_runs ORDER BY started_at DESC, id DESC LIMIT 80`,
+    sql<Runs["timeline"]>`SELECT id, job, started_at, finished_at, status, left(error, 300) AS error FROM job_runs WHERE started_at >= ${utcDayStart()} ORDER BY started_at DESC, id DESC LIMIT 80`,
     sql<Runs["queues"]>`
       SELECT name, state, count(*)::int AS n, min(created_on) AS oldest FROM pgboss.job
       WHERE state IN ('created', 'retry', 'active') GROUP BY 1, 2 ORDER BY 1, 2`,
@@ -188,7 +188,7 @@ export async function runsOverview(): Promise<Runs> {
         count(*) FILTER (WHERE processing_state IN ('new','failed') AND
           (processing_error ILIKE '%No eligible configured model%' OR processing_error ILIKE '%Model cannot route%'))::int AS "unavailableModel"
       FROM articles a JOIN sources s ON s.id = a.source_id
-      WHERE a.discovered_at >= now() - interval '24 hours'
+      WHERE a.discovered_at >= ${utcDayStart()}
         AND a.discovered_at <= now()
         AND NOT a.backfill AND s.participation_mode = 'editorial'`,
     livePipelineOverview(),
@@ -196,18 +196,19 @@ export async function runsOverview(): Promise<Runs> {
     legacyUnresolvedOverview(),
     sql<Runs["failedJobs"]>`
       SELECT name, count(*)::int AS failed, max(completed_on) AS last, left((array_agg(output::text ORDER BY completed_on DESC))[1], 300) AS last_output
-      FROM pgboss.job WHERE state = 'failed' AND completed_on > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC, 1`,
+      FROM pgboss.job WHERE state = 'failed' AND completed_on >= ${utcDayStart()} GROUP BY 1 ORDER BY 2 DESC, 1`,
     sql<Runs["lagging"]>`
       SELECT id, name, kind, health, fail_count, last_ok_at, last_fetch_at, next_fetch_at, interval_minutes, left(last_error, 200) AS last_error
       FROM sources
       WHERE enabled AND kind NOT IN ('mp_account', 'external')
         AND (health = 'failing' OR next_fetch_at < now() - interval '30 minutes' OR last_ok_at < now() - make_interval(mins => greatest(interval_minutes * 6, 360)))
       ORDER BY health = 'failing' DESC, next_fetch_at, id LIMIT 60`,
-    sql<{ status: string; n: number }[]>`SELECT status, count(*)::int AS n FROM receipts WHERE created_at > now() - interval '7 days' GROUP BY 1 ORDER BY 1`,
+    sql<{ status: string; n: number }[]>`SELECT status, count(*)::int AS n FROM receipts WHERE created_at >= ${utcDayStart()} GROUP BY 1 ORDER BY 1`,
     sql<{ n: number }[]>`SELECT count(*)::int AS n FROM receipts WHERE status = 'unknown'`,
     sql<Runs["receipts"]["issues"]>`
       SELECT id, service, model, purpose, subject, status, attempts, left(error, 240) AS error, created_at, updated_at FROM receipts
-      WHERE status = 'unknown' OR (status = 'failed' AND updated_at > now() - interval '3 days') OR (status = 'pending' AND updated_at < now() - interval '15 minutes')
+      WHERE status = 'unknown' OR (status = 'pending' AND updated_at < now() - interval '15 minutes')
+        OR (status = 'failed' AND updated_at >= ${utcDayStart()})
       ORDER BY status = 'unknown' DESC, updated_at DESC, id DESC LIMIT 40`,
     sql<Runs["deliveries"]>`
       SELECT id, target_key, subject_kind, subject_id, status, attempts, left(response, 240) AS response, created_at, updated_at FROM deliveries
@@ -229,14 +230,14 @@ export async function runsOverview(): Promise<Runs> {
             AND substring(r.subject from '^article:([^@:#]+)') = a.id
         )
       GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
-    sql<Runs["ingest"]>`SELECT client, kind, status, left(error, 200) AS error, summary, created_at FROM ingest_events ORDER BY created_at DESC, id DESC LIMIT 20`,
-    waitingSelectedNews(),
+    sql<Runs["ingest"]>`SELECT client, kind, status, left(error, 200) AS error, summary, created_at FROM ingest_events WHERE created_at >= ${utcDayStart()} ORDER BY created_at DESC, id DESC LIMIT 20`,
+    waitingSelectedNews('utc-day'),
     // Articles waiting to retry after a passing provider problem (they are not failed).
     sql<{ n: number; next: Date | null }[]>`
       SELECT count(*)::int AS n, min(a.processing_retry_at) AS next
       FROM articles a JOIN sources s ON s.id = a.source_id
       WHERE a.processing_state = 'new' AND a.processing_attempts > 0
-        AND a.discovered_at >= now() - interval '24 hours'
+        AND a.discovered_at >= ${utcDayStart()}
         AND a.discovered_at <= now() AND NOT a.backfill AND s.participation_mode = 'editorial'`,
     routingEffectOverview(),
     Promise.all(serverModules().flatMap((m) => (m.admin?.runs ? [m.admin.runs().then((part) => [m.name, part] as const)] : []))),
@@ -270,7 +271,7 @@ export async function runsOverview(): Promise<Runs> {
   };
 }
 
-/** Failed articles (one failure group, or all of the last 24 hours) back into processing. */
+/** Failed articles (one failure group, or all activity from this UTC day) back into processing. */
 export async function requeueFailedArticles(input: { group: string | null; reason: string; limit?: number }, actor: string) {
   if (!input.reason?.trim()) throw new Error("reason is required");
   const result = await requeueFailed(input.group, input.limit ?? null);

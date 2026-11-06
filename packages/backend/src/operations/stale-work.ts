@@ -8,16 +8,16 @@ export function utcDayStart(now = new Date()): Date {
 }
 
 export async function expireStaleWork(now = new Date()) {
-  const cutoff = utcDayStart(now);
+  const utcMidnight = utcDayStart(now);
   const totals = { deletedStaleJobs: 0, clearedStaleArticles: 0, markedUnknownReceipts: 0 };
   while (true) {
     const batch = await sql.begin(async tx => {
       const articles = await tx<{ id: string; has_publication: boolean }[]>`
         SELECT a.id, EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id) AS has_publication
         FROM articles a
-        WHERE a.processing_state IN ('new', 'failed') AND a.discovered_at < ${cutoff}
+        WHERE a.processing_state IN ('new', 'failed') AND a.discovered_at < ${utcMidnight}
           -- A corrected published article may be undergoing today's re-analysis.
-          AND (a.updated_at < ${cutoff} OR NOT EXISTS
+          AND (a.updated_at < ${utcMidnight} OR NOT EXISTS
             (SELECT 1 FROM publications p WHERE p.article_id = a.id))
         ORDER BY a.discovered_at, a.id LIMIT 200 FOR UPDATE OF a SKIP LOCKED`;
       if (!articles.length) return { count: 0, jobs: 0, cleared: 0, markedUnknown: 0 };
@@ -41,5 +41,16 @@ export async function expireStaleWork(now = new Date()) {
     totals.markedUnknownReceipts += batch.markedUnknown;
     if (batch.count < 200) break;
   }
-  return totals;
+  // Clear day-scoped diagnostics, but keep the backup/report alert baselines and paid evidence.
+  const oldRuns = await sql`DELETE FROM job_runs WHERE started_at < ${utcMidnight} AND (status <> 'running' OR started_at < ${new Date(now.getTime() - 7 * 86400_000)}) AND job NOT IN ('ops.backup', 'reports.compose')`;
+  // Retain failed jobs tied to unresolved or already released paid receipts until the retry sweep runs.
+  const oldFailures = await sql`DELETE FROM pgboss.job j WHERE j.state = 'failed' AND j.completed_on < ${utcMidnight}
+    AND NOT EXISTS (
+      SELECT 1 FROM receipts r WHERE r.status IN ('pending', 'unknown') AND r.id::text = j.output->>'receiptId'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM audit_log a WHERE a.action = 'receipt.release'
+        AND a.subject = 'receipt:' || (j.output->>'receiptId') AND a.created_at > j.started_on
+    )`;
+  return { ...totals, deletedRunHistory: oldRuns.count, deletedFailedJobHistory: oldFailures.count };
 }

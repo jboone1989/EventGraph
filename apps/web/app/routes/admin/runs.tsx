@@ -77,7 +77,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       </Card>
       <Card className="mb-5" title={attentionCount ? "需要关注 · " + attentionCount + " 类问题" : "需要关注"}>
         {attentionCount === 0
-          ? <p className="text-[13px] text-ink-3">最近 24 小时新闻未出现本页跟踪的处理异常；队列历史和模型请求可在下方诊断查看。</p>
+          ? <p className="text-[13px] text-ink-3">UTC 今日新闻未出现本页跟踪的处理异常；今日任务和模型请求可在下方诊断查看。</p>
           : <div className="space-y-2 text-[13px]">
             {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")} className="ml-2 text-accent">进程明细</a></p>}
             {r.currentNews.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.currentNews.failed)}</Badge> 已核对的可手动重排，未知回执先核对。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
@@ -115,7 +115,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       )}
 
       {r.failedJobs.length > 0 && (
-        <Card className="mt-5" title="24 小时内失败的任务记录（每次重试可能留记录）" pad={false} scrollable>
+        <Card className="mt-5" title="UTC 今日失败的任务记录（每次重试可能留记录）" pad={false} scrollable>
           <DataTable scrollable
             dense
             rows={r.failedJobs}
@@ -131,7 +131,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="模型回执诊断" right={<span>当前未知结果 {num(unknownReceipts)} 条 · 仅显示最近 40 条</span>} pad={false} scrollable>
+        <Card title="模型回执诊断" right={<span>待核对未知结果 {num(unknownReceipts)} 条（含跨日）· 最多显示 40 条</span>} pad={false} scrollable>
           <DataTable scrollable
             dense
             rows={r.receipts.issues}
@@ -181,7 +181,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           />
         </Card>
         <Card
-          title="可重新处理的失败文章（最近 24 小时有活动）"
+          title="可重新处理的失败文章（UTC 今日有活动）"
           right={
             <span className="flex items-center gap-3">
               {r.retrying.count > 0 && <span>等待重试 {num(r.retrying.count)} 条 · 下一次 <Time at={r.retrying.next} /></span>}
@@ -190,7 +190,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           }
           pad={false} scrollable
         >
-          <p className="px-4 py-3 text-[12px] text-ink-3">这里的数量与“重新处理”可操作范围一致：包含最近 24 小时内新发现或更新的失败文章，也可能包含历史新闻及回填记录。重新处理会触发新的模型调用，不等于上方“最近 24 小时新发现新闻”的失败数。</p>
+          <p className="px-4 py-3 text-[12px] text-ink-3">这里的数量与“重新处理”可操作范围一致：包含 UTC 今日新发现或更新的失败文章，也可能包含历史新闻及回填记录。重新处理会触发新的模型调用，不等于上方“UTC 今日发现新闻”的失败数。</p>
           <DataTable scrollable
             dense
             rows={r.errors}
@@ -212,7 +212,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       <details id="runs-models" open={expanded.includes("runs-models")} className={sectionClass}>
         <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-models"); }}>模型请求诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{r.routingEffect ? rate(r.routingEffect.successful,r.routingEffect.attempts) : "暂无自动路由数据"} · {num(r.articleProcessing.unavailableModel)} 条模型不可路由</span></summary>
         <div className="mt-4">      {r.routingEffect && (
-        <Card className="mb-5" title="智能模型路由效果 · 最近 24 小时"
+        <Card className="mb-5" title="智能模型路由效果 · UTC 今日"
           right={<Link className="text-[12px] text-accent hover:underline" to="/admin/model-bindings">调整工作流模型</Link>}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
             <Stat label="自动路由调用" value={num(r.routingEffect.attempts)} hint="真实 live 请求尝试数" />
@@ -229,11 +229,11 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
               hint="成功请求的响应耗时" />
           </div>
           <p className="mt-3 text-[12px] text-ink-4">
-            只统计最近 24 小时带自动路由标记的请求尝试，不等于新闻篇数；失败后切换模型会产生额外请求。成功率分母包含失败、未知和执行中的请求；
+            只统计 UTC 今日带自动路由标记的请求尝试，不等于新闻篇数；失败后切换模型会产生额外请求。成功率分母包含失败、未知和执行中的请求；
             尚有 {num(r.routingEffect.pending)} 次处理中。模型响应成功不等于新闻内容正确或新闻处理完成。
           </p>
           {r.routingEffect.attempts === 0
-            ? <p className="mt-3 text-[13px] text-ink-3">最近 24 小时暂无带自动路由标记的调用。启用自动工作流并实际处理新闻后，这里才会出现数据。</p>
+            ? <p className="mt-3 text-[13px] text-ink-3">UTC 今日暂无带自动路由标记的调用。启用自动工作流并实际处理新闻后，这里才会出现数据。</p>
             : <details className="mt-4">
               <summary className="cursor-pointer text-[13px] font-medium">查看厂商与工作流明细</summary>
               <div className="mt-3 grid gap-4 xl:grid-cols-2">
@@ -261,7 +261,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       )}
 
       <p className="text-[12px] text-ink-3">
-        最近 24 小时有 {num(r.articleProcessing.unavailableModel)} 篇新闻受模型不可路由影响；已包含在上方等待或失败的新闻中，不额外累加。
+        UTC 今日有 {num(r.articleProcessing.unavailableModel)} 篇新闻受模型不可路由影响；已包含在上方等待或失败的新闻中，不额外累加。
       </p>
 
 </div>
@@ -294,10 +294,10 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
             rowKey={(j) => j.job}
             columns={[
               { key: "j", label: "任务", render: (j) => <span className="font-mono text-[12.5px]">{j.job}</span> },
-              { key: "s", label: "上次", render: (j) => <Badge tone={j.status === "ok" ? "ok" : j.status === "failed" ? "bad" : "muted"} title={j.error ?? undefined}>{j.status ?? "运行中"}</Badge> },
-              { key: "at", label: "时间", render: (j) => <Time at={j.started_at} /> },
-              { key: "d", label: "耗时", align: "right", render: (j) => duration(j.started_at, j.finished_at) },
-              { key: "f", label: "24h 失败", align: "right", render: (j) => (j.failed_24h ? <span className="text-hot">{j.failed_24h}/{j.runs_24h}</span> : `0/${j.runs_24h}`) },
+              { key: "s", label: "上次", render: (j) => <Badge tone={j.status === "ok" ? "ok" : j.status === "failed" ? "bad" : "muted"} title={j.error ?? undefined}>{j.status ?? "今日尚未运行"}</Badge> },
+              { key: "at", label: "时间", render: (j) => j.started_at ? <Time at={j.started_at} /> : "—" },
+              { key: "d", label: "耗时", align: "right", render: (j) => j.started_at ? duration(j.started_at, j.finished_at) : "—" },
+              { key: "f", label: "今日失败", align: "right", render: (j) => (j.failed_today ? <span className="text-hot">{j.failed_today}/{j.runs_today}</span> : `0/${j.runs_today}`) },
             ]}
           />
         </Card>
@@ -306,7 +306,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
 </div>
       </details>
       <details id="runs-diagnostics" open={expanded.includes("runs-diagnostics")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-diagnostics"); }}>历史记录与诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.timeline.length)} 条近期任务 · {num(r.processes.length)} 个进程</span></summary>
+        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-diagnostics"); }}>今日记录与诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.timeline.length)} 条近期任务 · {num(r.processes.length)} 个进程</span></summary>
         <div className="mt-4">      {PARTS.map(({ name, part: Part }) => (r.modules[name] != null ? <Part key={name} data={r.modules[name]} /> : null))}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-2">

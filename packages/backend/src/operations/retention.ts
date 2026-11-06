@@ -7,6 +7,7 @@ import { sql } from "../db.ts";
 import { screenshotsForwarded } from "./feedback.ts";
 import { serverModules } from "../modules.ts";
 import { compactOrdinaryNews } from "./news-compaction.ts";
+import { utcDayStart } from "./stale-work.ts";
 
 /** Removes files under `dir` last written more than `maxAgeMs` ago. */
 async function removeOlderThan(dir: string, maxAgeMs: number, now: number): Promise<number> {
@@ -36,8 +37,8 @@ export async function dailyRetention(now = new Date()) {
   const modules: Record<string, unknown> = {};
   for (const m of serverModules()) if (m.retention) Object.assign(modules, await m.retention(now));
   const leases = await sql`DELETE FROM delivery_leases WHERE expires_at < ${now}`;
-  // Scheduled-task history: 30 days (failures 90) is enough for the runs view.
-  const runs = await sql`DELETE FROM job_runs WHERE started_at < ${new Date(now.getTime() - 30 * 86400_000)} AND (status IS DISTINCT FROM 'failed' OR started_at < ${new Date(now.getTime() - 90 * 86400_000)})`;
+  // Fallback if the UTC midnight cleanup was missed; preserve alert baselines and in-flight runs.
+  const runs = await sql`DELETE FROM job_runs WHERE started_at < ${utcDayStart(now)} AND (status <> 'running' OR started_at < ${new Date(now.getTime() - 7 * 86400_000)}) AND job NOT IN ('ops.backup', 'reports.compose')`;
   const monthMs = 30 * 86400_000;
   // Feedback screenshots that only wait to be forwarded (the database then keeps just the Feishu image
   // key). The forwarding sweep gives up after a week; anything older is removed, whether or not
