@@ -38,6 +38,6 @@ export function groupingOverview(items: WaitingNews[], now = Date.now()): Before
   return {
     waiting: items.length,
     needsAttention: items.filter((item) => now - item.since.getTime() >= GROUPING_WARN_AFTER_MS).length,
-    items: items.slice(0, 30),
+    items,
   };
 }
