@@ -143,9 +143,12 @@ export async function backlogCausesOverview(): Promise<NonNullable<Runs["backlog
         EXISTS (SELECT 1 FROM pgboss.job j
           WHERE j.name IN ('content.analyze', 'content.extract-body')
             AND j.data->>'articleId' = a.id AND j.state = 'active') AS active_job,
-        EXISTS (SELECT 1 FROM pgboss.job j
+        (SELECT min(j.started_on) FROM pgboss.job j
           WHERE j.name IN ('content.analyze', 'content.extract-body')
-            AND j.data->>'articleId' = a.id AND j.state IN ('created', 'retry')) AS queued_job,
+            AND j.data->>'articleId' = a.id AND j.state = 'active') AS active_since,
+        (SELECT min(j.created_on) FROM pgboss.job j
+          WHERE j.name IN ('content.analyze', 'content.extract-body')
+            AND j.data->>'articleId' = a.id AND j.state IN ('created', 'retry')) AS queue_since,
         EXISTS (SELECT 1 FROM receipts r WHERE r.status IN ('unknown', 'pending')
           AND substring(r.subject from '^article:([^@:#]+)') = a.id) AS unverified_receipt
       FROM articles a JOIN sources src ON src.id = a.source_id
@@ -159,11 +162,13 @@ export async function backlogCausesOverview(): Promise<NonNullable<Runs["backlog
       SELECT *, CASE
         WHEN processing_state = 'failed' AND unverified_receipt THEN 'receipt_unknown'
         WHEN processing_state = 'failed' THEN 'article_failed'
-        WHEN active_job AND discovered_at < now() - interval '15 minutes' THEN 'long_running'
+        WHEN active_since < now() - interval '15 minutes' THEN 'long_running'
+        WHEN active_job THEN NULL
         WHEN processing_retry_at > now() AND processing_error ~* '(model|provider|capacity|rate.limit|quota|budget|429|503|timeout)' THEN 'provider_retry'
         WHEN processing_retry_at > now() THEN 'retry_wait'
-        WHEN queued_job AND discovered_at < now() - interval '15 minutes' THEN 'queue_wait'
-        WHEN NOT active_job AND NOT queued_job AND discovered_at < now() - interval '15 minutes' THEN 'missing_job'
+        WHEN queue_since < now() - interval '15 minutes' THEN 'queue_wait'
+        WHEN queue_since IS NOT NULL THEN NULL
+        WHEN NOT active_job AND discovered_at < now() - interval '15 minutes' THEN 'missing_job'
         WHEN discovered_at < now() - interval '15 minutes' THEN 'unclassified'
         ELSE NULL
       END AS kind FROM live
