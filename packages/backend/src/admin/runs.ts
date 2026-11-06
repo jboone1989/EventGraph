@@ -6,7 +6,7 @@ import { sql } from "../db.ts";
 import { utcDayStart } from "../operations/stale-work.ts";
 import type { Heartbeat } from "../operations/heartbeat.ts";
 import { audit } from "../audit.ts";
-import { failureGroupSql, requeueFailed } from "../jobs/content.ts";
+import { failureGroupSql, requeueFailed, queueProcessing } from "../jobs/content.ts";
 import { groupingOverview, waitingSelectedNews } from "../operations/grouping.ts";
 import { serverModules } from "../modules.ts";
 
@@ -113,27 +113,66 @@ export async function legacyUnresolvedOverview(): Promise<number> {
   return row?.n ?? 0;
 }
 
-/** Current UTC-day news in three exclusive states, deduplicated by article ID. */
-export async function currentNewsQueueOverview(): Promise<Runs["currentNews"]> {
-  const [row] = await sql<{ pending: number; processing: number; failed: number }[]>`
-    WITH active AS (
-      SELECT DISTINCT data->>'articleId' AS article_id
-      FROM pgboss.job
-      WHERE name IN ('content.analyze', 'content.extract-body') AND state = 'active'
-    )
-    SELECT count(*) FILTER (WHERE a.processing_state = 'new' AND active.article_id IS NULL)::int AS pending,
-           count(*) FILTER (WHERE a.processing_state = 'new' AND active.article_id IS NOT NULL)::int AS processing,
-           count(*) FILTER (WHERE a.processing_state = 'failed')::int AS failed
+
+/** Exactly one current unfinished stage per news item, across analysis and selected-event grouping. */
+export async function currentNewsQueueItems(): Promise<NonNullable<Runs["currentNewsItems"]>> {
+  return sql<NonNullable<Runs["currentNewsItems"]>>`
+    SELECT a.id, a.title, a.discovered_at AS "discoveredAt",
+      CASE WHEN a.processing_state = 'analyzed' THEN NULL ELSE a.processing_retry_at END AS "retryAt",
+      a.processing_attempts AS attempts,
+      left(CASE WHEN a.processing_state = 'analyzed' THEN a.grouping_error ELSE a.processing_error END, 2000) AS error,
+      j.name AS "jobName", j.state AS "jobState", j.created_on AS "queuedAt", j.started_on AS "startedAt",
+      receipt.id AS "unverifiedReceiptId", receipt.status AS "receiptStatus",
+      CASE WHEN a.processing_state = 'analyzed'
+         THEN CASE WHEN a.grouping_status = 'failed' THEN 'failed'
+                   WHEN j.state = 'active' THEN 'processing' ELSE 'pending' END
+         WHEN a.processing_state = 'failed' THEN 'failed'
+         WHEN j.state = 'active' THEN 'processing' ELSE 'pending' END AS status,
+      CASE WHEN a.processing_state = 'analyzed' THEN '事件归组'
+           WHEN j.name = 'content.extract-body' OR (j.name IS NULL AND a.body_status = 'pending') THEN '正文提取'
+           ELSE '新闻统一分析' END AS stage
     FROM articles a JOIN sources s ON s.id = a.source_id
-    LEFT JOIN active ON active.article_id = a.id
-    WHERE a.processing_state IN ('new', 'failed')
+    LEFT JOIN LATERAL (
+      SELECT job.name, job.state, job.created_on, job.started_on
+      FROM pgboss.job job
+      WHERE job.data->>'articleId' = a.id AND job.state IN ('created', 'retry', 'active')
+        AND ((a.processing_state = 'analyzed' AND job.name = 'events.group')
+          OR (a.processing_state IN ('new', 'failed') AND job.name IN ('content.analyze', 'content.extract-body')))
+      ORDER BY (job.state = 'active') DESC, job.created_on DESC LIMIT 1
+    ) j ON true
+    LEFT JOIN LATERAL (
+      SELECT r.id, r.status FROM receipts r
+      WHERE r.status IN ('pending', 'unknown')
+        AND ((a.processing_state = 'analyzed' AND r.id = a.grouping_receipt_id)
+          OR (a.processing_state <> 'analyzed' AND substring(r.subject from '^article:([^@:#]+)') = a.id))
+      ORDER BY r.id DESC LIMIT 1
+    ) receipt ON true
+    WHERE (
+        a.processing_state IN ('new', 'failed')
+        OR (a.processing_state = 'analyzed' AND a.grouping_status IN ('pending', 'failed')
+          AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id
+            AND p.selection_candidate AND p.eligible AND p.visibility = 'public'))
+      )
       AND (a.discovered_at >= ${utcDayStart()} OR
         (a.updated_at >= ${utcDayStart()} AND EXISTS
           (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
-      AND a.discovered_at <= now()
-      AND NOT a.backfill AND s.participation_mode = 'editorial'`;
-  return row ?? { pending: 0, processing: 0, failed: 0 };
+      AND a.discovered_at <= now() AND NOT a.backfill AND s.participation_mode = 'editorial'
+    ORDER BY a.discovered_at DESC, a.id
+  `;
 }
+
+function queueCounts(items: NonNullable<Runs["currentNewsItems"]>): Runs["currentNews"] {
+  return items.reduce((acc, item) => {
+    acc[item.status]++;
+    return acc;
+  }, { pending: 0, processing: 0, failed: 0 });
+}
+
+/** The three counts use exactly the same definition as their clickable detail rows. */
+export async function currentNewsQueueOverview(): Promise<Runs["currentNews"]> {
+  return queueCounts(await currentNewsQueueItems());
+}
+
 
 /** Diagnose unresolved editorial news from current article, job and receipt evidence. */
 export async function backlogCausesOverview(): Promise<NonNullable<Runs["backlogCauses"]>> {
@@ -191,7 +230,7 @@ export async function runsOverview(): Promise<Runs> {
     queues,
     [articleProcessing],
     live24h,
-    currentNews,
+    currentNewsItems,
     backlogCauses,
     legacyUnresolved,
     failedJobs,
@@ -240,7 +279,7 @@ export async function runsOverview(): Promise<Runs> {
         AND a.discovered_at <= now()
         AND NOT a.backfill AND s.participation_mode = 'editorial'`,
     livePipelineOverview(),
-    currentNewsQueueOverview(),
+    currentNewsQueueItems(),
     backlogCausesOverview(),
     legacyUnresolvedOverview(),
     sql<Runs["failedJobs"]>`
@@ -291,6 +330,7 @@ export async function runsOverview(): Promise<Runs> {
     routingEffectOverview(),
     Promise.all(serverModules().flatMap((m) => (m.admin?.runs ? [m.admin.runs().then((part) => [m.name, part] as const)] : []))),
   ]);
+  const currentNews = queueCounts(currentNewsItems);
   const now = Date.now();
   return {
     checkedAt: new Date(now).toISOString(),
@@ -306,6 +346,7 @@ export async function runsOverview(): Promise<Runs> {
     articleProcessing: articleProcessing ?? {waiting:0,retrying:0,failed:0,filtered:0,unavailableModel:0},
     live24h,
     currentNews,
+    currentNewsItems,
     backlogCauses,
     legacyUnresolved,
     routingEffect,
@@ -321,10 +362,36 @@ export async function runsOverview(): Promise<Runs> {
   };
 }
 
-/** Failed articles (one failure group, or all activity from this UTC day) back into processing. */
-export async function requeueFailedArticles(input: { group: string | null; reason: string; limit?: number }, actor: string) {
+
+/** Move exactly one failed article to the pending queue, or reject without altering state. */
+export async function requeueFailedArticles(input: { group?: string | null; articleId?: string; reason: string; limit?: number }, actor: string) {
   if (!input.reason?.trim()) throw new Error("reason is required");
-  const result = await requeueFailed(input.group, input.limit ?? null);
-  await audit(actor, "processing.requeue", input.group ? `failure:${input.group.slice(0, 80)}` : "failure:all", input.reason, null, result);
+  if (input.articleId) {
+    const id = input.articleId;
+    return sql.begin(async tx => {
+      const [eligible] = await tx<{ id: string }[]>`
+        SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
+        WHERE a.id = ${id} AND a.processing_state = 'failed'
+          AND NOT a.backfill AND s.participation_mode = 'editorial'
+          AND (a.discovered_at >= ${utcDayStart()} OR
+            (a.updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+        FOR UPDATE OF a`;
+      if (!eligible) throw Object.assign(new Error("这条新闻已不在当前失败队列，请刷新页面"), { statusCode: 409 });
+      const [unverified] = await tx`
+        SELECT 1 FROM receipts r WHERE r.status IN ('pending', 'unknown')
+          AND substring(r.subject from '^article:([^@:#]+)') = ${id} LIMIT 1`;
+      if (unverified) throw Object.assign(new Error("模型回执未确认，不能直接重试；请先核对回执"), { statusCode: 409 });
+      await tx`
+        UPDATE articles SET processing_state = 'new', processing_attempts = 0,
+          processing_retry_at = NULL, processing_queued_at = NULL, processing_error = NULL
+        WHERE id = ${id}`;
+      const jobId = await queueProcessing(id, { db: tx });
+      if (!jobId) throw Object.assign(new Error("任务没有成功进入待处理队列，请刷新重试"), { statusCode: 409 });
+      await audit(actor, "processing.requeue.article", "article:" + id, input.reason, null, { jobId }, { db: tx });
+      return { requeued: 1, jobId };
+    });
+  }
+  const result = await requeueFailed(input.group ?? null, input.limit ?? null);
+  await audit(actor, "processing.requeue", input.group ? "failure:" + input.group.slice(0, 80) : "failure:all", input.reason, null, result);
   return result;
 }

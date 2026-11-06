@@ -4,44 +4,55 @@ import { test } from "node:test";
 import { chromium, expect } from "@playwright/test";
 import { startWebServer } from "./web-server.ts";
 
-test("runs page shows actionable backlog, every grouping item through pagination, and no raw diagnostic KPI noise", async () => {
+test("three live queues show per-news failure and one-click retry moves one article to pending", async () => {
   const now = new Date().toISOString();
-  const grouped = Array.from({ length: 33 }, (_, i) => ({
-    articleId: `selected-${i + 1}`, title: `待去重精选 ${i + 1}`, since: now,
-    failed: false, recovery: "automatic", receiptId: null, error: null,
-    jobState: i === 0 ? "active" : i < 30 ? "created" : null,
-    queueSince: i < 30 ? now : null, activeSince: i === 0 ? now : null,
-  }));
-  const runs = {
-    checkedAt: now,
-    processes: [{ role: "worker", pid: 123, host: "worker-1", release: "dev", startedAt: now, at: now, alive: true }],
-    jobs: [{ job: "reports.compose", started_at: now, finished_at: now, status: "failed", error: "Report failed", failed_today: 1, runs_today: 1 }],
-    timeline: Array.from({ length: 80 }, (_, i) => ({ id: i, job: "unused", started_at: now, status: "ok" })),
-    queues: [{ name: "cron.reports.compose", state: "retry", n: 31, oldest: now }],
-    articleProcessing: { waiting: 4, retrying: 3, failed: 2, filtered: 7, unavailableModel: 0 },
-    live24h: { discovered: 25, analyzed: 14, grouped: 12, waiting: 6, failed: 2, filtered: 7, stalled: 3, newestAt: now },
-    legacyUnresolved: 2,
-    currentNews: { pending: 4, processing: 2, failed: 2 },
-    backlogCauses: [
-      { kind: "provider_retry", count: 3, oldest: now, exampleArticleId: "article-2", exampleError: "Provider HTTP 429 rate limit", nextRetryAt: now },
-      { kind: "article_failed", count: 2, oldest: now, exampleArticleId: "article-1", exampleError: "No eligible configured model", nextRetryAt: null },
-    ],
-    failedJobs: [{ name: "cron.reports.compose", failed: 4, last: now, last_output: "Provider HTTP 500" }],
-    grouping: { waiting: grouped.length, needsAttention: 10, items: grouped },
-    lagging: [], receipts: { counts: {}, unknownTotal: 0, issues: [] }, deliveries: [],
-    errors: [{ error: "Temporary model error", n: 2, last: now, example: "article-1" }],
-    retrying: { count: 3, next: now }, ingest: [], modules: {},
-    routingEffect: { attempts: 200, successful: 111, failed: 89, unknown: 0, pending: 0, fallbackSuccess: 1, p95Ms: 1200, providers: [], stages: [] },
+  const rows = [
+    { id: "article-failed", title: "失败新闻", status: "failed", stage: "新闻统一分析", error: "Provider HTTP 429",
+      discoveredAt: now, retryAt: null, attempts: 4, jobName: null, jobState: null, queuedAt: null, startedAt: null,
+      unverifiedReceiptId: null, receiptStatus: null },
+    { id: "article-group", title: "归组失败新闻", status: "failed", stage: "事件归组", error: "Group Provider 503",
+      discoveredAt: now, retryAt: null, attempts: 0, jobName: null, jobState: null, queuedAt: null, startedAt: null,
+      unverifiedReceiptId: null, receiptStatus: null },
+    { id: "article-new", title: "等待新闻", status: "pending", stage: "正文提取", error: null,
+      discoveredAt: now, retryAt: null, attempts: 0, jobName: "content.extract-body", jobState: "created", queuedAt: now, startedAt: null,
+      unverifiedReceiptId: null, receiptStatus: null },
+    { id: "article-active", title: "正在分析的新闻", status: "processing", stage: "新闻统一分析", error: null,
+      discoveredAt: now, retryAt: null, attempts: 0, jobName: "content.analyze", jobState: "active", queuedAt: now, startedAt: now,
+      unverifiedReceiptId: null, receiptStatus: null },
+  ];
+  const run = {
+    checkedAt: now, processes: [{ role: "worker", pid: 1, host: "worker", release: "dev", startedAt: now, at: now, alive: true }],
+    currentNews: { pending: 1, processing: 1, failed: 2 }, currentNewsItems: rows,
   };
-  const api = createServer((req, res) => {
+  let retried = 0;
+  const api = createServer(async (req, res) => {
     const path = new URL(req.url!, "http://api.local").pathname;
     res.setHeader("content-type", "application/json");
     if (path === "/api/site/meta") return res.end(JSON.stringify({ changelogVersion: null }));
     if (path === "/api/admin/me") return res.end(JSON.stringify({ name: "Runs test", csrf: "fixture", dev: true }));
-    if (path === "/api/admin/nav-counts") return res.end(JSON.stringify({ runs: 5 }));
-    if (path === "/api/admin/runs") return res.end(JSON.stringify(runs));
+    if (path === "/api/admin/nav-counts") return res.end(JSON.stringify({ runs: 2 }));
+    if (path === "/api/admin/runs") return res.end(JSON.stringify(run));
+    if (path === "/api/admin/processing/requeue" && req.method === "POST") {
+      let request = "";
+      for await (const chunk of req) request += String(chunk);
+      const payload = JSON.parse(request);
+      assert.equal(payload.articleId, "article-failed");
+      retried += 1;
+      rows[0]!.status = "pending";
+      rows[0]!.error = null;
+      run.currentNews.pending += 1;
+      run.currentNews.failed -= 1;
+      return res.end(JSON.stringify({ requeued: 1, jobId: "job-test" }));
+    }
+    if (path === "/api/admin/content/article-group/rerun" && req.method === "POST") {
+      rows[1]!.status = "pending";
+      rows[1]!.error = null;
+      run.currentNews.pending += 1;
+      run.currentNews.failed -= 1;
+      return res.end(JSON.stringify({ jobId: "group-job-test" }));
+    }
     res.statusCode = 404;
-    return res.end("{}");
+    res.end("{}");
   });
   const web = await startWebServer(api);
   const browser = await chromium.launch({ channel: "chromium" });
@@ -49,37 +60,25 @@ test("runs page shows actionable backlog, every grouping item through pagination
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const res = await page.goto(web.origin + "/admin/runs");
     assert.equal(res?.status(), 200);
-    await expect(page.getByText("新闻处理 · 当前队列", { exact: true })).toBeVisible();
-    await expect(page.getByText("待处理", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("处理中", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("失败新闻 2 条")).toBeVisible();
-    await expect(page.getByText("Worker 运行中")).toBeVisible();
-    await expect(page.getByText("积压原因诊断", { exact: true })).toBeVisible();
-    await expect(page.getByText("模型/Provider 错误，等待重试", { exact: true })).toBeVisible();
-    await expect(page.getByText("Provider HTTP 429 rate limit", { exact: false })).toBeVisible();
-    await expect(page.getByText("新闻处理最终失败", { exact: true })).toBeVisible();
-    await expect(page.getByText("归组待启动（尚未超时）", { exact: false })).toBeVisible();
-    await expect(page.getByText("归组队列正在等待 Worker 消费", { exact: false })).toBeVisible();
-    await expect(page.getByText("归组正在执行", { exact: true })).toBeVisible();
-    await expect(page.getByText("精选去重 · 尚未完成")).toBeVisible();
-    await expect(page.getByText("共 33 条 · 第 1/2 页")).toBeVisible();
-    await expect(page.getByText("待去重精选 1", { exact: true })).toBeVisible();
-    await expect(page.getByText("待去重精选 21", { exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "下一页" }).click();
-    await expect(page.getByText("共 33 条 · 第 2/2 页")).toBeVisible();
-    await expect(page.getByText("待去重精选 33", { exact: true })).toBeVisible();
-    await expect(page.getByText("待去重精选 1", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("UTC 今日仍失败的定时任务", { exact: true })).toBeVisible();
-    await expect(page.getByText("Report failed", { exact: true })).toBeVisible();
-    for (const removed of ["新闻队列说明 · UTC 当天", "队列与定时任务 · 技术诊断", "今日记录与诊断", "模型请求诊断"]) {
-      await expect(page.getByText(removed, { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /待处理/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /正在处理/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /处理失败/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: "失败新闻" })).toBeVisible();
+    await expect(page.getByText("Provider HTTP 429", { exact: true })).toBeVisible();
+    await expect(page.getByText("新闻统一分析", { exact: true })).toBeVisible();
+    for (const obsolete of ["积压原因诊断", "今日记录与诊断", "模型请求诊断", "队列与定时任务 · 技术诊断"]) {
+      await expect(page.getByText(obsolete, { exact: true })).toHaveCount(0);
     }
-    await expect(page.getByText("55.5%", { exact: true })).toHaveCount(0);
-    await page.clock.install();
-    await page.clock.runFor(20_100);
-    await expect(page.getByText("待去重精选 33", { exact: true })).toBeVisible();
-    const navBadge = page.locator('aside a[href="/admin/runs"] span[title="当前 UTC 日未完成新闻（按篇计数）"]');
-    await expect(navBadge).toHaveText("5");
+    await expect(page.getByRole("link", { name: "归组失败新闻" })).toBeVisible();
+    await expect(page.getByText("Group Provider 503", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "重新入队" }).first().click();
+    await expect(page.getByRole("link", { name: "失败新闻" })).toHaveCount(0);
+    await page.getByRole("button", { name: "重新入队" }).click();
+    await expect(page.getByRole("link", { name: "归组失败新闻" })).toHaveCount(0);
+    await page.getByRole("button", { name: /待处理/ }).click();
+    await expect(page.getByRole("link", { name: "失败新闻" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "归组失败新闻" })).toBeVisible();
+    assert.equal(retried, 1);
   } finally {
     await browser.close();
     await web.stop();

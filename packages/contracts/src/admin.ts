@@ -336,6 +336,13 @@ export interface AdminRuns {
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
   /** Live unfinished editorial articles from this UTC day, mutually exclusive counts. */
   currentNews: { pending: number; processing: number; failed: number };
+  /** One row per unfinished news item: extraction, unified analysis or selected-event grouping. */
+  currentNewsItems?: Array<{
+    id: string; title: string; status: "pending" | "processing" | "failed"; stage: string;
+    discoveredAt: Timestamp; retryAt: Timestamp | null; attempts: number; error: string | null;
+    jobName: string | null; jobState: string | null; queuedAt: Timestamp | null; startedAt: Timestamp | null;
+    unverifiedReceiptId: number | null; receiptStatus: string | null;
+  }>;
   /** Articles first discovered today (UTC), excluding historical backfills and signal-only feeds. */
   live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
   /** Evidence-backed diagnosis of UTC-day unresolved articles. A delayed item may still be recoverable automatically. */
