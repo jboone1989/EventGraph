@@ -9,7 +9,6 @@ import { useAdminAction } from "../../features/admin/action";
 import { bj, num } from "../../features/admin/format";
 import { AdminPage, Badge, Button, Card, DataTable, Field, ReasonDialog, Select, Stat, Time } from "../../features/admin/ui";
 
-
 export async function loader({ request }: Route.LoaderArgs) {
   return adminGet<AdminRuns>(request, "/api/admin/runs");
 }
@@ -80,7 +79,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       </Card>
       <section id="runs-issues" aria-label="异常与恢复">
         <h2 className="mb-3 text-[16px] font-semibold text-ink">异常与恢复 · 需要操作的明细</h2>
-        <div>      {r.grouping.waiting > 0 && (
+        <div>
+      {r.grouping.waiting > 0 && (
         <Card className="mb-5" title="精选去重 · 尚未完成" right={<span>{num(r.grouping.waiting)} 条未完成 · {num(r.grouping.needsAttention)} 条等待超过 10 分钟</span>} pad={false} scrollable>
           <div id="grouping-backlog" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-[13px] text-ink-3">
             <span>已通过新闻分析，正在确认归组和去重；不属于新闻分析失败。</span>
@@ -111,8 +111,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         </Card>
       )}
 
-      <div id="receipt-backlog" className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="需要人工核对的模型回执" right={<span>未知结果 {num(unknownReceipts)} 条（可能跨日）· 当前展示最多 40 条</span>} pad={false} scrollable>
+      {(r.receipts.issues.length > 0 || r.deliveries.length > 0) && <div id="receipt-backlog" className="mt-5 grid gap-5 xl:grid-cols-2">
+        {r.receipts.issues.length > 0 && <Card title="需要人工核对的模型回执" right={<span>未知结果 {num(unknownReceipts)} 条（可能跨日）· 当前展示最多 40 条</span>} pad={false} scrollable>
           <DataTable scrollable
             dense
             rows={r.receipts.issues}
@@ -127,8 +127,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
               { key: "a", label: "", render: (x) => (x.status === "unknown" ? <Button size="sm" onClick={() => setReceipt(x)}>核对</Button> : null) },
             ]}
           />
-        </Card>
-        <Card title="需要核实的投递" pad={false} scrollable>
+        </Card>}
+        {r.deliveries.length > 0 && <Card title="需要核实的投递" pad={false} scrollable>
           <DataTable scrollable
             dense
             rows={r.deliveries}
@@ -142,11 +142,11 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
               { key: "a", label: "", render: (d) => <Button size="sm" onClick={() => setDelivery(d)}>处理</Button> },
             ]}
           />
-        </Card>
-      </div>
+        </Card>}
+      </div>}
 
-      <div id="source-backlog" className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="延迟或失败的信源" right={<Link className="text-accent" to="/admin/sources?health=failing">全部失败信源</Link>} pad={false} scrollable>
+      {(r.lagging.length > 0 || r.errors.length > 0) && <div id="source-backlog" className="mt-5 grid gap-5 xl:grid-cols-2">
+        {r.lagging.length > 0 && <Card title="延迟或失败的信源" right={<Link className="text-accent" to="/admin/sources?health=failing">全部失败信源</Link>} pad={false} scrollable>
           <DataTable scrollable
             dense
             rows={r.lagging}
@@ -160,13 +160,12 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
               { key: "e", label: "错误", render: (s) => <span className="line-clamp-1 text-[12px] text-ink-3" title={s.last_error ?? ""}>{s.last_error}</span> },
             ]}
           />
-        </Card>
-        <Card
+        </Card>}
+        {r.errors.length > 0 && <Card
           title="可重试的失败新闻 · 按原因分组"
           right={
             <span className="flex items-center gap-3">
-              {r.retrying.count > 0 && <span>等待重试 {num(r.retrying.count)} 条 · 下一次 <Time at={r.retrying.next} /></span>}
-              {r.errors.length > 0 && <Button size="sm" onClick={() => setRequeue("")}>分批重新处理</Button>}
+              <Button size="sm" onClick={() => setRequeue("")}>分批重新处理</Button>
             </span>
           }
           pad={false} scrollable
@@ -185,8 +184,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
               { key: "a", label: "", align: "right", render: (e) => <Button size="sm" onClick={() => setRequeue(e.error)}>重新处理</Button> },
             ]}
           />
-        </Card>
-      </div>
+        </Card>}
+      </div>}
 
 </div>
       </section>
