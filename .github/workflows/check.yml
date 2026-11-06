@@ -314,8 +314,10 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build web
         run: npm run build -w @aihot/web
+      # The web checks already use this pinned image. Avoid an unbounded apt/browser
+      # install on each E2E runner: run the same browser version in the container.
       - name: Browser engine
-        run: npx playwright install --with-deps chromium
+        run: docker pull mcr.microsoft.com/playwright:v1.61.1-noble
       - name: Migrate and seed
         run: |
           node scripts/migrate.ts
@@ -326,7 +328,11 @@ jobs:
           (cd apps/web && NODE_ENV=production exec node server.ts) > "$RUNNER_TEMP/web.log" 2>&1 &
           for i in $(seq 1 60); do curl -fsS -o /dev/null http://127.0.0.1:3000/api/health 2>/dev/null && break; sleep 1; done
       - name: Browser checks
-        run: npm run e2e
+        run: |
+          docker run --rm --init --ipc=host --network host \
+            -v "$PWD:/work" -w /work -e E2E_BASE_URL -e E2E_SEEDED -e CI=true \
+            mcr.microsoft.com/playwright:v1.61.1-noble \
+            npm run e2e
       - name: Report
         # The HTML report with screenshots of every page, and a trace of each failure.
         if: always()
