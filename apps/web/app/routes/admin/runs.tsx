@@ -1,413 +1,235 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SITE } from "@aihot/site";
 import { Link, useFetcher } from "react-router";
-import { useEffect } from "react";
 import type { Route } from "./+types/runs";
-import type { AdminDeliveryIssue, AdminReceiptIssue, AdminRuns } from "@aihot/contracts/admin";
+import type { AdminFlowItem, AdminRuns } from "@aihot/contracts/admin";
 import { adminGet } from "../../lib/admin.server";
 import { useAdminAction } from "../../features/admin/action";
-import { bj, duration, num } from "../../features/admin/format";
-import { AdminPage, Badge, Button, Card, DataTable, Dot, Empty, Field, Json, ReasonDialog, Select, Stat, Time } from "../../features/admin/ui";
-import { loadParts } from "../../site-modules";
-
+import { toast } from "../../features/admin/toast";
+import { bj, num } from "../../features/admin/format";
+import { AdminPage, Badge, Button, Card, DataTable, Field, ReasonDialog, Select, Time } from "../../features/admin/ui";
 
 export async function loader({ request }: Route.LoaderArgs) {
   return adminGet<AdminRuns>(request, "/api/admin/runs");
 }
+export const meta: Route.MetaFunction = () => [{ title: "运行 · " + SITE.name + " 后台" }];
 
-export const meta: Route.MetaFunction = () => [{ title: `运行 · ${SITE.name} 后台` }];
-
-const STATE_LABEL: Record<string, string> = { created: "排队", retry: "等待重试", active: "执行中" };
-
-const rate = (success: number, attempts: number) =>
-  attempts ? (success * 100 / attempts).toFixed(1) + "%" : "暂无数据";
-
-const PARTS = await loadParts((m) => m.admin?.runs);
+type QueueState = AdminFlowItem["status"];
+const statuses: Array<{ key: QueueState; label: string }> = [
+  { key: "pending", label: "待处理" },
+  { key: "processing", label: "正在处理" },
+  { key: "failed", label: "处理失败" },
+];
+const names: Record<string, string> = {
+  "content.analyze": "新闻统一分析",
+  "content.extract-body": "正文提取",
+  "events.group": "事件归组",
+  "events.digest": "事件综述",
+  "sources.fetch": "信源采集",
+  "sources.fetch-x": "X 信源采集",
+  "sources.mp": "公众号采集",
+  "media.prepare": "图片准备",
+  "notify.selected": "精选内容通知",
+  "publication.republish-source": "来源重新发布",
+  "cron.content.sweep": "新闻补入队列",
+  "cron.content.english": "英文内容补写",
+  "cron.knowledge.graphiti.ingest": "Graphiti 知识入库",
+  "cron.reports.compose": "日报与报告生成",
+  "cron.hot.rank": "热点排行",
+  "cron.hot.snapshot": "热点快照",
+  "cron.stories.links": "关联事件",
+  "cron.ops.recover": "任务恢复",
+  "cron.sources.schedule": "信源调度",
+  "group_article": "事件归组 · 模型请求",
+  "group_review": "事件归组复核 · 模型请求",
+  "analyze_article": "新闻统一分析 · 模型请求",
+  "understand_article": "新闻分析 · 模型请求",
+  "story_digest": "事件综述 · 模型请求",
+  "graphiti_chat": "Graphiti 知识抽取 · 模型请求",
+  "graphiti_embedding": "Graphiti 向量生成 · 模型请求",
+  "report_daily": "日报生成 · 模型请求",
+  "report_weekly": "周报生成 · 模型请求",
+  "report_monthly": "月报生成 · 模型请求",
+};
+const labelOf = (process: string) => names[process] ?? process;
+const kindNames: Record<AdminFlowItem["kind"], string> = {
+  article: "新闻", job: "Worker", schedule: "定时任务",
+  model: "模型调用", source: "采集信源", delivery: "消息投递",
+};
 
 export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const refresh = useFetcher<typeof loader>();
   const r = refresh.data ?? loaderData;
   const { run, pending } = useAdminAction();
-  const [receipt, setReceipt] = useState<AdminReceiptIssue | null>(null);
-  const [billed, setBilled] = useState("false");
-  const [delivery, setDelivery] = useState<AdminDeliveryIssue | null>(null);
+  const [state, setState] = useState<QueueState>("failed");
+  const [kind, setKind] = useState("all");
+  const [page, setPage] = useState(0);
+  const [receiptId, setReceiptId] = useState<number | null>(null);
+  const [deliveryId, setDeliveryId] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
-  // Failure group to put back into processing ("" = all failures from this UTC day).
-  const [requeue, setRequeue] = useState<string | null>(null);
-  const [requeueLimit, setRequeueLimit] = useState("5");
-  // Keep expanded diagnostics stable while the page auto-refreshes.
-  const [expanded, setExpanded] = useState<string[]>([]);
-  const showSection = (id: string) => setExpanded(current => current.includes(id) ? current : [...current, id]);
-  const toggleSection = (id: string) => setExpanded(current => current.includes(id)
-    ? current.filter(item => item !== id) : [...current, id]);
+  const [billed, setBilled] = useState("false");
 
-  // Live view: refresh every 20 s while visible.
   useEffect(() => {
-    const t = setInterval(() => document.visibilityState === "visible" && refresh.state === "idle" && refresh.load("/admin/runs"), 20_000);
-    return () => clearInterval(t);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible" && refresh.state === "idle") refresh.load("/admin/runs");
+    }, 20_000);
+    return () => clearInterval(interval);
   }, [refresh]);
 
-  const backlog = new Map<string, Record<string, { n: number; oldest: string }>>();
-  for (const q of r.queues) backlog.set(q.name, { ...(backlog.get(q.name) ?? {}), [q.state]: { n: q.n, oldest: q.oldest } });
-  const queued = r.queues.filter((q) => q.state !== "active").reduce((a, q) => a + q.n, 0);
-  const active = r.queues.filter((q) => q.state === "active").reduce((a, q) => a + q.n, 0);
-  const worker = r.processes.find((p) => p.role === "worker");
-  const failing = r.jobs.filter((j) => j.status === "failed");
-  const unknownReceipts = r.receipts.unknownTotal;
-  // Current article problems are unique by article ID; task history is diagnostics only.
-  const attentionCount = Number(!worker?.alive) + Number(r.currentNews.failed > 0) +
-    Number(r.lagging.length > 0) + Number(failing.length > 0);
-  const sectionClass = "mb-4 rounded-panel border border-line bg-surface px-4 py-3";
-  const summaryClass = "cursor-pointer text-[14px] font-medium text-ink hover:text-accent";
+  const allItems = r.flowItems;
+  const scoped = (allItems ?? []).filter(item => kind === "all" || item.kind === kind);
+  const counts = Object.fromEntries(statuses.map(status => [
+    status.key, scoped.filter(item => item.status === status.key).length,
+  ])) as Record<QueueState, number>;
+  const items = scoped.filter(item => item.status === state);
+  const pageSize = 20;
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const activePage = Math.min(page, pageCount - 1);
+  const shown = items.slice(activePage * pageSize, (activePage + 1) * pageSize);
+  const worker = r.processes.find(p => p.role === "worker");
+
+  async function requeue(item: AdminFlowItem) {
+    let path: string;
+    let body: unknown = {};
+    if (item.kind === "article" && item.process === "事件归组") {
+      path = "/api/admin/content/" + encodeURIComponent(item.articleId!) + "/rerun";
+      body = { step: "group" };
+    } else if (item.kind === "article") {
+      path = "/api/admin/processing/requeue";
+      body = { articleId: item.articleId, reason: "运行与积压页面单条重试" };
+    } else if (item.kind === "job" && item.jobId) {
+      path = "/api/admin/jobs/" + encodeURIComponent(item.jobId) + "/retry";
+    } else if (item.kind === "schedule") {
+      path = "/api/admin/schedules/" + encodeURIComponent(item.process.replace(/^cron\./, "")) + "/retry";
+    } else if (item.kind === "source") {
+      path = "/api/admin/sources/" + encodeURIComponent(item.key.slice("source:".length)) + "/fetch";
+    } else return;
+    const result = await run<{ requeued?: number; jobId?: string | null }>("POST", path, body,
+      { label: "requeue:" + item.key, revalidate: false });
+    if (result !== null) {
+      toast("已提交重新入队", "ok");
+      refresh.load("/admin/runs");
+    }
+  }
+
+  const action = (item: AdminFlowItem) => {
+    if (item.status !== "failed") {
+      return item.articleId ? <Link className="text-accent" to={"/admin/content/" + encodeURIComponent(item.articleId)}>查看新闻</Link> : null;
+    }
+    if (item.receiptStatus === "unknown" && item.receiptId !== null) {
+      return <Button size="sm" disabled={pending !== null} onClick={() => setReceiptId(item.receiptId)}>核对回执</Button>;
+    }
+    if (item.receiptStatus === "pending") return <span className="text-[12px] text-ink-3">等待回执确认</span>;
+    if (["article", "job", "schedule", "source"].includes(item.kind)) {
+      return <Button size="sm" disabled={pending !== null} onClick={() => void requeue(item)}>重新入队</Button>;
+    }
+    if (item.kind === "model") return <span className="text-[12px] text-ink-3">由原任务恢复</span>;
+    if (item.kind === "delivery") {
+      const id = Number(item.key.slice("delivery:".length));
+      return Number.isSafeInteger(id) && id > 0
+        ? <Button size="sm" disabled={pending !== null} onClick={() => setDeliveryId(id)}>处理投递</Button>
+        : <span className="text-[12px] text-ink-3">投递 ID 无效</span>;
+    }
+    return null;
+  };
 
   return (
-    <AdminPage title="运行与积压" subtitle={<>先看系统状态与需要处理的问题，展开下方区域查看明细。每 20 秒自动刷新 · 更新于 {bj(r.checkedAt)}</>}>
-      <Card className="mb-5" title="新闻处理 · 当前队列（UTC）"
-        right={<span className="text-[12px] text-ink-4">按新闻去重 · 每天 UTC 00:00 清空未完成项</span>}>
-        <div className="grid grid-cols-3 gap-3">
-          <Stat label="待处理" value={num(r.currentNews.pending)} hint="排队或等待自动重试" />
-          <Stat label="处理中" value={num(r.currentNews.processing)} hint="Worker 正在执行" />
-          <Stat label="失败" value={num(r.currentNews.failed)} tone={r.currentNews.failed ? "bad" : "ok"}
-            hint="未知计费回执需核对后才能重试" />
+    <AdminPage title="运行与积压" subtitle={<>UTC 今日实时执行记录 · 每 20 秒刷新 · {bj(r.checkedAt)} · <Badge tone={worker?.alive ? "ok" : "bad"}>{worker?.alive ? "Worker 在线" : "Worker 未确认在线"}</Badge></>}>
+      <Card title="所有流程 · 三个实时状态" right={<Button size="sm" onClick={() => refresh.load("/admin/runs")}>刷新</Button>}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[12px] text-ink-3">按执行单元计数；一次新闻的任务和模型请求分别记录</span>
+          <Select value={kind} onChange={e => { setKind(e.target.value); setPage(0); }}>
+            <option value="all">全部流程</option>
+            <option value="article">新闻处理</option>
+            <option value="model">模型调用</option>
+            <option value="job">Worker 任务</option>
+            <option value="schedule">定时任务</option>
+            <option value="source">采集信源</option>
+            <option value="delivery">消息投递</option>
+          </Select>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <p className="text-[12px] text-ink-4">仅统计当天未完成新闻；已发布新闻不清空。</p>
-          <Button size="sm" onClick={() => setRequeue("")} disabled={r.errors.length === 0}>重试失败新闻</Button>
-        </div>
-      </Card>
-      <Card className="mb-5" title={attentionCount ? "需要关注 · " + attentionCount + " 类问题" : "需要关注"}>
-        {attentionCount === 0
-          ? <p className="text-[13px] text-ink-3">UTC 今日新闻未出现本页跟踪的处理异常；今日任务和模型请求可在下方诊断查看。</p>
-          : <div className="space-y-2 text-[13px]">
-            {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")} className="ml-2 text-accent">进程明细</a></p>}
-            {r.currentNews.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.currentNews.failed)}</Badge> 已核对的可手动重排，未知回执先核对。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
-            {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">信源明细</a></p>}
-            {failing.length > 0 && <p><Badge tone="warn">定时任务最近失败 {num(failing.length)}</Badge> 按失败任务类型统计，不等于新闻失败篇数。<a href="#runs-queues" onClick={() => showSection("runs-queues")} className="ml-2 text-accent">查看任务</a></p>}
-          </div>}
-        <p className="mt-3 text-[12px] text-ink-3">实时积压只按当前 UTC 日的新闻 ID 计数。任务失败次数与模型回执仅供诊断，不增加新闻数量。</p>
-        <div className="mt-3 flex flex-wrap gap-4 text-[12px]">
-          <a className="text-accent hover:underline" href="#runs-news" onClick={() => showSection("runs-news")}>新闻处理</a>
-          <a className="text-accent hover:underline" href="#runs-issues" onClick={() => showSection("runs-issues")}>异常与恢复</a>
-          <a className="text-accent hover:underline" href="#runs-models" onClick={() => showSection("runs-models")}>模型调用</a>
-          <a className="text-accent hover:underline" href="#runs-queues" onClick={() => showSection("runs-queues")}>队列诊断</a>
-          <a className="text-accent hover:underline" href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")}>运行记录</a>
+        <div className="grid grid-cols-3 gap-2">
+          {statuses.map(item => <button key={item.key} type="button" aria-pressed={state === item.key}
+            onClick={() => { setState(item.key); setPage(0); }}
+            className={"rounded-control border p-3 text-left transition-colors " + (state === item.key ? "border-accent bg-accent-soft" : "border-line bg-bg-sunk")}>
+            <span className="block text-[12px] text-ink-3">{item.label}</span>
+            <strong className="mt-1 block text-2xl tabular-nums text-ink">{allItems ? num(counts[item.key]) : "—"}</strong>
+          </button>)}
         </div>
       </Card>
-      <details id="runs-news" open={expanded.includes("runs-news")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-news"); }}>
-          新闻队列说明 · UTC 当天
-        </summary>
-        <p className="mt-3 text-[13px] text-ink-3">新新闻只处于待处理、处理中或失败三类之一。
-          失败可重新排队；每晚 UTC 00:00 清空前一日尚未完成的新闻和关联任务，已发布内容保留。</p>
-      </details>
-      <details id="runs-issues" open={expanded.includes("runs-issues")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-issues"); }}>异常与恢复<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.currentNews.failed)} 篇当前失败新闻</span></summary>
-        <div className="mt-4">      {r.grouping.waiting > 0 && (
-        <Card className="mb-5" title="等待去重确认的精选" right={<span>{num(r.grouping.waiting)} 条等待 · {num(r.grouping.needsAttention)} 条超过 10 分钟</span>} pad={false} scrollable>
-          <p className="px-4 py-3 text-[13px] text-ink-3">这些新闻已达到精选条件，确认是否重复后才会进入精选。最多展示等待最久的 30 条。</p>
-          <DataTable scrollable dense rows={r.grouping.items} rowKey={(item) => item.articleId} columns={[
-            { key: "title", label: "新闻", render: (item) => <Link className="text-accent" to={`/admin/content/${item.articleId}`}>{item.title}</Link> },
-            { key: "since", label: "开始等待", render: (item) => <Time at={item.since} /> },
-            { key: "recovery", label: "下一步", render: (item) => <Badge tone={item.recovery === "manual" ? "bad" : "warn"}>{item.recovery === "manual" ? "需处理后恢复" : item.recovery === "receipt" ? "等待付费结果自动恢复" : "自动处理中"}</Badge> },
-            { key: "error", label: "原因", render: (item) => <span className="line-clamp-2 text-[12px] text-ink-3">{item.receiptId ? `回执 #${item.receiptId} · ` : ""}{item.error ?? "等待身份确认"}</span> },
-          ]} />
-        </Card>
-      )}
 
-      {r.failedJobs.length > 0 && (
-        <Card className="mt-5" title="UTC 今日失败的任务记录（每次重试可能留记录）" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.failedJobs}
-            rowKey={(j) => j.name}
-            columns={[
-              { key: "n", label: "队列", render: (j) => <span className="font-mono text-[12.5px]">{j.name}</span> },
-              { key: "c", label: "失败", align: "right", render: (j) => num(j.failed) },
-              { key: "l", label: "最近", render: (j) => <Time at={j.last} /> },
-              { key: "o", label: "最近错误", render: (j) => <span className="line-clamp-2 font-mono text-[11.5px] text-ink-3">{j.last_output}</span> },
-            ]}
-          />
-        </Card>
-      )}
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="模型回执诊断" right={<span>待核对未知结果 {num(unknownReceipts)} 条（含跨日）· 最多显示 40 条</span>} pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.receipts.issues}
-            rowKey={(x) => x.id}
-            empty="没有待处理的回执"
-            columns={[
-              { key: "id", label: "回执", render: (x) => <span className="num">#{x.id}</span> },
-              { key: "s", label: "状态", render: (x) => <Badge tone={x.status === "unknown" ? "bad" : "warn"}>{x.status}</Badge> },
-              { key: "w", label: "服务", render: (x) => <span className="whitespace-nowrap">{x.service}{x.model ? ` · ${x.model}` : ""}</span> },
-              { key: "p", label: "用途", render: (x) => (x.subject && /^[\w-]{10,}$/.test(x.subject) && x.purpose.includes("analy") ? <Link className="text-accent" to={`/admin/content/${x.subject}`}>{x.purpose}</Link> : x.purpose) },
-              { key: "e", label: "错误", render: (x) => <span className="line-clamp-2 text-[12px] text-ink-3" title={x.error ?? ""}>{x.error}</span> },
-              { key: "a", label: "", render: (x) => (x.status === "unknown" ? <Button size="sm" onClick={() => setReceipt(x)}>核对</Button> : null) },
-            ]}
-          />
-        </Card>
-        <Card title="需要核实的投递" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.deliveries}
-            rowKey={(d) => d.id}
-            empty="没有待核实的投递"
-            columns={[
-              { key: "t", label: "目标", render: (d) => d.target_key },
-              { key: "s", label: "状态", render: (d) => <Badge tone={d.status === "unknown" ? "bad" : "warn"}>{d.status}</Badge> },
-              { key: "sub", label: "内容", render: (d) => (d.subject_kind === "selected" ? <Link className="text-accent" to={`/admin/content/${d.subject_id}`}>{d.subject_id}</Link> : `${d.subject_kind} ${d.subject_id}`) },
-              { key: "at", label: "时间", render: (d) => <Time at={d.updated_at} /> },
-              { key: "a", label: "", render: (d) => <Button size="sm" onClick={() => setDelivery(d)}>处理</Button> },
-            ]}
-          />
-        </Card>
-      </div>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="延迟或失败的信源" right={<Link className="text-accent" to="/admin/sources?health=failing">全部失败信源</Link>} pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.lagging}
-            rowKey={(s) => s.id}
-            empty="信源都按时采集"
-            columns={[
-              { key: "n", label: "信源", render: (s) => <Link className="text-ink hover:text-accent" to={`/admin/sources/${encodeURIComponent(s.id)}`}>{s.name}</Link> },
-              { key: "h", label: "健康", render: (s) => <Badge tone={s.health === "failing" ? "bad" : s.health === "degraded" ? "warn" : "muted"}>{s.health}</Badge> },
-              { key: "ok", label: "上次成功", render: (s) => <Time at={s.last_ok_at} /> },
-              { key: "nx", label: "应抓", render: (s) => <Time at={s.next_fetch_at} /> },
-              { key: "e", label: "错误", render: (s) => <span className="line-clamp-1 text-[12px] text-ink-3" title={s.last_error ?? ""}>{s.last_error}</span> },
-            ]}
-          />
-        </Card>
-        <Card
-          title="可重新处理的失败文章（UTC 今日有活动）"
-          right={
-            <span className="flex items-center gap-3">
-              {r.retrying.count > 0 && <span>等待重试 {num(r.retrying.count)} 条 · 下一次 <Time at={r.retrying.next} /></span>}
-              {r.errors.length > 0 && <Button size="sm" onClick={() => setRequeue("")}>分批重新处理</Button>}
-            </span>
-          }
-          pad={false} scrollable
-        >
-          <p className="px-4 py-3 text-[12px] text-ink-3">这里的数量与“重新处理”可操作范围一致：包含 UTC 今日新发现或更新的失败文章，也可能包含历史新闻及回填记录。重新处理会触发新的模型调用，不等于上方“UTC 今日发现新闻”的失败数。</p>
-          <DataTable scrollable
-            dense
-            rows={r.errors}
-            rowKey={(e) => e.error}
-            empty="没有处理失败"
-            columns={[
-              { key: "e", label: "错误", render: (e) => <span className="font-mono text-[11.5px] text-ink-2">{e.error}</span> },
-              { key: "n", label: "条数", align: "right", render: (e) => num(e.n) },
-              { key: "x", label: "示例", render: (e) => <Link className="text-accent" to={`/admin/content/${e.example}`}>查看</Link> },
-              { key: "l", label: "最近", render: (e) => <Time at={e.last} /> },
-              { key: "a", label: "", align: "right", render: (e) => <Button size="sm" onClick={() => setRequeue(e.error)}>重新处理</Button> },
-            ]}
-          />
-        </Card>
-      </div>
-
-</div>
-      </details>
-      <details id="runs-models" open={expanded.includes("runs-models")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-models"); }}>模型请求诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{r.routingEffect ? rate(r.routingEffect.successful,r.routingEffect.attempts) : "暂无自动路由数据"} · {num(r.articleProcessing.unavailableModel)} 条模型不可路由</span></summary>
-        <div className="mt-4">      {r.routingEffect && (
-        <Card className="mb-5" title="智能模型路由效果 · UTC 今日"
-          right={<Link className="text-[12px] text-accent hover:underline" to="/admin/model-bindings">调整工作流模型</Link>}>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-            <Stat label="自动路由调用" value={num(r.routingEffect.attempts)} hint="真实 live 请求尝试数" />
-            <Stat label="模型响应成功率" value={rate(r.routingEffect.successful,r.routingEffect.attempts)}
-              tone={r.routingEffect.attempts && r.routingEffect.successful / r.routingEffect.attempts < 0.95 ? "warn" : undefined}
-              hint={num(r.routingEffect.successful)+" 次已收到有效 HTTP 响应"} />
-            <Stat label="切换后成功" value={num(r.routingEffect.fallbackSuccess)} tone="ok"
-              hint="明确拒绝后改用其他模型，并成功返回" />
-            <Stat label="明确失败" value={num(r.routingEffect.failed)}
-              tone={r.routingEffect.failed ? "warn" : undefined} hint="服务端拒绝或已判定失败" />
-            <Stat label="结果未知" value={num(r.routingEffect.unknown)}
-              tone={r.routingEffect.unknown ? "bad" : undefined} hint="不自动重发，以免重复调用" />
-            <Stat label="模型响应 P95" value={r.routingEffect.p95Ms == null ? "暂无数据" : num(r.routingEffect.p95Ms) + " ms"}
-              hint="成功请求的响应耗时" />
-          </div>
-          <p className="mt-3 text-[12px] text-ink-4">
-            只统计 UTC 今日带自动路由标记的请求尝试，不等于新闻篇数；失败后切换模型会产生额外请求。成功率分母包含失败、未知和执行中的请求；
-            尚有 {num(r.routingEffect.pending)} 次处理中。模型响应成功不等于新闻内容正确或新闻处理完成。
-          </p>
-          {r.routingEffect.attempts === 0
-            ? <p className="mt-3 text-[13px] text-ink-3">UTC 今日暂无带自动路由标记的调用。启用自动工作流并实际处理新闻后，这里才会出现数据。</p>
-            : <details className="mt-4">
-              <summary className="cursor-pointer text-[13px] font-medium">查看厂商与工作流明细</summary>
-              <div className="mt-3 grid gap-4 xl:grid-cols-2">
+      <Card title={statuses.find(item => item.key === state)?.label + " · 全流程明细"}
+        right={<span className="text-[12px] text-ink-3">{num(items.length)} 项 · 第 {activePage + 1}/{pageCount} 页</span>}
+        pad={false} scrollable>
+        {allItems === undefined
+          ? <p className="p-4 text-sm text-ink-3">当前 API 未提供全流程数据，请确认 API 与 Web 已部署同一版本。</p>
+          : <DataTable dense scrollable rows={shown} rowKey={item => item.key} empty="当前没有对应执行项" columns={[
+              { key: "subject", label: "新闻 / 任务", render: item =>
                 <div>
-                  <p className="mb-2 text-[12px] font-medium">厂商请求分布</p>
-                  <DataTable dense rows={r.routingEffect.providers} rowKey={p=>p.provider} columns={[
-                    {key:"provider",label:"厂商",render:p=>p.provider},
-                    {key:"attempts",label:"请求",align:"right",render:p=>num(p.attempts)},
-                    {key:"success",label:"成功率",align:"right",render:p=>rate(p.successful,p.attempts)},
-                    {key:"failed",label:"失败/未知",align:"right",render:p=>num(p.failed+p.unknown)},
-                  ]}/>
-                </div>
-                <div>
-                  <p className="mb-2 text-[12px] font-medium">请求路由标记（非独立新闻流程）</p>
-                  <DataTable dense rows={r.routingEffect.stages} rowKey={p=>p.stage} columns={[
-                    {key:"stage",label:"工作流",render:p=>p.stage},
-                    {key:"attempts",label:"请求",align:"right",render:p=>num(p.attempts)},
-                    {key:"success",label:"成功率",align:"right",render:p=>rate(p.successful,p.attempts)},
-                    {key:"fallback",label:"切换后成功",align:"right",render:p=>num(p.fallbackSuccess)},
-                  ]}/>
-                </div>
-              </div>
-            </details>}
-        </Card>
-      )}
-
-      <p className="text-[12px] text-ink-3">
-        UTC 今日有 {num(r.articleProcessing.unavailableModel)} 篇新闻受模型不可路由影响；已包含在上方等待或失败的新闻中，不额外累加。
+                  {item.articleId
+                    ? <Link className="text-accent" to={"/admin/content/" + encodeURIComponent(item.articleId)}>{item.subject}</Link>
+                    : item.kind === "source" ? <Link className="text-accent" to={"/admin/sources/" + encodeURIComponent(item.key.slice(7))}>{item.subject}</Link>
+                      : <span className="text-ink">{item.subject}</span>}
+                  <div className="text-[11px] text-ink-4">{kindNames[item.kind]}</div>
+                </div> },
+              { key: "process", label: "出错 / 当前流程", render: item =>
+                <div className="min-w-[120px]"><span>{labelOf(item.process)}</span>
+                  <div className="font-mono text-[11px] text-ink-4">{item.process}</div>
+                </div> },
+              { key: "model", label: "模型 / 服务", render: item =>
+                <span className="break-words text-[12px] text-ink-3">{[item.provider, item.model].filter(Boolean).join(" / ") || "—"}</span> },
+              { key: "error", label: state === "failed" ? "具体错误" : "任务 / 上次错误", render: item =>
+                <div className="min-w-[170px] text-[12px] text-ink-3">
+                  <span className="break-words" title={item.error ?? ""}>
+                    {item.error || (state === "failed" ? "该流程未记录错误内容" : "等待执行或模型响应")}
+                  </span>
+                  {item.retryAt && state === "pending" && <div>重试时间 <Time at={item.retryAt} /></div>}
+                </div> },
+              { key: "at", label: "时间", render: item => <Time at={item.at} /> },
+              { key: "action", label: "操作", align: "right", render: action },
+            ]} />}
+        {pageCount > 1 && <div className="flex items-center justify-end gap-3 border-t border-line px-4 py-3">
+          <Button size="sm" disabled={activePage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</Button>
+          <span className="text-[12px] text-ink-3">{activePage + 1} / {pageCount}</span>
+          <Button size="sm" disabled={activePage >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</Button>
+        </div>}
+      </Card>
+      <p className="mt-3 text-[12px] text-ink-3">
+        新闻、Worker、定时任务和模型调用分别保留真实状态，失败的模型请求不自动等同于整篇新闻失败。
+        已成功恢复的任务与模型请求不会继续留在失败列表；尚无错误日志的条目明确显示缺失记录。
       </p>
 
-</div>
-      </details>
-      <details id="runs-queues" open={expanded.includes("runs-queues")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-queues"); }}>队列与定时任务 · 技术诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{num(queued)} 条待执行 · {num(failing.length)} 项定时任务最近失败</span></summary>
-        <div className="mt-4">      <div className="grid gap-5 xl:grid-cols-2">
-        <Card title="队列" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={[...backlog.entries()]}
-            rowKey={([name]) => name}
-            empty="队列是空的"
-            columns={[
-              { key: "n", label: "队列", render: ([name]) => <span className="font-mono text-[12.5px]">{name}</span> },
-              ...(["created", "retry", "active"] as const).map((st) => ({
-                key: st,
-                label: STATE_LABEL[st],
-                align: "right" as const,
-                render: ([, v]: [string, Record<string, { n: number; oldest: string }>]) => (v[st] ? <span title={`最早 ${bj(v[st]!.oldest, true)}`}>{num(v[st]!.n)}</span> : <span className="text-ink-4">0</span>),
-              })),
-              { key: "old", label: "最早排队", render: ([, v]) => <Time at={v.created?.oldest ?? v.retry?.oldest ?? null} /> },
-            ]}
-          />
-        </Card>
-        <Card title="定时任务" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.jobs}
-            rowKey={(j) => j.job}
-            columns={[
-              { key: "j", label: "任务", render: (j) => <span className="font-mono text-[12.5px]">{j.job}</span> },
-              { key: "s", label: "上次", render: (j) => <Badge tone={j.status === "ok" ? "ok" : j.status === "failed" ? "bad" : "muted"} title={j.error ?? undefined}>{j.status ?? "今日尚未运行"}</Badge> },
-              { key: "at", label: "时间", render: (j) => j.started_at ? <Time at={j.started_at} /> : "—" },
-              { key: "d", label: "耗时", align: "right", render: (j) => j.started_at ? duration(j.started_at, j.finished_at) : "—" },
-              { key: "f", label: "今日失败", align: "right", render: (j) => (j.failed_today ? <span className="text-hot">{j.failed_today}/{j.runs_today}</span> : `0/${j.runs_today}`) },
-            ]}
-          />
-        </Card>
-      </div>
-
-</div>
-      </details>
-      <details id="runs-diagnostics" open={expanded.includes("runs-diagnostics")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-diagnostics"); }}>今日记录与诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.timeline.length)} 条近期任务 · {num(r.processes.length)} 个进程</span></summary>
-        <div className="mt-4">      {PARTS.map(({ name, part: Part }) => (r.modules[name] != null ? <Part key={name} data={r.modules[name]} /> : null))}
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="任务时间线" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.timeline}
-            rowKey={(t) => t.id}
-            columns={[
-              { key: "at", label: "开始", render: (t) => <span className="num whitespace-nowrap">{bj(t.started_at)}</span> },
-              { key: "j", label: "任务", render: (t) => <span className="font-mono text-[12px]">{t.job}</span> },
-              { key: "s", label: "结果", render: (t) => <Badge tone={t.status === "ok" ? "ok" : t.status === "failed" ? "bad" : "muted"} title={t.error ?? undefined}>{t.status ?? "运行中"}</Badge> },
-              { key: "d", label: "耗时", align: "right", render: (t) => duration(t.started_at, t.finished_at) },
-            ]}
-          />
-        </Card>
-        <Card title="外部上报" pad={false} scrollable>
-          {r.ingest.length ? (
-            <DataTable scrollable
-              dense
-              rows={r.ingest}
-              rowKey={(e) => `${e.client}-${e.created_at}`}
-              columns={[
-                { key: "at", label: "时间", render: (e) => <Time at={e.created_at} /> },
-                { key: "c", label: "客户端", render: (e) => e.client },
-                { key: "k", label: "类型", render: (e) => e.kind },
-                { key: "s", label: "结果", render: (e) => <Badge tone={e.status === "ok" ? "ok" : e.status === "error" ? "bad" : "muted"} title={e.error ?? undefined}>{e.status}</Badge> },
-                { key: "x", label: "摘要", render: (e) => <Json value={e.summary} label="摘要" /> },
-              ]}
-            />
-          ) : (
-            <Empty>还没有外部上报（采集脚本）</Empty>
-          )}
-        </Card>
-      </div>
-
-      {r.processes.length > 0 && (
-        <Card className="mt-5" title="进程">
-          <ul className="grid gap-2 text-[13px] sm:grid-cols-2 lg:grid-cols-3">
-            {r.processes.map((p) => (
-              <li key={p.role} className="flex items-center gap-2">
-                <Dot tone={p.alive ? "ok" : "bad"} />
-                <span className="font-medium">{p.role}</span>
-                <span className="text-ink-3">{p.host} · pid {p.pid} · {p.release} · 启动于 {bj(p.startedAt)}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-</div>
-      </details>
-      <ReasonDialog
-        open={!!receipt}
-        title={`核对回执 #${receipt?.id ?? ""}`}
-        description="结果未知的请求不会自动重发。先到供应商控制台确认这次请求有没有计费，再放行：放行后下一次处理会重新发起调用。"
-        confirmLabel="记录并放行"
-        busy={pending === "release"}
-        onClose={() => setReceipt(null)}
-        onSubmit={async (note) => (await run("POST", `/api/admin/receipts/${receipt!.id}/release`, { billed: billed === "true", note }, { label: "release", success: "已放行" })) !== null}
-      >
+      <ReasonDialog open={receiptId !== null} title={"核对模型回执 #" + (receiptId ?? "")}
+        description="模型调用结果未知，先核对是否计费；不得盲目重发。"
+        confirmLabel="记录并放行" busy={pending === "receipt"} onClose={() => setReceiptId(null)}
+        onSubmit={async note => {
+          const result = await run("POST", "/api/admin/receipts/" + receiptId + "/release",
+            { billed: billed === "true", note }, { label: "receipt", revalidate: false });
+          if (result !== null) { setReceiptId(null); refresh.load("/admin/runs"); }
+          return result !== null;
+        }}>
         <Field label="供应商是否计费">
-          <Select value={billed} onChange={(e) => setBilled(e.target.value)}>
-            <option value="false">未计费（请求没有被接受）</option>
-            <option value="true">已计费（结果没有取回）</option>
+          <Select value={billed} onChange={e => setBilled(e.target.value)}>
+            <option value="false">未计费</option>
+            <option value="true">已计费（未取回结果）</option>
           </Select>
         </Field>
       </ReasonDialog>
-      <ReasonDialog
-        open={requeue !== null}
-        title={requeue ? "分批恢复这一类失败" : "分批恢复失败文章"}
-        description="默认每次只恢复 5 条，避免在模型能力恢复后一次性重新发出几百次付费调用。需要时可明确选择全部。" 
-        confirmLabel="重新处理"
-        busy={pending === "requeue"}
-        onClose={() => setRequeue(null)}
-        onSubmit={async (reason) => (await run("POST", "/api/admin/processing/requeue", { group: requeue || null, reason, ...(requeueLimit === "all" ? {} : { limit: Number(requeueLimit) }) }, { label: "requeue", success: "已重新排队" })) !== null}
-      >
-        <Field label="本批恢复数量">
-          <Select value={requeueLimit} onChange={(e) => setRequeueLimit(e.target.value)}>
-            <option value="2">2 条（先验证）</option>
-            <option value="5">5 条（默认）</option>
-            <option value="20">20 条</option>
-            <option value="all">全部（可能产生较多模型费用）</option>
-          </Select>
-        </Field>
-      </ReasonDialog>
-      <ReasonDialog
-        open={!!delivery}
-        title="处理投递"
-        description="先到对应飞书群确认有没有收到。确认没收到再重发；开发环境不会真的发出。"
-        confirmLabel="确认"
-        danger={outcome === "resend"}
-        busy={pending === "delivery"}
-        onClose={() => setDelivery(null)}
-        onSubmit={async (note) => (await run("POST", `/api/admin/deliveries/${delivery!.id}/resolve`, { outcome, note }, { label: "delivery", success: "已处理" })) !== null}
-      >
-        <Field label="结果">
-          <Select value={outcome} onChange={(e) => setOutcome(e.target.value as typeof outcome)}>
-            <option value="sent">群里已收到，标记为已送达</option>
+      <ReasonDialog open={deliveryId !== null} title={"处理消息投递 #" + (deliveryId ?? "")}
+        description="先核实消息是否送达；确认未送达后才选择重新发送。"
+        confirmLabel="确认处理" danger={outcome === "resend"} busy={pending === "delivery"}
+        onClose={() => setDeliveryId(null)}
+        onSubmit={async note => {
+          const result = await run("POST", "/api/admin/deliveries/" + deliveryId + "/resolve",
+            { outcome, note }, { label: "delivery", revalidate: false });
+          if (result !== null) { setDeliveryId(null); refresh.load("/admin/runs"); }
+          return result !== null;
+        }}>
+        <Field label="处理结果">
+          <Select value={outcome} onChange={e => setOutcome(e.target.value as typeof outcome)}>
+            <option value="sent">已送达</option>
             <option value="drop">不再发送</option>
-            <option value="resend">群里没有，重新发送</option>
+            <option value="resend">尚未送达，重新发送</option>
           </Select>
         </Field>
       </ReasonDialog>
