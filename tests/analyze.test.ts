@@ -23,7 +23,7 @@ const X_SOURCE = `test-analyze-x-${T}`;
 
 interface Req { step: AnalysisStep; marker: string; user: string }
 const requests: Req[] = [];
-const MARKERS = ["DATEZH", "DATEEN", "DATEPUB", "CLEAR", "RESCUE", "LOW", "OFFTOPIC", "BARE", "VAGUE", "THIN", "SENSITIVE", "推文", "WORDY", "REFUSAL", "RENUMBER", "UNMENDED"];
+const MARKERS = ["LEGACY_EN", "LEGACY_ZH", "DATEZH", "DATEEN", "DATEPUB", "CLEAR", "RESCUE", "LOW", "OFFTOPIC", "BARE", "VAGUE", "THIN", "SENSITIVE", "推文", "WORDY", "REFUSAL", "RENUMBER", "UNMENDED"];
 // The scores sit a few points around the pack's T1_5 threshold (a tier above the understand floor) and the floor, so each case means
 // the same after a site recalibrates them: selected when the two add up to 2 × BAR, written like a
 // selected item when they add up to more than 2 × FLOOR, translated otherwise.
@@ -67,8 +67,9 @@ const provider = await stub((_hit, req) => {
       reasonZh: wordy ? `理由里有禁用词 ${marker}` : `理由 ${marker}`,
       reasonEn: `The announcement has documented impact and implications for readers interested in ${marker}.`,
       itemType: "model_release", authorRole: "principal",
-      explanation: { who: "某实验室", what: `来源确认发布了 ${marker} 模型`, when: null, where: null,
-        why: null, how: null, soWhat: "读者可从原文核实性能和价格",
+      explanation: { who: marker === "LEGACY_EN" ? "A laboratory" : "某实验室",
+        what: marker === "LEGACY_EN" ? "The source confirms a model release" : `来源确认发布了 ${marker} 模型`, when: null, where: null,
+        why: null, how: null, soWhat: marker === "LEGACY_EN" ? "Readers can verify the evidence in the original report" : "读者可从原文核实性能和价格",
         watchpoints: marker.startsWith("DATE")
           ? [{ text: "Check the deadline stated in the original", date: marker === "DATEPUB" ? "2026-09-28" : "2026-11-05" }]
           : [] },
@@ -134,6 +135,34 @@ test("one-pass watchpoint dates use source date forms, never the site's own publ
   const publicationOnly = await analyzeArticle(await article("DATEPUB"));
   assert.equal(publicationOnly!.output!.explanationEn?.watchpoints[0]?.date, null,
     "the site's 发布时间 line is not source evidence for a watchpoint date");
+});
+
+test("legacy single-language explanations follow source language, not mixed-script titles", async () => {
+  const englishId = await article("LEGACY_EN", {
+    title: "小米发布新车：Xiaomi unveils SU7 Ultra",
+    language: "en",
+  });
+  const englishInput = await loadAnalyzeInput(englishId);
+  assert.equal(englishInput?.language, "en", "source language is loaded from articles");
+  const english = await analyzeArticle(englishId);
+  assert.equal(english?.output?.explanation, null, "English-source legacy answer must not appear in the Chinese edition");
+  assert.ok(english?.output?.explanationEn?.what?.includes("model release"));
+  const englishStored = await row(englishId);
+  assert.ok(englishStored.output.explanationEn);
+  assert.equal(englishStored.output.explanationZh, undefined);
+
+  const chineseId = await article("LEGACY_ZH", {
+    title: "SU7 Ultra launch update",
+    language: "zh",
+  });
+  const chineseInput = await loadAnalyzeInput(chineseId);
+  assert.equal(chineseInput?.language, "zh");
+  const chinese = await analyzeArticle(chineseId);
+  assert.ok(chinese?.output?.explanation?.what?.includes("来源确认"));
+  assert.equal(chinese?.output?.explanationEn, null, "Chinese-source legacy answer must not appear in the English edition");
+  const chineseStored = await row(chineseId);
+  assert.ok(chineseStored.output.explanationZh);
+  assert.equal(chineseStored.output.explanationEn, undefined);
 });
 
 test("a selected item: prefilter, two scores, the content understanding and the structure", async () => {
