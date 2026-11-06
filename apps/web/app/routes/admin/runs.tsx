@@ -294,9 +294,9 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
             rowKey={(j) => j.job}
             columns={[
               { key: "j", label: "任务", render: (j) => <span className="font-mono text-[12.5px]">{j.job}</span> },
-              { key: "s", label: "上次", render: (j) => <Badge tone={j.status === "ok" ? "ok" : j.status === "failed" ? "bad" : "muted"} title={j.error ?? undefined}>{j.status ?? "运行中"}</Badge> },
-              { key: "at", label: "时间", render: (j) => <Time at={j.started_at} /> },
-              { key: "d", label: "耗时", align: "right", render: (j) => duration(j.started_at, j.finished_at) },
+              { key: "s", label: "上次", render: (j) => <Badge tone={j.status === "ok" ? "ok" : j.status === "failed" ? "bad" : "muted"} title={j.error ?? undefined}>{j.status ?? "今日尚未运行"}</Badge> },
+              { key: "at", label: "时间", render: (j) => j.started_at ? <Time at={j.started_at} /> : "—" },
+              { key: "d", label: "耗时", align: "right", render: (j) => j.started_at ? duration(j.started_at, j.finished_at) : "—" },
               { key: "f", label: "今日失败", align: "right", render: (j) => (j.failed_today ? <span className="text-hot">{j.failed_today}/{j.runs_today}</span> : `0/${j.runs_today}`) },
             ]}
           />
