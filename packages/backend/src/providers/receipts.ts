@@ -255,3 +255,19 @@ export async function completeReceipt(db: Db, receiptId: number): Promise<void> 
 export async function rejectReceivedResponse(receiptId: number, reason: string): Promise<void> {
   await sql`UPDATE receipts SET status = 'failed', error = ${reason.slice(0, 2000)}, updated_at = now() WHERE id = ${receiptId}`;
 }
+
+// Midnight cleanup preserves billing uncertainty: a pending request becomes unknown,
+// and already-unknown requests remain unknown until explicit billing verification.
+export async function markPendingArticleReceiptsUnknown(db: Db, articleIds: string[], reason: string): Promise<number> {
+  if (!articleIds.length) return 0;
+  const match = db`substring(subject from '^article:([^@:#]+)') = ANY(${articleIds}::text[])`;
+  const changed = await db<{ id: number }[]>`
+    UPDATE receipts SET status = 'unknown', error = ${reason}, updated_at = now()
+    WHERE status = 'pending' AND ${match} RETURNING id`;
+  if (changed.length) {
+    await db`UPDATE receipt_attempts SET status = 'unknown', error = ${reason},
+      finished_at = coalesce(finished_at, now())
+      WHERE status = 'pending' AND receipt_id IN ${db(changed.map(r => r.id))}`;
+  }
+  return changed.length;
+}

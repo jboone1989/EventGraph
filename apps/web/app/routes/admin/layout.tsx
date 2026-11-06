@@ -67,7 +67,7 @@ function NavCount({ counts, countsKey, name, className }: Counts & { name: strin
           // Keep it readable without the high-alert style used for actionable source failures.
           return name === "runs"
             ? <span className="relative ml-1 rounded-full bg-bg-sunk px-1.5 py-0.5 text-[11px] font-medium text-ink-3 ring-1 ring-line"
-                title="最近24小时超时或失败的新闻（按篇计数）">{value}</span>
+                title="当前 UTC 日未完成新闻（按篇计数）">{value}</span>
             : <span className={className}>{value}</span>;
         }}
       </Await>

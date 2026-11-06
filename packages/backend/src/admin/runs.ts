@@ -3,6 +3,7 @@
 // operations/recover.ts and notify/deliver.ts).
 import type { AdminRuns, BeforeJson } from "@aihot/contracts/admin";
 import { sql } from "../db.ts";
+import { utcDayStart } from "../operations/stale-work.ts";
 import type { Heartbeat } from "../operations/heartbeat.ts";
 import { audit } from "../audit.ts";
 import { failureGroupSql, requeueFailed } from "../jobs/content.ts";
@@ -112,6 +113,28 @@ export async function legacyUnresolvedOverview(): Promise<number> {
   return row?.n ?? 0;
 }
 
+/** Current UTC-day news in three exclusive states, deduplicated by article ID. */
+export async function currentNewsQueueOverview(): Promise<Runs["currentNews"]> {
+  const [row] = await sql<{ pending: number; processing: number; failed: number }[]>`
+    WITH active AS (
+      SELECT DISTINCT data->>'articleId' AS article_id
+      FROM pgboss.job
+      WHERE name IN ('content.analyze', 'content.extract-body') AND state = 'active'
+    )
+    SELECT count(*) FILTER (WHERE a.processing_state = 'new' AND active.article_id IS NULL)::int AS pending,
+           count(*) FILTER (WHERE a.processing_state = 'new' AND active.article_id IS NOT NULL)::int AS processing,
+           count(*) FILTER (WHERE a.processing_state = 'failed')::int AS failed
+    FROM articles a JOIN sources s ON s.id = a.source_id
+    LEFT JOIN active ON active.article_id = a.id
+    WHERE a.processing_state IN ('new', 'failed')
+      AND (a.discovered_at >= ${utcDayStart()} OR
+        (a.updated_at >= ${utcDayStart()} AND EXISTS
+          (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+      AND a.discovered_at <= now()
+      AND NOT a.backfill AND s.participation_mode = 'editorial'`;
+  return row ?? { pending: 0, processing: 0, failed: 0 };
+}
+
 export async function runsOverview(): Promise<Runs> {
   const currentJobs = (await Promise.all(serverModules().flatMap((m) => m.admin?.currentJobs ? [m.admin.currentJobs()] : []))).flat();
   const [
@@ -121,6 +144,7 @@ export async function runsOverview(): Promise<Runs> {
     queues,
     [articleProcessing],
     live24h,
+    currentNews,
     legacyUnresolved,
     failedJobs,
     lagging,
@@ -168,6 +192,7 @@ export async function runsOverview(): Promise<Runs> {
         AND a.discovered_at <= now()
         AND NOT a.backfill AND s.participation_mode = 'editorial'`,
     livePipelineOverview(),
+    currentNewsQueueOverview(),
     legacyUnresolvedOverview(),
     sql<Runs["failedJobs"]>`
       SELECT name, count(*)::int AS failed, max(completed_on) AS last, left((array_agg(output::text ORDER BY completed_on DESC))[1], 300) AS last_output
@@ -191,11 +216,18 @@ export async function runsOverview(): Promise<Runs> {
     sql<Runs["errors"]>`
       -- Match the exact eligibility set used by requeueFailed; the action must
       -- never requeue more articles than this error group tells the operator.
-      SELECT ${failureGroupSql()} AS error, count(*)::int AS n, max(discovered_at) AS last,
-             (array_agg(id ORDER BY discovered_at DESC))[1] AS example
-      FROM articles
-      WHERE processing_state = 'failed'
-        AND greatest(discovered_at, updated_at) > now() - interval '24 hours'
+      SELECT ${failureGroupSql("a.processing_error")} AS error, count(*)::int AS n, max(a.discovered_at) AS last,
+             (array_agg(a.id ORDER BY a.discovered_at DESC))[1] AS example
+      FROM articles a
+      WHERE a.processing_state = 'failed'
+        AND (a.discovered_at >= ${utcDayStart()} OR
+          (a.updated_at >= ${utcDayStart()} AND EXISTS
+            (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+        -- Unknown or pending provider results require explicit verification, not bulk retry.
+        AND NOT EXISTS (
+          SELECT 1 FROM receipts r WHERE r.status IN ('pending','unknown')
+            AND substring(r.subject from '^article:([^@:#]+)') = a.id
+        )
       GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
     sql<Runs["ingest"]>`SELECT client, kind, status, left(error, 200) AS error, summary, created_at FROM ingest_events ORDER BY created_at DESC, id DESC LIMIT 20`,
     waitingSelectedNews(),
@@ -223,6 +255,7 @@ export async function runsOverview(): Promise<Runs> {
     queues,
     articleProcessing: articleProcessing ?? {waiting:0,retrying:0,failed:0,filtered:0,unavailableModel:0},
     live24h,
+    currentNews,
     legacyUnresolved,
     routingEffect,
     failedJobs,

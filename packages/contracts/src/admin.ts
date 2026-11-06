@@ -334,6 +334,8 @@ export interface AdminRuns {
   timeline: Array<{ id: number; job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null }>;
   queues: Array<{ name: string; state: string; n: number; oldest: Timestamp }>;
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
+  /** Live unfinished editorial articles from this UTC day, mutually exclusive counts. */
+  currentNews: { pending: number; processing: number; failed: number };
   /** Articles first discovered within the last 24 hours, excluding historical backfills and signal-only feeds. */
   live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
   /** Unresolved editorial articles first discovered over 24 hours ago; not included in live24h. */
