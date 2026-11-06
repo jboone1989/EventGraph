@@ -33,17 +33,26 @@ async function loadRow(id: string, language: "zh" | "original" = "zh", explanati
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
       en_tr.body_html AS en_tr_html, en_tr.complete AS en_tr_complete,
       st.id AS story_id, ${topicMembership()} AS topics,
-      CASE WHEN ${EXPLAINABLE_PUBLICATION} AND
-        (a.language = ${explanationLanguage} OR
-         (a.language IS NULL AND (CASE WHEN a.title ~ '[一-龥]' THEN 'zh' ELSE 'en' END) = ${explanationLanguage}))
+      CASE WHEN p.channel = 'news' AND p.visibility = 'public' AND p.summary IS NOT NULL AND p.visible_after <= now()
         THEN coalesce(
           CASE WHEN NOT EXISTS (
             SELECT 1 FROM editorial_overrides eo WHERE eo.article_id = p.article_id
               AND eo.fields ?| ARRAY['title','summary','reason']
-          ) THEN an.output->'explanation' END,
+          ) THEN CASE WHEN ${explanationLanguage} = 'en'
+            THEN coalesce(
+              an.output->'explanationEn',
+              CASE WHEN a.language = 'en' OR (a.language IS NULL AND a.title !~ '[一-龥]')
+                THEN an.output->'explanation' END
+            )
+            ELSE coalesce(
+              an.output->'explanationZh',
+              CASE WHEN a.language = 'zh' OR (a.language IS NULL AND a.title ~ '[一-龥]')
+                THEN an.output->'explanation' END
+            )
+          END END,
           ie.content
         )
-        ELSE ie.content END AS explanation
+        ELSE NULL END AS explanation
     ${ITEM_FROM}
     LEFT JOIN translations en_tr ON en_tr.article_id = p.article_id AND en_tr.lang = 'en' AND en_tr.revision >= a.revision
     LEFT JOIN analyses an ON an.id = p.analysis_id
