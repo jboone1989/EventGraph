@@ -135,6 +135,48 @@ export async function currentNewsQueueOverview(): Promise<Runs["currentNews"]> {
   return row ?? { pending: 0, processing: 0, failed: 0 };
 }
 
+/** Diagnose unresolved editorial news from current article, job and receipt evidence. */
+export async function backlogCausesOverview(): Promise<NonNullable<Runs["backlogCauses"]>> {
+  return sql<NonNullable<Runs["backlogCauses"]>>`
+    WITH live AS (
+      SELECT a.id, a.discovered_at, a.processing_state, a.processing_error, a.processing_retry_at,
+        EXISTS (SELECT 1 FROM pgboss.job j
+          WHERE j.name IN ('content.analyze', 'content.extract-body')
+            AND j.data->>'articleId' = a.id AND j.state = 'active') AS active_job,
+        EXISTS (SELECT 1 FROM pgboss.job j
+          WHERE j.name IN ('content.analyze', 'content.extract-body')
+            AND j.data->>'articleId' = a.id AND j.state IN ('created', 'retry')) AS queued_job,
+        EXISTS (SELECT 1 FROM receipts r WHERE r.status IN ('unknown', 'pending')
+          AND substring(r.subject from '^article:([^@:#]+)') = a.id) AS unverified_receipt
+      FROM articles a JOIN sources src ON src.id = a.source_id
+      WHERE a.processing_state IN ('new', 'failed')
+        AND (a.discovered_at >= ${utcDayStart()} OR
+          (a.updated_at >= ${utcDayStart()} AND EXISTS
+            (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+        AND a.discovered_at <= now()
+        AND NOT a.backfill AND src.participation_mode = 'editorial'
+    ), classified AS (
+      SELECT *, CASE
+        WHEN processing_state = 'failed' AND unverified_receipt THEN 'receipt_unknown'
+        WHEN processing_state = 'failed' THEN 'article_failed'
+        WHEN active_job AND discovered_at < now() - interval '15 minutes' THEN 'long_running'
+        WHEN processing_retry_at > now() AND processing_error ~* '(model|provider|capacity|rate.limit|quota|budget|429|503|timeout)' THEN 'provider_retry'
+        WHEN processing_retry_at > now() THEN 'retry_wait'
+        WHEN queued_job AND discovered_at < now() - interval '15 minutes' THEN 'queue_wait'
+        WHEN NOT active_job AND NOT queued_job AND discovered_at < now() - interval '15 minutes' THEN 'missing_job'
+        WHEN discovered_at < now() - interval '15 minutes' THEN 'unclassified'
+        ELSE NULL
+      END AS kind FROM live
+    )
+    SELECT kind, count(*)::int AS count, min(discovered_at) AS oldest,
+      (array_agg(id ORDER BY discovered_at ASC, id))[1] AS "exampleArticleId",
+      (array_agg(left(processing_error, 200) ORDER BY discovered_at ASC, id))[1] AS "exampleError",
+      min(processing_retry_at) FILTER (WHERE processing_retry_at > now()) AS "nextRetryAt"
+    FROM classified WHERE kind IS NOT NULL
+    GROUP BY kind ORDER BY count DESC, kind
+  `;
+}
+
 export async function runsOverview(): Promise<Runs> {
   const currentJobs = (await Promise.all(serverModules().flatMap((m) => m.admin?.currentJobs ? [m.admin.currentJobs()] : []))).flat();
   const [
@@ -145,6 +187,7 @@ export async function runsOverview(): Promise<Runs> {
     [articleProcessing],
     live24h,
     currentNews,
+    backlogCauses,
     legacyUnresolved,
     failedJobs,
     lagging,
@@ -193,6 +236,7 @@ export async function runsOverview(): Promise<Runs> {
         AND NOT a.backfill AND s.participation_mode = 'editorial'`,
     livePipelineOverview(),
     currentNewsQueueOverview(),
+    backlogCausesOverview(),
     legacyUnresolvedOverview(),
     sql<Runs["failedJobs"]>`
       SELECT name, count(*)::int AS failed, max(completed_on) AS last, left((array_agg(output::text ORDER BY completed_on DESC))[1], 300) AS last_output
@@ -257,6 +301,7 @@ export async function runsOverview(): Promise<Runs> {
     articleProcessing: articleProcessing ?? {waiting:0,retrying:0,failed:0,filtered:0,unavailableModel:0},
     live24h,
     currentNews,
+    backlogCauses,
     legacyUnresolved,
     routingEffect,
     failedJobs,
