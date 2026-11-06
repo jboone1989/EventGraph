@@ -62,8 +62,9 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
     { kind: "active_overdue", label: "归组任务实际执行超过 10 分钟", items: automaticGrouping.filter(x => x.jobState === "active" && groupingOverdue(x.activeSince ?? x.since)) },
     { kind: "active", label: "归组正在执行", items: automaticGrouping.filter(x => x.jobState === "active" && !groupingOverdue(x.activeSince ?? x.since)) },
     { kind: "queue", label: "归组队列正在等待 Worker 消费", items: automaticGrouping.filter(x => x.jobState === "created" || x.jobState === "retry") },
-    { kind: "missing", label: "超过 10 分钟仍没有归组任务", items: automaticGrouping.filter(x => !x.jobState && groupingOverdue(x.since)) },
-    { kind: "starting", label: "归组待启动（尚未超时）", items: automaticGrouping.filter(x => !x.jobState && !groupingOverdue(x.since)) },
+    { kind: "job_failed", label: "归组任务已失败，没有正在执行或排队的任务", items: automaticGrouping.filter(x => !x.jobState && x.lastFailedJobError) },
+    { kind: "missing", label: "超过 10 分钟仍没有归组任务", items: automaticGrouping.filter(x => !x.jobState && !x.lastFailedJobError && groupingOverdue(x.since)) },
+    { kind: "starting", label: "归组待启动（尚未超时）", items: automaticGrouping.filter(x => !x.jobState && !x.lastFailedJobError && !groupingOverdue(x.since)) },
   ].filter(x => x.items.length > 0);
   const overdueNewsCount = r.backlogCauses?.reduce((sum, cause) => sum + cause.count, 0) ?? 0;
   const groupingPageSize = 20;
@@ -114,6 +115,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
                   <strong>{group.label}：{num(group.items.length)} 条</strong>
                   <span className="ml-2 text-ink-3">{
                     group.kind === "queue" ? "归组 Worker 串行处理；确认队列是否持续出队" :
+                    group.kind === "job_failed" ? (group.items[0]?.lastFailedJobError ?? "检查今天的失败任务") :
                     group.kind === "missing" ? "归组任务缺失，检查 content.sweep / events.group 调度" :
                     group.kind === "active_overdue" ? "正在执行但已超时，检查归组模型响应和任务超时" :
                     group.kind === "active" ? "当前归组 Worker 正在执行" :
