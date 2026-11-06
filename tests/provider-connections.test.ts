@@ -86,6 +86,27 @@ test('same upstream model name is independent across connections; duplicates on 
  await assert.rejects(updateRegisteredModel(ma.id,model(a.id),ma.version,'stale',actor),(e:unknown)=>e instanceof ProviderConfigError&&e.statusCode===409);
 });
 
+test('two Groq connections store separate credentials and same-name models with independent UUIDs',async()=>{
+ const first=await createConnection(connection({name:'Groq-A',vendor:'groq',
+  baseUrl:'https://api.groq.com/openai/v1',credential:{action:'replace',value:'groq-key-a'}}),'test',actor);
+ const second=await createConnection(connection({name:'Groq-B',vendor:'groq',
+  baseUrl:'https://api.groq.com/openai/v1',credential:{action:'replace',value:'groq-key-b'}}),'test',actor);
+ const a=await createRegisteredModel(model(first.id,{modelId:'openai/gpt-oss-120b',billing:'free'}),'test',actor);
+ const b=await createRegisteredModel(model(second.id,{modelId:'openai/gpt-oss-120b',billing:'free'}),'test',actor);
+ assert.notEqual(a.id,b.id);
+ assert.equal(a.modelId,b.modelId);
+ assert.equal(a.providerId,first.id);
+ assert.equal(b.providerId,second.id);
+ assert.equal(storedCredential(await loadConnection(first.id)),'groq-key-a');
+ assert.equal(storedCredential(await loadConnection(second.id)),'groq-key-b');
+ assert.notEqual(configurationFingerprint(await loadConnection(first.id),await loadModel(a.id)),
+  configurationFingerprint(await loadConnection(second.id),await loadModel(b.id)));
+ await assert.rejects(createRegisteredModel(model(first.id,{modelId:a.modelId,billing:'free'}),'test',actor),
+  (e:unknown)=>e instanceof ProviderConfigError&&e.statusCode===409);
+ await deleteRegisteredModel(a.id,a.version,'delete',actor);
+ assert.equal((await getRegisteredModel(b.id)).id,b.id);
+});
+
 test('protected endpoints cannot be bypassed through brand, policy payload or a host change',async()=>{
  const c=await createConnection(connection({vendor:'anything',baseUrl:'https://integrate.api.nvidia.com/v1'}),'test',actor);
  assert.equal(c.policy,'nvidia-free-trial');
