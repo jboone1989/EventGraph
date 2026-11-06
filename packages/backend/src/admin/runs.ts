@@ -298,7 +298,7 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
         SELECT attempt.error FROM receipt_attempts attempt
         WHERE attempt.receipt_id = r.id ORDER BY attempt.id DESC LIMIT 1
       ) last_attempt ON true
-      WHERE r.created_at >= ${utcDayStart()}
+      WHERE (r.created_at >= ${utcDayStart()} OR r.status = 'unknown')
         AND r.model IS NOT NULL AND r.purpose <> 'model_provider_probe'
         AND r.status IN ('failed', 'unknown', 'pending')
         AND NOT EXISTS (
