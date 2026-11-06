@@ -73,10 +73,13 @@ const articles = async (id = SRC) =>
     SELECT title, url, published_at, body_status, source_id FROM articles WHERE source_id = ${id} ORDER BY url`;
 
 test("results map to articles with their own URL and date; cross-domain and untitled results are filtered", async () => {
+  let returnedDate: string | null = null;
   searchReply = () => {
     firstSearchBucket = searchBucket();
+    const first = story(1);
+    returnedDate = String(first.date);
     return { results: [
-      story(1),
+      first,
       story(2, { date: null }),
       story(3, { url: "https://other-site.example/spill-over" }),
       story(4, { title: "" }),
@@ -88,7 +91,7 @@ test("results map to articles with their own URL and date; cross-domain and unti
   assert.equal(run.created, 2, "the cross-domain one is filtered");
   const rows = await articles();
   assert.equal(rows[0]!.url, "https://example-news.example/stories/1");
-  assert.ok(rows[0]!.published_at && Math.abs(Date.parse(rows[0]!.published_at) - (Date.now() - HOUR)) < 2000, "the API's UTC date is kept");
+  assert.equal(Date.parse(rows[0]!.published_at!), Date.parse(returnedDate!), "the exact API UTC date is kept regardless of CI latency");
   assert.equal(rows[1]!.published_at, null, "an undated result is not dated today");
   assert.ok(rows.every((r) => r.source_id === SRC && r.url.startsWith("https://example-news.example/")), "identity and URL stay the original site's");
 });
