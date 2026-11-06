@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto';
+import {randomUUIDv7} from 'node:crypto';
 import {classifyOpenRouterFreeCatalog} from './openrouter-free-catalog.ts';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
@@ -41,7 +41,7 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
    const metadata=tx.json({openrouterFreeSync:{free:true,checkedAt:timestamp,adapter:model.adapter}});
    await tx`INSERT INTO registered_models
     (id,provider_id,model_id,adapter,capabilities,probe_spec,enabled,route_enabled,billing,upstream_metadata,updated_by)
-    VALUES (${randomUUID()}::uuid,${providerId}::uuid,${modelId},${model.adapter},${tx.json(model.capabilities)},
+    VALUES (${randomUUIDv7()}::uuid,${providerId}::uuid,${modelId},${model.adapter},${tx.json(model.capabilities)},
       ${model.probe?tx.json(model.probe):null},
       ${model.adapter!=='special'},false,'free',${metadata},${actor})
     ON CONFLICT(provider_id,model_id) DO UPDATE SET
@@ -51,8 +51,7 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
   let noLongerFree=0,removed=0;
   for(const row of existing){
    if(freeIds.has(row.model_id)||!row.upstream_metadata?.openrouterFreeSync)continue;
-   // Only remove untouched auto-imports that were never enabled or referenced.
-   // Operator-edited or bound models are preserved but no longer labeled free.
+   // Only remove untouched, unbound auto-imports; preserve operator-edited models.
    if(row.version===1&&!row.enabled&&!row.route_enabled){
     const references=await tx`SELECT 1 FROM provider_workflow_models WHERE model_id=${row.id}::uuid
      UNION ALL SELECT 1 FROM provider_model_aliases WHERE registered_model_id=${row.id}::uuid LIMIT 1`;

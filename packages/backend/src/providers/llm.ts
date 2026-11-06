@@ -161,7 +161,8 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
     const excluded = new Set<string>();
     const needsVision = Array.isArray(opts.user) && opts.user.some(p => p.type === 'image_url');
     let rejectedModel: string | undefined;
-    for (let attempt = 0; attempt < 8; attempt++) {
+    // Each failure excludes one unique model UUID; selection ends when no candidates remain.
+    while (true) {
       const selected = await selectConfiguredProviderForStage(level || stage!, needsVision, excluded);
       try {
         const result = await chatJson({
@@ -181,11 +182,10 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
         if (!selected.startsWith('model:')) throw error;
         if (refused) rejectedModel = selected;
         excluded.add(selected.slice(6));
-        const accountWide = quota || (error instanceof ProviderRejectedError && error.status === 429);
-        await coolDownReference(selected, accountWide ? 60 : staleProbe ? 300 : 30, accountWide);
+        const cooldownSeconds = (quota || (error instanceof ProviderRejectedError && error.status === 429)) ? 60 : staleProbe ? 300 : 30;
+        coolDownReference(selected, cooldownSeconds);
       }
     }
-    throw new BudgetExceededError('free-models', 'all_routes_rejected', 300);
   }
   // A healthy model chosen by the NVIDIA monitor can be addressed directly by ID.
   // Dynamic routing only accepts compatible text model IDs on our NVIDIA endpoint.

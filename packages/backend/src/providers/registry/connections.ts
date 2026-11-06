@@ -1,4 +1,4 @@
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,randomUUIDv7} from 'node:crypto';
 import {PRESETS} from '@aihot/site/models';
 import {sql,type Db,type Tx} from '../../db.ts';
 import {audit} from '../../audit.ts';
@@ -163,7 +163,7 @@ export async function createConnection(input:ConnectionInput,reason:string,actor
  const result=await sql.begin(async tx=>{
   const [row]=await tx<ConnectionRow[]>`INSERT INTO provider_connections
    (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,credential_secret,credential_env,credential_version,updated_by)
-   VALUES (${randomUUID()}::uuid,${input.name.trim()},${input.vendor.trim()},${input.protocol},${input.baseUrl},
+   VALUES (${randomUUIDv7()}::uuid,${input.name.trim()},${input.vendor.trim()},${input.protocol},${input.baseUrl},
     ${input.timeoutMs},${input.enabled},${connectionPolicy(input.baseUrl)},${key.credential_secret},${key.credential_env},${key.credential_version},${actor}) RETURNING *`;
   const view=connectionView(row!);
   await audit(actor,'provider.connection.create',view.id,reason,null,view,{db:tx});
@@ -236,7 +236,7 @@ export async function createRegisteredModel(input:ModelInput,reason:string,actor
  try{const result=await sql.begin(async tx=>{
   const [connection]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${input.providerId}::uuid FOR UPDATE`;
   if(!connection)return missing('Connection');checkModel(input,connectionView(connection));
-  const id=randomUUID();
+  const id=randomUUIDv7();
   const billing=input.billing??((connection.vendor.toLowerCase()==='openrouter'&& (input.modelId.endsWith(':free')||input.modelId==='openrouter/free'))||(connection.vendor.toLowerCase()==='nvidia'&&connection.policy==='nvidia-free-trial')?'free':'paid');
   await tx`INSERT INTO registered_models ${tx({id,...writeValues({...input,billing},tx),updated_by:actor})}`;
   const view=await getRegisteredModel(id,tx);
