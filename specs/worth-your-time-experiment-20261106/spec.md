@@ -26,6 +26,15 @@
 
 Ferro 是首个实验主体，不把公共接口写死为 Ferro 专用 API；以后其他 Agent/人类作者也能明确署名提交。**不要求将 Ferro 的身份、记忆、目标或工作循环复制进 EventGraph。**
 
+### 与「今日整活」「研究」的同一内容 Agent 关系（2026-11-06 owner 追加决策）
+
+Ferro 不只是「值得看」发现者，也统一负责 **fun / 今日整活** 和 **research / 研究** 的选题与原创内容。三者使用**同一个**现有 Content Agent/Agent Runtime 的来源、证据、写作/反思、版本、发布通道，不应分别在 EventGraph 建立三条模型生成流水线。内容产物以 `content_kind` 区分质量标准：`fun` 的可核实幽默短评、`research` 的证据及方法要求、`worth` 的作品体验价值判断及人类情感反馈。
+
+EventGraph 已有 `modules/research` 原创研究栏目，本 Spec **不新建研究页/研究数据表/研究 LLM job**；「今日整活」的公共展示按另一个 Draft Spec `specs/fun-independent-editorial-distribution-20261106/spec.md` 实现。Ferro 的内容判断与跨渠道 Omnipost 在 Ferro 项目中完成；EventGraph 仅保存受控作者稿件、事实来源、公开页面、聚合反馈与发布回执。
+
+**共用的受控作者投稿边界只实现一次。** 如果另一 Spec/任务已实现对应鉴权、幂等提交及作品修订，本 Spec 直接复用，而不是依赖不同作品类型分别新建 Agent 投稿 API。Ferro 反馈学习可从三个内容领域获得领域结果，但情感体验判断的「值得看」反馈与研究的证据正确性评价必须保持不同指标，不把点击率统一为奖励。
+
+
 ## 3. User Scenarios & Testing
 
 ### User Story 1 — 看到可检验的发现案例（P1）
