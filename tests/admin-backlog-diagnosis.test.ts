@@ -11,6 +11,7 @@ after(async () => { await stopBoss(); await closeDb(); });
 
 test("diagnosis explains model retry and unverified receipts without double-counting articles", async () => {
   await getBoss();
+  const before = await backlogCausesOverview();
   const prefix = `diagnosis-${tag()}`;
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
     VALUES (${prefix}, 'Diagnosis', 'rss', 'T1', 'editorial', '2100-01-01')`;
@@ -33,16 +34,15 @@ test("diagnosis explains model retry and unverified receipts without double-coun
     VALUES (${prefix + "-receipt"},'test','analyze_article',${"article:" + prefix + "-receipt@1"},'unknown')`;
 
   const causes = await backlogCausesOverview();
-  for (const [kind, suffix] of [
-    ["provider_retry", "retry"],
-    ["article_failed", "failed"],
-    ["receipt_unknown", "receipt"],
+  for (const kind of [
+    "provider_retry",
+    "article_failed",
+    "receipt_unknown",
   ] as const) {
     const cause = causes.find(c => c.kind === kind);
+    const previous = before.find(c => c.kind === kind)?.count ?? 0;
     assert.ok(cause, `should identify ${kind}`);
-    assert.ok(cause.count >= 1);
-    assert.equal(cause.exampleArticleId.startsWith(prefix) ? cause.exampleArticleId : `${prefix}-${suffix}`,
-      `${prefix}-${suffix}`);
+    assert.equal(cause.count - previous, 1, `only one new article in ${kind}`);
   }
   assert.ok(!causes.some(c => c.exampleArticleId === `${prefix}-backfill`), "backfill is not current news");
   assert.equal(utcDayStart(today).getTime() <= today.getTime(), true);
