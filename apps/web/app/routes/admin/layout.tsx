@@ -25,7 +25,7 @@ export const meta: Route.MetaFunction = () => [{ title: `${SITE.name} 后台` },
 
 export const headers: Route.HeadersFunction = () => ({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Accel-Buffering": "no" });
 
-const CLOUDFLARE_ANALYTICS_URL = "https://dash.cloudflare.com/68a620fd4773a257c4a6738add2c8fbe/livingruntime.com/analytics/requests";
+const CLOUDFLARE_ANALYTICS_URL = SITE.cloudflareAnalyticsUrl;
 
 /** The operational overview is the starting point; all existing module routes remain. */
 const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
@@ -46,7 +46,7 @@ const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
       { to: "/admin/model-bindings", label: "工作流模型绑定" },
     ] },
   { group: "效果", items: [
-      { to: CLOUDFLARE_ANALYTICS_URL, label: "Cloudflare 分析" },
+      ...(CLOUDFLARE_ANALYTICS_URL ? [{ to: CLOUDFLARE_ANALYTICS_URL, label: "Cloudflare 分析" }] : []),
     ] },
   { group: "系统设置", items: [
       { to: "/admin/feedback", label: "反馈", count: "feedback", tone: "accent" },
