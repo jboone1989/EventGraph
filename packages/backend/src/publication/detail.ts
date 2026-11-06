@@ -28,22 +28,33 @@ export type DetailResult =
 
 /** An English page is indexed when its report is one of several on its event: the page then has an event to stand in. */
 
+/** Use the saved bilingual analysis on any public report; legacy receipts remain source-language only. */
 async function loadRow(id: string, language: "zh" | "original" = "zh", explanationLanguage: "zh" | "en" = language === "original" ? "en" : "zh"): Promise<DetailRow | null> {
   const [row] = await sql<DetailRow[]>`
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
       en_tr.body_html AS en_tr_html, en_tr.complete AS en_tr_complete,
       st.id AS story_id, ${topicMembership()} AS topics,
-      CASE WHEN ${EXPLAINABLE_PUBLICATION} AND
-        (a.language = ${explanationLanguage} OR
-         (a.language IS NULL AND (CASE WHEN a.title ~ '[一-龥]' THEN 'zh' ELSE 'en' END) = ${explanationLanguage}))
+      CASE WHEN p.channel = 'news' AND p.visibility = 'public' AND p.eligible AND p.summary IS NOT NULL
+        AND (NOT p.selected OR p.visible_after <= now())
         THEN coalesce(
           CASE WHEN NOT EXISTS (
             SELECT 1 FROM editorial_overrides eo WHERE eo.article_id = p.article_id
               AND eo.fields ?| ARRAY['title','summary','reason']
-          ) THEN an.output->'explanation' END,
+          ) THEN CASE WHEN ${explanationLanguage} = 'en'
+            THEN coalesce(
+              an.output->'explanationEn',
+              CASE WHEN a.language = 'en' OR (a.language IS NULL AND a.title !~ '[一-龥]')
+                THEN an.output->'explanation' END
+            )
+            ELSE coalesce(
+              an.output->'explanationZh',
+              CASE WHEN a.language = 'zh' OR (a.language IS NULL AND a.title ~ '[一-龥]')
+                THEN an.output->'explanation' END
+            )
+          END END,
           ie.content
         )
-        ELSE ie.content END AS explanation
+        ELSE NULL END AS explanation
     ${ITEM_FROM}
     LEFT JOIN translations en_tr ON en_tr.article_id = p.article_id AND en_tr.lang = 'en' AND en_tr.revision >= a.revision
     LEFT JOIN analyses an ON an.id = p.analysis_id
@@ -58,7 +69,9 @@ async function loadRow(id: string, language: "zh" | "original" = "zh", explanati
  *  asked again, and shows nothing. */
 function shownExplanation(content: ItemExplanation | null): ItemExplanation | null {
   if (!content) return null;
-  return content.who || content.what || content.when || content.where || content.why || content.how || content.soWhat || (content.watchpoints?.length ?? 0) > 0 ? content : null;
+  // Older single-language JSON rows may predate watchpoints being a required array.
+  const normalized = { ...content, watchpoints: Array.isArray(content.watchpoints) ? content.watchpoints : [] };
+  return normalized.who || normalized.what || normalized.when || normalized.where || normalized.why || normalized.how || normalized.soWhat || normalized.watchpoints.length > 0 ? normalized : null;
 }
 
 /**
