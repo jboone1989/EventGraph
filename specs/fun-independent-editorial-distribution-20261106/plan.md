@@ -1,73 +1,84 @@
-# 今日整活 — 最小实现计划与现有代码复用证据
+# 今日整活 · 实施计划（Ferro 创作 / EventGraph 仅承载）
 
-**Status:** Draft
-**Spec:** ./spec.md
-**Base:** develop
+**Status:** Draft · 2026-11-06 owner 修改职责后需重新 Spec Review
+**Spec:** [spec.md](./spec.md)
+**Target:** EventGraph develop
 
-## 1. Search Before Build：已核实
+## Search Before Build
 
-### EventGraph develop
+### 当前 EventGraph
 
-- 新闻统一分析：packages/backend/src/editorial/analyze.ts 的 AnalyzeOnceSchema 产出标题、摘要、结构、判断和解读。整活读取既有分析，不调用新闻 analyze_article。
-- 新闻发布：packages/backend/src/publication/publish.ts 的 publishArticle 与 publications。新功能只读已提交公开投影，不添加到新闻事务。
-- 事件聚合与图片：packages/backend/src/publication/stories.ts 的 coversForStories，以及 articles.media。按 story/fact 关联报道并挑图。
-- 图片代理缓存和处理：packages/backend/src/media/{images,imgproxy,renditions,poster}.ts。复用 produceImage、Sharp、图像尺寸适配与缓存。
-- 队列与调度：packages/backend/src/jobs/queue.ts、apps/worker/src/{main,schedules}.ts。独立 fun 队列/定时发现，复用 pg-boss。
-- 网站与后台：apps/web/app/routes.ts、apps/web/app/routes/admin/。新增栏目和后台页面。
-- 分析访问：packages/backend/src/publication/analytics.ts。复用现有页面行为跟踪。
-- 重要风险：modules.ts 的 articleChanged 钩子执行时会被 await；**不允许把整活 LLM、图片或 MCP 放进去**。
+- `packages/backend/src/publication/{items,scope,stories}.ts`：公开的新闻与事件事实、已有配图。Ferro 通过现有公开 API/MCP 读取，不在新闻事务注册生成逻辑。
+- `modules/research/{module.ts,server.ts,backend/store.ts}`：已经有 `/research`、`/en/research`、`/api/admin/research`、`research_articles`；支持署名、方法、证据正文、草稿/公开/撤回。研究栏目的写入和公开不需要重做。
+- `apps/web/app/routes.ts`、`apps/web/app/routes/admin/` 与 `apps/web/app/components/shell/nav.ts`：可复用的中英文页面、导航与现有管理员鉴权/CSRF。
+- `packages/backend/src/media/{imgproxy,images,renditions,poster}.ts`：复用实际新闻图和代理预览。需平台长久媒体时，Ferro/Omnipost 侧准备稳定资源；不要在 EventGraph 新建分发图片加工流水线。
+- `packages/backend/src/publication/analytics.ts` 与 `apps/api/src/routes/analytics.ts`：现有匿名页面行为统计。新增栏目只扩展必要的 pageType；不能把点击称为情感价值。
+- **不要新增** `packages/backend/src/fun` 自动发现/写作服务、`fun.discover`/`fun.compose`/`fun.distribute` 任务、worker schedule、第二套动态模型绑定、第二套文章采集/发布机制。
 
-### 现有跨仓库资产
+### 当前 Ferro（jboone1989/wechat-traffic-agent）
 
-- human-writing Skill 1.1.0： https://github.com/jboone1989/human-writing/tree/main/human-writing ，MIT 许可。只使用其中 reality、formats、短内容/评论、revision 规则；实现时固定代码引用版本和出处，不新增写作引擎。
-- 已有统一分发 MCP 客户端： https://github.com/jboone1989/wechat-traffic-agent/blob/main/src/wechat_traffic_agent/platforms/omnipost_client.py 。已证实接入 Omnipost 的 Streamable HTTP MCP，支持 initialize、tools/call，调用 publish(title, markdown, platforms, dry_run, min_interval_minutes)，并能映射按平台返回的状态。
-- 既有内容发布事件抽象：wechat-traffic-agent 的 src/wechat_traffic_agent/publication/{models,dispatch}.py，定义 PublicationEvent 与 DistributionTask，值得参考身份和渠道独立状态，但不要引入整套 Python Agent。
-- 当前客户端默认 http://127.0.0.1:8399/mcp，可通过 OMNIPOST_MCP_URL 指定；这个 localhost 是旧部署的默认值，**不能未经验证直接填进 EventGraph 的生产配置**。
+- `ARCHITECTURE.md` 明确 Ferro 由 `agent-runtime` 托管，拥有来源研究、内容 artifact、创作、渠道适配与反馈解释；Runtime 负责身份/记忆/模型/执行政策。
+- `docs/CONTENT_AGENT_PLAN.md` 已定位成 **channel-independent Content Agent**，已具备选题、文章创作、受控发布与多个渠道的接口；不用造新内容 Agent。
+- `docs/CONTINUOUS_CONTENT_LOOP.md` 描述已有统一持续内容循环与证据检查；三个作品类型可在此既有循环中作为内容产出选项，**不能**据此推断已存在对 EventGraph 的自动投稿执行器。
+- `docs/WEB_EDITORIAL_AND_FEEDBACK.md` 已有内容选择、反馈与实验元数据能力；复用域内度量与失败证据，不直接以 pageviews 宣称质量提升。
+- `src/wechat_traffic_agent/platforms/omnipost_client.py` 已有 Streamable HTTP MCP 客户端；其 `publish(title, markdown, platforms, dry_run, min_interval_minutes)` 形式不能证明目前支持图文上传。确认运行时 tools/list、认证、目标平台标识、媒体上传能力后再启用真实自动分发。
+- `docs/EVOLUTION_ENGINE_INTEGRATION.md`：任何学习应进入 agent-runtime Evolution Engine 的 evidence/experiment/promotion，不在 EventGraph 埋独立奖励函数。
+- `jboone1989/human-writing`：已有内容写作方法可作为 Ferro 的创作辅助；不在 EventGraph 实现新 prompt 引擎。
 
-**待核实项（T001 必须先做）：** Omnipost MCP 实际服务所在部署、连接方式/认证、tools/list 中 publish 的完整 schema、微头条与微信贴图的准确平台标识、可否上传多图/图片短内容、是否支持 dry_run 和返回确定 URL。现有客户端支持 platforms 列表不等于目标平台已实现。
+## Target architecture
 
-## 2. 设计
+```text
+EventGraph public facts / external original evidence
+                     │
+                     ▼
+Ferro / Content Agent + existing Agent Runtime
+  ├─ research evidence, author judgement, writing, quality checks
+  ├─ artifact kind = fun / research / worth
+  ├─ fun     → factual witty commentary + optional existing images
+  ├─ research→ method, citations, competing hypotheses
+  └─ worth   → discovered work, justified value hypothesis
+                     │
+        canonical, typed authored artifact
+                     ▼
+Existing EventGraph author/editor publication boundary
+  ├─ /fun         new narrow display of authored short works
+  ├─ /research    existing research module, unchanged in core
+  └─ /worth       companion experiment Spec #440
+                     │ successful site publish receipt / URL
+                     ▼
+Ferro existing PublicationEvent / DistributionTask → Omnipost
+  ├─ independent platform receipt + link
+  └─ manual_required / unverified without fake success
 
-### 数据和发现
+EventGraph optional aggregated audience evidence
+  → Ferro domain outcomes → Agent Runtime evolution comparison
+```
 
-新增 packages/backend/src/fun/ 作为小型领域模块；迁移两张表 fun_posts、fun_distributions。fun.discover 每 15 分钟从已公开的 publications 连 articles/media + facts/stories 增量发现。先做确定性过滤，按 topic_key 去重；只有入围的有限个候选调用模型，避免按新闻量放大成本。保留人工从现有新闻创建候选的入口。
+## EventGraph minimal implementation slices
 
-### 生成
+1. **Fun content read/write presentation:** minimal typed fun artifact in existing research/authoring subsystem or a small dedicated website representation only when required. Case metadata (original URL, author, sources, optional pictures, short text, revision, published/hidden). Do not place fun in `research_articles` if it would compromise current research invariants; reuse author/session/CRUD and publication patterns instead.
+2. **Page:** `/fun` and `/fun/:id`, responsive; existing media URLs if legitimate, text-only fallback; link to original EventGraph item/story. No new generation service; empty homepage omission.
+3. **Publisher integration contract:** reuse current authenticated author/admin entry point for manual/adapter submission; if a direct Ferro writer is absent, state the integration gap and keep admin-mediated publishing until an authorized generic connector exists. Avoid deploying a new secrets service. Keep original source + final revision immutable for downstream distribution identity.
+4. **Ferro Omnipost:** stays in Ferro's repository. Do not call MCP from EventGraph; EventGraph may expose a minimal stable URL/accepted revision, accept a verified channel link for the work and display existing business outcome fields. Optional per-channel tracking is a downstream convenience, not a new EventGraph scheduling queue.
+5. **Research:** reuse `modules/research` existing author/edit/publication; Ferro must provide real sources/method and adequate evidence. Implement Ferro-side client/workflow separately, not a duplicate EventGraph research writer.
 
-fun.compose 是独立 pg-boss worker，localConcurrency=1；使用模型管理里的现有动态轻量路由作为一个 fun.compose 用途。原有分析结果、事件时间线、已知新闻配图和可核对来源作为输入。输出短标题、正文、source/article IDs、image ordering、风格、skip reason；用轻量检查挡住空洞、伪造的结果，管理员只需改稿/确认。无图或证据不足直接 skipped。
+## Rejected previous design
 
-### 图片
+| Previous idea | Decision |
+|---|---|
+| Every 15 min EventGraph fun.discover scan | **Delete** — Ferro already researches topics and can consume public APIs |
+| EventGraph fun.compose invokes LLM | **Delete** — Ferro is the content creation agent |
+| EventGraph fun.distribute via Omnipost | **Delete** — Ferro already has the Omnipost client / publication events |
+| 5 auto-fun posts/day | **Delete** — no quota, no content stuffing |
+| Two data tables fun_posts/fun_distributions and complex state machine | **Reduce** — minimal authored publication record, only confirmed distribution references needed |
+| Copy research to a new fun/research engine | **Reject** — existing research module already runs |
+| 3 independent agents for three columns | **Reject** — one Content Agent, 3 typed outputs; differentiated evidence quality |
 
-复用现有图像读取/缓存/Sharp；选中的图片保存原始 URL、来源和顺序，并导出实际稳定文件（平台支持的格式）。48 小时签名的 img-proxy URL 只供网站查看，不作为分发结果引用。图片处理失败独立记录，支持换图。
+## Verification
 
-### 网站
-
-新增 /fun、/fun/:id、/admin/fun 和首页入口。展示站内图片短评和相关新闻/事件，公开内容使用既有站点分享元数据和统计方式。草稿不出现在公开索引。网站发布提交完成后，再异步启动 fun.distribute；外部分发绝不能成为本站发布的成功前置条件。
-
-### Omnipost
-
-实现最薄的 Omnipost MCP 调用层，优先连接已有服务，不重实现 Server、不写新的各平台 Adapter。先 initialize → tools/list → dry_run，只有证实支持对应的媒体格式/平台时才允许自动发。已知 publish API 的 title/markdown/platforms 有可能不支持多图或具体内容类型；不可杜撰 upload 参数。若不支持，则统一输出图片文件、可复制文案和来源链接，渠道标成 manual_required。平台回执成功时记 URL/ref；连接断开但可能已发的场景标 unverified，不自动重发。
-
-### 资源与失败隔离
-
-整活调度和队列与 content.analyze、events.group、publication publish 分离；复用 worker 进程但独立任务和预算，禁止在新闻生命周期同步等待。整活停用不影响新闻工作。系统内的候选和分发记录用数据库唯一键做幂等。网站发布与发起分发使用持久化状态，确保重启不漏任务也不重复发帖。
-
-## 3. 最小文件与范围
-
-- 新增 backend fun 领域、DB migration、队列声明及一个独立 handler。
-- 修改 worker 注册整活队列及 schedule（不改现有新闻 handler 的执行条件）。
-- 复用当前媒体代码，只写少量图片选择与导出。
-- 增加前后台 fun route 和必要 API、测试。
-- 增加 Omnipost 轻量客户端/能力发现；既有 WeChat/头条适配留在 Omnipost，不混到 EventGraph。
-
-## 4. 验证
-
-- 后端单测：发现过滤、topic_key 去重、日额度、无图跳过、短评事实引用和状态流转。
-- 队列集成：模型长期阻塞、图片 502、整活 worker 停机时新闻分析/发布不延迟；重启重试不重复草稿。
-- MCP mock：成功、部分成功、无平台支持、无图片媒体能力、明确失败、结果不确定；dry_run 不发送真实内容。
-- Web：草稿不可见、发布/隐藏、来源跳转、移动端多图、首页无内容不留空、后台编辑。
-- Develop CI、E2E 走现有 Check；不在本需求中调整 main、生产或现有模型配置。
-
-## 5. 必须避免的重复建设
-
-不引入 AI 生成图片，不加另一个完整内容 Agent，不建第二个 MCP Server/社交平台发布器，不在新闻发布事务内写整活逻辑，不增加第二套新闻采集或异步调度基础设施，不为两个平台分别调一次 LLM。
+- Test fun display on real/source-linked vs draft/hidden entries, provenance, original source URL, missing media and archived work, responsive UI.
+- Test existing research flow still works without altering its schema and publishing status rules.
+- Test model outage/Ferro downtime/Omnipost downtime while news pipeline remains live, **not** by running an EventGraph fun worker.
+- Test Idempotent (artifact ID + revision) author delivery; do not accept external channel success without concrete receipt. Unknown success `unverified` must not retry automatically.
+- Run normal code PR checks only on implementation PRs; this Spec-only PR requires spec-review/check, not Docker/E2E.
+- Real Ferro-author-to-EventGraph-to-Omnipost acceptance requires a verified Ferro-side run and platform capability evidence; EventGraph web tests alone do not prove it.
