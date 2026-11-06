@@ -15,6 +15,7 @@ on:
 permissions:
   contents: read
   packages: write
+  checks: read
 jobs:
   publish:
     name: publish # 发布验证成功的 GHCR 镜像；供生产发布核验
@@ -24,6 +25,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      checks: read
     outputs:
       image_ref: ${{ steps.ref.outputs.image_ref }}
       source_sha: ${{ github.sha }}
