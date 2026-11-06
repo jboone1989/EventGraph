@@ -204,14 +204,16 @@ export async function runsOverview(): Promise<Runs> {
         AND (health = 'failing' OR next_fetch_at < now() - interval '30 minutes' OR last_ok_at < now() - make_interval(mins => greatest(interval_minutes * 6, 360)))
       ORDER BY health = 'failing' DESC, next_fetch_at, id LIMIT 60`,
     sql<{ status: string; n: number }[]>`SELECT status, count(*)::int AS n FROM receipts WHERE created_at >= ${utcDayStart()} GROUP BY 1 ORDER BY 1`,
-    sql<{ n: number }[]>`SELECT count(*)::int AS n FROM receipts WHERE status = 'unknown' AND created_at >= ${utcDayStart()}`,
+    sql<{ n: number }[]>`SELECT count(*)::int AS n FROM receipts WHERE status = 'unknown'`,
     sql<Runs["receipts"]["issues"]>`
       SELECT id, service, model, purpose, subject, status, attempts, left(error, 240) AS error, created_at, updated_at FROM receipts
-      WHERE created_at >= ${utcDayStart()} AND (status IN ('unknown', 'failed') OR (status = 'pending' AND updated_at < now() - interval '15 minutes'))
+      WHERE status = 'unknown' OR (status = 'pending' AND updated_at < now() - interval '15 minutes')
+        OR (status = 'failed' AND created_at >= ${utcDayStart()})
       ORDER BY status = 'unknown' DESC, updated_at DESC, id DESC LIMIT 40`,
     sql<Runs["deliveries"]>`
       SELECT id, target_key, subject_kind, subject_id, status, attempts, left(response, 240) AS response, created_at, updated_at FROM deliveries
-      WHERE created_at >= ${utcDayStart()} AND (status IN ('unknown', 'failed') OR (status = 'sending' AND updated_at < now() - interval '15 minutes'))
+      WHERE status = 'unknown' OR (status = 'sending' AND updated_at < now() - interval '15 minutes')
+        OR (status = 'failed' AND created_at >= ${utcDayStart()})
       ORDER BY status = 'unknown' DESC, updated_at DESC, id DESC LIMIT 40`,
     sql<Runs["errors"]>`
       -- Match the exact eligibility set used by requeueFailed; the action must
@@ -230,7 +232,7 @@ export async function runsOverview(): Promise<Runs> {
         )
       GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 20`,
     sql<Runs["ingest"]>`SELECT client, kind, status, left(error, 200) AS error, summary, created_at FROM ingest_events WHERE created_at >= ${utcDayStart()} ORDER BY created_at DESC, id DESC LIMIT 20`,
-    waitingSelectedNews(),
+    waitingSelectedNews('utc-day'),
     // Articles waiting to retry after a passing provider problem (they are not failed).
     sql<{ n: number; next: Date | null }[]>`
       SELECT count(*)::int AS n, min(a.processing_retry_at) AS next
