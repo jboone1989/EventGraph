@@ -27,6 +27,7 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
   throw new ProviderConfigError('OpenRouter returned an empty or invalid model catalog','providerId',502);
  // Both token prices must be zero; a free input price alone does not make a model free.
  const catalog=classifyOpenRouterFreeCatalog(payload.data);
+ const catalogTotal=payload.data.length;
  const freeIds=new Set(catalog.models.map(m=>m.id));
  const timestamp=new Date().toISOString();
  const result=await sql.begin(async tx=>{
@@ -54,7 +55,7 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
     WHERE provider_id=${providerId}::uuid AND model_id=${row.model_id}`;
    noLongerFree++;
   }
-  const summary={catalogTotal:payload.data.length,freeCatalog:catalog.freeCatalog,
+  const summary={catalogTotal,freeCatalog:catalog.freeCatalog,
    chat:catalog.chat,embedding:catalog.embedding,other:catalog.other,invalid:catalog.invalid,
    total:freeIds.size,added:[...freeIds].filter(id=>!previous.has(id)).length,noLongerFree};
   await audit(actor,'provider.models.openrouter-free-sync',providerId,'后台手动同步 OpenRouter 免费模型',null,summary,{db:tx});

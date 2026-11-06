@@ -9,7 +9,7 @@ export type FreeCatalogModel={
  id:string;
  adapter:'chat'|'embedding'|'special';
  capabilities:('text'|'vision'|'embedding')[];
- probe:{capability:'text'|'embedding';body:Record<string,unknown>;response:'chat'|'embedding'}|null;
+ probe:({capability:'text';body:{messages:{role:string;content:string}[]};response:'chat'}|{capability:'embedding';body:{input:string};response:'embedding'})|null;
 };
 const zero=(value:unknown):boolean=>
  (typeof value==='string'||typeof value==='number')&&String(value).trim()!==''&&Number(value)===0;
