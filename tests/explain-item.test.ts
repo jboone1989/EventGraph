@@ -10,6 +10,8 @@ import { loadItemDetail } from "@aihot/backend/publication/detail";
 import { publishArticle } from "@aihot/backend/publication/publish";
 import { overrideFields } from "@aihot/backend/admin/content";
 import { buildApp } from "../apps/api/src/app.ts";
+import { AnalyzeOnceSchema } from "@aihot/backend/editorial/analyze";
+import { combinedAnswer } from "./analysis-steps.ts";
 
 const T = tag();
 const SOURCE = `test-explain-${T}`;
@@ -417,4 +419,39 @@ test("an unselected report and a post are never explained", async () => {
   assert.ok(detail.kind === "found");
   assert.equal(detail.item.explanation, null);
   assert.equal(detail.item.readingMode, "summary-only");
+});
+
+
+test("a single analyze_article response accepts both language explanations and rejects mixed-language output", () => {
+  const bilingual = combinedAnswer({
+    explanationZh: { what: "公告介绍了新的融资安排。", soWhat: "财务结构发生调整。", watchpoints: [] },
+    explanationEn: { what: "The announcement describes new financing terms.", soWhat: "The financing structure changes.", watchpoints: [] },
+  });
+  assert.equal(AnalyzeOnceSchema.safeParse(bilingual).success, true);
+  const malformed = AnalyzeOnceSchema.parse({
+    ...bilingual, explanationEn: { what: "This description includes 中文.", watchpoints: [] },
+  });
+  assert.equal(malformed.explanationEn, null, "invalid English explanation is dropped without rejecting valid article analysis");
+  assert.ok(malformed.explanationZh?.what, "valid Chinese explanation is preserved");
+});
+
+test("the saved bilingual single-pass analysis appears in both editions of an ordinary non-selected news page", async () => {
+  const id = await report("single-pass-bilingual-non-selected", 700, { selected: false });
+  const zh = { what: "来源披露了一项有证据的融资安排。", soWhat: "资金结构发生调整。", watchpoints: [] };
+  const en = { what: "The source reports documented financing terms.", soWhat: "The financing structure changes.", watchpoints: [] };
+  await sql`UPDATE analyses SET output = ${sql.json({ explanationZh: zh, explanationEn: en })}
+    WHERE id = (SELECT analysis_id FROM publications WHERE article_id = ${id})`;
+  const hitsBefore = provider.hits();
+  assert.equal((await explanation(id))?.what, zh.what, "the Chinese detail reads its own saved explanation");
+  assert.equal((await explanation(id, "original"))?.what, en.what, "the English detail reads its own saved explanation");
+  assert.equal(provider.hits(), hitsBefore, "rendering reuses the receipt; it never calls another LLM");
+});
+
+test("a legacy original-language analysis is not shown as a translation on a non-selected news detail", async () => {
+  const id = await report("single-pass-legacy-only", 701, { selected: false, language: "en" });
+  const englishOnly = { what: "The publisher disclosed an agreement.", watchpoints: [] };
+  await sql`UPDATE analyses SET output = ${sql.json({ explanation: englishOnly })}
+    WHERE id = (SELECT analysis_id FROM publications WHERE article_id = ${id})`;
+  assert.equal((await explanation(id, "original"))?.what, englishOnly.what);
+  assert.equal(await explanation(id), null, "the Chinese edition must not display an English legacy explanation");
 });

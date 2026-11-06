@@ -19,7 +19,7 @@ import { chatJson, ModelOutputError, type ContentPart } from "../providers/llm.t
 import { completeReceipt, ProviderRejectedError, ReceiptUnknownError } from "../providers/receipts.ts";
 import { collapseWhitespace } from "../lib/text.ts";
 import { modelFor, modelSupportsVision } from "./models.ts";
-import { ExplainSchema, fullDatesIn } from "./explain-schema.ts";
+import { ExplainSchema, EnglishExplainSchema, fullDatesIn } from "./explain-schema.ts";
 import { buildMaterial, firstImagePart, loadAnalyzeInput, type AnalyzeInputArticle } from "./input.ts";
 import { pageFetchable } from "../content/extract.ts";
 import { shutdownSignal } from "../jobs/queue.ts";
@@ -188,7 +188,11 @@ export const AnalyzeOnceSchema = StructureSchema.extend({
   reasonEn: z.string().trim().max(600).catch(""),
   itemType: z.enum(ITEM_TYPES).catch(ITEM_TYPES[0]),
   authorRole: z.enum(["principal", "observer", "relayer"]).catch("relayer"),
+  // Legacy single-language result remains readable for older providers and receipts.
   explanation: ExplainSchema.nullish().catch(null),
+  // Optional bilingual explanations must not reject valid scoring and summaries.
+  explanationZh: ExplainSchema.nullish().catch(null),
+  explanationEn: EnglishExplainSchema.nullish().catch(null),
 });
 
 const usableEnglish = (title: string, summary: string, reason: string) =>
@@ -246,6 +250,7 @@ export interface AnalysisRun {
   structure: (ReturnType<typeof normalizeStructure> & { model: string; receiptId: number; reused: boolean }) | null;
   english?: { title: string; summary: string; reason: string } | null;
   explanation?: z.infer<typeof ExplainSchema> | null;
+  explanationEn?: z.infer<typeof EnglishExplainSchema> | null;
 }
 
 const isContentFilter = (error: unknown) => error instanceof ProviderRejectedError && !error.retryable && /contentFilter|"1301"/.test(error.message);
@@ -541,17 +546,22 @@ export async function runAnalysis(a: AnalyzeInputArticle, opts: StepOpts = {}): 
         reasonZh: near ? d.reasonZh || null : null, itemType: d.itemType, authorRole: d.authorRole,
         identityGuard: copy.identityGuard, receiptIds: [res.receiptId], reused: res.reused };
   // Ground dates in original source text, never the site-generated publication time or translation.
-  const supportedWatchpointDates = d.explanation
-    ? fullDatesIn([a.title, a.bodyText ?? a.excerpt, a.xPost?.text, a.xPost?.quoted?.text]
-      .filter((text): text is string => typeof text === "string").join("\n"))
-    : null;
+  const supportedWatchpointDates = fullDatesIn([a.title, a.bodyText ?? a.excerpt, a.xPost?.text, a.xPost?.quoted?.text]
+    .filter((text): text is string => typeof text === "string").join("\n"));
+  const groundExplanation = (data: z.infer<typeof ExplainSchema> | null | undefined): z.infer<typeof ExplainSchema> | null =>
+    data ? { ...data, watchpoints: data.watchpoints.map(point => ({
+      ...point, date: point.date && supportedWatchpointDates.has(point.date) ? point.date : null,
+    })) } : null;
+  // New analyses supply both editions in the same receipt. Old provider output
+  // belongs to its source language; it must never appear as the other edition.
+  const legacyChinese = a.language === "zh" || (a.language == null && looksZh(a.title));
+  const legacyEnglish = a.language === "en" || (a.language == null && !looksZh(a.title));
   return {
     prefilter, scores, writing,
     structure: { ...normalizeStructure(StructureSchema.parse(d), a), model: res.model, receiptId: res.receiptId, reused: res.reused },
     english: usableEnglish(d.titleEn, d.summaryEn, d.reasonEn),
-    explanation: d.explanation ? { ...d.explanation,
-      watchpoints: d.explanation.watchpoints.map(point => ({ ...point,
-        date: point.date && supportedWatchpointDates?.has(point.date) ? point.date : null })) } : null,
+    explanation: groundExplanation(d.explanationZh ?? (legacyChinese ? d.explanation : null)),
+    explanationEn: groundExplanation(d.explanationEn ?? (legacyEnglish ? d.explanation : null)),
   };
 }
 
@@ -592,6 +602,7 @@ export function normalizeAnalysis(run: AnalysisRun) {
     fact: run.structure?.fact ?? null,
     english: run.english ?? null,
     explanation: run.explanation ?? null,
+    explanationEn: run.explanationEn ?? null,
   };
 }
 
@@ -626,7 +637,8 @@ export async function analyzeArticle(articleId: string, opts: StepOpts = {}): Pr
     ...(w ? { writer: w.kind, writerModel: w.model, itemType: w.itemType ?? null, authorRole: w.authorRole ?? null } : {}),
     ...(w?.identityGuard?.outcome === "fallback" ? { identityGuard: w.identityGuard } : {}),
     scope: out.scope, fact: out.fact, ...(out.english ? { english: out.english } : {}),
-    ...(out.explanation ? { explanation: out.explanation } : {}),
+    ...(out.explanation ? { explanationZh: out.explanation } : {}),
+    ...(out.explanationEn ? { explanationEn: out.explanationEn } : {}),
   };
   const committed = await sql.begin(async (tx) => {
     const [current] = await tx<{ revision: number }[]>`SELECT revision FROM articles WHERE id = ${articleId} FOR UPDATE`;
