@@ -214,6 +214,7 @@ jobs:
           sh -n scripts/ci/deploy-vm13-preview.sh
           sh -n scripts/ci/smoke-vm13.sh
           python3 -m py_compile scripts/production-env-check.py
+          python3 -m unittest discover -s knowledge_service -p 'test_*.py'
           python3 - <<'PY'
           import importlib.util
           from pathlib import Path
@@ -314,8 +315,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build web
         run: npm run build -w @aihot/web
-      # The web checks already use this pinned image. Avoid an unbounded apt/browser
-      # install on each E2E runner: run the same browser version in the container.
+      # The web checks already use this pinned image. Avoid browser installs in each E2E runner.
       - name: Browser engine
         run: docker pull mcr.microsoft.com/playwright:v1.61.1-noble
       - name: Migrate and seed
