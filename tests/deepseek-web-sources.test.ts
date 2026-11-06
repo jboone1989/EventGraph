@@ -91,7 +91,7 @@ test("results map to articles with their own URL and date; cross-domain and unti
   assert.equal(run.created, 2, "the cross-domain one is filtered");
   const rows = await articles();
   assert.equal(rows[0]!.url, "https://example-news.example/stories/1");
-  assert.equal(Date.parse(rows[0]!.published_at!), Date.parse(returnedDate!), "the exact API UTC date is kept regardless of CI latency");
+  assert.equal(Math.floor(Date.parse(rows[0]!.published_at!) / 1000), Math.floor(Date.parse(returnedDate!) / 1000), "the API UTC second is kept; database timestamp drops subsecond precision");
   assert.equal(rows[1]!.published_at, null, "an undated result is not dated today");
   assert.ok(rows.every((r) => r.source_id === SRC && r.url.startsWith("https://example-news.example/")), "identity and URL stay the original site's");
 });
