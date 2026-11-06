@@ -6,7 +6,7 @@
 
 ## Execution policy
 
-Each task is one focused EventGraph implementation PR tied to its GitHub Issue and immutable merged approved Spec SHA. Only use existing GitHub Spec Producer/Projects/GH-AW Work Queue. No duplicate PR or new scheduler. **These tasks implement the experiment's public evidence, human emotional feedback and stable outcome-export interface, not Ferro's independent cognition or discovery loop.** Ferro-side feature work is not automatically dispatched to EventGraph's repository.
+Each task is one focused EventGraph implementation PR tied to its GitHub Issue and immutable merged approved Spec SHA. Only use existing GitHub Spec Producer/Projects/GH-AW Work Queue. No duplicate PR or new scheduler. **These tasks implement the experiment's public evidence, human emotional feedback and stable outcome-export interface, not Ferro's independent cognition or discovery loop. Ferro's existing shared content agent owns fun/research/worth creation (Ferro Issue #297); this Spec must not duplicate the generic author-submission interface already scoped by EventGraph fun Spec PR #434.** Ferro-side feature work is not automatically dispatched to EventGraph's repository.
 
 ## Work Items
 
@@ -25,13 +25,13 @@ Each task is one focused EventGraph implementation PR tied to its GitHub Issue a
 
 ### T002 — Provide an author-neutral case submission and versioned human-outcome boundary
 
-**Scope:** Reuse an existing EventGraph authenticated writer/integration pattern to enable Ferro or another attributed author to precommit its hypothesis, submit/revise cases, and later retrieve versioned, anonymized human-outcome receipts; no Ferro-specific learning engine or credential subsystem in EventGraph.
+**Scope:** Support Worth-specific precommitted hypotheses/case revisions and versioned anonymized human-outcome receipts using existing research/admin writer or the shared authored-artifact interface from the fun Spec. Do not create a second generic author submission service, Ferro-specific learning engine or credential subsystem.
 
 **Depends on:** T001
 
 **Acceptance:**
 - Submit/correct operations validate author ID, original URL, content scope and evidence, reject unknown/incomplete sources and are idempotent by stable case identity without duplicating cases on retry. Record hypothesis and Ferro policy version **before** public feedback; a later correction cannot overwrite the pre-feedback judgment.
-- No Ferro-only scheduler, model evaluator, polling agent, credential service, generic news-ingest hijack or new independent work queue is added; if current existing authenticated writer cannot support direct Agent delivery without new infrastructure, retain admin-mediated publication and document the precise missing Ferro-side integration rather than claiming autonomous publishing.
+- No Ferro-only scheduler, model evaluator, polling agent, credential service, generic news-ingest hijack or new independent work queue is added; **do not duplicate the shared author-auth/upload path from fun Spec PR #434**. If current writer lacks direct Agent delivery, retain admin-mediated publication and document the missing Ferro-side integration (Ferro Issue #297), not claim autonomous publishing.
 - A changed judgment creates inspectable case revision history, including false positives; a withdrawn work is hidden from public output but not erased from operator audit.
 - Authenticated readers can retrieve stable case/revision/strategy-linked outcome snapshots containing cutoff/time window, effective sample count, vote distribution, optional emotion-tag distribution, novelty and self-reported exposure, exclusions and snapshot version. Never expose session IDs, IPs, identities or raw free-text; repeated consumption of the same snapshot is idempotent.
 - Explicitly distinguish **feedback received**, **Ferro domain evidence accepted by Agent Runtime**, and **prospectively proven policy improvement** as separate statuses; a mocked submission is only an API test, not learning evidence.
