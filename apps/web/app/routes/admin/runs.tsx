@@ -6,9 +6,8 @@ import type { Route } from "./+types/runs";
 import type { AdminDeliveryIssue, AdminReceiptIssue, AdminRuns } from "@aihot/contracts/admin";
 import { adminGet } from "../../lib/admin.server";
 import { useAdminAction } from "../../features/admin/action";
-import { bj, duration, num } from "../../features/admin/format";
-import { AdminPage, Badge, Button, Card, DataTable, Dot, Empty, Field, Json, ReasonDialog, Select, Stat, Time } from "../../features/admin/ui";
-import { loadParts } from "../../site-modules";
+import { bj, num } from "../../features/admin/format";
+import { AdminPage, Badge, Button, Card, DataTable, Field, ReasonDialog, Select, Stat, Time } from "../../features/admin/ui";
 
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -16,13 +15,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export const meta: Route.MetaFunction = () => [{ title: `运行 · ${SITE.name} 后台` }];
-
-const STATE_LABEL: Record<string, string> = { created: "排队", retry: "等待重试", active: "执行中" };
-
-const rate = (success: number, attempts: number) =>
-  attempts ? (success * 100 / attempts).toFixed(1) + "%" : "暂无数据";
-
-const PARTS = await loadParts((m) => m.admin?.runs);
 
 export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const refresh = useFetcher<typeof loader>();
@@ -35,11 +27,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   // Failure group to put back into processing ("" = all failures from this UTC day).
   const [requeue, setRequeue] = useState<string | null>(null);
   const [requeueLimit, setRequeueLimit] = useState("5");
-  // Keep expanded diagnostics stable while the page auto-refreshes.
-  const [expanded, setExpanded] = useState<string[]>([]);
-  const showSection = (id: string) => setExpanded(current => current.includes(id) ? current : [...current, id]);
-  const toggleSection = (id: string) => setExpanded(current => current.includes(id)
-    ? current.filter(item => item !== id) : [...current, id]);
+  const [groupingPage, setGroupingPage] = useState(0);
 
   // Live view: refresh every 20 s while visible.
   useEffect(() => {
@@ -47,23 +35,22 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const backlog = new Map<string, Record<string, { n: number; oldest: string }>>();
-  for (const q of r.queues) backlog.set(q.name, { ...(backlog.get(q.name) ?? {}), [q.state]: { n: q.n, oldest: q.oldest } });
-  const queued = r.queues.filter((q) => q.state !== "active").reduce((a, q) => a + q.n, 0);
-  const active = r.queues.filter((q) => q.state === "active").reduce((a, q) => a + q.n, 0);
   const worker = r.processes.find((p) => p.role === "worker");
   const failing = r.jobs.filter((j) => j.status === "failed");
   const unknownReceipts = r.receipts.unknownTotal;
   // Current article problems are unique by article ID; task history is diagnostics only.
   const attentionCount = Number(!worker?.alive) + Number(r.currentNews.failed > 0) +
-    Number(r.lagging.length > 0) + Number(failing.length > 0);
-  const sectionClass = "mb-4 rounded-panel border border-line bg-surface px-4 py-3";
-  const summaryClass = "cursor-pointer text-[14px] font-medium text-ink hover:text-accent";
+    Number(r.grouping.needsAttention > 0) + Number(r.lagging.length > 0) +
+    Number(failing.length > 0) + Number(unknownReceipts > 0);
+  const groupingPageSize = 20;
+  const groupingPages = Math.max(1, Math.ceil(r.grouping.items.length / groupingPageSize));
+  const currentGroupingPage = Math.min(groupingPage, groupingPages - 1);
+  const groupingItems = r.grouping.items.slice(currentGroupingPage * groupingPageSize, (currentGroupingPage + 1) * groupingPageSize);
 
   return (
-    <AdminPage title="运行与积压" subtitle={<>先看系统状态与需要处理的问题，展开下方区域查看明细。每 20 秒自动刷新 · 更新于 {bj(r.checkedAt)}</>}>
-      <Card className="mb-5" title="新闻处理 · 当前队列（UTC）"
-        right={<span className="text-[12px] text-ink-4">按新闻去重 · 每天 UTC 00:00 清空未完成项</span>}>
+    <AdminPage title="运行与积压" subtitle={<>当前新闻积压与可执行恢复 · 每 20 秒刷新 · 更新于 {bj(r.checkedAt)}</>}>
+      <Card className="mb-5" title="新闻处理 · 当前队列"
+        right={<span className="text-[12px] text-ink-4">UTC 今日 · 按唯一新闻计数</span>}>
         <div className="grid grid-cols-3 gap-3">
           <Stat label="待处理" value={num(r.currentNews.pending)} hint="排队或等待自动重试" />
           <Stat label="处理中" value={num(r.currentNews.processing)} hint="Worker 正在执行" />
@@ -71,67 +58,61 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
             hint="未知计费回执需核对后才能重试" />
         </div>
         <div className="mt-3 flex items-center justify-between gap-2">
-          <p className="text-[12px] text-ink-4">仅统计当天未完成新闻；已发布新闻不清空。</p>
+          <p className="text-[12px] text-ink-4">当前未完成新闻，不含已发布完成项和历史回填；失败后可分批重试。</p>
           <Button size="sm" onClick={() => setRequeue("")} disabled={r.errors.length === 0}>重试失败新闻</Button>
         </div>
       </Card>
-      <Card className="mb-5" title={attentionCount ? "需要关注 · " + attentionCount + " 类问题" : "需要关注"}>
-        {attentionCount === 0
-          ? <p className="text-[13px] text-ink-3">UTC 今日新闻未出现本页跟踪的处理异常；今日任务和模型请求可在下方诊断查看。</p>
-          : <div className="space-y-2 text-[13px]">
-            {!worker?.alive && <p><Badge tone="bad">Worker 未在线</Badge> 检查服务与心跳。<a href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")} className="ml-2 text-accent">进程明细</a></p>}
-            {r.currentNews.failed > 0 && <p><Badge tone="bad">失败新闻 {num(r.currentNews.failed)}</Badge> 已核对的可手动重排，未知回执先核对。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">查看原因</a></p>}
-            {r.lagging.length > 0 && <p><Badge tone="warn">信源异常 {num(r.lagging.length)}</Badge> 采集延迟或失败。<a href="#runs-issues" onClick={() => showSection("runs-issues")} className="ml-2 text-accent">信源明细</a></p>}
-            {failing.length > 0 && <p><Badge tone="warn">定时任务最近失败 {num(failing.length)}</Badge> 按失败任务类型统计，不等于新闻失败篇数。<a href="#runs-queues" onClick={() => showSection("runs-queues")} className="ml-2 text-accent">查看任务</a></p>}
-          </div>}
-        <p className="mt-3 text-[12px] text-ink-3">实时积压只按当前 UTC 日的新闻 ID 计数。任务失败次数与模型回执仅供诊断，不增加新闻数量。</p>
-        <div className="mt-3 flex flex-wrap gap-4 text-[12px]">
-          <a className="text-accent hover:underline" href="#runs-news" onClick={() => showSection("runs-news")}>新闻处理</a>
-          <a className="text-accent hover:underline" href="#runs-issues" onClick={() => showSection("runs-issues")}>异常与恢复</a>
-          <a className="text-accent hover:underline" href="#runs-models" onClick={() => showSection("runs-models")}>模型调用</a>
-          <a className="text-accent hover:underline" href="#runs-queues" onClick={() => showSection("runs-queues")}>队列诊断</a>
-          <a className="text-accent hover:underline" href="#runs-diagnostics" onClick={() => showSection("runs-diagnostics")}>运行记录</a>
+      <Card className="mb-5" title={attentionCount ? `需要处理 · ${attentionCount} 类问题` : "运行状态"}>
+        <div className="mb-3 text-[13px] text-ink-2">
+          <Badge tone={worker?.alive ? "ok" : "bad"}>{worker?.alive ? "Worker 运行中" : "Worker 未确认在线"}</Badge>
+          <span className="ml-2 text-ink-4">按当前状态判断，不把任务次数、模型请求次数当新闻数量</span>
         </div>
+        {attentionCount === 0
+          ? <p className="text-[13px] text-ink-3">当前未检测到需要人工处理的项目。</p>
+          : <div className="space-y-2 text-[13px]">
+            {!worker?.alive && <p>Worker 心跳中断，检查服务部署和运行日志。</p>}
+            {r.currentNews.failed > 0 && <p><a className="text-accent hover:underline" href="#runs-issues">失败新闻 {num(r.currentNews.failed)} 条</a> · 按原因分批恢复，未知回执必须先核对。</p>}
+            {r.grouping.needsAttention > 0 && <p><a className="text-accent hover:underline" href="#grouping-backlog">精选去重等待超时 {num(r.grouping.needsAttention)} 条</a> · 是分析后的归组积压，不是新闻分析失败。</p>}
+            {unknownReceipts > 0 && <p><a className="text-accent hover:underline" href="#receipt-backlog">未知模型回执 {num(unknownReceipts)} 条</a> · 核对支付结果后恢复（可能跨日）。</p>}
+            {r.lagging.length > 0 && <p><a className="text-accent hover:underline" href="#source-backlog">采集异常信源 {num(r.lagging.length)} 个</a> · 检查最近抓取状态。</p>}
+            {failing.length > 0 && <p><a className="text-accent hover:underline" href="#job-failures">UTC 今日最近一次运行失败的定时任务 {num(failing.length)} 项</a> · 不计入失败新闻数。</p>}
+          </div>}
       </Card>
-      <details id="runs-news" open={expanded.includes("runs-news")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-news"); }}>
-          新闻队列说明 · UTC 当天
-        </summary>
-        <p className="mt-3 text-[13px] text-ink-3">新新闻只处于待处理、处理中或失败三类之一。
-          失败可重新排队；每晚 UTC 00:00 清空前一日尚未完成的新闻和关联任务，已发布内容保留。</p>
-      </details>
-      <details id="runs-issues" open={expanded.includes("runs-issues")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-issues"); }}>异常与恢复<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.currentNews.failed)} 篇当前失败新闻</span></summary>
-        <div className="mt-4">      {r.grouping.waiting > 0 && (
-        <Card className="mb-5" title="等待去重确认的精选" right={<span>{num(r.grouping.waiting)} 条等待 · {num(r.grouping.needsAttention)} 条超过 10 分钟</span>} pad={false} scrollable>
-          <p className="px-4 py-3 text-[13px] text-ink-3">这些新闻已达到精选条件，确认是否重复后才会进入精选。最多展示等待最久的 30 条。</p>
-          <DataTable scrollable dense rows={r.grouping.items} rowKey={(item) => item.articleId} columns={[
+      <section id="runs-issues" aria-label="异常与恢复">
+        <h2 className="mb-3 text-[16px] font-semibold text-ink">异常与恢复 · 需要操作的明细</h2>
+        <div>      {r.grouping.waiting > 0 && (
+        <Card className="mb-5" title="精选去重 · 尚未完成" right={<span>{num(r.grouping.waiting)} 条未完成 · {num(r.grouping.needsAttention)} 条等待超过 10 分钟</span>} pad={false} scrollable>
+          <div id="grouping-backlog" className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-[13px] text-ink-3">
+            <span>已通过新闻分析，正在确认归组和去重；不属于新闻分析失败。</span>
+            <span>共 {num(r.grouping.waiting)} 条 · 第 {currentGroupingPage + 1}/{groupingPages} 页</span>
+          </div>
+          <DataTable scrollable dense rows={groupingItems} rowKey={(item) => item.articleId} columns={[
             { key: "title", label: "新闻", render: (item) => <Link className="text-accent" to={`/admin/content/${item.articleId}`}>{item.title}</Link> },
             { key: "since", label: "开始等待", render: (item) => <Time at={item.since} /> },
             { key: "recovery", label: "下一步", render: (item) => <Badge tone={item.recovery === "manual" ? "bad" : "warn"}>{item.recovery === "manual" ? "需处理后恢复" : item.recovery === "receipt" ? "等待付费结果自动恢复" : "自动处理中"}</Badge> },
             { key: "error", label: "原因", render: (item) => <span className="line-clamp-2 text-[12px] text-ink-3">{item.receiptId ? `回执 #${item.receiptId} · ` : ""}{item.error ?? "等待身份确认"}</span> },
           ]} />
+          {groupingPages > 1 && <div className="flex items-center justify-end gap-3 border-t border-line px-4 py-3">
+            <Button size="sm" disabled={currentGroupingPage === 0} onClick={() => setGroupingPage(p => Math.max(0, p - 1))}>上一页</Button>
+            <span className="text-[12px] text-ink-3">{currentGroupingPage + 1} / {groupingPages}</span>
+            <Button size="sm" disabled={currentGroupingPage >= groupingPages - 1} onClick={() => setGroupingPage(p => p + 1)}>下一页</Button>
+          </div>}
         </Card>
       )}
 
-      {r.failedJobs.length > 0 && (
-        <Card className="mt-5" title="UTC 今日失败的任务记录（每次重试可能留记录）" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.failedJobs}
-            rowKey={(j) => j.name}
-            columns={[
-              { key: "n", label: "队列", render: (j) => <span className="font-mono text-[12.5px]">{j.name}</span> },
-              { key: "c", label: "失败", align: "right", render: (j) => num(j.failed) },
-              { key: "l", label: "最近", render: (j) => <Time at={j.last} /> },
-              { key: "o", label: "最近错误", render: (j) => <span className="line-clamp-2 font-mono text-[11.5px] text-ink-3">{j.last_output}</span> },
-            ]}
-          />
+      {failing.length > 0 && (
+        <Card className="mb-5" title="UTC 今日仍失败的定时任务" pad={false} scrollable>
+          <div id="job-failures" className="px-4 py-3 text-[12px] text-ink-3">仅展示 UTC 今日最近一次执行仍失败的任务；昨天的失败不会继续被标为今日故障。</div>
+          <DataTable dense rows={failing} rowKey={j => j.job} columns={[
+            { key: "job", label: "任务", render: j => j.job },
+            { key: "time", label: "失败时间", render: j => <Time at={j.started_at} /> },
+            { key: "error", label: "错误", render: j => <span className="text-[12px] text-ink-3">{j.error ?? "无错误详情"}</span> },
+          ]} />
         </Card>
       )}
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="模型回执诊断" right={<span>待核对未知结果 {num(unknownReceipts)} 条（含跨日）· 最多显示 40 条</span>} pad={false} scrollable>
+      <div id="receipt-backlog" className="mt-5 grid gap-5 xl:grid-cols-2">
+        <Card title="需要人工核对的模型回执" right={<span>未知结果 {num(unknownReceipts)} 条（可能跨日）· 当前展示最多 40 条</span>} pad={false} scrollable>
           <DataTable scrollable
             dense
             rows={r.receipts.issues}
@@ -164,7 +145,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         </Card>
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <div id="source-backlog" className="mt-5 grid gap-5 xl:grid-cols-2">
         <Card title="延迟或失败的信源" right={<Link className="text-accent" to="/admin/sources?health=failing">全部失败信源</Link>} pad={false} scrollable>
           <DataTable scrollable
             dense
@@ -181,7 +162,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           />
         </Card>
         <Card
-          title="可重新处理的失败文章（UTC 今日有活动）"
+          title="可重试的失败新闻 · 按原因分组"
           right={
             <span className="flex items-center gap-3">
               {r.retrying.count > 0 && <span>等待重试 {num(r.retrying.count)} 条 · 下一次 <Time at={r.retrying.next} /></span>}
@@ -190,7 +171,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
           }
           pad={false} scrollable
         >
-          <p className="px-4 py-3 text-[12px] text-ink-3">这里的数量与“重新处理”可操作范围一致：包含 UTC 今日新发现或更新的失败文章，也可能包含历史新闻及回填记录。重新处理会触发新的模型调用，不等于上方“UTC 今日发现新闻”的失败数。</p>
+          <p className="px-4 py-3 text-[12px] text-ink-3">这里仅列出 UTC 今日待处理范围内、且已排除未知付费回执的可重试新闻。失败总数还包含必须先核对回执的文章；两者不能直接相加。重试会产生新的模型调用。</p>
           <DataTable scrollable
             dense
             rows={r.errors}
@@ -208,157 +189,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       </div>
 
 </div>
-      </details>
-      <details id="runs-models" open={expanded.includes("runs-models")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-models"); }}>模型请求诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{r.routingEffect ? rate(r.routingEffect.successful,r.routingEffect.attempts) : "暂无自动路由数据"} · {num(r.articleProcessing.unavailableModel)} 条模型不可路由</span></summary>
-        <div className="mt-4">      {r.routingEffect && (
-        <Card className="mb-5" title="智能模型路由效果 · UTC 今日"
-          right={<Link className="text-[12px] text-accent hover:underline" to="/admin/model-bindings">调整工作流模型</Link>}>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-            <Stat label="自动路由调用" value={num(r.routingEffect.attempts)} hint="真实 live 请求尝试数" />
-            <Stat label="模型响应成功率" value={rate(r.routingEffect.successful,r.routingEffect.attempts)}
-              tone={r.routingEffect.attempts && r.routingEffect.successful / r.routingEffect.attempts < 0.95 ? "warn" : undefined}
-              hint={num(r.routingEffect.successful)+" 次已收到有效 HTTP 响应"} />
-            <Stat label="切换后成功" value={num(r.routingEffect.fallbackSuccess)} tone="ok"
-              hint="明确拒绝后改用其他模型，并成功返回" />
-            <Stat label="明确失败" value={num(r.routingEffect.failed)}
-              tone={r.routingEffect.failed ? "warn" : undefined} hint="服务端拒绝或已判定失败" />
-            <Stat label="结果未知" value={num(r.routingEffect.unknown)}
-              tone={r.routingEffect.unknown ? "bad" : undefined} hint="不自动重发，以免重复调用" />
-            <Stat label="模型响应 P95" value={r.routingEffect.p95Ms == null ? "暂无数据" : num(r.routingEffect.p95Ms) + " ms"}
-              hint="成功请求的响应耗时" />
-          </div>
-          <p className="mt-3 text-[12px] text-ink-4">
-            只统计 UTC 今日带自动路由标记的请求尝试，不等于新闻篇数；失败后切换模型会产生额外请求。成功率分母包含失败、未知和执行中的请求；
-            尚有 {num(r.routingEffect.pending)} 次处理中。模型响应成功不等于新闻内容正确或新闻处理完成。
-          </p>
-          {r.routingEffect.attempts === 0
-            ? <p className="mt-3 text-[13px] text-ink-3">UTC 今日暂无带自动路由标记的调用。启用自动工作流并实际处理新闻后，这里才会出现数据。</p>
-            : <details className="mt-4">
-              <summary className="cursor-pointer text-[13px] font-medium">查看厂商与工作流明细</summary>
-              <div className="mt-3 grid gap-4 xl:grid-cols-2">
-                <div>
-                  <p className="mb-2 text-[12px] font-medium">厂商请求分布</p>
-                  <DataTable dense rows={r.routingEffect.providers} rowKey={p=>p.provider} columns={[
-                    {key:"provider",label:"厂商",render:p=>p.provider},
-                    {key:"attempts",label:"请求",align:"right",render:p=>num(p.attempts)},
-                    {key:"success",label:"成功率",align:"right",render:p=>rate(p.successful,p.attempts)},
-                    {key:"failed",label:"失败/未知",align:"right",render:p=>num(p.failed+p.unknown)},
-                  ]}/>
-                </div>
-                <div>
-                  <p className="mb-2 text-[12px] font-medium">请求路由标记（非独立新闻流程）</p>
-                  <DataTable dense rows={r.routingEffect.stages} rowKey={p=>p.stage} columns={[
-                    {key:"stage",label:"工作流",render:p=>p.stage},
-                    {key:"attempts",label:"请求",align:"right",render:p=>num(p.attempts)},
-                    {key:"success",label:"成功率",align:"right",render:p=>rate(p.successful,p.attempts)},
-                    {key:"fallback",label:"切换后成功",align:"right",render:p=>num(p.fallbackSuccess)},
-                  ]}/>
-                </div>
-              </div>
-            </details>}
-        </Card>
-      )}
-
-      <p className="text-[12px] text-ink-3">
-        UTC 今日有 {num(r.articleProcessing.unavailableModel)} 篇新闻受模型不可路由影响；已包含在上方等待或失败的新闻中，不额外累加。
-      </p>
-
-</div>
-      </details>
-      <details id="runs-queues" open={expanded.includes("runs-queues")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-queues"); }}>队列与定时任务 · 技术诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{num(queued)} 条待执行 · {num(failing.length)} 项定时任务最近失败</span></summary>
-        <div className="mt-4">      <div className="grid gap-5 xl:grid-cols-2">
-        <Card title="队列" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={[...backlog.entries()]}
-            rowKey={([name]) => name}
-            empty="队列是空的"
-            columns={[
-              { key: "n", label: "队列", render: ([name]) => <span className="font-mono text-[12.5px]">{name}</span> },
-              ...(["created", "retry", "active"] as const).map((st) => ({
-                key: st,
-                label: STATE_LABEL[st],
-                align: "right" as const,
-                render: ([, v]: [string, Record<string, { n: number; oldest: string }>]) => (v[st] ? <span title={`最早 ${bj(v[st]!.oldest, true)}`}>{num(v[st]!.n)}</span> : <span className="text-ink-4">0</span>),
-              })),
-              { key: "old", label: "最早排队", render: ([, v]) => <Time at={v.created?.oldest ?? v.retry?.oldest ?? null} /> },
-            ]}
-          />
-        </Card>
-        <Card title="定时任务" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.jobs}
-            rowKey={(j) => j.job}
-            columns={[
-              { key: "j", label: "任务", render: (j) => <span className="font-mono text-[12.5px]">{j.job}</span> },
-              { key: "s", label: "上次", render: (j) => <Badge tone={j.status === "ok" ? "ok" : j.status === "failed" ? "bad" : "muted"} title={j.error ?? undefined}>{j.status ?? "今日尚未运行"}</Badge> },
-              { key: "at", label: "时间", render: (j) => j.started_at ? <Time at={j.started_at} /> : "—" },
-              { key: "d", label: "耗时", align: "right", render: (j) => j.started_at ? duration(j.started_at, j.finished_at) : "—" },
-              { key: "f", label: "今日失败", align: "right", render: (j) => (j.failed_today ? <span className="text-hot">{j.failed_today}/{j.runs_today}</span> : `0/${j.runs_today}`) },
-            ]}
-          />
-        </Card>
-      </div>
-
-</div>
-      </details>
-      <details id="runs-diagnostics" open={expanded.includes("runs-diagnostics")} className={sectionClass}>
-        <summary className={summaryClass} onClick={event => { event.preventDefault(); toggleSection("runs-diagnostics"); }}>今日记录与诊断<span className="ml-2 text-[12px] font-normal text-ink-4">{num(r.timeline.length)} 条近期任务 · {num(r.processes.length)} 个进程</span></summary>
-        <div className="mt-4">      {PARTS.map(({ name, part: Part }) => (r.modules[name] != null ? <Part key={name} data={r.modules[name]} /> : null))}
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
-        <Card title="任务时间线" pad={false} scrollable>
-          <DataTable scrollable
-            dense
-            rows={r.timeline}
-            rowKey={(t) => t.id}
-            columns={[
-              { key: "at", label: "开始", render: (t) => <span className="num whitespace-nowrap">{bj(t.started_at)}</span> },
-              { key: "j", label: "任务", render: (t) => <span className="font-mono text-[12px]">{t.job}</span> },
-              { key: "s", label: "结果", render: (t) => <Badge tone={t.status === "ok" ? "ok" : t.status === "failed" ? "bad" : "muted"} title={t.error ?? undefined}>{t.status ?? "运行中"}</Badge> },
-              { key: "d", label: "耗时", align: "right", render: (t) => duration(t.started_at, t.finished_at) },
-            ]}
-          />
-        </Card>
-        <Card title="外部上报" pad={false} scrollable>
-          {r.ingest.length ? (
-            <DataTable scrollable
-              dense
-              rows={r.ingest}
-              rowKey={(e) => `${e.client}-${e.created_at}`}
-              columns={[
-                { key: "at", label: "时间", render: (e) => <Time at={e.created_at} /> },
-                { key: "c", label: "客户端", render: (e) => e.client },
-                { key: "k", label: "类型", render: (e) => e.kind },
-                { key: "s", label: "结果", render: (e) => <Badge tone={e.status === "ok" ? "ok" : e.status === "error" ? "bad" : "muted"} title={e.error ?? undefined}>{e.status}</Badge> },
-                { key: "x", label: "摘要", render: (e) => <Json value={e.summary} label="摘要" /> },
-              ]}
-            />
-          ) : (
-            <Empty>还没有外部上报（采集脚本）</Empty>
-          )}
-        </Card>
-      </div>
-
-      {r.processes.length > 0 && (
-        <Card className="mt-5" title="进程">
-          <ul className="grid gap-2 text-[13px] sm:grid-cols-2 lg:grid-cols-3">
-            {r.processes.map((p) => (
-              <li key={p.role} className="flex items-center gap-2">
-                <Dot tone={p.alive ? "ok" : "bad"} />
-                <span className="font-medium">{p.role}</span>
-                <span className="text-ink-3">{p.host} · pid {p.pid} · {p.release} · 启动于 {bj(p.startedAt)}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-</div>
-      </details>
+      </section>
       <ReasonDialog
         open={!!receipt}
         title={`核对回执 #${receipt?.id ?? ""}`}
