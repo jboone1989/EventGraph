@@ -7,7 +7,7 @@ on:
     branches: [develop]
   pull_request:
     branches: [develop, main]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       expected_sha:
@@ -230,7 +230,7 @@ jobs:
 
       - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/parse-review-verdict.test.mjs
+        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/validate-tasks.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/parse-review-verdict.test.mjs
       - name: Enforce pre-existing approved Spec
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
@@ -741,12 +741,47 @@ jobs:
             exit 0
           fi
           if jq -e '.mergeable_state == "behind"' <<< "$pr" >/dev/null; then
-            if [[ "${{ needs.changes.outputs.spec_changed }}" == true ]]; then
-              gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" -f expected_head_sha="$EXPECTED_HEAD" >/dev/null
-              echo "::notice::Updated Spec PR branch; new HEAD requires a fresh review"
-            else
-              echo "::notice::Branch is behind develop; requires an updated branch and a fresh CI verdict"
-            fi
+            gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" -f expected_head_sha="$EXPECTED_HEAD" >/dev/null
+            echo "::notice::Updated branch against develop; rerun checks at new HEAD"
             exit 0
           fi
+          if jq -e '.mergeable_state == "dirty"' <<< "$pr" >/dev/null; then
+            echo "::error::Merge conflict against develop; requires conflict resolution, not silent success"
+            exit 1
+          fi
           gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --squash
+
+  refresh_behind_prs:
+    name: "develop 推进后同步无冲突 PR"
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Bring non-draft, clean PR branches up to date
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=develop&per_page=100" --jq '.[] | select(.draft == false) | .number' | head -n 30 | while read -r number; do
+            [[ -n "$number" ]] || continue
+            pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number")"
+            jq -e --arg repo "$GITHUB_REPOSITORY" '.state == "open" and .draft == false and .base.ref == "develop" and .head.repo.full_name == $repo' <<< "$pr" >/dev/null || continue
+            head_ref="$(jq -r '.head.ref' <<< "$pr")"
+            [[ "$head_ref" != main && "$head_ref" != chore/aihot-upstream-* ]] || continue
+            state="$(jq -r '.mergeable_state' <<< "$pr")"
+            if [[ "$state" == behind ]]; then
+              sha="$(jq -r '.head.sha' <<< "$pr")"
+              if gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$number/update-branch" -f expected_head_sha="$sha" >/dev/null; then
+                echo "::notice::PR #$number branch refreshed; new SHA triggers CI"
+              else
+                echo "::warning::PR #$number update failed (race or permissions); needs attention"
+              fi
+            elif [[ "$state" == dirty ]]; then
+              echo "::warning::PR #$number has merge conflicts; agent resolution is required"
+            fi
+          done
