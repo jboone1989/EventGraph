@@ -157,14 +157,14 @@ jobs:
   publish_knowledge:
     name: "自动发布 · 构建或复用 Graphiti 镜像"
     needs: deploy_production
-    if: ${needs.deploy_production.result == 'success' && vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true'}
+    if: ${{needs.deploy_production.result == 'success' && vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true'}}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
       contents: read
       packages: write
     outputs:
-      image_ref: ${steps.ref.outputs.image_ref}
+      image_ref: ${{steps.ref.outputs.image_ref}}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -173,8 +173,8 @@ jobs:
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
-          username: ${github.actor}
-          password: ${secrets.GITHUB_TOKEN}
+          username: ${{github.actor}}
+          password: ${{secrets.GITHUB_TOKEN}}
       - name: Reuse a published image for unchanged Graphiti source
         id: existing
         shell: bash
@@ -198,18 +198,18 @@ jobs:
           file: ./knowledge_service/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${steps.existing.outputs.tag}
+          tags: ${{steps.existing.outputs.tag}}
           labels: |
-            org.opencontainers.image.source=https://github.com/${github.repository}
-            org.opencontainers.image.revision=${github.sha}
+            org.opencontainers.image.source=https://github.com/${{github.repository}}
+            org.opencontainers.image.revision=${{github.sha}}
           cache-from: type=gha,scope=eventgraph-knowledge
           cache-to: type=gha,mode=max,scope=eventgraph-knowledge
       - name: Export immutable knowledge image reference
         id: ref
         shell: bash
         env:
-          REUSED_REF: ${steps.existing.outputs.image_ref}
-          NEW_DIGEST: ${steps.build.outputs.digest}
+          REUSED_REF: ${{steps.existing.outputs.image_ref}}
+          NEW_DIGEST: ${{steps.build.outputs.digest}}
         run: |
           set -euo pipefail
           if [[ -n "$REUSED_REF" ]]; then
@@ -223,7 +223,7 @@ jobs:
   deploy_knowledge:
     name: "自动部署 · Graphiti 服务（不重启 Neo4j）"
     needs: publish_knowledge
-    if: ${needs.publish_knowledge.outputs.image_ref != '' && vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true'}
+    if: ${{needs.publish_knowledge.outputs.image_ref != '' && vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true'}}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     concurrency:
@@ -237,15 +237,15 @@ jobs:
       - name: Deploy only the changed Graphiti container
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
-          EVENTGRAPH_KNOWLEDGE_IMAGE: ${needs.publish_knowledge.outputs.image_ref}
-          EVENTGRAPH_KNOWLEDGE_RELEASE_SHA: ${github.sha}
-          GHCR_USER: ${github.actor}
-          GHCR_TOKEN: ${secrets.GITHUB_TOKEN}
+          EVENTGRAPH_KNOWLEDGE_IMAGE: ${{needs.publish_knowledge.outputs.image_ref}}
+          EVENTGRAPH_KNOWLEDGE_RELEASE_SHA: ${{github.sha}}
+          GHCR_USER: ${{github.actor}}
+          GHCR_TOKEN: ${{secrets.GITHUB_TOKEN}}
         with:
-          host: ${vars.EVENTGRAPH_PROD_HOST}
-          username: ${vars.EVENTGRAPH_PROD_USER}
-          key: ${secrets.EVENTGRAPH_PROD_SSH_KEY}
-          fingerprint: ${secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT}
+          host: ${{vars.EVENTGRAPH_PROD_HOST}}
+          username: ${{vars.EVENTGRAPH_PROD_USER}}
+          key: ${{secrets.EVENTGRAPH_PROD_SSH_KEY}}
+          fingerprint: ${{secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT}}
           envs: EVENTGRAPH_KNOWLEDGE_IMAGE,EVENTGRAPH_KNOWLEDGE_RELEASE_SHA,GHCR_USER,GHCR_TOKEN
           command_timeout: 10m
           version: '1.8.2'
