@@ -286,6 +286,24 @@ export interface AdminFeedback {
 
 // Runs
 
+/** A live execution unit; an article and its model request can appear separately. */
+export interface AdminFlowItem {
+  key: string;
+  kind: "article" | "job" | "schedule" | "model" | "source" | "delivery";
+  status: "pending" | "processing" | "failed";
+  process: string;
+  subject: string;
+  articleId: string | null;
+  provider: string | null;
+  model: string | null;
+  error: string | null;
+  at: Timestamp;
+  retryAt: Timestamp | null;
+  jobId: string | null;
+  receiptId: number | null;
+  receiptStatus?: string | null;
+}
+
 export interface AdminReceiptIssue {
   id: number;
   service: string;
@@ -336,15 +354,34 @@ export interface AdminRuns {
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
   /** Live unfinished editorial articles from this UTC day, mutually exclusive counts. */
   currentNews: { pending: number; processing: number; failed: number };
+  /** Every current execution unit from article work, pg-boss, schedules and model receipts. */
+  flowItems?: AdminFlowItem[];
+  /** One row per unfinished news item: extraction, unified analysis or selected-event grouping. */
+  currentNewsItems?: Array<{
+    id: string; title: string; status: "pending" | "processing" | "failed"; stage: string;
+    discoveredAt: Timestamp; retryAt: Timestamp | null; attempts: number; error: string | null;
+    jobName: string | null; jobState: string | null; queuedAt: Timestamp | null; startedAt: Timestamp | null;
+    provider?: string | null; model?: string | null;
+    unverifiedReceiptId: number | null; receiptStatus: string | null;
+  }>;
   /** Articles first discovered today (UTC), excluding historical backfills and signal-only feeds. */
   live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
+  /** Evidence-backed diagnosis of UTC-day unresolved articles. A delayed item may still be recoverable automatically. */
+  backlogCauses?: Array<{
+    kind: "receipt_unknown" | "article_failed" | "provider_retry" | "retry_wait" | "missing_job" | "queue_wait" | "long_running" | "unclassified";
+    count: number;
+    oldest: Timestamp;
+    exampleArticleId: string;
+    exampleError: string | null;
+    nextRetryAt: Timestamp | null;
+  }>;
   /** Unresolved editorial articles first discovered over 24 hours ago; not included in live24h. */
   legacyUnresolved: number;
   failedJobs: Array<{ name: string; failed: number; last: Timestamp | null; last_output: string | null }>;
   grouping: {
     waiting: number;
     needsAttention: number;
-    items: Array<{ articleId: string; title: string; since: Timestamp; failed: boolean; recovery: "automatic" | "receipt" | "manual"; receiptId: number | null; error: string | null }>;
+    items: Array<{ articleId: string; title: string; since: Timestamp; failed: boolean; recovery: "automatic" | "receipt" | "manual"; receiptId: number | null; error: string | null; jobState?: "active" | "created" | "retry" | null; queueSince?: Timestamp | null; activeSince?: Timestamp | null; lastFailedJobError?: string | null }>;
   };
   lagging: Array<{
     id: string; name: string; kind: string; health: string; fail_count: number; last_ok_at: Timestamp | null; last_fetch_at: Timestamp | null;

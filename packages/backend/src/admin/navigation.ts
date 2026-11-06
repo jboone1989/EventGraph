@@ -18,7 +18,10 @@ export async function navCounts(): Promise<AdminNavCounts> {
                   AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
                 AND a.discovered_at <= now()
                 AND NOT a.backfill AND s.participation_mode = 'editorial'
-                AND a.processing_state IN ('new','failed')) AS runs`,
+                AND (a.processing_state IN ('new','failed')
+                  OR (a.processing_state = 'analyzed' AND a.grouping_status IN ('pending', 'failed')
+                    AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id
+                      AND p.selection_candidate AND p.eligible AND p.visibility = 'public')))) AS runs`,
     Promise.all(serverModules().flatMap((m) => Object.entries(m.admin?.counts ?? {}).map(async ([key, count]) => [key, await count()] as const))),
   ]);
   return { ...c, ...Object.fromEntries(counts) };
