@@ -68,7 +68,9 @@ async function loadRow(id: string, language: "zh" | "original" = "zh", explanati
  *  asked again, and shows nothing. */
 function shownExplanation(content: ItemExplanation | null): ItemExplanation | null {
   if (!content) return null;
-  return content.who || content.what || content.when || content.where || content.why || content.how || content.soWhat || (content.watchpoints?.length ?? 0) > 0 ? content : null;
+  // Older single-language JSON rows may predate watchpoints being a required array.
+  const normalized = { ...content, watchpoints: Array.isArray(content.watchpoints) ? content.watchpoints : [] };
+  return normalized.who || normalized.what || normalized.when || normalized.where || normalized.why || normalized.how || normalized.soWhat || normalized.watchpoints.length > 0 ? normalized : null;
 }
 
 /**
