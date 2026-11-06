@@ -2,7 +2,7 @@
 
 **Feature Branch:** spec/worth-your-time-experiment-20261106
 **Created:** 2026-11-06
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of c02a89f83ab2f3acaff784538fe9bf4ec51b1893)
 **Target:** develop
 **Input:** 用户希望让 EventGraph 实验一种帮助人们发现高价值内容的能力：AI 视频并非天然廉价，真正的问题是大量内容只有精美形式、缺少值得花时间的体验；将「值得看」作为独立实验栏目。
 
