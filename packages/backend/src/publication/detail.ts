@@ -34,7 +34,7 @@ async function loadRow(id: string, language: "zh" | "original" = "zh", explanati
     SELECT ${ITEM_COLUMNS}, a.body_html, a.body_text, a.body_status, tr.body_html AS tr_html, tr.complete AS tr_complete,
       en_tr.body_html AS en_tr_html, en_tr.complete AS en_tr_complete,
       st.id AS story_id, ${topicMembership()} AS topics,
-      CASE WHEN p.channel = 'news' AND p.visibility = 'public' AND p.summary IS NOT NULL
+      CASE WHEN p.channel = 'news' AND p.visibility = 'public' AND p.eligible AND p.summary IS NOT NULL
         AND (NOT p.selected OR p.visible_after <= now())
         THEN coalesce(
           CASE WHEN NOT EXISTS (
