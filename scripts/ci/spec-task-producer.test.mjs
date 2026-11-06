@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
   buildWorkGraph, canonical, completeTaskIssue, ensureTaskIssues, getSpecDirectory,
-  issueBody, parseTasks, parseWorkerPRBody, taskMarker, workId, processMergedCommit, processDevelopRange, readNativeQueueState
+  issueBody, parseTasks, parseWorkerPRBody, taskMarker, workId, processMergedCommit, processDevelopRange, readNativeQueueState, resolveProducerHead
 } from "./spec-task-producer.mjs";
 
 const validTasks = [
@@ -481,4 +481,43 @@ test("Spec intake uses the exact merge SHA and builds its graph", async () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Producer uses the verified develop Check SHA from a workflow_run event, not main GITHUB_SHA", () => {
+  const checkedHead = "b".repeat(40);
+  const env = {
+    GITHUB_EVENT_NAME: "workflow_run", GITHUB_REF_NAME: "main",
+    GITHUB_SHA: "a".repeat(40), GITHUB_REPOSITORY: repo
+  };
+  const event = {
+    action: "completed",
+    repository: { full_name: repo },
+    workflow_run: {
+      status: "completed", conclusion: "success", path: ".github/workflows/check.yml",
+      head_branch: "develop", head_sha: checkedHead, event: "push",
+      head_repository: { full_name: repo }
+    }
+  };
+  assert.equal(resolveProducerHead(env, event), checkedHead);
+  assert.equal(resolveProducerHead(env, {
+    ...event, workflow_run: { ...event.workflow_run, event: "workflow_dispatch" }
+  }), checkedHead);
+  for (const invalid of [
+    { ...event, action: "requested" },
+    { ...event, repository: { full_name: "other/repo" } },
+    { ...event, workflow_run: { ...event.workflow_run, conclusion: "failure" } },
+    { ...event, workflow_run: { ...event.workflow_run, head_branch: "main" } },
+    { ...event, workflow_run: { ...event.workflow_run, path: ".github/workflows/other.yml" } },
+    { ...event, workflow_run: { ...event.workflow_run, head_repository: { full_name: "fork/repo" } } },
+    { ...event, workflow_run: { ...event.workflow_run, event: "pull_request" } }
+  ]) {
+    assert.equal(resolveProducerHead(env, invalid), null);
+  }
+  assert.equal(resolveProducerHead({ ...env, GITHUB_EVENT_NAME: "pull_request" }), null);
+  assert.equal(resolveProducerHead({
+    ...env, GITHUB_EVENT_NAME: "push", GITHUB_REF_NAME: "develop"
+  }), env.GITHUB_SHA);
+  assert.equal(resolveProducerHead({
+    ...env, GITHUB_EVENT_NAME: "push", GITHUB_REF_NAME: "main"
+  }), null);
 });
