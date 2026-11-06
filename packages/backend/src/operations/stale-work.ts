@@ -43,10 +43,14 @@ export async function expireStaleWork(now = new Date()) {
   }
   // Clear day-scoped diagnostics, but keep the backup/report alert baselines and paid evidence.
   const oldRuns = await sql`DELETE FROM job_runs WHERE started_at < ${cutoff} AND status <> 'running' AND job NOT IN ('ops.backup', 'reports.compose')`;
-  // Retain failed jobs tied to unresolved paid receipts: receipt.release may need to retry them.
+  // Retain failed jobs tied to unresolved or already released paid receipts until the retry sweep runs.
   const oldFailures = await sql`DELETE FROM pgboss.job j WHERE j.state = 'failed' AND j.completed_on < ${cutoff}
     AND NOT EXISTS (
-      SELECT 1 FROM receipts r WHERE r.status = 'unknown' AND r.id::text = j.output->>'receiptId'
+      SELECT 1 FROM receipts r WHERE r.status IN ('pending', 'unknown') AND r.id::text = j.output->>'receiptId'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM audit_log a WHERE a.action = 'receipt.release'
+        AND a.subject = 'receipt:' || (j.output->>'receiptId') AND a.created_at > j.started_on
     )`;
   return { ...totals, deletedRunHistory: oldRuns.count, deletedFailedJobHistory: oldFailures.count };
 }
