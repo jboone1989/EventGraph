@@ -8,6 +8,7 @@ type Problem={detail:string;fieldErrors?:Record<string,string>;dependencies?:Arr
 type TestResult={status:string;elapsedMs:number;detail:string};
 const vendors=[["deepseek","DeepSeek"],["openai","OpenAI"],["anthropic","Anthropic"],["nvidia","NVIDIA"],["zhipu","智谱 AI"],["openrouter","OpenRouter"],["groq","Groq"],["gemini","Google Gemini"],["zai","Z.AI"],["cloudflare","Cloudflare Workers AI"],["custom","自定义"]] as const;
 const vendorLabel=(id:string)=>vendors.find(v=>v[0]===id)?.[1]??id;
+const connectionLabel=(connection:ProviderConnection)=>connection.name+" · "+vendorLabel(connection.vendor);
 const defaultUrl=(id:string)=>({
  deepseek:"https://api.deepseek.com",openai:"https://api.openai.com/v1",
  anthropic:"https://api.anthropic.com",nvidia:"https://integrate.api.nvidia.com/v1",
@@ -57,7 +58,7 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}){
    old?"/api/admin/providers/"+old.id:"/api/admin/providers",
    {...input,...(old?{version:old.version}:{}),reason:"后台"+(old?"修改":"新增")+"厂商连接："+input.vendor},
    {onError:setProblem});
-  if(result){setEditor(undefined);setNotice("已保存厂商连接："+vendorLabel(result.vendor));}
+  if(result){setEditor(undefined);setNotice("已保存厂商连接："+result.name);}
  }
  async function remove(){
   if(!deleting)return;
@@ -75,6 +76,7 @@ export function ProviderConnectionsAdmin({data}:{data:ProviderManagement}){
   <Card title={"厂商连接（"+data.providers.length+"）"}>
    <DataTable rows={data.providers} rowKey={c=>c.id} empty="尚无厂商连接" columns={[
     {key:"vendor",label:"厂商",render:c=>vendorLabel(c.vendor)},
+    {key:"name",label:"连接名称",render:c=>c.name},
     {key:"id",label:"连接 ID",render:c=><span className="break-all font-mono text-xs">{c.id}</span>},
     {key:"url",label:"API 地址",render:c=><span className="break-all text-xs">{c.baseUrl}</span>},
     {key:"key",label:"密钥",render:c=><Badge tone={c.credential.configured?"ok":"warn"}>{c.credential.configured?"已配置":"未配置"}</Badge>},
@@ -102,6 +104,7 @@ function ConnectionDialog({connection,connections,busy,problem,onClose,onSave}:{
  const known=vendors.some(v=>v[0]===connection?.vendor&&v[0]!=="custom");
  const [vendor,setVendor]=useState(connection?(known?connection.vendor:"custom"):"deepseek");
  const [customVendor,setCustomVendor]=useState(connection&&!known?connection.vendor:"");
+ const [name,setName]=useState(connection?.name??"");
  const [baseUrl,setBaseUrl]=useState(connection?.baseUrl??defaultUrl("deepseek"));
  const [protocol,setProtocol]=useState<ConnectionInput["protocol"]>(connection?.protocol??defaultProtocol("deepseek"));
  const [timeout,setTimeout]=useState(String(connection?.timeoutMs??60000));
@@ -116,9 +119,10 @@ function ConnectionDialog({connection,connections,busy,problem,onClose,onSave}:{
    setError("请填写厂商、有效 API 地址及超时时间");return;
   }
   if(!connection&&!apiKey.trim()){setError("请输入 API Key");return;}
-  let name=connection?.name??id;
-  if(!connection){let i=2;while(connections.some(c=>c.name===name)){name=id+"-"+i++;}}
-  await onSave({name,vendor:id,protocol,baseUrl:baseUrl.trim(),timeoutMs:Number(timeout),enabled,
+  let chosenName=name.trim();
+  if(!chosenName){chosenName=id;let i=2;while(connections.some(c=>c.id!==connection?.id&&c.name===chosenName)){chosenName=id+"-"+i++;}}
+  if(connections.some(c=>c.id!==connection?.id&&c.name===chosenName)){setError("连接名称已存在，请给不同账户取不同名称");return;}
+  await onSave({name:chosenName,vendor:id,protocol,baseUrl:baseUrl.trim(),timeoutMs:Number(timeout),enabled,
    credential:apiKey.trim()?{action:"replace",value:apiKey.trim()}:{action:"keep"}});
  }
  return <Modal title={connection?"编辑厂商连接":"新增厂商连接"} busy={busy} onClose={onClose}>
@@ -126,6 +130,9 @@ function ConnectionDialog({connection,connections,busy,problem,onClose,onSave}:{
    <Select aria-label="厂商" value={vendor} disabled={busy} onChange={e=>switchVendor(e.target.value)}>
     {vendors.map(([id,label])=><option key={id} value={id}>{label}</option>)}
    </Select>
+  </label>
+  <label className="block space-y-1 text-sm">连接名称
+   <Input aria-label="连接名称" disabled={busy} value={name} onChange={e=>setName(e.target.value)} placeholder="Groq-账号A（留空自动生成）"/>
   </label>
   {vendor==="custom"&&<label className="block space-y-1 text-sm">自定义厂商标识
    <Input value={customVendor} disabled={busy} onChange={e=>setCustomVendor(e.target.value)} placeholder="siliconflow"/>
@@ -179,13 +186,13 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
  const [batchRunning,setBatchRunning]=useState(false);
  const batchLock=useRef(false);
  const activeTests=useRef(new Set<string>());
- const names=new Map(data.providers.map(c=>[c.id,c.name+" · "+vendorLabel(c.vendor)]));
+ const names=new Map(data.providers.map(c=>[c.id,connectionLabel(c)]));
  const testStatus=(m:RegisteredModel)=>{
   const status=testResults[m.id]?.status??m.checks.find(c=>c.capability===m.probeSpec?.capability)?.status;
   return status==="verified"?"passed":status&&status!=="unverified"?"failed":"untested";
  };
  const matching=data.models.filter(m=>
-  (m.modelId+" "+(names.get(m.providerId)??"")).toLowerCase().includes(search.trim().toLowerCase())&&
+  [m.modelId,m.id,m.providerId,names.get(m.providerId)??""].join(" ").toLowerCase().includes(search.trim().toLowerCase())&&
   (!providerFilter||m.providerId===providerFilter)&&(!billingFilter||m.billing===billingFilter)&&
   (!adapterFilter||m.adapter===adapterFilter)&&(!complexityFilter||m.complexity===complexityFilter)&&
   (!enabledFilter||(enabledFilter==="enabled" ? m.enabled : !m.enabled))&&
@@ -274,7 +281,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
  return <div className="space-y-4">
   {notice&&<p role="status" className="text-sm">{notice}</p>}
   <div className="flex flex-wrap items-center justify-between gap-2">
-   <Input aria-label="搜索模型" className="max-w-sm" placeholder="模型 ID / 厂商" value={search} onChange={e=>resetPage(setSearch,e.target.value)}/>
+   <Input aria-label="搜索模型" className="max-w-sm" placeholder="模型 ID / UUID / 连接名称" value={search} onChange={e=>resetPage(setSearch,e.target.value)}/>
    <div className="flex gap-2">
     <ButtonLink to="/admin/connections">厂商连接</ButtonLink>
     <Button disabled={busy||!data.providers.length} onClick={()=>{setProblem(null);setEditor(null);}}>＋ 新增模型</Button>
@@ -299,7 +306,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
   {batch&&<p role="status" className="text-sm">批量测试：{batch.completed}/{batch.total} · 通过 {batch.passed} · 失败 {batch.failed} · 跳过 {batch.skipped}{batchRunning?" · 进行中":" · 已结束"}</p>}
   <Card title={"模型（"+matching.length+" / "+data.models.length+"）"}>
    <DataTable rows={visible} rowKey={m=>m.id} empty="没有匹配的模型，请调整筛选条件或清空筛选。" columns={[
-    {key:"id",label:"模型 ID",render:m=><span className="break-all font-mono text-xs">{m.modelId}</span>},
+    {key:"id",label:"模型 ID",render:m=><div className="space-y-1"><span className="block break-all font-mono text-xs">{m.modelId}</span><span className="block break-all font-mono text-xs text-ink-4" title="EventGraph 内部模型 UUID">{m.id}</span></div>},
     {key:"provider",label:"厂商连接",render:m=>names.get(m.providerId)??m.providerId},
     {key:"adapter",label:"类型",render:m=>m.adapter},
     {key:"billing",label:"计费",render:m=>m.billing==="free"?"免费":"付费"},
@@ -310,7 +317,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
      const status=latest?.status??record?.status;
      return <div className="flex flex-wrap items-center gap-1">
       <Button size="sm" disabled={busy||!!testing[m.id]} onClick={()=>{setProblem(null);setEditor(m);}}>编辑</Button>
-      <Button size="sm" disabled={!!testing[m.id]} onClick={()=>void testModel(m)}>{testing[m.id]?"测试中…":"测试"}</Button>
+      <Button size="sm" disabled={!m.probeSpec||!!testing[m.id]} onClick={()=>void testModel(m)}>{testing[m.id]?"测试中…":!m.probeSpec?(m.adapter==="special"?"暂不支持测试":"未配置测试"):"测试"}</Button>
       {status&&<Badge tone={status==="verified"?"ok":status==="unverified"?"muted":"bad"}>
        {status==="verified"?"通过":status==="unverified"?"待测":"失败"}</Badge>}
       <Button size="sm" disabled={busy||!!testing[m.id]} onClick={()=>{setProblem(null);setDeleting(m);}}>删除</Button>
@@ -391,7 +398,7 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
  return <Modal title={model?"编辑模型":"新增模型"} busy={busy} onClose={onClose}>
   <label className="block space-y-1 text-sm">厂商连接
    <Select aria-label="厂商连接" disabled={busy} value={providerId} onChange={e=>{setProviderId(e.target.value);setBilling(inferBilling(modelId,e.target.value));}}>
-    {providers.map(c=><option key={c.id} value={c.id}>{vendorLabel(c.vendor)} · {c.id}</option>)}
+    {providers.map(c=><option key={c.id} value={c.id}>{connectionLabel(c)} · {c.id}</option>)}
    </Select>
   </label>
   <label className="block space-y-1 text-sm">模型 ID

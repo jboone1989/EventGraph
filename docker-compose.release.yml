@@ -1,5 +1,5 @@
 # Final layer: production consumes immutable versioned application images.
-# Building happens on cn-dev; VM09 only loads the images and recreates containers.
+# GitHub Actions builds both immutable images; VM09 only pulls and reconciles changed services.
 services:
   setup:
     image: livingruntime-app:${LRSITE_APP_RELEASE:-${LRSITE_RELEASE:?Set LRSITE_RELEASE}}

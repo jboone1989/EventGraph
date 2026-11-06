@@ -34,9 +34,9 @@ test('task complexity keeps light work on light models and deep work on deep mod
  assert.equal(stageComplexity('light'),'light');
  assert.deepEqual(rankFreeModels(candidates,connections,'groupReview').map(m=>m.id),['or-heavy']);
 });
-test('temporary OpenRouter outage falls back to NVIDIA and cooling is per account',()=>{
- coolDownModel('or-light','or',60,true);
- assert.deepEqual(rankFreeModels(candidates,connections,'prefilter').map(m=>m.id),['nv-light']);
+test('failure cools only its model UUID, not other models on the same connection',()=>{
+ coolDownModel('or-light',60);
+ assert.deepEqual(rankFreeModels(candidates,connections,'prefilter').map(m=>m.id),['nv-light','or-heavy']);
 });
 test('only enabled and explicitly routed chat models are eligible, without a probe prerequisite',()=>{
  const blocked={...candidates[0]!,routeEnabled:false};
@@ -49,7 +49,7 @@ test('the last successful free model is reused until it fails',()=>{
  const second=model('second','alt','another/model-21b','light');
  rememberSuccessfulRoute('model:cached','light');
  assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'cached');
- coolDownModel('cached','alt',60);
+ coolDownModel('cached',60);
  assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'second');
 });
 test('parameter count supplies only an initial, overridable tier',()=>{
@@ -57,6 +57,22 @@ test('parameter count supplies only an initial, overridable tier',()=>{
  assert.equal(complexityFromModelId('model-120b-a12b'),'medium');
  assert.equal(complexityFromModelId('model-550b-a55b'),'heavy');
  assert.equal(complexityFromModelId('openrouter/free'),'medium');
+});
+
+test('same vendor and same upstream name remain independent by internal model UUID',()=>{
+ const a=provider('groq-a','groq'),b=provider('groq-b','groq');
+ const first=model('groq-uuid-a',a.id,'openai/gpt-oss-120b','medium');
+ const second=model('groq-uuid-b',b.id,'openai/gpt-oss-120b','medium');
+ assert.deepEqual(rankFreeModels([first,second],[a,b],'medium').map(m=>m.id),['groq-uuid-a','groq-uuid-b']);
+ coolDownModel(first.id,60);
+ assert.deepEqual(rankFreeModels([first,second],[a,b],'medium').map(m=>m.id),['groq-uuid-b']);
+});
+
+test('the ninth and tenth eligible same-name instances remain available after earlier rejections',()=>{
+ const accounts=Array.from({length:10},(_,i)=>provider('groq-account-'+i,'groq'));
+ const entries=accounts.map((connection,i)=>model('instance-'+String(i).padStart(2,'0'),connection.id,'openai/gpt-oss-120b','medium'));
+ const rejected=new Set(entries.slice(0,9).map(m=>m.id));
+ assert.deepEqual(rankFreeModels(entries,accounts,'medium',Date.now(),false,rejected).map(m=>m.id),['instance-09']);
 });
 
 test('NVIDIA Ultra uses non-reasoning mode only for schema-constrained grouping', () => {
@@ -80,7 +96,7 @@ test('automatic free routing can fail over across six providers without selectin
  const paid={...model('candidate-paid','pool-groq','paid-20b','light'),billing:'paid' as const};
  const first=rankFreeModels([...choices,paid],owners,'light');
  assert.equal(first.length,6);
- for(const entry of first.slice(0,5))coolDownModel(entry.id,entry.providerId,60,true);
+ for(const entry of first.slice(0,5))coolDownModel(entry.id,60);
  const last=rankFreeModels([...choices,paid],owners,'light');
  assert.deepEqual(last.map(m=>m.id),[first[5]!.id]);
  assert.equal(last.some(m=>m.id==='candidate-paid'),false);
