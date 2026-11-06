@@ -38,7 +38,7 @@ export async function dailyRetention(now = new Date()) {
   for (const m of serverModules()) if (m.retention) Object.assign(modules, await m.retention(now));
   const leases = await sql`DELETE FROM delivery_leases WHERE expires_at < ${now}`;
   // Fallback if the UTC midnight cleanup was missed; preserve alert baselines and in-flight runs.
-  const runs = await sql`DELETE FROM job_runs WHERE started_at < ${utcDayStart(now)} AND status <> 'running' AND job NOT IN ('ops.backup', 'reports.compose')`;
+  const runs = await sql`DELETE FROM job_runs WHERE started_at < ${utcDayStart(now)} AND (status <> 'running' OR started_at < ${new Date(now.getTime() - 7 * 86400_000)}) AND job NOT IN ('ops.backup', 'reports.compose')`;
   const monthMs = 30 * 86400_000;
   // Feedback screenshots that only wait to be forwarded (the database then keeps just the Feishu image
   // key). The forwarding sweep gives up after a week; anything older is removed, whether or not
