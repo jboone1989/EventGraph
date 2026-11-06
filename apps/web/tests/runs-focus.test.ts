@@ -63,7 +63,7 @@ test("three live queues show per-news failure and one-click retry moves one arti
     await expect(page.getByRole("button", { name: /待处理/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /正在处理/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /处理失败/ })).toBeVisible();
-    await expect(page.getByRole("link", { name: "失败新闻" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "失败新闻", exact: true })).toBeVisible();
     await expect(page.getByText("Provider HTTP 429", { exact: true })).toBeVisible();
     await expect(page.getByText("新闻统一分析", { exact: true })).toBeVisible();
     for (const obsolete of ["积压原因诊断", "今日记录与诊断", "模型请求诊断", "队列与定时任务 · 技术诊断"]) {
@@ -72,11 +72,11 @@ test("three live queues show per-news failure and one-click retry moves one arti
     await expect(page.getByRole("link", { name: "归组失败新闻" })).toBeVisible();
     await expect(page.getByText("Group Provider 503", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "重新入队" }).first().click();
-    await expect(page.getByRole("link", { name: "失败新闻" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "失败新闻", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "重新入队" }).click();
     await expect(page.getByRole("link", { name: "归组失败新闻" })).toHaveCount(0);
     await page.getByRole("button", { name: /待处理/ }).click();
-    await expect(page.getByRole("link", { name: "失败新闻" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "失败新闻", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "归组失败新闻" })).toBeVisible();
     assert.equal(retried, 1);
   } finally {
