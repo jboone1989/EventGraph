@@ -170,7 +170,7 @@ export async function runsOverview(): Promise<Runs> {
       FROM current_jobs
       LEFT JOIN LATERAL (
         SELECT started_at, finished_at, status, left(error, 400) AS error FROM job_runs
-        WHERE job = current_jobs.job ORDER BY started_at DESC, id DESC LIMIT 1
+        WHERE job = current_jobs.job AND started_at >= ${utcDayStart()} ORDER BY started_at DESC, id DESC LIMIT 1
       ) latest ON true
       CROSS JOIN LATERAL (
         SELECT count(*) FILTER (WHERE status = 'failed')::int AS failed_today, count(*)::int AS runs_today
