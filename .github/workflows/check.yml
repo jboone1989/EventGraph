@@ -161,7 +161,7 @@ jobs:
             END UNTRUSTED SPEC DIFF
           claude_args: |
             --disallowedTools mcp__*
-            --max-turns 2
+            --max-turns 4
             --json-schema '{"type":"object","properties":{"status":{"type":"string","enum":["PASS","FAIL"]},"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"issue":{"type":"string"}},"required":["file","line","issue"],"additionalProperties":false}}},"required":["status","findings"],"additionalProperties":false}'
       - name: Publish Spec verdict and fail on blockers
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -534,7 +534,7 @@ jobs:
           needs.docker.result == 'success' &&
           needs.e2e.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
       pull-requests: write
@@ -612,7 +612,7 @@ jobs:
             END UNTRUSTED DIFF
           claude_args: |
             --disallowedTools mcp__*
-            --max-turns 2
+            --max-turns 4
             --json-schema '{"type":"object","properties":{"status":{"type":"string","enum":["PASS","FAIL"]},"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"issue":{"type":"string"}},"required":["file","line","issue"],"additionalProperties":false}}},"required":["status","findings"],"additionalProperties":false}'
       - name: 发布评审结论并阻止有明确缺陷的 PR 合并
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
