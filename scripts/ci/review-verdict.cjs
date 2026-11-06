@@ -23,10 +23,12 @@ function reviewText(executionFile) {
 
 function parseVerdict(raw) {
   let json = raw.trim();
-  const fence = json.match(/^`(?:json)?s*?
-([sS]*?)?
-`$/i);
-  if (fence) json = fence[1].trim();
+  const codeFence = String.fromCharCode(96).repeat(3);
+  const lines = json.split(/\r?\n/);
+  if ((lines[0] === codeFence || lines[0] === codeFence + 'json') &&
+      lines.length >= 3 && lines.at(-1) === codeFence) {
+    json = lines.slice(1, -1).join('\n').trim();
+  }
   const result = JSON.parse(json);
   if (!result || typeof result !== 'object' || Array.isArray(result) ||
       typeof result.summary !== 'string' || !result.summary.trim() ||
