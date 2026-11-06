@@ -7,7 +7,9 @@ import { utcDayStart } from "./stale-work.ts";
 export const GROUPING_WARN_AFTER_MS = 10 * 60_000;
 type WaitingNews = Omit<BeforeJson<AdminRuns>["grouping"]["items"][number], "since"> & { since: Date };
 
-export async function waitingSelectedNews(): Promise<WaitingNews[]> {
+/** Alerts need a rolling window across midnight; only the admin diagnostics reset by UTC day. */
+export async function waitingSelectedNews(period: 'rolling-24h' | 'utc-day' = 'rolling-24h'): Promise<WaitingNews[]> {
+  const cutoff = period === 'utc-day' ? utcDayStart() : new Date(Date.now() - 24 * 60 * 60_000);
   const rows = await sql<Array<Omit<WaitingNews, "recovery"> & { running: boolean; receipt_status: string | null; released: boolean }>>`
     SELECT p.article_id AS "articleId", p.title,
            -- Waiting since it became a candidate, its last revision or an admin's regroup request (requestRegroup's job).
@@ -23,7 +25,7 @@ export async function waitingSelectedNews(): Promise<WaitingNews[]> {
     FROM publications p JOIN articles a ON a.id = p.article_id LEFT JOIN receipts r ON r.id = a.grouping_receipt_id
     LEFT JOIN article_revisions revision ON revision.article_id = a.id AND revision.revision = a.revision
     WHERE p.selection_candidate AND p.eligible AND p.visibility = 'public' AND a.grouping_status <> 'complete'
-      AND greatest(a.discovered_at, a.updated_at) >= ${utcDayStart()}
+      AND greatest(a.discovered_at, a.updated_at) >= ${cutoff}
     ORDER BY since, p.article_id`;
   return rows.map(({ running, receipt_status, released, ...row }) => ({
     ...row,
