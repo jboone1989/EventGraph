@@ -66,8 +66,8 @@ if [[ "${1:-}" == "--check" ]]; then
  python3 scripts/production-smoke.py
  exit 0
 fi
-# Graphiti/Neo4j has a separate image; an app digest cannot silently replace it.
-# Keep the existing knowledge image/version. Graphiti is released independently.
+# Graphiti is deployed by release-main.yml's separate deploy_knowledge job.
+# This application step intentionally leaves the knowledge/Neo4j services untouched.
 if [[ "$APP_CHANGED" == 1 ]]; then
   echo "[1/5] Pull the already verified develop image (no host build)"
   # GitHub Actions can supply a read-only ephemeral GHCR token; manual releases can reuse host credentials.

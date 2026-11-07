@@ -10,7 +10,6 @@ const weights: Record<string, Complexity> = {
 };
 const levels: Record<Complexity, number> = { light: 0, medium: 1, heavy: 2 };
 const cooling = new Map<string, number>();
-const accountCooling = new Map<string, number>();
 // The most recently successful free model is reused until an explicit rejection.
 // Keyed by required tier and capability, never by workflow or arbitrary test latency.
 const lastGood = new Map<string, string>();
@@ -25,10 +24,9 @@ export function rememberSuccessfulRoute(reference:string,stage:string,needsVisio
 }
 
 /** After a rejection do not pick the same cached model again. */
-export function coolDownModel(id:string,providerId:string,seconds=60,accountWide=false):void {
+export function coolDownModel(id:string,seconds=60):void {
   const until=Date.now()+Math.max(1,seconds)*1000;
   cooling.set(id,until);
-  if(accountWide)accountCooling.set(providerId,until);
   for(const [key,cachedId] of lastGood)if(cachedId===id)lastGood.delete(key);
 }
 
@@ -42,7 +40,7 @@ export function rankFreeModels(models:RegisteredModel[],connections:ProviderConn
     return !!c&&c.enabled&&c.credential.configured&&m.billing==='free'&&
       m.enabled&&m.routeEnabled&&m.adapter==='chat'&&
       m.routing.eligibleCapabilities.includes(capability)&&levels[m.complexity]>=levels[target]&&
-      !excluded.has(m.id)&&(cooling.get(m.id)??0)<=now&&(accountCooling.get(c.id)??0)<=now;
+      !excluded.has(m.id)&&(cooling.get(m.id)??0)<=now;
   }).sort((a,b)=>{
     // Previously successful free model wins; otherwise stay in the requested tier.
     const cachedDifference=Number(b.id===cached)-Number(a.id===cached);
@@ -60,10 +58,6 @@ export async function selectConfiguredProviderForStage(stage:string,needsVision=
   return 'model:'+candidates[0]!.id;
 }
 
-export async function coolDownReference(reference:string,seconds=60,accountWide=false):Promise<void> {
-  if(!reference.startsWith('model:'))return;
-  const id=reference.slice(6);
-  const models=await listRegisteredModels();
-  const m=models.find(item=>item.id===id);
-  if(m)coolDownModel(id,m.providerId,seconds,accountWide);
+export function coolDownReference(reference:string,seconds=60):void {
+  if(reference.startsWith('model:'))coolDownModel(reference.slice(6),seconds);
 }
