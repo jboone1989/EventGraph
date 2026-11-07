@@ -13,7 +13,6 @@ import { Sidebar } from "./components/shell/Sidebar";
 import { LanguageSwitch, setUiLanguage, useText, useUiLanguage } from "./components/LanguageSwitch";
 import { ClientLanguageMeta } from "./components/ClientLanguageMeta";
 import { isEnglishPath } from "./lib/edition";
-import { AnalyticsTracker } from "./components/AnalyticsTracker";
 import { TabBar } from "./components/shell/TabBar";
 import { PullToRefresh } from "./components/shell/PullToRefresh";
 import { usePageTransition } from "./components/shell/transitions";
@@ -38,12 +37,9 @@ export const links: Route.LinksFunction = () => [
 export async function loader({ request }: Route.LoaderArgs) {
   // Only public project/verification tokens reach HTML. Never expose private API keys.
   const cloudflare = process.env.CLOUDFLARE_WEB_ANALYTICS_TOKEN ?? "";
-  const posthog = process.env.POSTHOG_PROJECT_TOKEN ?? "";
   const searchConsole = process.env.GOOGLE_SITE_VERIFICATION ?? "";
   const analytics = {
     cloudflareToken: /^[a-zA-Z0-9_-]{16,100}$/.test(cloudflare) ? cloudflare : null,
-    posthogToken: /^phc_[a-zA-Z0-9]{16,100}$/.test(posthog) ? posthog : null,
-    posthogRegion: process.env.POSTHOG_REGION === "eu" ? "eu" as const : "us" as const,
     searchConsoleVerification: /^[a-zA-Z0-9_-]{8,160}$/.test(searchConsole) ? searchConsole : null,
   };
   const release = process.env.AIHOT_RELEASE ?? null;
@@ -173,7 +169,6 @@ export default function App() {
   if (pathname === "/admin" || pathname.startsWith("/admin/")) return <Outlet />;
   return (
     <>
-      <AnalyticsTracker config={meta.analytics} />
       <SiteShell changelogVersion={meta.changelogVersion}>
         <Outlet />
       </SiteShell>
