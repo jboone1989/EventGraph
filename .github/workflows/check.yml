@@ -52,10 +52,11 @@ jobs:
         env:
           SCOPE_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
           SCOPE_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          SCOPE_BASE_REF: ${{ github.event.pull_request.base.ref }}
-          SCOPE_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          SCOPE_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          SCOPE_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref_name }}
+          SCOPE_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          SCOPE_HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           SCOPE_REPOSITORY: ${{ github.repository }}
+          SCOPE_EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           # A GITHUB_TOKEN merge requires explicit develop workflow_dispatch.
