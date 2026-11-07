@@ -129,10 +129,8 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           tag="ghcr.io/jboone1989/eventgraph-app:sha-$SOURCE_SHA"
-          digest="$(docker buildx imagetools inspect "$tag" | awk '/^Digest:/ {print $2; exit}')"
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] ||
-            { echo '::error::No immutable digest for the exact verified develop SHA'; exit 1; }
-          image_ref="ghcr.io/jboone1989/eventgraph-app@$digest"
+          manifest="$(docker buildx imagetools inspect "$tag")"
+          image_ref="$(printf '%s\n' "$manifest" | node scripts/ci/promotion-source-equivalence.mjs --immutable-image-ref "$SOURCE_SHA")"
           docker buildx imagetools inspect "$image_ref" >/dev/null
           echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
           echo "::notice::Exact source=$SOURCE_SHA immutable image=$image_ref"
