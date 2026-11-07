@@ -82,7 +82,86 @@ jobs:
             echo "::error::GH_AW_GITHUB_TOKEN missing; Worker run ${WORKER_RUN_ID} (${WORKER_RUN_URL})"
             exit 1
           }
-          if [[ "$WORKER_DISPLAY_TITLE" =~ ^gh-aw[ ]work-queue[ ](d_[0-9a-f]{64}_[1-9][0-9]*)$ ]]; then
+          native_title_re='^gh-aw work-queue (d_[0-9a-f]{64}_[1-9][0-9]*)
+            dispatch_id="${BASH_REMATCH[1]}"
+          else
+            echo "::error::Unrecognized native Worker run title; run ${WORKER_RUN_ID} (${WORKER_RUN_URL}). Expected exact gh-aw work-queue d_<64-hex>_<attempt>; no reconciliation attempted."
+            exit 1
+          fi
+          echo "Verified terminal Worker run ${WORKER_RUN_ID}; reconciling ${dispatch_id}"
+          if ! result="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" reconcile --dispatch-id "$dispatch_id" --json)"; then
+            echo "::error::Native reconciliation failed for ${dispatch_id} (run ${WORKER_RUN_ID}, ${WORKER_RUN_URL})."
+            echo "Manual recovery: gh aw work-queue --repo ${GITHUB_REPOSITORY} reconcile --dispatch-id ${dispatch_id} --json"
+            exit 1
+          fi
+          if ! jq -e '(.reason | type == "string") and (.state | type == "string")' <<< "$result" >/dev/null; then
+            echo "::error::Malformed native reconciliation response for ${dispatch_id}; do not assume Release."
+            echo "Manual verification: gh aw work-queue --repo ${GITHUB_REPOSITORY} reconcile --dispatch-id ${dispatch_id} --json"
+            exit 1
+          fi
+          jq -c '{state, reason, release}' <<< "$result"
+      - name: Admit approved Spec tasks only from current verified develop
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
+          SPEC_WORK_GRAPH_DIR: ${{ runner.temp }}/spec-work-graphs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
+          if [[ "$current" != "$EXPECTED_HEAD" ]]; then
+            echo '::notice::Stale develop Check; newer Check will admit tasks'
+            exit 0
+          fi
+          rm -rf "$SPEC_WORK_GRAPH_DIR"
+          mkdir -p "$SPEC_WORK_GRAPH_DIR"
+          node scripts/ci/spec-task-producer.mjs
+          shopt -s nullglob
+          for graph_file in "$SPEC_WORK_GRAPH_DIR"/*.json; do
+            gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-graph --file "$graph_file"
+          done
+      - name: Dispatch at most one eligible native Work
+        if: >-
+          ${{ vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
+              (github.event_name != 'workflow_run' ||
+               github.event.workflow_run.path != '.github/workflows/eventgraph-worker.lock.yml' ||
+               (github.event.workflow_run.status == 'completed' &&
+                github.event.workflow_run.conclusion == 'success')) }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
+          CHECK_EVENT: ${{ github.event.workflow_run.path == '.github/workflows/check.yml' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          if [[ "$CHECK_EVENT" == true ]]; then
+            current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
+            [[ "$current" == "$EXPECTED_HEAD" ]] || {
+              echo '::notice::Superseded Check; skip dispatch'; exit 0;
+            }
+          fi
+          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq length)"
+          [[ "$open" == 0 ]] || { echo 'Open agent-work PR; no parallel dispatch'; exit 0; }
+          snapshot="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" stats --json 2>&1)"
+          jq -e '
+            (.grants_paused | type == "boolean") and
+            (.pools | type == "array") and
+            all(.pools[]; (.pool | type == "string") and (.scheduling_eligible | type == "number"))
+          ' <<< "$snapshot" >/dev/null || {
+            echo '::error::Malformed native Work Queue stats'; exit 1;
+          }
+          if ! jq -e '
+            .grants_paused == false and
+            ([.pools[] | select(.pool == "default") | .scheduling_eligible] | add // 0) > 0
+          ' <<< "$snapshot" >/dev/null; then
+            echo 'No eligible native Work'; exit 0
+          fi
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait
+
+          if [[ "$WORKER_DISPLAY_TITLE" =~ $native_title_re ]]; then
             dispatch_id="${BASH_REMATCH[1]}"
           else
             echo "::error::Unrecognized native Worker run title; run ${WORKER_RUN_ID} (${WORKER_RUN_URL}). Expected exact gh-aw work-queue d_<64-hex>_<attempt>; no reconciliation attempted."
