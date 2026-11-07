@@ -169,7 +169,7 @@ export async function currentNewsQueueItems(): Promise<NonNullable<Runs["current
       ORDER BY r.updated_at DESC, r.id DESC LIMIT 1
     ) latest_model ON true
     WHERE (
-        (a.processing_state IN ('new', 'failed') AND ((a.discovered_at >= ${utcDayStart()} OR (${alias}updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = ${alias}id))) OR EXISTS (
+        (a.processing_state IN ('new', 'failed') AND ((a.discovered_at >= ${utcDayStart()} OR (a.updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id))) OR EXISTS (
           SELECT 1 FROM receipts failure WHERE substring(failure.subject from '^article:([^@:#]+)') = a.id
             AND failure.status = 'failed' AND failure.updated_at >= ${utcDayStart()}
         ) OR EXISTS (
@@ -228,7 +228,7 @@ export async function backlogCausesOverview(): Promise<NonNullable<Runs["backlog
           AND substring(r.subject from '^article:([^@:#]+)') = a.id) AS unverified_receipt
       FROM articles a JOIN sources src ON src.id = a.source_id
       WHERE a.processing_state IN ('new', 'failed')
-        AND (a.discovered_at >= ${utcDayStart()} OR (${alias}updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = ${alias}id)))
+        AND (a.discovered_at >= ${utcDayStart()} OR (a.updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
         AND a.discovered_at <= now()
         AND NOT a.backfill AND src.participation_mode = 'editorial'
     ), classified AS (
@@ -535,7 +535,7 @@ export async function requeueFailedArticles(input: { group?: string | null; arti
         SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
         WHERE a.id = ${id} AND a.processing_state = 'failed'
           AND NOT a.backfill AND s.participation_mode = 'editorial'
-          AND ${lane("a.")}
+          AND (a.discovered_at >= ${utcDayStart()} OR (a.updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
         FOR UPDATE OF a`;
       if (!eligible) throw Object.assign(new Error("这条新闻已不在当前失败队列，请刷新页面"), { statusCode: 409 });
       const [unverified] = await tx`
