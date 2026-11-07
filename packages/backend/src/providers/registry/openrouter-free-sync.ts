@@ -71,7 +71,9 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
   // startup migration (online migrations forbid bulk data updates).
   await tx`UPDATE registered_models SET adapter='unconfigured',
    enabled=false,route_enabled=false,probe_spec=NULL
-   WHERE provider_id=${providerId}::uuid AND adapter='special'`;
+   WHERE provider_id=${providerId}::uuid AND adapter='special'
+    AND version=1 AND NOT route_enabled
+    AND upstream_metadata->'openrouterFreeSync'->>'adapter'='special'`;
   let noLongerFree=0,removed=0;
   for(const row of existing){
    if(freeIds.has(row.model_id)||!row.upstream_metadata?.openrouterFreeSync)continue;
