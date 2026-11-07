@@ -250,7 +250,7 @@ jobs:
 
       - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/validate-tasks.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/admin-ui-reuse.test.mjs scripts/ci/parse-review-verdict.test.mjs scripts/ci/promotion-source-equivalence.test.mjs scripts/ci/gh-aw-local-worker.test.mjs scripts/ci/native-worker-reconcile.test.mjs
+        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/validate-tasks.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/admin-ui-reuse.test.mjs scripts/ci/parse-review-verdict.test.mjs scripts/ci/promotion-source-equivalence.test.mjs scripts/ci/gh-aw-local-worker.test.mjs scripts/ci/native-worker-reconcile.test.mjs scripts/ci/history-sync.test.mjs
       - name: Enforce pre-existing approved Spec
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
