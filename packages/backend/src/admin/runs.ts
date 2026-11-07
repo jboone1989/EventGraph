@@ -185,13 +185,17 @@ export async function currentNewsQueueItems(): Promise<NonNullable<Runs["current
               ON revision.article_id = a.id AND revision.revision = a.revision
             WHERE p.article_id = a.id
               AND p.selection_candidate AND p.eligible AND p.visibility = 'public'
-              AND greatest(
+              AND (greatest(
                 coalesce(p.selected_ready_at, p.discovered_at),
                 revision.created_at,
                 (SELECT max(j.created_on) FROM pgboss.job j
                   WHERE j.name = 'events.group' AND j.data->>'articleId' = a.id
                     AND j.singleton_key LIKE 'manual:group:%')
-              ) >= ${utcDayStart()}
+              ) >= ${utcDayStart()} OR EXISTS (
+                SELECT 1 FROM pgboss.job failure WHERE failure.data->>'articleId' = a.id
+                  AND failure.name = 'events.group' AND failure.state = 'failed'
+                  AND failure.completed_on >= ${utcDayStart()}
+              ))
           ))
       )
       AND a.discovered_at <= now() AND NOT a.backfill AND s.participation_mode = 'editorial'
