@@ -23,9 +23,16 @@ function classify() {
         !process.env.SCOPE_REPOSITORY ||
         process.env.SCOPE_HEAD_REPO !== process.env.SCOPE_REPOSITORY) return false;
     const parents = git("rev-list", "--parents", "-n", "1", head).trim().split(/\s+/);
-    if (parents.length !== 3 || parents[0] !== head || parents[1] !== base) return false;
-    const mainBase = git("merge-base", base, parents[2]).trim();
-    if (!mainBase || git("diff", "--name-only", mainBase, parents[2]).trim()) return false;
+    if (head === base || parents.length !== 3 || parents[0] !== head) return false;
+    let mainTip;
+    try { mainTip = git("rev-parse", "refs/remotes/origin/main").trim(); }
+    catch { mainTip = git("rev-parse", "refs/heads/main").trim(); }
+    try {
+      git("merge-base", "--is-ancestor", base, head);
+      git("merge-base", "--is-ancestor", mainTip, head);
+    } catch { return false; }
+    const mainBase = git("merge-base", base, mainTip).trim();
+    if (!mainBase || git("diff", "--name-only", mainBase, mainTip).trim()) return false;
     return git("rev-parse", `${head}^{tree}`).trim() === git("rev-parse", `${base}^{tree}`).trim();
   }
   // Same classification as check-spec.mjs's documentation-only fast path.
