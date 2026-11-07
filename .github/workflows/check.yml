@@ -51,7 +51,12 @@ jobs:
         id: scope
         env:
           SCOPE_BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
-          SCOPE_HEAD_SHA: ${{ github.sha }}
+          SCOPE_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          SCOPE_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref_name }}
+          SCOPE_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          SCOPE_HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
+          SCOPE_REPOSITORY: ${{ github.repository }}
+          SCOPE_EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           # A GITHUB_TOKEN merge requires explicit develop workflow_dispatch.
@@ -241,11 +246,12 @@ jobs:
             .github/workflows/check.yml \
             .github/workflows/release-develop.yml \
             .github/workflows/release-main.yml \
+            .github/workflows/sync-main-history.yml \
             .github/workflows/eventgraph-native-queue-events.yml
 
       - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/validate-tasks.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/admin-ui-reuse.test.mjs scripts/ci/parse-review-verdict.test.mjs scripts/ci/promotion-source-equivalence.test.mjs scripts/ci/gh-aw-local-worker.test.mjs scripts/ci/native-worker-reconcile.test.mjs
+        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/validate-tasks.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/admin-ui-reuse.test.mjs scripts/ci/parse-review-verdict.test.mjs scripts/ci/promotion-source-equivalence.test.mjs scripts/ci/gh-aw-local-worker.test.mjs scripts/ci/native-worker-reconcile.test.mjs scripts/ci/history-sync.test.mjs
       - name: Enforce pre-existing approved Spec
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
@@ -574,11 +580,12 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          git diff --no-ext-diff --unified=3 "$BASE_SHA" "$HEAD_SHA" -- \
+          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git diff --no-ext-diff --unified=3 "$merge_base" "$HEAD_SHA" -- \
             . ':(exclude).github/workflows/*.lock.yml' > pr-review.diff
           # Review the compiled Worker settings alongside its source when changed.
           # Other generated lock files remain excluded to keep the review bounded.
-          git diff --no-ext-diff --unified=0 "$BASE_SHA" "$HEAD_SHA" -- \
+          git diff --no-ext-diff --unified=0 "$merge_base" "$HEAD_SHA" -- \
             .github/workflows/eventgraph-worker.lock.yml >> pr-review.diff
           test -s pr-review.diff
 
@@ -763,6 +770,12 @@ jobs:
           # Never squash history-preserving synchronization branches.
           # Back-sync main and upstream import require merge commits for ancestry checks.
           head_ref="$(jq -r '.head.ref' <<< "$pr")"
+          if [[ "$head_ref" == sync/main-history-* ]]; then
+            # The prior check job validates both parents, exact develop tree and
+            # absence of main-only changes. Never squash away these ancestors.
+            gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --auto --merge
+            exit 0
+          fi
           if [[ "$head_ref" == "main" || "$head_ref" == chore/aihot-upstream-* ]]; then
             echo "::notice::History-preserving sync PR; skip squash auto-merge"
             exit 0

@@ -94,3 +94,11 @@ For GH-AW source edits, compile with `gh aw compile eventgraph-worker eventgraph
 ## Operation and recovery
 
 To re-run CI after editing only PR metadata or retargeting its base, dispatch GitHub `Check` on the current PR branch with the exact 40-character `expected_sha`. To re-release a verified develop SHA, dispatch that same pinned Check on develop. `Release production` accepts only an exact main SHA and never bypasses digest validation or environment gates.
+
+## main/develop 发布历史同步（2026-11）
+
+- 功能 PR 仍只进入 `develop`；生产通过同仓库 `develop → main` 的正常 Merge Commit 晋级已验证镜像。
+- `main` 合并后的 GitHub 原生 `.github/workflows/sync-main-history.yml` 在 main push 时生成不改变 develop 文件内容的两父提交和受保护的 `sync/main-history-*` PR；仅同步提交祖先，不接触数据库、生产容器或定时任务。
+- 自动化首先检查 main 相对共同祖先没有新的文件内容，否则失败而非使用 `ours` 丢弃主线修改。仅在已验证文件树与当前 develop 完全一致、main/develop 均属于提交祖先时，将同步 PR 经现有 Check 门禁使用 **Merge Commit（禁止 squash/rebase）** 自动合并。
+- 纯历史同步的 PR 经确定性检查后可跳过无意义的 Docker/E2E 和付费代码评审；普通功能 PR 继续按 Spec、CI 和独立评审执行。PR review 差异以 `merge-base(base, head)..head` 为准，不把 develop 后续提交误认为代码被删除。
+- develop 在等待期间推进时，由现有 `refresh_behind_prs` 原生更新 PR 分支后重新检查；main 再次推进时淘汰过时同步 PR 并生成新 PR。可在 GitHub Actions 对 `发布后同步 main 历史到 develop` 手动 dispatch，必须提供当前 main 精确 SHA，用于首次上线清理已有分叉。
