@@ -319,7 +319,7 @@ export async function requeueFailed(group: string | null, limit: number | null =
         SELECT id FROM articles
         WHERE processing_state = 'failed' AND NOT backfill
           AND EXISTS (SELECT 1 FROM sources s WHERE s.id = articles.source_id AND s.participation_mode = 'editorial')
-          AND ${lane("")}
+          AND (discovered_at >= ${utcDayStart()} OR (updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = articles.id)))
           AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
           -- Never retry an unverified provider call: it may already have been billed.
           AND NOT EXISTS (
