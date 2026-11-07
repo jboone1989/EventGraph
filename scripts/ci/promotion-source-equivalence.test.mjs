@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { isPromotionControlPath, runtimeDifferences, releaseInputDifferences } from "./promotion-source-equivalence.mjs";
+import { isPromotionControlPath, runtimeDifferences, releaseInputDifferences, promotionSourceCandidates, immutableImageRef } from "./promotion-source-equivalence.mjs";
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -184,4 +184,96 @@ test("production --classify-push CLI emits exact release intent for runtime, pin
       rmSync(f.cwd, { recursive: true, force: true });
     }
   }
+});
+
+/** Two-parent merge: main keeps its own prior release metadata, develop has a
+ * code commit followed by a governance-only commit. The code commit models
+ * the successful GHCR publish; a separate GH check verifies that in Actions.
+ */
+function promotionFixture() {
+  const f = fixture({ "apps/web/app.ts": "export const value = 2;\n" });
+  const published = f.head;
+  git(f.cwd, "branch", "develop", published);
+  git(f.cwd, "checkout", "-q", "-b", "main", f.base);
+  write(f.cwd, ".github/production-image.env", "SOURCE_SHA=legacy\n");
+  git(f.cwd, "add", ".");
+  git(f.cwd, "commit", "-qm", "previous main release metadata");
+  git(f.cwd, "checkout", "-q", "develop");
+  write(f.cwd, "specs/base/spec.md", "# Approved after publish\n");
+  git(f.cwd, "add", ".");
+  git(f.cwd, "commit", "-qm", "approved spec after publish");
+  const docsTip = git(f.cwd, "rev-parse", "HEAD");
+  git(f.cwd, "checkout", "-q", "main");
+  git(f.cwd, "merge", "--no-ff", "-m", "promote develop into main", "develop");
+  return { ...f, published, docsTip, merged: git(f.cwd, "rev-parse", "HEAD") };
+}
+
+test("promotion selects spec-only develop ancestors before the last verified image", () => {
+  const f = promotionFixture();
+  try {
+    const result = promotionSourceCandidates(f.merged, f.cwd);
+    assert.equal(result.developParent, f.docsTip);
+    assert.deepEqual(result.candidates, [f.docsTip, f.published]);
+    const cli = spawnSync(process.execPath,
+      [fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url)),
+       "--promotion-candidates", f.merged], { cwd: f.cwd, encoding: "utf8" });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.equal(cli.stdout.trim(), [f.docsTip, f.published].join("\n"));
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("promotion refuses to cross a runtime change to find an older image", () => {
+  const f = promotionFixture();
+  try {
+    // The pre-publish base does not have today's app. It must never be a candidate.
+    assert.ok(!promotionSourceCandidates(f.merged, f.cwd).candidates.includes(f.base));
+    write(f.cwd, "apps/web/app.ts", "export const value = 3;\n");
+    git(f.cwd, "add", ".");
+    git(f.cwd, "commit", "-qm", "unverified runtime-only main hotfix");
+    assert.throws(() => promotionSourceCandidates("HEAD", f.cwd),
+      /two-parent develop.*main merge/);
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("promotion rejects a non-merge source and invalid commit reference", () => {
+  const f = fixture({ "specs/base/spec.md": "# Governance only\n" });
+  try {
+    assert.throws(() => promotionSourceCandidates(f.head, f.cwd), /two-parent/);
+    assert.throws(() => promotionSourceCandidates("missing-ref", f.cwd));
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("host runtime exclusions mirror the single promotion control-path policy", () => {
+  const host = readFileSync(fileURLToPath(new URL("../deploy-prod.sh", import.meta.url)), "utf8");
+  for (const excluded of [
+    ".github/**", "scripts/ci/**", "specs/**", "scripts/deploy-prod.sh",
+    "docs/ci-cd.md", "docs/spec-review.md", "docs/production-deployment.md",
+  ]) {
+    assert.ok(host.includes(`':(exclude)${excluded}'`), `host missed policy exclusion ${excluded}`);
+  }
+  for (const required of ["apps/**", "packages/**", "Dockerfile", "database/**",
+      "package.json", "docker-compose.yml", "industry/**"]) {
+    assert.ok(!host.includes(`':(exclude)${required}'`), `host ignored runtime source ${required}`);
+  }
+});
+
+test("exact GHCR SHA-tag manifest requires one valid immutable digest", () => {
+  const sha = "a".repeat(40);
+  const digest = "sha256:" + "b".repeat(64);
+  const manifest = `Name: ghcr.io/jboone1989/eventgraph-app:sha-${sha}\nDigest: ${digest}\nMediaType: application/vnd.oci.image.index.v1+json\n`;
+  assert.equal(immutableImageRef(sha, manifest), `ghcr.io/jboone1989/eventgraph-app@${digest}`);
+  assert.throws(() => immutableImageRef("bad", manifest), /develop SHA/);
+  assert.throws(() => immutableImageRef(sha, "Digest: sha256:short"), /immutable GHCR digest/);
+  assert.throws(() => immutableImageRef(sha, manifest + `Digest: ${digest}\n`), /one valid/);
+  const cli = spawnSync(process.execPath,
+    [fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url)),
+     "--immutable-image-ref", sha], { input: manifest, encoding: "utf8" });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(cli.stdout.trim(), `ghcr.io/jboone1989/eventgraph-app@${digest}`);
 });
