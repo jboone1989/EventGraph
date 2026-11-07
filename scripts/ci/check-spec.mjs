@@ -46,6 +46,27 @@ if (process.env.SPEC_BASE_REF === "develop" &&
     process.exit(0);
   }
 }
+// A history-only sync uses a dedicated two-parent merge commit with the exact
+// develop tree. Validate ancestry, not just the PR's empty changed-file list.
+if (process.env.SPEC_BASE_REF === "develop" &&
+    /^sync\/main-history-[a-z0-9-]+$/.test(process.env.SPEC_HEAD_REF || "") &&
+    process.env.SPEC_REPOSITORY &&
+    process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY) {
+  const parents = git("rev-list", "--parents", "-n", "1", head).trim().split(/\s+/);
+  if (parents.length !== 3 || parents[0] !== head || parents[1] !== base) {
+    fail("History sync requires a merge with current develop as first parent.");
+  }
+  const mainParent = parents[2];
+  const mainBase = git("merge-base", base, mainParent).trim();
+  if (!mainBase || git("diff", "--name-only", mainBase, mainParent).trim()) {
+    fail("History sync cannot discard main-only file changes.");
+  }
+  if (git("rev-parse", `${head}^{tree}`).trim() !== git("rev-parse", `${base}^{tree}`).trim()) {
+    fail("History sync tree must exactly match develop.");
+  }
+  console.log("Spec gate PASS: verified no-content history-only release sync.");
+  process.exit(0);
+}
 const ancestor = git("merge-base", base, head).trim();
 const files = git("diff", "--no-renames", "--name-only", "-z", ancestor, head).split("\0").filter(Boolean);
 if (files.length === 0) fail("No changed files found; cannot validate PR scope.");
