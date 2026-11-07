@@ -158,14 +158,23 @@ export async function currentNewsQueueItems(): Promise<NonNullable<Runs["current
       ORDER BY r.updated_at DESC, r.id DESC LIMIT 1
     ) latest_model ON true
     WHERE (
-        a.processing_state IN ('new', 'failed')
+        (a.processing_state IN ('new', 'failed') AND a.discovered_at >= ${utcDayStart()})
         OR (a.processing_state = 'analyzed' AND a.grouping_status IN ('pending', 'failed')
-          AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id
-            AND p.selection_candidate AND p.eligible AND p.visibility = 'public'))
+          AND EXISTS (
+            SELECT 1 FROM publications p
+            LEFT JOIN article_revisions revision
+              ON revision.article_id = a.id AND revision.revision = a.revision
+            WHERE p.article_id = a.id
+              AND p.selection_candidate AND p.eligible AND p.visibility = 'public'
+              AND greatest(
+                coalesce(p.selected_ready_at, p.discovered_at),
+                revision.created_at,
+                (SELECT max(j.created_on) FROM pgboss.job j
+                  WHERE j.name = 'events.group' AND j.data->>'articleId' = a.id
+                    AND j.singleton_key LIKE 'manual:group:%')
+              ) >= ${utcDayStart()}
+          ))
       )
-      AND (a.discovered_at >= ${utcDayStart()} OR
-        (a.updated_at >= ${utcDayStart()} AND EXISTS
-          (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
       AND a.discovered_at <= now() AND NOT a.backfill AND s.participation_mode = 'editorial'
     ORDER BY a.discovered_at DESC, a.id
   `;
@@ -202,9 +211,7 @@ export async function backlogCausesOverview(): Promise<NonNullable<Runs["backlog
           AND substring(r.subject from '^article:([^@:#]+)') = a.id) AS unverified_receipt
       FROM articles a JOIN sources src ON src.id = a.source_id
       WHERE a.processing_state IN ('new', 'failed')
-        AND (a.discovered_at >= ${utcDayStart()} OR
-          (a.updated_at >= ${utcDayStart()} AND EXISTS
-            (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+        AND a.discovered_at >= ${utcDayStart()}
         AND a.discovered_at <= now()
         AND NOT a.backfill AND src.participation_mode = 'editorial'
     ), classified AS (
@@ -298,7 +305,9 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
         SELECT attempt.error FROM receipt_attempts attempt
         WHERE attempt.receipt_id = r.id ORDER BY attempt.id DESC LIMIT 1
       ) last_attempt ON true
-      WHERE (r.created_at >= ${utcDayStart()} OR r.status = 'unknown')
+      -- The lifetime of an unresolved receipt does not make it today's failed call.
+      -- Keep cross-day unknowns in receipts.issues for manual verification instead.
+      WHERE r.updated_at >= ${utcDayStart()}
         AND r.model IS NOT NULL AND r.purpose <> 'model_provider_probe'
         AND r.status IN ('failed', 'unknown', 'pending')
         AND NOT EXISTS (
@@ -444,9 +453,7 @@ export async function runsOverview(): Promise<Runs> {
              (array_agg(a.id ORDER BY a.discovered_at DESC))[1] AS example
       FROM articles a JOIN sources s ON s.id = a.source_id
       WHERE a.processing_state = 'failed' AND NOT a.backfill AND s.participation_mode = 'editorial'
-        AND (a.discovered_at >= ${utcDayStart()} OR
-          (a.updated_at >= ${utcDayStart()} AND EXISTS
-            (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+        AND a.discovered_at >= ${utcDayStart()}
         -- Unknown or pending provider results require explicit verification, not bulk retry.
         AND NOT EXISTS (
           SELECT 1 FROM receipts r WHERE r.status IN ('pending','unknown')
@@ -510,8 +517,7 @@ export async function requeueFailedArticles(input: { group?: string | null; arti
         SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
         WHERE a.id = ${id} AND a.processing_state = 'failed'
           AND NOT a.backfill AND s.participation_mode = 'editorial'
-          AND (a.discovered_at >= ${utcDayStart()} OR
-            (a.updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
+          AND a.discovered_at >= ${utcDayStart()}
         FOR UPDATE OF a`;
       if (!eligible) throw Object.assign(new Error("这条新闻已不在当前失败队列，请刷新页面"), { statusCode: 409 });
       const [unverified] = await tx`
