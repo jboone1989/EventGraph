@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { isPromotionControlPath, runtimeDifferences, releaseInputDifferences, promotionSourceCandidates } from "./promotion-source-equivalence.mjs";
+import { isPromotionControlPath, runtimeDifferences, releaseInputDifferences, promotionSourceCandidates, immutableImageRef } from "./promotion-source-equivalence.mjs";
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -261,4 +261,19 @@ test("host runtime exclusions mirror the single promotion control-path policy", 
       "package.json", "docker-compose.yml", "industry/**"]) {
     assert.ok(!host.includes(`':(exclude)${required}'`), `host ignored runtime source ${required}`);
   }
+});
+
+test("exact GHCR SHA-tag manifest requires one valid immutable digest", () => {
+  const sha = "a".repeat(40);
+  const digest = "sha256:" + "b".repeat(64);
+  const manifest = `Name: ghcr.io/jboone1989/eventgraph-app:sha-${sha}\nDigest: ${digest}\nMediaType: application/vnd.oci.image.index.v1+json\n`;
+  assert.equal(immutableImageRef(sha, manifest), `ghcr.io/jboone1989/eventgraph-app@${digest}`);
+  assert.throws(() => immutableImageRef("bad", manifest), /develop SHA/);
+  assert.throws(() => immutableImageRef(sha, "Digest: sha256:short"), /immutable GHCR digest/);
+  assert.throws(() => immutableImageRef(sha, manifest + `Digest: ${digest}\n`), /one valid/);
+  const cli = spawnSync(process.execPath,
+    [fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url)),
+     "--immutable-image-ref", sha], { input: manifest, encoding: "utf8" });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(cli.stdout.trim(), `ghcr.io/jboone1989/eventgraph-app@${digest}`);
 });
