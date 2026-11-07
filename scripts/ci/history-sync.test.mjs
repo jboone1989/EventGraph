@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -97,7 +97,6 @@ test("wrong branch, fork, stale first parent and changed tree are never history 
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
 test("CI wiring uses PR head, merge-base review diff, and merge rather than squash for sync", () => {
-  const { readFileSync } = await import("node:fs");
   const wf = readFileSync(resolve(".github/workflows/check.yml"), "utf8");
   assert.match(wf, /SCOPE_HEAD_SHA:.*pull_request\.head\.sha/);
   assert.match(wf, /merge_base="\$\(git merge-base "\$BASE_SHA" "\$HEAD_SHA"\)"/);
