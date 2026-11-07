@@ -96,6 +96,33 @@ test("wrong branch, fork, stale first parent and changed tree are never history 
     assert.equal(classify(cwd, develop, badHead).stdout.trim(), "docs_only=false");
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+test("native update-branch keeps a safe sync mergeable after develop advances", () => {
+  const { cwd, main, develop, sync } = fixture();
+  try {
+    git(cwd, "checkout", "-q", "develop");
+    mkdirSync(join(cwd, "docs"), { recursive: true });
+    writeFileSync(join(cwd, "docs/update.md"), "# Subsequent change\n");
+    git(cwd, "add", ".");
+    git(cwd, "commit", "-qm", "feature PR merged while sync pending");
+    const nextDevelop = git(cwd, "rev-parse", "HEAD");
+    git(cwd, "checkout", "-q", "sync/main-history-test");
+    git(cwd, "merge", "--no-ff", "develop", "-m", "native update-branch");
+    const nextSync = git(cwd, "rev-parse", "HEAD");
+    assert.equal(git(cwd, "rev-parse", nextSync + "^{tree}"), git(cwd, "rev-parse", nextDevelop + "^{tree}"));
+    assert.equal(check(cwd, nextDevelop, nextSync).status, 0);
+    assert.equal(classify(cwd, nextDevelop, nextSync).stdout.trim(), "docs_only=true");
+    assert.notEqual(check(cwd, nextDevelop, sync).status, 0, "stale PR head must fail");
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
+test("main advances after old sync: never merge the stale head", () => {
+  const { cwd, develop, sync } = fixture();
+  try {
+    git(cwd, "checkout", "-q", "main");
+    git(cwd, "commit", "--allow-empty", "-qm", "next main promotion");
+    assert.notEqual(check(cwd, develop, sync).status, 0);
+    assert.equal(classify(cwd, develop, sync).stdout.trim(), "docs_only=false");
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
 test("CI wiring uses PR head, merge-base review diff, and merge rather than squash for sync", () => {
   const wf = readFileSync(resolve(".github/workflows/check.yml"), "utf8");
   assert.match(wf, /SCOPE_HEAD_SHA:.*pull_request\.head\.sha/);
