@@ -82,7 +82,8 @@ jobs:
             echo "::error::GH_AW_GITHUB_TOKEN missing; Worker run ${WORKER_RUN_ID} (${WORKER_RUN_URL})"
             exit 1
           }
-          native_title_re='^gh-aw work-queue (d_[0-9a-f]{64}_[1-9][0-9]*)
+          native_title_re='^gh-aw work-queue (d_[0-9a-f]{64}_[1-9][0-9]*)$'
+          if [[ "$WORKER_DISPLAY_TITLE" =~ $native_title_re ]]; then
             dispatch_id="${BASH_REMATCH[1]}"
           else
             echo "::error::Unrecognized native Worker run title; run ${WORKER_RUN_ID} (${WORKER_RUN_URL}). Expected exact gh-aw work-queue d_<64-hex>_<attempt>; no reconciliation attempted."
