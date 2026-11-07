@@ -20,6 +20,10 @@ test("removing a source hides it, blocks even forced fetch, and retains its arti
     sourceId: id, url: `https://example.com/articles/${id}`, title: 'Existing article',
     publishedAt: new Date(), via: 'fetch',
   });
+  const candidateId = `candidate-${id}`;
+  await sql`
+    INSERT INTO source_candidates (id, identity, status, origin_channel, kind, name, config, rationale, attached_source_id)
+    VALUES (${candidateId}, ${config.feedUrl}, 'trial', 'operator', 'rss', 'Remove me', ${sql.json(config as never)}, 'test candidate', ${id})`;
   assert.equal((await listSources({ q: id })).rows.length, 1);
 
   assert.deepEqual(await deleteSource(id, source!.updated_at.toISOString(), "test"), { id, deleted: true });
@@ -29,6 +33,8 @@ test("removing a source hides it, blocks even forced fetch, and retains its arti
   assert.equal(row!.health, "paused");
   assert.ok(row!.deleted_at);
   assert.equal(row!.next_fetch_at, null);
+  const [candidate] = await sql<{ manual_hold: boolean }[]>`SELECT manual_hold FROM source_candidates WHERE id = ${candidateId}`;
+  assert.equal(candidate!.manual_hold, true);
 
   assert.equal((await listSources({ q: id })).rows.length, 0);
   assert.equal(await sourceDetail(id), null);
