@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { isPromotionControlPath, runtimeDifferences, releaseInputDifferences } from "./promotion-source-equivalence.mjs";
+import { isPromotionControlPath, runtimeDifferences, releaseInputDifferences, promotionSourceCandidates } from "./promotion-source-equivalence.mjs";
 
 function git(cwd, ...args) {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -183,5 +183,68 @@ test("production --classify-push CLI emits exact release intent for runtime, pin
     } finally {
       rmSync(f.cwd, { recursive: true, force: true });
     }
+  }
+});
+
+/** Two-parent merge: main keeps its own prior release metadata, develop has a
+ * code commit followed by a governance-only commit. The code commit models
+ * the successful GHCR publish; a separate GH check verifies that in Actions.
+ */
+function promotionFixture() {
+  const f = fixture({ "apps/web/app.ts": "export const value = 2;\\n" });
+  const published = f.head;
+  git(f.cwd, "branch", "develop", published);
+  git(f.cwd, "checkout", "-q", "-b", "main", f.base);
+  write(f.cwd, ".github/production-image.env", "SOURCE_SHA=legacy\\n");
+  git(f.cwd, "add", ".");
+  git(f.cwd, "commit", "-qm", "previous main release metadata");
+  git(f.cwd, "checkout", "-q", "develop");
+  write(f.cwd, "specs/base/spec.md", "# Approved after publish\\n");
+  git(f.cwd, "add", ".");
+  git(f.cwd, "commit", "-qm", "approved spec after publish");
+  const docsTip = git(f.cwd, "rev-parse", "HEAD");
+  git(f.cwd, "checkout", "-q", "main");
+  git(f.cwd, "merge", "--no-ff", "-m", "promote develop into main", "develop");
+  return { ...f, published, docsTip, merged: git(f.cwd, "rev-parse", "HEAD") };
+}
+
+test("promotion selects spec-only develop ancestors before the last verified image", () => {
+  const f = promotionFixture();
+  try {
+    const result = promotionSourceCandidates(f.merged, f.cwd);
+    assert.equal(result.developParent, f.docsTip);
+    assert.deepEqual(result.candidates, [f.docsTip, f.published]);
+    const cli = spawnSync(process.execPath,
+      [fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url)),
+       "--promotion-candidates", f.merged], { cwd: f.cwd, encoding: "utf8" });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.equal(cli.stdout.trim(), [f.docsTip, f.published].join("\\n"));
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("promotion refuses to cross a runtime change to find an older image", () => {
+  const f = promotionFixture();
+  try {
+    // The pre-publish base does not have today's app. It must never be a candidate.
+    assert.ok(!promotionSourceCandidates(f.merged, f.cwd).candidates.includes(f.base));
+    write(f.cwd, "apps/web/app.ts", "export const value = 3;\\n");
+    git(f.cwd, "add", ".");
+    git(f.cwd, "commit", "-qm", "unverified runtime-only main hotfix");
+    assert.throws(() => promotionSourceCandidates("HEAD", f.cwd),
+      /two-parent develop.*main merge/);
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("promotion rejects a non-merge source and invalid commit reference", () => {
+  const f = fixture({ "specs/base/spec.md": "# Governance only\\n" });
+  try {
+    assert.throws(() => promotionSourceCandidates(f.head, f.cwd), /two-parent/);
+    assert.throws(() => promotionSourceCandidates("missing-ref", f.cwd));
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
   }
 });
