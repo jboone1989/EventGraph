@@ -1,6 +1,6 @@
 # EventGraph 管理功能开发合同：先写清产品行为，再选择复用方案
 
-**Status:** Draft — awaiting the repository's existing independent Spec Review and owner-delegated automatic approval. This Spec-only PR does not authorize application implementation until merged into develop.
+**Status:** Owner-approved (owner-delegated Spec Review of 1f9d5190b4d3928d8d2d841b6cc0f11d6a906b9e)
 **Target:** develop。沿用现有 Spec → GH-AW Worker → Check/E2E/独立 Review → develop 的流程，不新增调度器、审核 Agent 或 UI 框架。
 
 ## 1. 背景与目标
