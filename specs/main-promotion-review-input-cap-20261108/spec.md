@@ -1,6 +1,6 @@
 # Keep reviewed develop-to-main promotions from failing at the diff byte cutoff
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 646c6ccad1c0e996c74a13dd51a0ddf73a7ad8bf)
 **Type:** CI review gate correctness
 **Owner goal:** A valid `develop -> main` release PR should not deadlock solely because its accumulated diff is 1% over an arbitrary single-pass input ceiling; preserve independent review and all existing safety gates.
 
