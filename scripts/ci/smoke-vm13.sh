@@ -101,7 +101,7 @@ try {
         method: request.method(),
         resourceType: request.resourceType(),
         url: diagnosticUrl(request.url()),
-        failure: request.failure()?.errorText ?? 'unknown network failure',
+        failure: request.failure() ?? 'unknown network failure',
       });
     });
     page.on('pageerror', error => errors.push(String(error)));
