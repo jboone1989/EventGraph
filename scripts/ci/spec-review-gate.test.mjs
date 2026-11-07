@@ -6,7 +6,8 @@ const workflow = readFileSync(".github/workflows/check.yml", "utf8");
 const changes = workflow.split("\n  changes:")[1]?.split("\n  spec_review:")[0] ?? "";
 const reviewer = workflow.split("\n  spec_review:")[1]?.split("\n  check:")[0] ?? "";
 const check = workflow.split("\n  check:")[1]?.split("\n  e2e:")[0] ?? "";
-const merge = workflow.split("\n  auto_merge_develop:")[1] ?? "";
+const merge = workflow.split("\n  auto_merge_develop:")[1]?.split("\n  refresh_behind_prs:")[0] ?? "";
+const refresh = workflow.split("\n  refresh_behind_prs:")[1] ?? "";
 
 test("only Spec changes in a documentation PR activate one Spec review", () => {
   assert.match(changes, /spec_changed: \$\{\{ steps\.scope\.outputs\.spec_changed \}\}/);
@@ -43,5 +44,38 @@ test("successful Spec reviews auto-approve only via owner token and re-review ch
   assert.match(merge, /needs\.changes\.outputs\.spec_changed/);
   assert.match(merge, /GH_AW_GITHUB_TOKEN/);
   assert.match(merge, /steps\.spec_approval\.outputs\.changed != 'true'/);
-  assert.match(merge, /update-branch/);
+});
+test("a fully verified HEAD arms native auto-merge even while develop moved on (#464)", () => {
+  // Arming stays behind the exact-head gate: every check and review must have
+  // passed on this one HEAD; no CI or independent-review bypass.
+  assert.match(merge, /head\.sha == \$sha/);
+  assert.match(merge, /needs\.check\.result == 'success'/);
+  assert.match(merge, /needs\.docker\.result == 'success'/);
+  assert.match(merge, /needs\.e2e\.result == 'success'/);
+  assert.match(merge, /needs\.claude_review\.result == 'success'/);
+  // A behind branch must arm native auto-merge — persistent GitHub-side PR
+  // state that survives run cancellation — instead of rewriting the verified
+  // head: update-branch discards the green checks of that HEAD, cancels the
+  // in-flight run via the pull_request concurrency group and re-pays the whole
+  // pipeline (Claude review included) on every develop advance. PR #464 looped
+  // exactly that way: green checks, auto-merge job skipped, PR left behind.
+  assert.doesNotMatch(merge, /pulls\/\$PR_NUMBER\/update-branch/);
+  assert.doesNotMatch(merge, /== "behind"/);
+  assert.match(merge, /\.auto_merge != null/);
+  assert.match(merge, /== "dirty"/);
+  assert.match(merge, /gh pr merge "\$PR_NUMBER" --repo "\$GITHUB_REPOSITORY" --auto --squash/);
+});
+test("develop pushes refresh behind PR branches after mergeability settles", () => {
+  assert.match(refresh, /github\.event_name == 'push' && github\.ref_name == 'develop'/);
+  assert.match(refresh, /select\(\.draft == false\)/);
+  assert.match(refresh, /"\$head_ref" != main && "\$head_ref" != chore\/aihot-upstream-\*/);
+  // GitHub reports "unknown" right after a push while it recomputes mergeability;
+  // a single-shot read would skip a genuinely behind PR until the next develop
+  // advance, so the refresh waits briefly before deciding.
+  assert.match(refresh, /"\$state" == "unknown"/);
+  assert.match(refresh, /for _ in 1 2 3/);
+  assert.match(refresh, /"\$state" != "unknown" \]\] && break/);
+  assert.match(refresh, /"\$state" == behind/);
+  assert.match(refresh, /update-branch/);
+  assert.match(refresh, /"\$state" == dirty/);
 });

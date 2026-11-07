@@ -4,16 +4,15 @@ A release uses **one** application image: push to `develop` (or validated exact-
 
 - Feature PRs (including promotion PRs targeting `main`) still run the repository's required `check`, `docker` and browser checks.
 - A push to `develop` or a validated exact-SHA post-merge `workflow_dispatch` on `develop` builds and publishes `ghcr.io/jboone1989/eventgraph-app@sha256:...`; documentation-only changes do not publish.
-- Only main pushes with release intent run standalone promotion. Its `.github/production-image.env` pins both the successful develop SOURCE_SHA and digest; promotion requires successful `check`, `e2e` and published-image results for that SHA, unchanged application inputs, and an existing digest. The main push never builds a second image.
-- The `deploy_production` job runs only if `EVENTGRAPH_PROD_AUTO_DEPLOY=true` is configured. It invokes the existing VM09 `scripts/deploy-prod.sh`. With no configured production SSH, run that script on VM09 through an authorized operator; **merging to main by itself does not deploy**.
+- Only main pushes with release intent run promotion. A true `develop → main` **merge commit** identifies the develop second parent; the workflow takes the newest runtime-equivalent first-parent ancestor with a successful develop publish check, then resolves the digest from that ancestor's exact `sha-<SHA>` tag. A runtime change before any verified candidate blocks promotion, rather than deploying an old digest. The stale `.github/production-image.env` is retired.
+- The `deploy_production` job still requires `EVENTGRAPH_PROD_AUTO_DEPLOY=true`, valid SSH configuration and the production environment. It passes the exact main SHA, selected develop SHA and immutable digest to VM09; deployment rejects mismatches. If production SSH is unavailable, the publish validation can succeed while host deployment is skipped. No success claim without host smoke.
 
-## 分支继承与发布规则（2026-11-05）
+## 分支继承与发布规则（2026-11-07）
 
-- 唯一功能路径：`feature/* → develop → main`。先将修复、Spec、工作流变更合入 `develop`；`main` 只接受**同仓库 `develop` 作为 PR 源分支**。CI 的 Spec gate 对其他源分支指向 `main` 的 PR 直接失败，包括 `release/*`、`hotfix/*`；紧急修复也先合到 `develop`。
-- `develop → main` 使用 **Merge Commit**，不可 Squash/Rebase。保留提交祖先关系；生产镜像仍由经检验的 `develop` SHA 和不可变 GHCR digest 配对固定到 `.github/production-image.env`，绝不因为合并分支而跳过镜像和环境验证。
-- **每次 `main` 合并成功后，立即通过 PR 将 `main → develop` 回同步，使用 Merge Commit，不使用 Squash/Rebase**；已经包含 `main` 祖先时不需要新 PR。仅同步分支历史和经过验证的发布元数据，禁止在此步骤夹带业务功能。 Spec 门禁仅对同仓库、`main` 相对共同祖先的差异为空或仅 `.github/production-image.env` 的纯回同步放行；业务差异仍需已有批准 Spec，全部 CI 与代码评审继续执行。
-- 主分支受 GitHub 规则保护，不直接推送、不强制推送。不重复开同用途的 PR，优先处理已有回同步 PR。回同步完成时应满足 `git merge-base --is-ancestor main develop`；此时未发布的功能提交只能在 `develop` 一侧增加。
-- 本次回同步仅调整分支历史、CI 合并门禁和规则说明，**不修改 `.github/production-image.env`，不执行生产部署**。下次生产发布必须在独立、经过验证的 `develop → main` 发布中选择与最新运行代码等价的已发布镜像摘要，继续执行 `release-main.yml` 的校验。
+- 唯一功能路径：`feature/* → develop → main`。所有功能修复先入 `develop`，`main` 仅接受同仓库 `develop` 作为 PR 来源，代码审核、Spec 和 CI 不变。
+- **`develop → main` 必须 Merge Commit，不得 Squash/Rebase。** 这样生产工作流可以可靠读取第二父提交，并精确对应到 GitHub 中已验证的开发镜像。必须保留 GitHub 分支保护和发布完整性检查。
+- `main` 每次合并天然多一个发布合并提交，因此在没有 main-only 运行代码时，**不必创建 `main → develop` 历史回同步 PR**。它会制造额外的 PR、CI 和分叉数，而不会解决发布问题。禁止为了清除 ahead/behind 数字而反复合并。
+- 主分支仍受保护，不直接推送、不强制推送，不再手动更新 `production-image.env`；发布工作流自动使用经验证的 GHCR 不可变 digest。
 
 ## GitHub-native workflow ownership (2026-11-04)
 
@@ -21,7 +20,7 @@ A release uses **one** application image: push to `develop` (or validated exact-
 - An executable successful develop Check invokes `release-develop.yml` **in the same run**; this reusable workflow publishes a pinned GHCR digest and optionally deploys/smoke-tests VM13. No independent `workflow_run` relay or automatic retry.
 - `release-main.yml` independently handles main pushes and explicit pinned-SHA releases. Governance-only pushes have no release intent. Real releases validate the immutable develop digest, exact successful Check/E2E/publish status and runtime equivalence. VM09 is guarded by `EVENTGRAPH_PROD_AUTO_DEPLOY=true`.
 - GH-AW Worker/Dispatcher and the official native Work Queue remain, including their engine and per-run usage artifacts. The native queue continuation responds to successful develop Check, successful Worker completion, eligible Agent PR close, or explicit manual dispatch; failed Workers cannot spawn an automatic retry loop. Failures are visible on that queue workflow, not as false CI failures. GH-AW compiled locks are maintained using the official CLI, without separate smoke or compile Actions. GitHub's built-in auto-delete merged branches handles branch cleanup.
-- **Retired:** standalone `claude-pr-dispatch.yml`, `eventgraph-glm-review.yml`, manual GH-AW smoke/compile Actions, one-shot Work acceptance and custom branch pruning; Claude Review is a single conditional CI Job, not an independent workflow. Auto-merge respects GitHub's current real required checks.
+- **Retired:** standalone `claude-pr-dispatch.yml`, `eventgraph-glm-review.yml`, manual GH-AW smoke/compile Actions, one-shot Work acceptance and custom branch pruning; Claude Review is a single conditional CI Job, not an independent workflow. Auto-merge respects GitHub's current real required checks: a fully verified HEAD arms native auto-merge even while the branch is behind develop, and GitHub merges it once branch protection — including any up-to-date requirement, satisfied by the develop-push branch refresh — allows. Verified heads are never rewritten just to chase a moving develop (#464).
 
 ## Selective checks by change scope
 
@@ -48,20 +47,14 @@ The release SHA never moves: a documentation-only tip deploys the earlier code i
 unchanged. The check fails closed: an unreadable or diverged branch tip, or any detection
 error, skips the release. Code pushes keep the automatic CD above, and the `main`
 promotion flow is untouched: promotion still requires successful `check`, `e2e` and
-`publish` runs on the pinned source SHA, which by construction is always a published
+`publish` runs on the automatically selected develop source SHA, which is always a published
 (non-documentation-only) commit. See `specs/010-ci-change-scope/spec.md`.
 
 ## VM09 (production)
 
-Production is `VM-0-9-ubuntu`, in `/home/ubuntu/livingruntime-prod-source`, Compose project `livingruntime`. This differs from the development project. The production script fetches the exact `main` release, validates the pinned develop SHA, pulls the **same** GHCR digest and tags it locally as `livingruntime-app:<main-SHA>`, then reconciles only `api`, `worker`, `web` with `--no-build --pull never --no-deps`. No transfer/build via cn-dev; no DB or Neo4j restart. The production smoke test verifies real news, graph data and default-off AdSense. Schema migrations retain their existing explicit change detection and preflight behavior.
+Production is `VM-0-9-ubuntu`, in `/home/ubuntu/livingruntime-prod-source`, Compose project `livingruntime`. This differs from the development project. The production script fetches the exact `main` release, validates the automatically selected develop SHA and main SHA, pulls the **same** GHCR digest and tags it locally as `livingruntime-app:<main-SHA>`, then reconciles only `api`, `worker`, `web` with `--no-build --pull never --no-deps`. No transfer/build via cn-dev; no DB or Neo4j restart. The production smoke test verifies real news, graph data and default-off AdSense. Schema migrations retain their existing explicit change detection and preflight behavior.
 
-Release command on VM09:
-
-```bash
-cd /home/ubuntu/livingruntime-prod-source
-bash scripts/deploy-prod.sh --check
-bash scripts/deploy-prod.sh
-```
+Normal release is automatic via `.github/workflows/release-main.yml` on a verified `main` merge. For manual recovery, dispatch that workflow on the current `main` with its exact 40-character `expected_sha` instead of editing or relying on old pin files. Host `scripts/deploy-prod.sh` now requires the validated source SHA, digest and main SHA together; running it without those values fails closed.
 
 Configure the production GitHub environment and `EVENTGRAPH_PROD_HOST`, `EVENTGRAPH_PROD_USER`, `EVENTGRAPH_PROD_SSH_KEY`, `EVENTGRAPH_PROD_SSH_FINGERPRINT` before opting into automatic VM09 deployment. An authorized operator is required when those credentials are absent or an external execution policy blocks the script. Do not use the development `deploy-image.sh` on production.
 
