@@ -58,14 +58,20 @@ jobs:
             git diff --stat "$common" "$main_sha" --
             exit 1
           fi
-          # Existing protected PRs must be handled, not blindly duplicated.
-          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open \
-            --limit 100 --json headRefName --jq '[.[] | select(.headRefName | startswith("sync/main-history-"))] | length')"
-          if [[ "$existing" != 0 ]]; then
-            echo "::error::An outstanding history-sync PR already exists; resolve it before creating another ($existing open)."
-            exit 1
-          fi
           branch="sync/main-history-${main_sha:0:12}-${develop_sha:0:12}"
+          # Keep one current-tip history sync. Supersede old history-only PRs
+          # through the normal GitHub API, not by overwriting a remote ref.
+          while IFS=' ' read -r number head_ref; do
+            [[ -n "$number" ]] || continue
+            if [[ "$head_ref" == "$branch" ]]; then
+              echo "::notice::History-sync PR #$number already covers current tips"
+              exit 0
+            fi
+            gh pr close "$number" --repo "$GITHUB_REPOSITORY" \
+              --comment "Superseded by release-history sync for main $main_sha and develop $develop_sha. No source changes are lost."
+          done < <(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open \
+            --limit 100 --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("sync/main-history-")) | "\(.number) \(.headRefName)"')
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout -B "$branch" "$develop_sha"
