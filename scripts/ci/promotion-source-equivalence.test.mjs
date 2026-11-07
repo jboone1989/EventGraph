@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { isPromotionControlPath, runtimeDifferences, releaseInputDifferences, promotionSourceCandidates } from "./promotion-source-equivalence.mjs";
@@ -246,5 +246,19 @@ test("promotion rejects a non-merge source and invalid commit reference", () => 
     assert.throws(() => promotionSourceCandidates("missing-ref", f.cwd));
   } finally {
     rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("host runtime exclusions mirror the single promotion control-path policy", () => {
+  const host = readFileSync(fileURLToPath(new URL("../deploy-prod.sh", import.meta.url)), "utf8");
+  for (const excluded of [
+    ".github/**", "scripts/ci/**", "specs/**", "scripts/deploy-prod.sh",
+    "docs/ci-cd.md", "docs/spec-review.md", "docs/production-deployment.md",
+  ]) {
+    assert.ok(host.includes(`':(exclude)${excluded}'`), `host missed policy exclusion ${excluded}`);
+  }
+  for (const required of ["apps/**", "packages/**", "Dockerfile", "database/**",
+      "package.json", "docker-compose.yml", "industry/**"]) {
+    assert.ok(!host.includes(`':(exclude)${required}'`), `host ignored runtime source ${required}`);
   }
 });
