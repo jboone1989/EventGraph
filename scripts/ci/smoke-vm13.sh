@@ -48,11 +48,62 @@ const checks = [
   { path: '/en/daily', width: 1440, lang: 'en' },
   { path: '/en/daily', width: 390, lang: 'en' },
 ];
+// Log the failing request, not just Chromium's unhelpful "Failed to load resource: 502".
+// Keep credentials out of public Actions logs, including nested source-image URLs.
+const diagnosticUrl = (raw) => {
+  try {
+    const url = new URL(raw);
+    const source = url.searchParams.get('u');
+    const values = [...url.searchParams.keys()];
+    for (const key of values) {
+      if (key === 'u' && source) {
+        try {
+          const upstream = new URL(source);
+          upstream.username = '';
+          upstream.password = '';
+          upstream.search = '';
+          upstream.hash = '';
+          url.searchParams.set('u', upstream.toString());
+        } catch {
+          url.searchParams.set('u', '[invalid upstream URL]');
+        }
+      } else if (key !== 'mode' && key !== 'exp') {
+        url.searchParams.set(key, '[redacted]');
+      }
+    }
+    url.username = '';
+    url.password = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '[invalid URL]';
+  }
+};
 let failed = false;
 try {
   for (const { path, width, lang } of checks) {
     const page = await browser.newPage({ viewport: { width, height: 844 } });
     const errors = [];
+    const httpErrors = [];
+    const networkFailures = [];
+    page.on('response', response => {
+      if (response.status() < 400) return;
+      const request = response.request();
+      httpErrors.push({
+        status: response.status(),
+        method: request.method(),
+        resourceType: request.resourceType(),
+        url: diagnosticUrl(response.url()),
+      });
+    });
+    page.on('requestfailed', request => {
+      networkFailures.push({
+        method: request.method(),
+        resourceType: request.resourceType(),
+        url: diagnosticUrl(request.url()),
+        failure: request.failure()?.errorText ?? 'unknown network failure',
+      });
+    });
     page.on('pageerror', error => errors.push(String(error)));
     page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
     try {
@@ -60,11 +111,11 @@ try {
       await page.waitForTimeout(250);
       const actual = await page.locator('html').getAttribute('lang');
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
-      const result = { path, width, status: response?.status(), actualLang: actual, overflow, errors };
+      const result = { path, width, status: response?.status(), actualLang: actual, overflow, errors, httpErrors, networkFailures };
       console.log(JSON.stringify(result));
-      if (response?.status() !== 200 || !actual?.startsWith(lang) || overflow || errors.length) failed = true;
+      if (response?.status() !== 200 || !actual?.startsWith(lang) || overflow || errors.length || httpErrors.length || networkFailures.length) failed = true;
     } catch (error) {
-      console.error(JSON.stringify({ path, width, error: String(error) }));
+      console.error(JSON.stringify({ path, width, error: String(error), httpErrors, networkFailures }));
       failed = true;
     } finally {
       await page.close();
