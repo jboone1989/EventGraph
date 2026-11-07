@@ -1,22 +1,26 @@
-# Implementation plan — reuse before building Admin UI
+# Implementation plan — complete Spec first, reuse components second
 
-## Scope and prior art
+## Existing integration (Search Before Build)
 
-Reuse existing `AdminPage`, `DataTable`, `Pager`, `Field`, `Input`, `Select`, `Button`, `ReasonDialog` from `apps/web/app/features/admin/ui.tsx`. Reuse any suitable existing `apps/web/app/components/ui/` patterns only where the style/context matches. `ProviderConnectionsAdmin.tsx` contains an existing real pagination example. Keep the current code and stack; no external dependency by default.
+- The *current* feature implementation gate `scripts/ci/check-spec.mjs` checks immutable pre-existing Specs; it does **not** by itself check whether the approved Spec describes a complete user experience.
+- `.github/workflows/check.yml` already has both independent `spec-review` and implementation `claude-review`; expand their existing evaluation criteria rather than creating new jobs, agents, approval loops or review protocols.
+- Existing `AGENTS.md`, `.agents/CONSTRAINTS.md`, `docs/spec-review.md` and `.github/workflows/eventgraph-worker.md` already instruct the agent to read the pinned Spec and reuse existing code. Integrate one shared feature-quality reference rather than copying a huge checklist into every entrypoint.
+- Existing Admin primitives: `AdminPage`, `DataTable`, `Pager`, `Field`, `Input`, `Select`, `Button`, `ReasonDialog` in `apps/web/app/features/admin/ui.tsx`. `ProviderConnectionsAdmin.tsx` shows actual DataTable with paginated models. `apps/web/app/components/ui/` is the independently styled public-site UI.
+- React 19, React Router 8, Tailwind 4 are already installed. TanStack Table and shadcn Data Table are research candidates only for a proven gap; initial implementation should add no new dependency.
 
-Check official upstream/maintained options if a specific capability is missing; e.g. TanStack Table supports pagination, column sizing and filtering while shadcn's Data Table documentation describes combining headless table behavior with presentational components. These options are not mandatory and are not part of the initial change.
+## Minimal implementation in a single authorized Work Item
 
-## Smallest implementation
+1. Write **one** compact `docs/admin-ui-reuse.md` with two **separate** sections: **(A) Product/Spec completeness** (user goal, scope, data semantics, ordinary CRUD/default UX, key states, boundaries and verifiable scenarios) **before (B) UI-component reuse map** (actual current file paths, usage, limitations, when to check official external options). Default expectations must be contextual, not rigid mandates.
+2. Link this exact guide from `AGENTS.md`, `.agents/CONSTRAINTS.md` and optionally `docs/spec-review.md` if necessary to avoid contradictory guidance. Keep the canonical product/reuse expectations in the guide, not replicated across multiple templates.
+3. Adjust the existing `spec-review` **prompt** in `.github/workflows/check.yml` to flag **material incompleteness**: a Spec claiming CRUD while omitting the main user journey, important business semantics, relevant list states, failure behavior or testable acceptance; distinguish ordinary defaults that can be inherited from genuinely open domain decisions. Avoid forcing every minor change into a long form. Keep existing JSON schema, reviewer engine and one-pass rules.
+4. Adjust the existing GH-AW Worker instructions so it reads approved Spec and default product contract *before* choosing components, then inspects existing repo features/components and official alternatives before implementing. Require a compact implementation PR evidence matrix: requirement/scenario → code → tests or browser outcome, plus reuse rationale. The Worker must not silently invent material data semantics; report a true Spec ambiguity instead.
+5. Adjust the **existing implementation `claude-review`** guidance in `check.yml` to inspect the actual diff against the Spec and applicable default quality requirements. Reviewers should detect a literal CRUD-only implementation missing normal user experience, long data crushing columns, actual unusable actions, and needless self-written component substitutes. Do not approve just because a Spec SHA and passing API test exist. Do not demand unverified browser claims or introduce new jobs.
+6. Add focused tests along existing `scripts/ci` conventions to verify these prompt/Worker integration points and a minimal positive/negative Spec-completeness example if feasible. Tests checking prompt text are *wiring checks*, not proof the LLM's judgment is always correct. UI browser/visual regression stays in each relevant implementation PR.
+7. Leave existing application UI and business CRUD pages unchanged. Any common UI primitive bug found during adoption requires a separately approved product bug scope, not hidden refactoring in a governance change.
 
-1. Write **one** concise `docs/admin-ui-reuse.md` covering current component paths, selection rules, conditional defaults, example acceptance matrix and a tiny code sample using existing components. Prefer direct links to the actual source over copying the implementations.
-2. Link the guide from `AGENTS.md` and `.agents/CONSTRAINTS.md` (already loaded by supported task-specific skills). Require a short 'Reuse decision' paragraph in implementation PRs that change admin UI: existing components reused / checked gap / reason for any custom code. Nothing extra for non-UI PRs.
-3. Amend the **existing** `.github/workflows/eventgraph-worker.md` instructions for the assigned Worker: before writing UI, inspect the guide and relevant code; do not create redundant primitives; include concise reuse evidence in its existing PR body. Do not change queue assignment, tool permissions, model, branch policy or safe-output semantics.
-4. Amend the **existing** implementation reviewer prompt in `.github/workflows/check.yml` minimally: when reviewing admin UI, check the actual reuse choice and obvious UI quality regressions, ask for proof if claimed behavior is unverified, and reject demonstrable duplicated table/pagination/dialog code without good cause. Keep existing reviewer schema, status/check names, actions and thresholds unchanged.
-5. Add or update focused Node tests following existing `scripts/ci` test conventions to assert the relevant Worker and central reviewer contain these guidance hooks; use existing browser/E2E tests for actual layout and interaction behaviors as applicable to future UI PRs. Do not treat text keyword tests as proof of UI quality.
-6. No implementation change to all current CRUD pages in this task. If existing generic primitives have severe defects, capture repro and create a **separate** approved UI bug task instead of expanding this work.
+## Completion criteria and evidence
 
-## Verification
-
-- `npm run typecheck`, existing relevant `scripts/ci/*.test.mjs` suites and full existing required GitHub checks.
-- Independent code review must verify instruction text accurately matches the real repository UI, actual Worker prompt and review gates; check that no duplicate CI job, extra approval, dependency or background service was added.
-- No claim of a live UI regression fix merely from this policy/guidance change.
+- Reviewer can explain why a one-line `add CRUD` Spec is incomplete for a material new feature and identify missing user-facing behavior, without imposing irrelevant requirements on a tiny fix.
+- Worker reads the approved Spec and existing UI map, shows justified reuse, and traces each important acceptance item to a change and observed test/browsing evidence.
+- Existing review pipeline finds product-level gaps separately from code-level quality defects, while preserving all current CI/status/release gates.
+- `npm run typecheck` when applicable, focused repo tests, existing GitHub Check/Docker/E2E and independent review. Do not infer successful browser behavior or deployment from documentation-only tests.
