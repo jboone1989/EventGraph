@@ -126,9 +126,20 @@ export async function currentNewsQueueItems(): Promise<NonNullable<Runs["current
       receipt.id AS "unverifiedReceiptId", receipt.status AS "receiptStatus",
       latest_model.service AS provider, latest_model.model,
       CASE WHEN a.processing_state = 'analyzed'
-         THEN CASE WHEN a.grouping_status = 'failed' THEN 'failed'
+         THEN CASE WHEN a.grouping_status = 'failed' AND (a.discovered_at >= ${utcDayStart()} OR EXISTS (
+                      SELECT 1 FROM pgboss.job failure WHERE failure.data->>'articleId' = a.id
+                        AND failure.name = 'events.group' AND failure.state = 'failed'
+                        AND failure.completed_on >= ${utcDayStart()}
+                    )) THEN 'failed'
                    WHEN j.state = 'active' THEN 'processing' ELSE 'pending' END
-         WHEN a.processing_state = 'failed' THEN 'failed'
+         WHEN a.processing_state = 'failed' AND (a.discovered_at >= ${utcDayStart()} OR EXISTS (
+            SELECT 1 FROM pgboss.job failure WHERE failure.data->>'articleId' = a.id
+              AND failure.name IN ('content.analyze', 'content.extract-body')
+              AND failure.state = 'failed' AND failure.completed_on >= ${utcDayStart()}
+          ) OR EXISTS (
+            SELECT 1 FROM receipts failure WHERE substring(failure.subject from '^article:([^@:#]+)') = a.id
+              AND failure.status = 'failed' AND failure.updated_at >= ${utcDayStart()}
+          )) THEN 'failed'
          WHEN j.state = 'active' THEN 'processing' ELSE 'pending' END AS status,
       CASE WHEN a.processing_state = 'analyzed' THEN '事件归组'
            WHEN j.name = 'content.extract-body' OR (j.name IS NULL AND a.body_status = 'pending') THEN '正文提取'
@@ -291,7 +302,8 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
     `,
     sql<Rows>`
       SELECT 'model:' || r.id::text AS key, 'model' AS kind,
-        CASE WHEN r.status = 'pending' THEN 'processing' ELSE 'failed' END AS status,
+        CASE WHEN r.status = 'pending' THEN 'processing'
+              WHEN r.status = 'unknown' THEN 'pending' ELSE 'failed' END AS status,
         r.purpose AS process,
         coalesce(a.title, r.subject, r.purpose) AS subject,
         substring(r.subject from '^article:([^@:#]+)') AS "articleId",
