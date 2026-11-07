@@ -1,28 +1,19 @@
 import type { AdminNavCounts } from "@aihot/contracts/admin";
 import { sql } from "../db.ts";
 import { serverModules } from "../modules.ts";
+import { failedFlowUnitCount } from "./runs.ts";
 
 /**
- * Items waiting for the admin, on the navigation: new feedback, failing sources, receipts and deliveries in
- * doubt, and what the modules count.
+ * Items waiting for the admin, on the navigation: new feedback, failing sources, today's failed
+ * flow execution units, and what the modules count.
  */
 export async function navCounts(): Promise<AdminNavCounts> {
-  const [[c], counts] = await Promise.all([
+  const [[c], runs, counts] = await Promise.all([
     sql<AdminNavCounts[]>`
     SELECT (SELECT count(*)::int FROM feedback WHERE status = 'new') AS feedback,
-           (SELECT count(*)::int FROM sources WHERE enabled AND health = 'failing') AS sources,
-           (SELECT count(*)::int
-              FROM articles a JOIN sources s ON s.id = a.source_id
-              WHERE (a.discovered_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
-                OR (a.updated_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
-                  AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
-                AND a.discovered_at <= now()
-                AND NOT a.backfill AND s.participation_mode = 'editorial'
-                AND (a.processing_state IN ('new','failed')
-                  OR (a.processing_state = 'analyzed' AND a.grouping_status IN ('pending', 'failed')
-                    AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id
-                      AND p.selection_candidate AND p.eligible AND p.visibility = 'public')))) AS runs`,
+           (SELECT count(*)::int FROM sources WHERE enabled AND health = 'failing') AS sources`,
+    failedFlowUnitCount(),
     Promise.all(serverModules().flatMap((m) => Object.entries(m.admin?.counts ?? {}).map(async ([key, count]) => [key, await count()] as const))),
   ]);
-  return { ...c, ...Object.fromEntries(counts) };
+  return { ...c, runs, ...Object.fromEntries(counts) };
 }

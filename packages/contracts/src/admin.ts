@@ -20,7 +20,11 @@ export interface AdminMe {
   dev: boolean;
 }
 
-/** Items waiting for the admin, shown on the navigation: the engine's, and the modules' under their own keys. */
+/**
+ * Items waiting for the admin, shown on the navigation: the engine's, and the modules' under their own keys.
+ * `runs` is today's (UTC) failed flow execution units — the same definition as the runs page's failed
+ * detail, not a count of unfinished articles.
+ */
 export type AdminNavCounts = Partial<Record<"feedback" | "sources" | "runs", number>> & Record<string, number | undefined>;
 
 /** One manual change (audit_log), as a history list shows it. */

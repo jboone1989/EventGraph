@@ -10,10 +10,10 @@ import { navCounts } from "@aihot/backend/admin/navigation";
 after(async () => { await stopBoss(); await closeDb(); });
 
 test("live dashboard excludes old and backfilled articles", async () => {
+  await getBoss(); // Standalone test database has no pg-boss tables until startup; the badge reads them too.
   const before = await livePipelineOverview();
   const navBefore = await navCounts();
   const oldBefore = await legacyUnresolvedOverview();
-  await getBoss(); // Standalone test database has no pg-boss tables until startup.
   const currentBefore = await currentNewsQueueOverview();
   const source = `live-dashboard-${tag()}`;
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
@@ -63,7 +63,8 @@ test("live dashboard excludes old and backfilled articles", async () => {
     SELECT discovered_at < now() - interval '15 minutes' AS stalled FROM articles
     WHERE id = ${source + "-waiting"}`;
   assert.equal(after.stalled - before.stalled, waiting?.stalled ? 1 : 0);
-  // Navigation is a count of distinct problem articles, not attempts or unknown receipts.
-  assert.equal((navAfter.runs ?? 0) - (navBefore.runs ?? 0), 2);
+  // Navigation counts failed execution units like the runs page's failed detail: the failed article
+  // shows once; its unknown receipt stays pending, and waiting/backfill/history stay out of the badge.
+  assert.equal((navAfter.runs ?? 0) - (navBefore.runs ?? 0), 1);
   assert.ok(after.newestAt);
 });
