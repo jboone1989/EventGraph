@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
@@ -70,7 +71,23 @@ export function promotionSourceCandidates(head = "HEAD", cwd = process.cwd()) {
   return { developParent: parents[1], candidates };
 }
 
+/** Convert the exact SHA-tag manifest to an immutable GHCR reference only after
+ * the source commit's publish check has been verified by the caller.
+ */
+export function immutableImageRef(sourceSha, inspection) {
+  if (!SHA.test(sourceSha)) throw new Error("Invalid verified develop SHA");
+  const digests = String(inspection).split("\n")
+    .map(line => /^Digest:[ \t]*(sha256:[0-9a-f]{64})[ \t]*$/.exec(line)?.[1])
+    .filter(Boolean);
+  if (digests.length !== 1) throw new Error("Expected one valid immutable GHCR digest");
+  return `ghcr.io/jboone1989/eventgraph-app@${digests[0]}`;
+}
+
 function main() {
+  if (process.argv[2] === "--immutable-image-ref") {
+    console.log(immutableImageRef(process.argv[3], readFileSync(0, "utf8")));
+    return;
+  }
   if (process.argv[2] === "--promotion-candidates") {
     console.log(promotionSourceCandidates(process.argv[3] ?? "HEAD").candidates.join("\n"));
     return;
