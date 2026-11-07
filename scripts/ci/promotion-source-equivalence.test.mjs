@@ -191,15 +191,15 @@ test("production --classify-push CLI emits exact release intent for runtime, pin
  * the successful GHCR publish; a separate GH check verifies that in Actions.
  */
 function promotionFixture() {
-  const f = fixture({ "apps/web/app.ts": "export const value = 2;\\n" });
+  const f = fixture({ "apps/web/app.ts": "export const value = 2;\n" });
   const published = f.head;
   git(f.cwd, "branch", "develop", published);
   git(f.cwd, "checkout", "-q", "-b", "main", f.base);
-  write(f.cwd, ".github/production-image.env", "SOURCE_SHA=legacy\\n");
+  write(f.cwd, ".github/production-image.env", "SOURCE_SHA=legacy\n");
   git(f.cwd, "add", ".");
   git(f.cwd, "commit", "-qm", "previous main release metadata");
   git(f.cwd, "checkout", "-q", "develop");
-  write(f.cwd, "specs/base/spec.md", "# Approved after publish\\n");
+  write(f.cwd, "specs/base/spec.md", "# Approved after publish\n");
   git(f.cwd, "add", ".");
   git(f.cwd, "commit", "-qm", "approved spec after publish");
   const docsTip = git(f.cwd, "rev-parse", "HEAD");
@@ -218,7 +218,7 @@ test("promotion selects spec-only develop ancestors before the last verified ima
       [fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url)),
        "--promotion-candidates", f.merged], { cwd: f.cwd, encoding: "utf8" });
     assert.equal(cli.status, 0, cli.stderr);
-    assert.equal(cli.stdout.trim(), [f.docsTip, f.published].join("\\n"));
+    assert.equal(cli.stdout.trim(), [f.docsTip, f.published].join("\n"));
   } finally {
     rmSync(f.cwd, { recursive: true, force: true });
   }
@@ -229,7 +229,7 @@ test("promotion refuses to cross a runtime change to find an older image", () =>
   try {
     // The pre-publish base does not have today's app. It must never be a candidate.
     assert.ok(!promotionSourceCandidates(f.merged, f.cwd).candidates.includes(f.base));
-    write(f.cwd, "apps/web/app.ts", "export const value = 3;\\n");
+    write(f.cwd, "apps/web/app.ts", "export const value = 3;\n");
     git(f.cwd, "add", ".");
     git(f.cwd, "commit", "-qm", "unverified runtime-only main hotfix");
     assert.throws(() => promotionSourceCandidates("HEAD", f.cwd),
@@ -240,7 +240,7 @@ test("promotion refuses to cross a runtime change to find an older image", () =>
 });
 
 test("promotion rejects a non-merge source and invalid commit reference", () => {
-  const f = fixture({ "specs/base/spec.md": "# Governance only\\n" });
+  const f = fixture({ "specs/base/spec.md": "# Governance only\n" });
   try {
     assert.throws(() => promotionSourceCandidates(f.head, f.cwd), /two-parent/);
     assert.throws(() => promotionSourceCandidates("missing-ref", f.cwd));
