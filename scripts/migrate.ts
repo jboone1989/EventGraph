@@ -22,7 +22,9 @@ export function listMigrationFiles(root: string): {name:string;file:string}[] {
   for (const [i, migration] of migrations.entries()) {
     if (migrations[i + 1]?.name === migration.name) throw new Error(`two migrations are named ${migration.name}: ${migration.file} and ${migrations[i + 1].file}`);
   }
-  return migrations;
+  // 0126 was a develop-only soft-delete experiment, never applied on the production
+  // database. Its file stays immutable in Git history, but hard deletion needs no column.
+  return migrations.filter((m) => m.name !== "0126_source_soft_delete.sql");
 }
 
 export async function runMigrations(sql: postgres.Sql, root: string): Promise<number> {
