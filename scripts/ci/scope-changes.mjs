@@ -15,7 +15,19 @@ function classify() {
   const ancestor = git("merge-base", base, head).trim();
   if (!ancestor) return false;
   const files = git("diff", "--no-renames", "--name-only", "-z", ancestor, head).split("\0").filter(Boolean);
-  if (files.length === 0) return false;
+  if (files.length === 0) {
+    // A genuinely empty diff is docs-only only for a verified history-sync
+    // merge. Invalid / unrelated empty ranges still run the full pipeline.
+    if (process.env.SCOPE_BASE_REF !== "develop" ||
+        !/^sync\/main-history-[a-z0-9-]+$/.test(process.env.SCOPE_HEAD_REF || "") ||
+        !process.env.SCOPE_REPOSITORY ||
+        process.env.SCOPE_HEAD_REPO !== process.env.SCOPE_REPOSITORY) return false;
+    const parents = git("rev-list", "--parents", "-n", "1", head).trim().split(/\s+/);
+    if (parents.length !== 3 || parents[0] !== head || parents[1] !== base) return false;
+    const mainBase = git("merge-base", base, parents[2]).trim();
+    if (!mainBase || git("diff", "--name-only", mainBase, parents[2]).trim()) return false;
+    return git("rev-parse", `${head}^{tree}`).trim() === git("rev-parse", `${base}^{tree}`).trim();
+  }
   // Same classification as check-spec.mjs's documentation-only fast path.
   const governance = /^(?:docs\/|specs\/|\.specify\/|\.agents\/|\.claude\/)/;
   const rootDocs = /^(?:AGENTS|CLAUDE|README|CONTRIBUTING)\.md$/;
