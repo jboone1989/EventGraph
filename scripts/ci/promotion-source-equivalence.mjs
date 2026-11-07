@@ -43,7 +43,38 @@ export function releaseInputDifferences(beforeSha, head = "HEAD", cwd = process.
     .filter(path => path === ".github/production-image.env" || !isPromotionControlPath(path));
 }
 
+/** Resolve only the develop side of a genuine main merge.
+ * Walking the develop first-parent history allows spec-only commits after the
+ * last published image, but NEVER crosses a runtime change to find an old image.
+ * The production workflow still must verify GitHub's publish check and digest.
+ */
+export function promotionSourceCandidates(head = "HEAD", cwd = process.cwd()) {
+  const git = (...args) => execFileSync("git", args, {
+    cwd, encoding: "utf8", maxBuffer: 8 * 1024 * 1024,
+  }).trim();
+  const resolved = git("rev-parse", `${head}^{commit}`);
+  const [commit, ...parents] = git("rev-list", "--parents", "-n", "1", resolved).split(" ");
+  if (commit !== resolved || parents.length !== 2) {
+    throw new Error("Production source must be a two-parent develop → main merge commit");
+  }
+  const candidates = [];
+  for (const sha of git("rev-list", "--first-parent", parents[1]).split("\n")) {
+    if (!SHA.test(sha)) throw new Error("Invalid develop ancestry");
+    // A runtime difference must not be bridged with a still-older image.
+    if (runtimeDifferences(sha, resolved, cwd).length) break;
+    candidates.push(sha);
+  }
+  if (!candidates.length) {
+    throw new Error("No develop ancestor is runtime-equivalent to main");
+  }
+  return { developParent: parents[1], candidates };
+}
+
 function main() {
+  if (process.argv[2] === "--promotion-candidates") {
+    console.log(promotionSourceCandidates(process.argv[3] ?? "HEAD").candidates.join("\n"));
+    return;
+  }
   if (process.argv[2] === "--classify-push") {
     const [beforeSha, head = "HEAD"] = process.argv.slice(3);
     console.log(releaseInputDifferences(beforeSha, head).length ? "true" : "false");
