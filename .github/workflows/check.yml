@@ -576,6 +576,10 @@ jobs:
         run: |
           git diff --no-ext-diff --unified=3 "$BASE_SHA" "$HEAD_SHA" -- \
             . ':(exclude).github/workflows/*.lock.yml' > pr-review.diff
+          # Review the compiled Worker settings alongside its source when changed.
+          # Other generated lock files remain excluded to keep the review bounded.
+          git diff --no-ext-diff --unified=0 "$BASE_SHA" "$HEAD_SHA" -- \
+            .github/workflows/eventgraph-worker.lock.yml >> pr-review.diff
           test -s pr-review.diff
 
       - name: Prepare bounded one-pass review input
