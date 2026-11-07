@@ -1,5 +1,6 @@
 import type { AdminNavCounts } from "@aihot/contracts/admin";
 import { sql } from "../db.ts";
+import { utcDayStart } from "../operations/stale-work.ts";
 import { serverModules } from "../modules.ts";
 
 /**
