@@ -1,5 +1,7 @@
 # Automatic develop → main image promotion (2026-11-07)
 
+**Status:** Draft
+
 ## Problem and approval
 The owner requested a durable fix after repeated failed production releases. Development publishes immutable GHCR images automatically, while main production still uses a manually edited pinned image from an older commit; runtime equivalence therefore fails after legitimate develop→main merges. Repeated main-only pin commits also cause avoidable branch-history divergence.
 
