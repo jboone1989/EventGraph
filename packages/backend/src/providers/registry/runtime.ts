@@ -129,6 +129,8 @@ export function diagnoseProbeFailure(error:unknown):{status:'failed'|'unknown';d
 }
 export async function testRegisteredModel(id:string,capability:string,actor:string) {
  const {m,c,fingerprint,snapshot}=await registeredRuntime(id);
+ if(m.adapter==='unconfigured')
+  throw new ProviderConfigError('This upstream API endpoint has no registered test adapter','model',409);
  // Standard chat/embedding probes need no manually written JSON.
  const probe=m.probe_spec??(m.adapter==='chat'
   ?{capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'}

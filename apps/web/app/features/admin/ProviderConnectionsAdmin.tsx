@@ -31,7 +31,7 @@ const officialOutput=(m:RegisteredModel):string=>{
  if(endpoints.length)return endpoints.join(' / ');
  return ({chat:'chat',embedding:'embedding',document:'document',safety:'safety'} as Record<string,string>)[m.adapter]??'未标注';
 };
-const modelTestSpec=(m:RegisteredModel)=>m.probeSpec??probeFor(m.adapter);
+const modelTestSpec=(m:RegisteredModel)=>m.adapter==='unconfigured'?null:m.probeSpec??probeFor(m.adapter);
 const modelInput=(m:RegisteredModel):ModelInput=>({
  providerId:m.providerId,modelId:m.modelId,adapter:m.adapter,endpointOverride:m.endpointOverride,
  timeoutOverrideMs:m.timeoutOverrideMs,capabilities:m.capabilities,requestDefaults:m.requestDefaults,
