@@ -153,3 +153,12 @@ test("reconciliation shell passes bash syntax validation and CI registers these 
   const ci = readFileSync(".github/workflows/check.yml", "utf8");
   assert.match(ci, /scripts\/ci\/native-worker-reconcile\.test\.mjs/);
 });
+
+test("continuation contains exactly one Spec intake and one paid dispatch step", () => {
+  assert.equal((workflow.match(/- name: Admit approved Spec tasks only from current verified develop/g) || []).length, 1);
+  assert.equal((workflow.match(/- name: Dispatch at most one eligible native Work/g) || []).length, 1);
+  assert.equal((workflow.match(/- name: Reconcile verified terminal native Worker/g) || []).length, 1);
+  assert.equal((workflow.match(/gh aw work-queue --repo "\$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait/g) || []).length, 1);
+  const dispatch = workflow.slice(workflow.indexOf("      - name: Dispatch at most one eligible native Work"));
+  assert.doesNotMatch(dispatch, /reconcile --dispatch-id|WORKER_DISPLAY_TITLE|native_title_re/);
+});
