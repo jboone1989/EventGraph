@@ -17,9 +17,11 @@ test('sync includes free chat, embedding, rerank and non-text models without mis
  assert.equal(r.freeCatalog,4);
  assert.equal(r.chat,1);assert.equal(r.embedding,1);assert.equal(r.other,2);
  assert.equal(r.models.length,5); // includes OpenRouter's free chat router
- assert.deepEqual(r.models.map(m=>m.adapter),['chat','embedding','special','special','chat']);
+ assert.deepEqual(r.models.map(m=>m.adapter),['chat','embedding','unconfigured','unconfigured','chat']);
  assert.equal(r.models[1]?.probe?.response,'embedding');
  assert.equal(r.models[2]?.probe,null);
+ assert.deepEqual(r.models[2]?.outputModalities,['rerank']);
+ assert.deepEqual(r.models[2]?.endpoints,['/api/v1/rerank']);
 });
 test('request/image/audio charges exclude models that are not genuinely free',()=>{
  const paid={...model('fake/free',['/api/v1/chat/completions'],['text']),pricing:{prompt:'0',completion:'0',request:'0.01'}};
@@ -33,12 +35,13 @@ test('duplicate entries are imported once, invalid IDs reported and existing rou
  assert.equal(r.freeCatalog,3);assert.equal(r.invalid,1);
  assert.equal(r.models.length,1);assert.equal(r.models[0]?.id,'openrouter/free');
 });
-test('vision chat models can be configured for vision; unadvertised chat endpoints stay special',()=>{
+test('vision chat models can be configured for vision; unadvertised chat endpoints are not misrouted to chat',()=>{
  const vision={...model('free/vision',['/api/v1/chat/completions'],['text']),
   architecture:{input_modalities:['text','image'],output_modalities:['text']}};
  const r=classifyOpenRouterFreeCatalog([vision,model('free/responses',['/api/v1/responses'],['text'])]);
  assert.deepEqual(r.models[0]?.capabilities,['text','vision']);
- assert.equal(r.models[1]?.adapter,'special');
+ assert.equal(r.models[1]?.adapter,'unconfigured');
+ assert.deepEqual(r.models[1]?.endpoints,['/api/v1/responses']);
 });
 
 test('catalog rows without endpoint paths classify by output modality instead',()=>{
@@ -53,8 +56,8 @@ test('catalog rows without endpoint paths classify by output modality instead',(
   entry('free/legacy-text',[]),
   {...entry('openrouter/free',['text']),endpoints:['/api/v1/responses']}
  ]);
- assert.deepEqual(r.models.map(m=>m.adapter),['chat','embedding','special','chat','chat']);
- assert.equal(r.chat,3);assert.equal(r.embedding,1);assert.equal(r.other,1);
+ assert.deepEqual(r.models.map(m=>m.adapter),['chat','embedding','unconfigured','unconfigured','chat']);
+ assert.equal(r.chat,2);assert.equal(r.embedding,1);assert.equal(r.other,2);
  assert.equal(r.models[1]?.probe?.response,'embedding');
  assert.equal(r.models.filter(m=>m.id==='openrouter/free').length,1);
 });

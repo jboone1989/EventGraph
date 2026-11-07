@@ -11,7 +11,7 @@ export interface ConnectionInput {
  timeoutMs:number;enabled:boolean;credential?:CredentialEdit;
 }
 export interface RegisteredModel {
- id:string;providerId:string;modelId:string;adapter:'chat'|'embedding'|'document'|'safety'|'special'|'unconfigured';
+ id:string;providerId:string;modelId:string;adapter:'chat'|'embedding'|'document'|'safety'|'unconfigured';
  endpointOverride:string|null;timeoutOverrideMs:number|null;capabilities:ModelCapability[];
  requestDefaults:Record<string,unknown>;probeSpec:{capability:ModelCapability;body:Record<string,unknown>;response:'chat'|'embedding'|'json';source?:string}|null;
  stream:boolean;complexity:'light'|'medium'|'heavy';billing?:'free'|'paid';documentationUrl:string|null;
