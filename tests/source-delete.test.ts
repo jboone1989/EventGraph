@@ -15,7 +15,7 @@ test("removing a source hides it, blocks even forced fetch, and retains its arti
   const config = { feedUrl: `https://example.com/${id}` };
   const [source] = await sql<{ updated_at: Date }[]>`
     INSERT INTO sources (id, name, kind, config)
-    VALUES (${id}, 'Remove me', 'rss', ${sql.json(config)}) RETURNING updated_at`;
+    VALUES (${id}, 'Remove me', 'rss', ${sql.json(config as never)}) RETURNING updated_at`;
   const material = await upsertMaterial({
     sourceId: id, url: `https://example.com/articles/${id}`, title: 'Existing article',
     publishedAt: new Date(), via: 'fetch',
