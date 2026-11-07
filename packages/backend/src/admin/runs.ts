@@ -132,7 +132,9 @@ export async function currentNewsQueueItems(): Promise<NonNullable<Runs["current
                         AND failure.completed_on >= ${utcDayStart()}
                     )) THEN 'failed'
                    WHEN j.state = 'active' THEN 'processing' ELSE 'pending' END
-         WHEN a.processing_state = 'failed' AND (a.discovered_at >= ${utcDayStart()} OR EXISTS (
+         WHEN a.processing_state = 'failed' AND (a.discovered_at >= ${utcDayStart()} OR (a.updated_at >= ${utcDayStart()} AND EXISTS (
+            SELECT 1 FROM publications p WHERE p.article_id = a.id
+          )) OR EXISTS (
             SELECT 1 FROM pgboss.job failure WHERE failure.data->>'articleId' = a.id
               AND failure.name IN ('content.analyze', 'content.extract-body')
               AND failure.state = 'failed' AND failure.completed_on >= ${utcDayStart()}
@@ -471,7 +473,7 @@ export async function runsOverview(): Promise<Runs> {
              (array_agg(a.id ORDER BY a.discovered_at DESC))[1] AS example
       FROM articles a JOIN sources s ON s.id = a.source_id
       WHERE a.processing_state = 'failed' AND NOT a.backfill AND s.participation_mode = 'editorial'
-        AND a.discovered_at >= ${utcDayStart()}
+        AND (a.discovered_at >= ${utcDayStart()} OR (a.updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
         -- Unknown or pending provider results require explicit verification, not bulk retry.
         AND NOT EXISTS (
           SELECT 1 FROM receipts r WHERE r.status IN ('pending','unknown')
