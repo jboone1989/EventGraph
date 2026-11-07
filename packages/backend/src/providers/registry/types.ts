@@ -1,4 +1,4 @@
-export const ADAPTERS=["chat","embedding","document","safety","special","unconfigured"] as const;
+export const ADAPTERS=["chat","embedding","document","safety","unconfigured"] as const;
 export type ProviderAdapterKind=typeof ADAPTERS[number];
 export const COMPLEXITIES=["light","medium","heavy"] as const;
 export type Complexity=typeof COMPLEXITIES[number];

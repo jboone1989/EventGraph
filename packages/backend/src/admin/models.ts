@@ -27,7 +27,7 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
   steps:Object.entries(capabilities()).filter(([key])=>!(key in CAPABILITIES) || ACTIVE_MODEL_BINDINGS.has(key)).map(([key,c])=>({
    key,label:c.label,vision:!!c.vision,embedding:!!c.embedding,current:selection(key),effective:effective[key]!
   })),
-  choices:models.map(m=>({
+  choices:models.filter(m=>m.adapter==='chat'||m.adapter==='embedding').map(m=>({
    key:'model:'+m.id,modelId:m.modelId,provider:names.get(m.providerId)??m.providerId,
    adapter:m.adapter,vision:m.capabilities.includes('vision')
   })),
