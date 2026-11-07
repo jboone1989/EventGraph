@@ -28,7 +28,7 @@ export interface CollectResult {
 async function loadSource(id: string): Promise<SourceRow | null> {
   const [s] = await sql<SourceRow[]>`
     SELECT id, name, kind, config, tier, participation_mode, first_party, interval_minutes, enabled, cursor, fail_count
-    FROM sources WHERE id = ${id}`;
+    FROM sources WHERE id = ${id} AND deleted_at IS NULL`;
   return s ?? null;
 }
 
