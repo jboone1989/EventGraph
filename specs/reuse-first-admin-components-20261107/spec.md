@@ -1,6 +1,6 @@
 # EventGraph 管理功能开发合同：先写清产品行为，再选择复用方案
 
-**Status:** Proposed — pending independent Spec Review and owner approval. 本次修改只定义标准，不表示实施已获授权。
+**Status:** Draft — awaiting the repository's existing independent Spec Review and owner-delegated automatic approval. This Spec-only PR does not authorize application implementation until merged into develop.
 **Target:** develop。沿用现有 Spec → GH-AW Worker → Check/E2E/独立 Review → develop 的流程，不新增调度器、审核 Agent 或 UI 框架。
 
 ## 1. 背景与目标
@@ -100,4 +100,4 @@
 4. 现有 Worker 能找到统一指南并按 **Spec 完整性 → 组件选型 → 最小实施 → 逐条验收** 的顺序执行。
 5. 相关静态测试、既有 Check/Docker/E2E 和独立评审真实通过后才能合并；不得仅凭本规范文档宣称任何页面问题已修复。
 
-**Authorization:** 当前为 Proposed，须独立审查和 owner 认可后再改为 Owner-approved。只在批准的 Spec 按现有流程合入 develop 后，由已有 GH-AW 处理 `tasks.md`；Spec PR 本身不改应用/Workflow 代码。
+**Authorization:** 本状态使用仓库现有 Draft → 独立 Spec Review → 自动标记 Owner-approved 的流程；仅当审核通过、Spec PR 合并 develop 后，才由已有 GH-AW 处理 `tasks.md`。Spec PR 本身不改应用/Workflow 代码。
