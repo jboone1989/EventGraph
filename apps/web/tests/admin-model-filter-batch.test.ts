@@ -68,9 +68,9 @@ test("model filters, paging and batch tests reuse independent model probes",asyn
   await page.getByLabel("费用").selectOption("free");
   await page.getByRole("button",{name:/一键测试筛选结果/}).click();
   await expect(page.getByText(/批量测试：25\/25/)).toBeVisible({timeout:15000});
-  assert.equal(requests.length,24,"test all filtered rows across pages, skip missing probe");
+  assert.equal(requests.length,25,"chat models use automatic test probes");
   assert.ok(maxActive<=2,`max concurrent probes was ${maxActive}`);
-  await expect(page.getByText(/通过 23 · 失败 1 · 跳过 1/)).toBeVisible();
+  await expect(page.getByText(/通过 24 · 失败 1 · 跳过 0/)).toBeVisible();
   await page.getByLabel("测试结果").selectOption("failed");
   await expect(page.getByText("匹配 1 / 共 26 个模型")).toBeVisible();
   await expect(page.getByText("demo-model-02")).toBeVisible();

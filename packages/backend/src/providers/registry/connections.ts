@@ -45,7 +45,7 @@ export function connectionView(r:ConnectionRow):ProviderConnection {
   enabled:r.enabled,policy:r.policy,credential:{configured},version:r.version,updatedAt:r.updated_at.toISOString()};
 }
 export function modelInput(r:ModelRow):ModelInput {
- return {providerId:r.provider_id,modelId:r.model_id,adapter:r.adapter,endpointOverride:r.endpoint_override,timeoutOverrideMs:r.timeout_override_ms??null,
+ return {providerId:r.provider_id,modelId:r.model_id,adapter:String(r.adapter)==='special'?'unconfigured':r.adapter,endpointOverride:r.endpoint_override,timeoutOverrideMs:r.timeout_override_ms??null,
   capabilities:r.capabilities,requestDefaults:r.request_defaults,probeSpec:r.probe_spec,stream:r.stream,
   complexity:r.complexity,billing:r.billing??'paid',documentationUrl:r.documentation_url,notes:r.notes,enabled:r.enabled,routeEnabled:r.route_enabled};
 }
