@@ -46,23 +46,32 @@ if (process.env.SPEC_BASE_REF === "develop" &&
     process.exit(0);
   }
 }
-// A history-only sync uses a dedicated two-parent merge commit with the exact
-// develop tree. Validate ancestry, not just the PR's empty changed-file list.
+// A history-sync PR can be refreshed by GitHub's normal update-branch merge
+// when develop advances. Require both current tips in the ancestry and an
+// identical tree; a real main-only change may never be discarded.
 if (process.env.SPEC_BASE_REF === "develop" &&
     /^sync\/main-history-[a-z0-9-]+$/.test(process.env.SPEC_HEAD_REF || "") &&
     process.env.SPEC_REPOSITORY &&
     process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY) {
   const parents = git("rev-list", "--parents", "-n", "1", head).trim().split(/\s+/);
-  if (parents.length !== 3 || parents[0] !== head || parents[1] !== base) {
-    fail("History sync requires a merge with current develop as first parent.");
+  if (head === base || parents.length !== 3 || parents[0] !== head) {
+    fail("History sync must be a distinct merge commit.");
   }
-  const mainParent = parents[2];
-  const mainBase = git("merge-base", base, mainParent).trim();
-  if (!mainBase || git("diff", "--name-only", mainBase, mainParent).trim()) {
+  let mainTip;
+  try { mainTip = git("rev-parse", "refs/remotes/origin/main").trim(); }
+  catch { mainTip = git("rev-parse", "refs/heads/main").trim(); }
+  try {
+    git("merge-base", "--is-ancestor", base, head);
+    git("merge-base", "--is-ancestor", mainTip, head);
+  } catch {
+    fail("History sync must include current develop and main ancestry.");
+  }
+  const mainBase = git("merge-base", base, mainTip).trim();
+  if (!mainBase || git("diff", "--name-only", mainBase, mainTip).trim()) {
     fail("History sync cannot discard main-only file changes.");
   }
   if (git("rev-parse", `${head}^{tree}`).trim() !== git("rev-parse", `${base}^{tree}`).trim()) {
-    fail("History sync tree must exactly match develop.");
+    fail("History sync tree must exactly match current develop.");
   }
   console.log("Spec gate PASS: verified no-content history-only release sync.");
   process.exit(0);
