@@ -129,8 +129,14 @@ export function diagnoseProbeFailure(error:unknown):{status:'failed'|'unknown';d
 }
 export async function testRegisteredModel(id:string,capability:string,actor:string) {
  const {m,c,fingerprint,snapshot}=await registeredRuntime(id);
- if(!m.probe_spec||m.probe_spec.capability!==capability||!m.capabilities.includes(capability as never))
-  throw new ProviderConfigError('Configure a matching capability test request first','probeSpec');
+ // Standard chat/embedding probes need no manually written JSON.
+ const probe=m.probe_spec??(m.adapter==='chat'
+  ?{capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'}
+  :m.adapter==='embedding'
+  ?{capability:'embedding',body:{input:'Hello world'},response:'embedding'}:null);
+ if(!probe)throw new ProviderConfigError('This API endpoint has no test adapter yet','probeSpec');
+ if(probe.capability!==capability||!m.capabilities.includes(capability as never))
+  throw new ProviderConfigError('The test capability does not match this model','probeSpec');
  // Fail before reserving a paid-request receipt: an inactive deployment or missing
  // credential must never be reported as an uncertain upstream response.
  if(!config.modelCallsEnabled)throw new ProviderConfigError('Model tests are disabled on this deployment (MODEL_CALLS_ENABLED=false)','connection',409);
@@ -139,7 +145,7 @@ export async function testRegisteredModel(id:string,capability:string,actor:stri
   throw new ProviderConfigError('This model is not on the verified NVIDIA Free Endpoint list','modelId',409);
  const started=Date.now();let status='failed',detail='Response shape mismatch';
  try {
-  const body={...m.request_defaults,...m.probe_spec.body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})};
+  const body={...m.request_defaults,...probe.body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})};
   const receipt=await paidRequest({service:c.vendor,model:m.model_id,purpose:'model_provider_probe',subject:id+':'+capability,
    identity:{id,fingerprint,body},attemptTag:randomUUID(),requestSummary:{modelId:id,capability}},async()=>{
    const {data,requestId}=await transport(c,m,body);
@@ -149,10 +155,10 @@ export async function testRegisteredModel(id:string,capability:string,actor:stri
   const choice=(d.choices as Array<{message?:{content?:unknown;reasoning_content?:unknown};finish_reason?:unknown}>|undefined)?.[0];
   const text=choice?.message?.content;
   const vector=(d.data as Array<{embedding?:unknown}>|undefined)?.[0]?.embedding;
-  const valid=m.probe_spec.response==='chat'?typeof text==='string'&&!!text.trim():
-   m.probe_spec.response==='embedding'?Array.isArray(vector)&&vector.length>0&&vector.every(x=>typeof x==='number'&&Number.isFinite(x)):Object.keys(d).length>0&&!d.error;
-  if(valid){status='verified';detail='Valid '+m.probe_spec.response+' response';}
-  else if(m.probe_spec.response==='chat'){
+  const valid=probe.response==='chat'?typeof text==='string'&&!!text.trim():
+   probe.response==='embedding'?Array.isArray(vector)&&vector.length>0&&vector.every(x=>typeof x==='number'&&Number.isFinite(x)):Object.keys(d).length>0&&!d.error;
+  if(valid){status='verified';detail='Valid '+probe.response+' response';}
+  else if(probe.response==='chat'){
    if(choice?.finish_reason==='length')detail='Output token limit reached before final answer; increase max_tokens or lower reasoning effort';
    else if(typeof choice?.message?.reasoning_content==='string'&&choice.message.reasoning_content.trim())
     detail='Reasoning returned without final assistant text; adjust thinking mode or output tokens';

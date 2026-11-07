@@ -38,16 +38,40 @@ export async function syncOpenRouterFreeModels(providerId:string,actor:string){
   const previous=new Set(existing.map(m=>m.model_id));
   for(const model of catalog.models){
    const modelId=model.id;
-   const metadata=tx.json({openrouterFreeSync:{free:true,checkedAt:timestamp,adapter:model.adapter}});
+   const metadata=tx.json({openrouterFreeSync:{free:true,checkedAt:timestamp,adapter:model.adapter,
+    endpoints:model.endpoints,inputModalities:model.inputModalities,outputModalities:model.outputModalities}});
    await tx`INSERT INTO registered_models
     (id,provider_id,model_id,adapter,capabilities,probe_spec,enabled,route_enabled,billing,upstream_metadata,updated_by)
     VALUES (${randomUUIDv7()}::uuid,${providerId}::uuid,${modelId},${model.adapter},${tx.json(model.capabilities)},
       ${model.probe?tx.json(model.probe):null},
-      ${model.adapter!=='special'},false,'free',${metadata},${actor})
+      ${model.adapter!=='unconfigured'},false,'free',${metadata},${actor})
     ON CONFLICT(provider_id,model_id) DO UPDATE SET
+      -- Heal untouched, auto-imported legacy rows without rewriting operator edits.
+      adapter=CASE WHEN registered_models.version=1 AND NOT registered_models.route_enabled
+        AND registered_models.adapter IN ('special','unconfigured')
+        AND registered_models.upstream_metadata->'openrouterFreeSync'->>'adapter'='special'
+        THEN EXCLUDED.adapter ELSE registered_models.adapter END,
+      capabilities=CASE WHEN registered_models.version=1 AND NOT registered_models.route_enabled
+        AND registered_models.adapter IN ('special','unconfigured')
+        AND registered_models.upstream_metadata->'openrouterFreeSync'->>'adapter'='special'
+        THEN EXCLUDED.capabilities ELSE registered_models.capabilities END,
+      probe_spec=CASE WHEN registered_models.version=1 AND NOT registered_models.route_enabled
+        AND registered_models.adapter IN ('special','unconfigured')
+        AND registered_models.upstream_metadata->'openrouterFreeSync'->>'adapter'='special'
+        THEN EXCLUDED.probe_spec
+        WHEN registered_models.probe_spec IS NULL
+          AND registered_models.adapter=EXCLUDED.adapter
+          AND registered_models.adapter IN ('chat','embedding')
+          AND registered_models.upstream_metadata ? 'openrouterFreeSync'
+        THEN EXCLUDED.probe_spec ELSE registered_models.probe_spec END,
       upstream_metadata=registered_models.upstream_metadata || EXCLUDED.upstream_metadata,
       billing='free'`;
   }
+  // Normalize obsolete catalog adapters during the user-requested sync, not in a
+  // startup migration (online migrations forbid bulk data updates).
+  await tx`UPDATE registered_models SET adapter='unconfigured',
+   enabled=false,route_enabled=false,probe_spec=NULL
+   WHERE provider_id=${providerId}::uuid AND adapter='special'`;
   let noLongerFree=0,removed=0;
   for(const row of existing){
    if(freeIds.has(row.model_id)||!row.upstream_metadata?.openrouterFreeSync)continue;

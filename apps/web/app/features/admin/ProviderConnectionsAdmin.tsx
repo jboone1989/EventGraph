@@ -23,6 +23,15 @@ const capabilitiesFor=(adapter:ModelInput["adapter"]):ModelInput["capabilities"]
 const probeFor=(adapter:ModelInput["adapter"]):ModelInput["probeSpec"]=>
  adapter==="chat"?{capability:"text",body:{messages:[{role:"user",content:"Reply OK"}]},response:"chat"}:
  adapter==="embedding"?{capability:"embedding",body:{input:"sample"},response:"embedding"}:null;
+const officialOutput=(m:RegisteredModel):string=>{
+ const data=m.upstreamMetadata?.openrouterFreeSync as {outputModalities?:unknown;endpoints?:unknown}|undefined;
+ const output=Array.isArray(data?.outputModalities)?data.outputModalities.filter((v):v is string=>typeof v==='string'):[];
+ if(output.length)return output.join(' / ');
+ const endpoints=Array.isArray(data?.endpoints)?data.endpoints.filter((v):v is string=>typeof v==='string'):[];
+ if(endpoints.length)return endpoints.join(' / ');
+ return ({chat:'chat',embedding:'embedding',document:'document',safety:'safety'} as Record<string,string>)[m.adapter]??'未标注';
+};
+const modelTestSpec=(m:RegisteredModel)=>m.probeSpec??probeFor(m.adapter);
 const modelInput=(m:RegisteredModel):ModelInput=>({
  providerId:m.providerId,modelId:m.modelId,adapter:m.adapter,endpointOverride:m.endpointOverride,
  timeoutOverrideMs:m.timeoutOverrideMs,capabilities:m.capabilities,requestDefaults:m.requestDefaults,
@@ -188,13 +197,13 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
  const activeTests=useRef(new Set<string>());
  const names=new Map(data.providers.map(c=>[c.id,connectionLabel(c)]));
  const testStatus=(m:RegisteredModel)=>{
-  const status=testResults[m.id]?.status??m.checks.find(c=>c.capability===m.probeSpec?.capability)?.status;
+  const status=testResults[m.id]?.status??m.checks.find(c=>c.capability===modelTestSpec(m)?.capability)?.status;
   return status==="verified"?"passed":status&&status!=="unverified"?"failed":"untested";
  };
  const matching=data.models.filter(m=>
   [m.modelId,m.id,m.providerId,names.get(m.providerId)??""].join(" ").toLowerCase().includes(search.trim().toLowerCase())&&
   (!providerFilter||m.providerId===providerFilter)&&(!billingFilter||m.billing===billingFilter)&&
-  (!adapterFilter||m.adapter===adapterFilter)&&(!complexityFilter||m.complexity===complexityFilter)&&
+  (!adapterFilter||officialOutput(m)===adapterFilter)&&(!complexityFilter||m.complexity===complexityFilter)&&
   (!enabledFilter||(enabledFilter==="enabled" ? m.enabled : !m.enabled))&&
   (!testFilter||testStatus(m)===testFilter)
  );
@@ -202,7 +211,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
  const pageCount=Math.max(1,Math.ceil(matching.length/PAGE_SIZE));
  const currentPage=Math.min(page,pageCount);
  const visible=matching.slice((currentPage-1)*PAGE_SIZE,currentPage*PAGE_SIZE);
- const paidCount=matching.filter(m=>m.billing==="paid"&&m.probeSpec).length;
+ const paidCount=matching.filter(m=>m.billing==="paid"&&modelTestSpec(m)).length;
  function resetPage(set:(value:string)=>void,value:string){set(value);setPage(1);}
  function clearFilters(){
   setSearch("");setProviderFilter("");setBillingFilter("");setAdapterFilter("");
@@ -226,8 +235,8 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
  }
  async function testModel(m:RegisteredModel):Promise<TestResult|null>{
   if(activeTests.current.has(m.id))return null;
-  if(!m.probeSpec){
-   const missing={status:"failed",elapsedMs:0,detail:"未配置测试请求，请在编辑模型的高级设置中添加。"};
+  if(!modelTestSpec(m)){
+   const missing={status:"failed",elapsedMs:0,detail:"此模型的上游 API 尚未接入测试适配器。"};
    setTestResults(prev=>({...prev,[m.id]:missing}));return missing;
   }
   activeTests.current.add(m.id);
@@ -235,7 +244,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
   let failure="网络请求失败，未收到测试结果";
   try{
    const result=await run<TestResult>("POST","/api/admin/provider-models/"+m.id+"/test",
-    {capability:m.probeSpec.capability},{label:"probe:"+m.id,background:true,revalidate:false,quietError:true,
+    {capability:modelTestSpec(m)!.capability},{label:"probe:"+m.id,background:true,revalidate:false,quietError:true,
      onError:p=>{failure=p.detail;}});
    const finalResult=result??{status:"failed",elapsedMs:0,detail:failure};
    setTestResults(prev=>({...prev,[m.id]:finalResult}));
@@ -245,7 +254,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
  async function testFiltered(){
   if(batchLock.current||!matching.length)return;
   const targets=[...matching];
-  const countPaid=targets.filter(m=>m.billing==="paid"&&m.probeSpec).length;
+  const countPaid=targets.filter(m=>m.billing==="paid"&&modelTestSpec(m)).length;
   if(countPaid&&!window.confirm("将测试 "+targets.length+" 个匹配模型，其中 "+countPaid+" 个标为付费，真实 API 请求可能产生费用。确认继续？"))return;
   batchLock.current=true;setBatchRunning(true);
   const stats={total:targets.length,completed:0,passed:0,failed:0,skipped:0};
@@ -255,7 +264,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
    while(cursor<targets.length){
     const model=targets[cursor++];
     if(!model)break;
-    if(!model.probeSpec||activeTests.current.has(model.id)){
+    if(!modelTestSpec(model)||activeTests.current.has(model.id)){
      stats.skipped++;stats.completed++;setBatch({...stats});continue;
     }
     try{
@@ -273,7 +282,7 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
  const filters=[
   {label:"厂商连接",value:providerFilter,change:setProviderFilter,options:data.providers.map(p=>({value:p.id,label:p.name+" · "+vendorLabel(p.vendor)}))},
   {label:"费用",value:billingFilter,change:setBillingFilter,options:[{value:"free",label:"免费"},{value:"paid",label:"付费"}]},
-  {label:"模型类型",value:adapterFilter,change:setAdapterFilter,options:[...new Set(data.models.map(m=>m.adapter))].map(v=>({value:v,label:v}))},
+  {label:"模型类型",value:adapterFilter,change:setAdapterFilter,options:[...new Set(data.models.map(officialOutput))].map(v=>({value:v,label:v}))},
   {label:"模型档位",value:complexityFilter,change:setComplexityFilter,options:[{value:"light",label:"轻量"},{value:"medium",label:"标准"},{value:"heavy",label:"高级"}]},
   {label:"启用状态",value:enabledFilter,change:setEnabledFilter,options:[{value:"enabled",label:"启用"},{value:"disabled",label:"停用"}]},
   {label:"测试结果",value:testFilter,change:setTestFilter,options:[{value:"passed",label:"通过"},{value:"failed",label:"失败"},{value:"untested",label:"未测试"}]}
@@ -308,16 +317,16 @@ export function RegisteredModelsAdmin({data}:{data:ProviderManagement}){
    <DataTable rows={visible} rowKey={m=>m.id} empty="没有匹配的模型，请调整筛选条件或清空筛选。" columns={[
     {key:"id",label:"模型 ID",render:m=><div className="space-y-1"><span className="block break-all font-mono text-xs">{m.modelId}</span><span className="block break-all font-mono text-xs text-ink-4" title="EventGraph 内部模型 UUID">{m.id}</span></div>},
     {key:"provider",label:"厂商连接",render:m=>names.get(m.providerId)??m.providerId},
-    {key:"adapter",label:"类型",render:m=>m.adapter},
+    {key:"adapter",label:"上游模型类型",render:m=><span title={JSON.stringify((m.upstreamMetadata?.openrouterFreeSync as {endpoints?:unknown}|undefined)?.endpoints??[])}>{officialOutput(m)}</span>},
     {key:"billing",label:"计费",render:m=>m.billing==="free"?"免费":"付费"},
     {key:"complexity",label:"档位",render:m=>({light:"轻量",medium:"标准",heavy:"高级"})[m.complexity]},
     {key:"status",label:"状态",render:m=><Badge tone={m.enabled?"ok":"muted"}>{m.enabled?"启用":"停用"}</Badge>},
     {key:"ops",label:"操作",render:m=>{
-     const latest=testResults[m.id],record=m.checks.find(c=>c.capability===m.probeSpec?.capability);
+     const latest=testResults[m.id],record=m.checks.find(c=>c.capability===modelTestSpec(m)?.capability);
      const status=latest?.status??record?.status;
      return <div className="flex flex-wrap items-center gap-1">
       <Button size="sm" disabled={busy||!!testing[m.id]} onClick={()=>{setProblem(null);setEditor(m);}}>编辑</Button>
-      <Button size="sm" disabled={!m.probeSpec||!!testing[m.id]} onClick={()=>void testModel(m)}>{testing[m.id]?"测试中…":!m.probeSpec?(m.adapter==="special"?"暂不支持测试":"未配置测试"):"测试"}</Button>
+      <Button size="sm" disabled={!modelTestSpec(m)||!!testing[m.id]} onClick={()=>void testModel(m)}>{testing[m.id]?"测试中…":!modelTestSpec(m)?"尚未接入测试":"测试"}</Button>
       {status&&<Badge tone={status==="verified"?"ok":status==="unverified"?"muted":"bad"}>
        {status==="verified"?"通过":status==="unverified"?"待测":"失败"}</Badge>}
       <Button size="sm" disabled={busy||!!testing[m.id]} onClick={()=>{setProblem(null);setDeleting(m);}}>删除</Button>
@@ -404,9 +413,10 @@ function ModelDialog({model,providers,busy,problem,onClose,onSave}:{
   <label className="block space-y-1 text-sm">模型 ID
    <Input aria-label="模型 ID" disabled={busy} value={modelId} onChange={e=>{setModelId(e.target.value);if(!model)setComplexity(complexityFromModelId(e.target.value));setBilling(inferBilling(e.target.value));}} placeholder="填入官方模型 ID"/>
   </label>
-  <label className="block space-y-1 text-sm">模型类型
-   <Select aria-label="模型类型" disabled={busy} value={adapter} onChange={e=>selectAdapter(e.target.value as ModelInput["adapter"])}>
-    {["chat","embedding","document","safety","special","unconfigured"].map(x=><option key={x} value={x}>{x}</option>)}
+  {model&&<p className="text-xs text-ink-4">上游输出类型：{officialOutput(model)}（不等同于调用适配器）</p>}
+  <label className="block space-y-1 text-sm">调用适配器
+   <Select aria-label="调用适配器" disabled={busy} value={adapter} onChange={e=>selectAdapter(e.target.value as ModelInput["adapter"])}>
+    {["chat","embedding","document","safety","unconfigured"].map(x=><option key={x} value={x}>{x}</option>)}
    </Select>
   </label>
   {adapter==="chat"&&<label className="flex items-center gap-2 text-sm">
