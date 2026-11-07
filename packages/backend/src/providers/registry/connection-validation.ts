@@ -83,5 +83,5 @@ export function checkModel(input:ModelInput,connection:Pick<ProviderConnection,'
  // Credentials belong to one origin. Model URLs may change path, never host.
  if(url.origin!==base.origin)fail('endpointOverride','Model endpoint must share the connection origin');
  checkModelPolicy(input,connection,url);
- if(input.routeEnabled&&['special','unconfigured'].includes(input.adapter))fail('adapter','Configure a supported adapter before enabling routing');
+ if(input.routeEnabled&&['unconfigured'].includes(input.adapter))fail('adapter','Configure a supported adapter before enabling routing');
 }

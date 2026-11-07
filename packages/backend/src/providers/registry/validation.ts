@@ -37,6 +37,6 @@ export function checkProviderChanges(changes:ProviderChanges,old?:ProviderProfil
  if(changes.documentationUrl&&(!changes.documentationUrl.startsWith("https://docs.api.nvidia.com/")||changes.documentationUrl.length>400))bad("documentation URL must be NVIDIA API reference");
  const adapter=changes.adapter??old?.adapter,endpoint=changes.endpoint===undefined?old?.endpoint:changes.endpoint;
  if(changes.routeEnabled&&(changes.enabled===false||(!changes.enabled&&!old?.enabled)))bad("route requires an enabled provider");
- if(changes.routeEnabled&&(!endpoint||adapter==="unconfigured"||adapter==="special"))bad("route requires a supported configured API endpoint");
+ if(changes.routeEnabled&&(!endpoint||adapter==="unconfigured"))bad("route requires a supported configured API endpoint");
  if(adapter!=="chat"&&adapter!=="document"&&adapter!=="safety"&&changes.stream)bad("stream is only available for chat-style adapters");
 }
