@@ -55,7 +55,8 @@ test("model import uses each configured connection without squeezing the page he
   await expect(select.locator("option")).toHaveCount(providers.length);
   const optionLabels=await select.locator("option").allTextContents();
   for(const connection of providers)assert.ok(optionLabels.some(label=>label.includes(connection.name+" · "+connection.vendor)));
-  assert.equal(await page.getByRole("button",{name:/导入 .* 免费模型/}).count(),0,"no button per connection");
+  assert.equal(optionLabels.filter(label=>label.includes(" · groq · ")).length,3,"all three Groq accounts must be selectable");
+  assert.equal(await page.getByRole("button",{name:/^导入 groq(?:-03|-2)? 免费模型$/}).count(),0,"no button per connection");
   await select.selectOption(providers[3]!.id);
   await page.getByRole("button",{name:"导入所选连接的免费模型"}).click();
   await expect(page.getByRole("status").filter({hasText:"groq-2：候选 3 个"})).toBeVisible();
