@@ -1,6 +1,6 @@
 import { SITE } from "@aihot/site";
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import type { Route } from "./+types/source";
 import { REPLACEABLE_SOURCE_KINDS, type AdminSource, type AdminSourceDetail, type AdminSourcePreview, type AdminSourceUpdate } from "@aihot/contracts/admin";
 import { adminGet } from "../../lib/admin.server";
@@ -42,10 +42,11 @@ function draftOf(s: AdminSource): Draft {
 export default function SourceDetail({ loaderData }: Route.ComponentProps) {
   const { source: s, runs, items, stats, history } = loaderData;
   const { run, pending } = useAdminAction();
+  const navigate = useNavigate();
   const [draft, setDraft] = useState<Draft>(() => draftOf(s));
   const [draftFor, setDraftFor] = useState(s.updated_at);
   const [preview, setPreview] = useState<AdminSourcePreview | null>(null);
-  const [dialog, setDialog] = useState<null | "save" | "toggle">(null);
+  const [dialog, setDialog] = useState<null | "save" | "toggle" | "delete">(null);
   const [configError, setConfigError] = useState<string | null>(null);
   if (draftFor !== s.updated_at) {
     // The source changed (our own save or someone else's): start from the saved state.
@@ -119,6 +120,7 @@ export default function SourceDetail({ loaderData }: Route.ComponentProps) {
           <Button tone={s.enabled ? "danger" : "primary"} onClick={() => setDialog("toggle")}>
             {s.enabled ? "暂停" : "恢复"}
           </Button>
+          <Button tone="danger" onClick={() => setDialog("delete")}>删除信源</Button>
         </>
       }
     >
@@ -293,29 +295,47 @@ export default function SourceDetail({ loaderData }: Route.ComponentProps) {
 
       <ReasonDialog
         open={dialog === "save"}
+        showReason={false}
         title="保存信源设置"
         description={`${draft.kind !== s.kind ? `采集方式由 ${KIND_LABEL[s.kind]} 调整为 ${KIND_LABEL[draft.kind]}，保留历史内容。` : ""}将修改：${Object.keys(patchPreview(draft, s)).join("、") || "无"}`}
         busy={pending === "save"}
         onClose={() => setDialog(null)}
-        onSubmit={async (reason) => {
+        onSubmit={async () => {
           const p = patch();
           if (!p) return false;
-          const body: AdminSourceUpdate = { patch: p, version: new Date(s.updated_at).toISOString(), reason };
+          const body: AdminSourceUpdate = { patch: p, version: new Date(s.updated_at).toISOString() };
           const r = await run("PATCH", base, body, { label: "save", success: "已保存" });
           return r !== null;
         }}
       />
       <ReasonDialog
         open={dialog === "toggle"}
+        showReason={false}
         title={s.enabled ? "暂停这个信源" : "恢复这个信源"}
         description={s.enabled ? "暂停后不再采集，已有内容和历史保留。" : "恢复后会立即排队采集一次。"}
         danger={s.enabled}
         confirmLabel={s.enabled ? "暂停" : "恢复"}
         busy={pending === "toggle"}
         onClose={() => setDialog(null)}
-        onSubmit={async (reason) => {
-          const r = await run("PATCH", base, { patch: { enabled: !s.enabled }, version: new Date(s.updated_at).toISOString(), reason }, { label: "toggle", success: s.enabled ? "已暂停" : "已恢复" });
+        onSubmit={async () => {
+          const r = await run("PATCH", base, { patch: { enabled: !s.enabled }, version: new Date(s.updated_at).toISOString() }, { label: "toggle", success: s.enabled ? "已暂停" : "已恢复" });
           return r !== null;
+        }}
+      />
+      <ReasonDialog
+        open={dialog === "delete"}
+        showReason={false}
+        title="删除这个信源"
+        description={`删除 ${s.name} 后不再采集，并从信源管理列表移除。已采集的新闻和事件保留。`}
+        confirmLabel="确认删除"
+        danger
+        busy={pending === "delete"}
+        onClose={() => setDialog(null)}
+        onSubmit={async () => {
+          const result = await run("DELETE", base, { version: new Date(s.updated_at).toISOString() }, { label: "delete", success: "已删除信源", revalidate: false });
+          if (result === null) return false;
+          navigate("/admin/sources");
+          return true;
         }}
       />
     </AdminPage>
