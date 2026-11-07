@@ -64,7 +64,7 @@ function classify(cwd, base, head, extra = {}) {
 test("verified release-only merge passes Spec gate and skips heavy/paid reviews", () => {
   const { cwd, main, develop, sync } = fixture();
   try {
-    assert.equal(git(cwd, "rev-parse", "${sync}^{tree}"), git(cwd, "rev-parse", "${develop}^{tree}"));
+    assert.equal(git(cwd, "rev-parse", sync + "^{tree}"), git(cwd, "rev-parse", develop + "^{tree}"));
     assert.deepEqual(git(cwd, "rev-list", "--parents", "-n", "1", sync).split(" ").slice(1), [develop, main]);
     const verified = check(cwd, develop, sync);
     assert.equal(verified.status, 0, verified.stderr);
