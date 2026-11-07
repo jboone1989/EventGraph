@@ -1,6 +1,6 @@
 # 运行与积压：导航计数一致 + 停用模型绑定防错
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 97f6c30e1a1191f0285d4a50a30dd3c284c94e85)
 **Target:** develop
 **Delivery:** 已有 Spec Review → 自动 Owner-approved → develop → GH-AW 原生 Work Queue/Projects → Worker PR → 既有 Check/Docker/E2E/独立 Review → 自动合并。禁止直接改 main / 生产。
 
