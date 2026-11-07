@@ -69,6 +69,7 @@ test("the compiled full develop checkout can read an older immutable Spec withou
 test("the GLM Worker has enough turns for code tasks and its compiled budget matches the source", () => {
   assert.match(source, /^max-turns: 1000$/m);
   assert.match(lock, /^\s+GH_AW_MAX_TURNS: 1000$/m);
+  assert.match(lock, /maxRuns.{0,8}1000/, "compiled AWF proxy must enforce the updated budget");
   assert.match(source, /^timeout-minutes: 60\njobs:\n  agent:\n    timeout-minutes: 75$/m);
   assert.match(lock, /^    timeout-minutes: 75\n    env:\n      DEFAULT_BRANCH:/m);
   assert.match(lock, /^        timeout-minutes: 60\n        run: \|/m);
