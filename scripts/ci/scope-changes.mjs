@@ -15,7 +15,29 @@ function classify() {
   const ancestor = git("merge-base", base, head).trim();
   if (!ancestor) return false;
   const files = git("diff", "--no-renames", "--name-only", "-z", ancestor, head).split("\0").filter(Boolean);
-  if (files.length === 0) return false;
+  if (files.length === 0) {
+    // A genuinely empty diff is docs-only only for a verified history-sync
+    // merge. Invalid / unrelated empty ranges still run the full pipeline.
+    const isSyncPR = process.env.SCOPE_BASE_REF === "develop" &&
+      /^sync\/main-history-[a-z0-9-]+$/.test(process.env.SCOPE_HEAD_REF || "");
+    const isSyncMergedToDevelop = process.env.SCOPE_EVENT_NAME === "push" &&
+      process.env.SCOPE_BASE_REF === "develop" && process.env.SCOPE_HEAD_REF === "develop";
+    if ((!isSyncPR && !isSyncMergedToDevelop) ||
+        !process.env.SCOPE_REPOSITORY ||
+        process.env.SCOPE_HEAD_REPO !== process.env.SCOPE_REPOSITORY) return false;
+    const parents = git("rev-list", "--parents", "-n", "1", head).trim().split(/\s+/);
+    if (head === base || parents.length !== 3 || parents[0] !== head) return false;
+    let mainTip;
+    try { mainTip = git("rev-parse", "refs/remotes/origin/main").trim(); }
+    catch { mainTip = git("rev-parse", "refs/heads/main").trim(); }
+    try {
+      git("merge-base", "--is-ancestor", base, head);
+      git("merge-base", "--is-ancestor", mainTip, head);
+    } catch { return false; }
+    const mainBase = git("merge-base", base, mainTip).trim();
+    if (!mainBase || git("diff", "--name-only", mainBase, mainTip).trim()) return false;
+    return git("rev-parse", `${head}^{tree}`).trim() === git("rev-parse", `${base}^{tree}`).trim();
+  }
   // Same classification as check-spec.mjs's documentation-only fast path.
   const governance = /^(?:docs\/|specs\/|\.specify\/|\.agents\/|\.claude\/)/;
   const rootDocs = /^(?:AGENTS|CLAUDE|README|CONTRIBUTING)\.md$/;
