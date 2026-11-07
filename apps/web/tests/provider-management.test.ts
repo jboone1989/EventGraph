@@ -118,7 +118,7 @@ test("model rows without probe disable unsupported testing without modifying oth
    protocol:"openai-compatible",baseUrl:"https://api.example.com/v1",timeoutMs:60000,
    enabled:true,policy:"none",credential:{configured:true},version:1,updatedAt:new Date().toISOString()}],
   models:[{id:"22222222-2222-4222-a222-222222222222",providerId:"11111111-1111-4111-a111-111111111111",
-   modelId:"custom-model",adapter:"special",endpointOverride:null,timeoutOverrideMs:null,capabilities:[],
+   modelId:"custom-model",adapter:"unconfigured",endpointOverride:null,timeoutOverrideMs:null,capabilities:[],
    requestDefaults:{},probeSpec:null,stream:false,complexity:"medium",documentationUrl:null,
    notes:null,enabled:false,routeEnabled:false,upstreamMetadata:{},routing:{eligibleCapabilities:[],reasons:[]},
    version:1,updatedAt:new Date().toISOString(),checks:[]}],
