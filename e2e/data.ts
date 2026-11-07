@@ -1,0 +1,88 @@
+// Shared fail-closed reads for seeded CI; external sites may legitimately have no samples.
+import assert from "node:assert/strict";
+
+export const seeded = () => process.env.E2E_SEEDED === "1";
+
+export async function readSiteJSON(base: string, path: string, required = seeded()) {
+  try {
+    const response = await fetch(base + path, { signal: AbortSignal.timeout(20_000) });
+    assert.ok(response.ok, `${path}: HTTP ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    if (required) throw new Error(`${path}: required E2E API read failed (${error instanceof Error ? error.message : String(error)})`, { cause: error });
+    return null;
+  }
+}
+
+export function requireSamples(samples: Record<string, unknown>, required = seeded()) {
+  if (!required) return;
+  const endpoints: Record<string, string> = {
+    item: "/api/site/timeline", story: "/api/site/hot", daily: "/api/site/reports/daily/latest-page",
+    topic: "/api/site/topics", entity: "/api/site/knowledge/overview",
+  };
+  for (const [key, path] of Object.entries(endpoints)) {
+    assert.ok(typeof samples[key] === "string" && samples[key], `${path}: missing required ${key} sample`);
+  }
+}
+
+/** Optional external sites may have raw Graphiti entities but no publicly cited graph. */
+export function publicGraphHasData(stats: any, overview: any, network: any): boolean {
+  return Number.isSafeInteger(stats?.entities) && stats.entities > 0 &&
+    Array.isArray(overview?.edges) && overview.edges.length > 0 &&
+    Array.isArray(network?.nodes) && network.nodes.length > 0 &&
+    Array.isArray(network?.links) && network.links.length > 0;
+}
+
+/** The seeded edge must be the same public relation in both API projections. */
+export function requireSeededRelation(overview: any, network: any, relationId: string, articleId: string) {
+  const edge = overview?.edges?.find((item: any) => item?.id === relationId);
+  assert.ok(edge, `/api/site/knowledge/overview: missing seeded relation ${relationId}`);
+  assert.ok(edge.evidence?.some((source: any) => source?.articleId === articleId),
+    `/api/site/knowledge/overview: seeded relation lacks public evidence ${articleId}`);
+  const link = network?.links?.find((item: any) => item?.id === relationId);
+  assert.ok(link, `/api/site/knowledge/network: missing seeded relation ${relationId}`);
+  assert.ok(edge.subject?.key && edge.object?.key,
+    "/api/site/knowledge/overview: seeded relation has missing endpoints");
+  assert.equal(link.source, edge.subject.key, "/api/site/knowledge/network: seeded subject mismatch");
+  assert.equal(link.target, edge.object.key, "/api/site/knowledge/network: seeded object mismatch");
+  const nodes = new Set((network?.nodes ?? []).map((node: any) => node.key));
+  assert.ok(nodes.has(link.source) && nodes.has(link.target),
+    "/api/site/knowledge/network: seeded relation endpoints are not public nodes");
+}
+
+/** Seeded CI must prove the public entity page cites the same relation and report. */
+export function requireSeededEntityProfile(profile: any, entityKey: string, relationId: string, articleId: string) {
+  assert.equal(profile?.entity?.key, entityKey,
+    "/api/site/knowledge/entities: seeded entity identity mismatch");
+  const edge = Array.isArray(profile?.edges)
+    ? profile.edges.find((item: any) => item?.id === relationId) : null;
+  assert.ok(edge, "/api/site/knowledge/entities: missing seeded relation");
+  assert.ok(edge.subject?.key === entityKey || edge.object?.key === entityKey,
+    "/api/site/knowledge/entities: seeded relation does not touch this entity");
+  assert.ok(Array.isArray(edge.evidence) && edge.evidence.some((source: any) => source?.articleId === articleId),
+    "/api/site/knowledge/entities: seeded relation lacks public evidence");
+  assert.ok(Array.isArray(profile?.reports) && profile.reports.some((report: any) => report?.id === articleId),
+    "/api/site/knowledge/entities: seeded source report is absent");
+}
+
+export function requireGraph(stats: any, overview: any, network: any) {
+  for (const [path, data] of [["stats", stats], ["overview", overview], ["network", network]] as const) {
+    const statusIsValid = data && (!Object.hasOwn(data, "status") || data.status === "ok");
+    assert.ok(statusIsValid, `/api/site/knowledge/${path}: graph unavailable or returned a non-ok status (${data?.status ?? "missing"})`);
+  }
+  const positiveCount = (value: unknown) => Number.isSafeInteger(value) && (value as number) > 0;
+  const nonempty = (value: unknown) => typeof value === "string" && value.trim().length > 0;
+  assert.ok(positiveCount(stats.entities) && positiveCount(stats.relations), "/api/site/knowledge/stats: empty or invalid graph counts");
+  assert.ok(Array.isArray(overview.edges) && overview.edges.length > 0 &&
+    overview.edges.every((edge: any) => Array.isArray(edge?.evidence) && edge.evidence.length > 0 &&
+      edge.evidence.every((source: any) => nonempty(source?.articleId))),
+    "/api/site/knowledge/overview: missing public relation evidence");
+  assert.ok(Array.isArray(network.nodes) && network.nodes.length > 0 &&
+    network.nodes.every((node: any) => nonempty(node?.key)) &&
+    Array.isArray(network.links) && network.links.length > 0 &&
+    network.links.every((link: any) => nonempty(link?.source) && nonempty(link?.target)),
+    "/api/site/knowledge/network: missing public graph arrays");
+  const nodeKeys = new Set(network.nodes.map((node: any) => node.key));
+  assert.ok(network.links.every((link: any) => nodeKeys.has(link.source) && nodeKeys.has(link.target)),
+    "/api/site/knowledge/network: relation endpoint missing from public nodes");
+}
