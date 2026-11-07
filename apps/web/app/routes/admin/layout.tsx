@@ -25,6 +25,8 @@ export const meta: Route.MetaFunction = () => [{ title: `${SITE.name} 后台` },
 
 export const headers: Route.HeadersFunction = () => ({ "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Accel-Buffering": "no" });
 
+const CLOUDFLARE_ANALYTICS_URL = SITE.cloudflareAnalyticsUrl;
+
 /** The operational overview is the starting point; all existing module routes remain. */
 const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
   { group: "运行", items: [
@@ -44,7 +46,7 @@ const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
       { to: "/admin/model-bindings", label: "工作流模型绑定" },
     ] },
   { group: "效果", items: [
-      { to: "/admin/analytics", label: "流量与广告" },
+      ...(CLOUDFLARE_ANALYTICS_URL ? [{ to: CLOUDFLARE_ANALYTICS_URL, label: "Cloudflare 分析" }] : []),
     ] },
   { group: "系统设置", items: [
       { to: "/admin/feedback", label: "反馈", count: "feedback", tone: "accent" },
@@ -76,6 +78,12 @@ function NavCount({ counts, countsKey, name, className }: Counts & { name: strin
 }
 
 function NavItem({ to, label, count, counts, countsKey, tone }: AdminNavEntry & Counts) {
+  if (to.startsWith("https://")) return (
+    <a href={to} target="_blank" rel="noopener noreferrer"
+      className="group block rounded-control px-3 py-[7px] text-[13.5px] text-ink-3 transition-colors hover:text-ink">
+      {label} <span aria-hidden="true">↗</span>
+    </a>
+  );
   return (
     <NavLink to={to} end={to === "/admin"} className="group relative block">
       {({ isActive }) => (
@@ -150,7 +158,9 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
             <details className="group relative z-50 shrink-0">
               <summary className="cursor-pointer list-none whitespace-nowrap rounded-full bg-surface px-3 py-2 text-[12.5px] text-ink-2 ring-1 ring-line focus-visible:outline-2 focus-visible:outline-accent">更多 <span aria-hidden="true">▾</span></summary>
               <div className="absolute right-0 top-full z-50 mt-2 max-h-[65vh] w-52 overflow-y-auto rounded-panel border border-line bg-surface p-2 shadow-lg">
-                {mobileMore.map(i => <NavLink key={i.to} to={i.to} className="block rounded-control px-3 py-2.5 text-[13px] text-ink hover:bg-bg-sunk">{i.label}</NavLink>)}
+                {mobileMore.map(i => i.to.startsWith("https://")
+                  ? <a key={i.to} href={i.to} target="_blank" rel="noopener noreferrer" className="block rounded-control px-3 py-2.5 text-[13px] text-ink hover:bg-bg-sunk">{i.label} ↗</a>
+                  : <NavLink key={i.to} to={i.to} className="block rounded-control px-3 py-2.5 text-[13px] text-ink hover:bg-bg-sunk">{i.label}</NavLink>)}
               </div>
             </details>
           </div>

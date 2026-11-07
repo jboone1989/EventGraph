@@ -69,3 +69,25 @@ test("full operations table includes failing model calls with exact provider, mo
     await sql`DELETE FROM receipts WHERE id = ${receipt!.id}`;
   }
 });
+
+
+test("UTC failure queue excludes yesterday's model failures and does not classify unknown receipts as failures", async () => {
+  await getBoss();
+  const key = "flow-utc-" + tag();
+  const yesterday = new Date(utcDayStart().getTime() - 60_000);
+  const [oldFailure, unknown, currentFailure] = await sql<{ id: number }[]>`
+    INSERT INTO receipts (logical_key,service,model,purpose,subject,status,error,created_at,updated_at)
+    VALUES
+      (${key + "-old"}, 'Groq', 'test-model', 'analyze_article', ${key + "-old"}, 'failed', 'yesterday', ${yesterday}, ${yesterday}),
+      (${key + "-unknown"}, 'Groq', 'test-model', 'analyze_article', ${key + "-unknown"}, 'unknown', 'unverified', now(), now()),
+      (${key + "-today"}, 'Groq', 'test-model', 'analyze_article', ${key + "-today"}, 'failed', 'today', ${yesterday}, now())
+    RETURNING id`;
+  try {
+    const items = await allFlowItemsOverview([]);
+    assert.equal(items.some(item => item.key === "model:" + oldFailure!.id), false);
+    assert.equal(items.find(item => item.key === "model:" + unknown!.id)?.status, "pending");
+    assert.equal(items.find(item => item.key === "model:" + currentFailure!.id)?.status, "failed");
+  } finally {
+    await sql`DELETE FROM receipts WHERE id IN (${oldFailure!.id}, ${unknown!.id}, ${currentFailure!.id})`;
+  }
+});
