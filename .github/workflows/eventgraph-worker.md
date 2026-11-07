@@ -55,14 +55,14 @@ safe-outputs:
     # effect when signed replay creates a new PR branch. Direct safe-output
     # push remains Claim-scoped and repository rules do not require signatures.
     signed-commits: false
-max-turns: 40
+max-turns: 120
 # Pinned AWF v0.29.0 rejects the documented -1 disable sentinel at startup.
 # 10000 equals AWF's non-overridable hard cap, not an extra per-run limit.
 max-ai-credits: 10000
-timeout-minutes: 30
+timeout-minutes: 60
 jobs:
   agent:
-    timeout-minutes: 30
+    timeout-minutes: 75
 ---
 
 # EventGraph assigned Work Worker
