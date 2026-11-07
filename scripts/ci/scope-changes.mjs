@@ -18,8 +18,11 @@ function classify() {
   if (files.length === 0) {
     // A genuinely empty diff is docs-only only for a verified history-sync
     // merge. Invalid / unrelated empty ranges still run the full pipeline.
-    if (process.env.SCOPE_BASE_REF !== "develop" ||
-        !/^sync\/main-history-[a-z0-9-]+$/.test(process.env.SCOPE_HEAD_REF || "") ||
+    const isSyncPR = process.env.SCOPE_BASE_REF === "develop" &&
+      /^sync\/main-history-[a-z0-9-]+$/.test(process.env.SCOPE_HEAD_REF || "");
+    const isSyncMergedToDevelop = process.env.SCOPE_EVENT_NAME === "push" &&
+      process.env.SCOPE_BASE_REF === "develop" && process.env.SCOPE_HEAD_REF === "develop";
+    if ((!isSyncPR && !isSyncMergedToDevelop) ||
         !process.env.SCOPE_REPOSITORY ||
         process.env.SCOPE_HEAD_REPO !== process.env.SCOPE_REPOSITORY) return false;
     const parents = git("rev-list", "--parents", "-n", "1", head).trim().split(/\s+/);
