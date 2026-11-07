@@ -5,7 +5,6 @@ import { RelationEvidence, type KnowledgeEdge } from "./KnowledgeNetwork";
 import { useText } from "./LanguageSwitch";
 import { IconSearch } from "./icons";
 import { groupAtlasPairs, uniqueAtlasFacts, mergeAtlasNetworks, type AtlasNetwork, type AtlasNode } from "../lib/knowledge-atlas";
-import { trackAnalytics } from "../lib/analytics.client";
 
 const empty: AtlasNetwork = { nodes: [], links: [], truncated: false };
 export interface AtlasTime { asOf: string; clock: "known" | "valid" }
@@ -115,7 +114,6 @@ export function KnowledgeAtlas({ initialKey = null, time = null }: { initialKey?
     if(current.current)setHistory(v=>[...v.slice(-19),current.current!]);
     choose(key);
     setQuery("");
-    trackAnalytics("graph_node_select");
   };
   useEffect(() => {
     if (activePairKey && revealDetails.current) {
@@ -130,7 +128,6 @@ export function KnowledgeAtlas({ initialKey = null, time = null }: { initialKey?
     }
     revealDetails.current = true;
     setActivePairKey(key);
-    trackAnalytics("graph_relation_select");
   };
   const back=()=>setHistory(v=>{
     setActivePairKey(null);

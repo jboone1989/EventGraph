@@ -5,7 +5,6 @@ const hasHan=(s:string)=>/[\u3400-\u9fff]/u.test(s);
 // Preserve original entity names even when an English translation is not available.
 const englishEntity=(name:string,_key:string)=>name;
 import { IconArrowUpRight, IconClock, IconExternal } from "./icons";
-import { trackAnalytics } from "../lib/analytics.client";
 
 export interface KnowledgeEdge {
   id: string;
@@ -180,7 +179,7 @@ export function KnowledgeExplorer({ graph, compact = false }: { graph: Knowledge
     <div className="lr-explorer-grid">
       <div className="lr-graph-frame">
         <div className="lr-graph-topline"><span><span className="lr-pulse" /> KNOWLEDGE MAP</span><span>GRAPHITI / NEO4J</span></div>
-        <KnowledgeCanvas edges={graph.edges} activeId={active?.id} selectedNodeKey={nodeKey ?? undefined} onSelectNode={(key) => { trackAnalytics("graph_node_select"); setNodeKey(key); setSelected(null); }} compact={compact}/>
+        <KnowledgeCanvas edges={graph.edges} activeId={active?.id} selectedNodeKey={nodeKey ?? undefined} onSelectNode={(key) => { setNodeKey(key); setSelected(null); }} compact={compact}/>
         <div className="lr-graph-bottomline">{t("点击节点查看关系 · 右侧打开档案 · 点击关系查看证据","Select a node to inspect links · Open its profile · Select a relation for evidence")}</div>
       </div>
       <div className="min-w-0">
@@ -198,7 +197,7 @@ export function KnowledgeExplorer({ graph, compact = false }: { graph: Knowledge
             <div className="lr-relation-list">
               {edges.slice(0, compact ? 8 : 24).map(edge=> (
                 <button key={edge.id} type="button" aria-pressed={edge.id === active?.id}
-                  onClick={()=>{ trackAnalytics("graph_relation_select"); setSelected(edge.id); }} className={`lr-relation-row ${edge.id === active?.id ? "is-active" : ""}`}>
+                  onClick={()=>{ setSelected(edge.id); }} className={`lr-relation-row ${edge.id === active?.id ? "is-active" : ""}`}>
                   <span className="min-w-0">
                     <strong>{lang==="en"?englishEntity(edge.subject.name,edge.subject.key):edge.subject.name}</strong><span className="block truncate text-[11px] font-normal text-ink-4">{edge.predicate.replaceAll("_", " ")} → {lang==="en"?englishEntity(edge.object.name,edge.object.key):edge.object.name}</span>
                   </span>
