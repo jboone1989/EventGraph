@@ -1,6 +1,6 @@
 # Eliminate recurring main / develop release-history divergence
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 210ed23d66cbb06b0435a7cadb1f9312d57b91d9)
 **Type:** CI/release-history correctness
 **Owner goal:** After every approved release, main and develop must not diverge solely because the release used a merge commit. Do not repeatedly ask the owner to resolve history-only branch conflicts or launch paid reviews for phantom source deletions.
 
