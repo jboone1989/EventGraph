@@ -1,0 +1,88 @@
+# History-only release sync. Never mutates protected branches directly.
+name: "发布后同步 main 历史到 develop"
+run-name: "main 历史回同步 · ${{ github.sha }}"
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: "Exact current main HEAD to synchronize"
+        required: true
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+concurrency:
+  group: eventgraph-main-history-sync
+  cancel-in-progress: false
+jobs:
+  prepare:
+    name: "建立无代码差异的 develop 历史同步 PR"
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: develop
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare verified merge-ancestry PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          EXPECTED_MAIN: ${{ github.sha }}
+          MANUAL_EXPECTED: ${{ inputs.expected_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          [[ "$GITHUB_EVENT_NAME" != workflow_dispatch || "$MANUAL_EXPECTED" == "$EXPECTED_MAIN" ]] || {
+            echo '::error::Manual sync must pin exact current main HEAD'; exit 1;
+          }
+          git fetch origin +refs/heads/main:refs/remotes/origin/main +refs/heads/develop:refs/remotes/origin/develop
+          main_sha="$(git rev-parse origin/main)"
+          develop_sha="$(git rev-parse origin/develop)"
+          if [[ "$main_sha" != "$EXPECTED_MAIN" ]]; then
+            echo "::notice::Superseded main push ($EXPECTED_MAIN); current is $main_sha"
+            exit 0
+          fi
+          if git merge-base --is-ancestor "$main_sha" "$develop_sha"; then
+            echo '::notice::main history already included in develop'
+            exit 0
+          fi
+          common="$(git merge-base "$develop_sha" "$main_sha")"
+          [[ -n "$common" ]] || { echo '::error::Unrelated histories'; exit 1; }
+          if ! git diff --quiet "$common" "$main_sha" --; then
+            echo '::error::main has real main-only file changes: refusing a history-only merge'
+            git diff --stat "$common" "$main_sha" --
+            exit 1
+          fi
+          # Existing protected PRs must be handled, not blindly duplicated.
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open \
+            --limit 100 --json headRefName --jq '[.[] | select(.headRefName | startswith("sync/main-history-"))] | length')"
+          if [[ "$existing" != 0 ]]; then
+            echo "::error::An outstanding history-sync PR already exists; resolve it before creating another ($existing open)."
+            exit 1
+          fi
+          branch="sync/main-history-${main_sha:0:12}-${develop_sha:0:12}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B "$branch" "$develop_sha"
+          # main only introduces ancestry, verified above to contain no new
+          # file changes, so preserving develop's complete tree is intentional.
+          git merge --no-ff -s ours "$main_sha" -m "chore(sync): connect main release history to develop"
+          [[ "$(git rev-parse HEAD^1)" == "$develop_sha" ]]
+          [[ "$(git rev-parse HEAD^2)" == "$main_sha" ]]
+          [[ "$(git rev-parse HEAD^{tree})" == "$(git rev-parse "${develop_sha}^{tree}")" ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" == "$main_sha" ]] || {
+            echo '::error::main changed during preparation; retry on its next push'; exit 1;
+          }
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')" == "$develop_sha" ]] || {
+            echo '::error::develop changed during preparation; regenerate against latest develop'; exit 1;
+          }
+          gh auth setup-git
+          git push origin "HEAD:refs/heads/$branch"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base develop --head "$branch" \
+            --title "chore(sync): connect main release ancestry without changing develop files" \
+            --body "History-only release synchronization. First parent: \`$develop_sha\`. Second parent: \`$main_sha\`. Tree: exactly the original develop tree. Zero code/configuration changes. Normal exact-head CI applies; merge commit only (never squash/rebase). Automatically generated after an approved main merge; no direct protected-branch push or production deployment."
