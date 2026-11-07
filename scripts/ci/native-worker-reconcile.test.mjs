@@ -41,7 +41,7 @@ const reconciliationShell = shellFromStep();
 const cliStub = `
 gh() {
   printf '%s\\n' "$*" >> "$MOCK_CALLS"
-  if [[ "${MOCK_FAIL:-0}" == 1 ]]; then return 41; fi
+  if [[ "\${MOCK_FAIL:-0}" == 1 ]]; then return 41; fi
   printf '%s\\n' "$MOCK_RESPONSE"
 }
 `;
