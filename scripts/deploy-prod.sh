@@ -22,7 +22,7 @@ EXPECTED_MAIN="${EVENTGRAPH_PROMOTED_MAIN_SHA:-}"
 [[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ && "$EXPECTED_MAIN" == "$NEW_SHA" ]] ||
   { echo "Main changed after verified promotion or missing pinned main SHA" >&2; exit 1; }
 [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Missing verified develop source SHA" >&2; exit 1; }
-[[ "$IMAGE_REF" =~ ^ghcr\\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]] ||
+[[ "$IMAGE_REF" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]] ||
   { echo "Missing verified immutable digest" >&2; exit 1; }
 git fetch github "$SOURCE_SHA"
 # Changes outside automation/docs/host-only deployment tools must be the proven build inputs.
