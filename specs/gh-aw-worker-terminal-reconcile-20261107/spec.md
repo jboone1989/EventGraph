@@ -1,6 +1,6 @@
 # GH-AW Worker 终态自动对账，防止队列容量被永久占用
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 57cf872ba0ad26a0da6a901d63ea880ec046c280)
 **Target:** develop
 **Delivery:** Existing independent Spec Review → automatic owner-delegated approval → merge develop → deterministic Producer → Project #2 Todo → native GH-AW Worker implementation PR. The effective workflow lives on the default branch; promote through existing develop→main process separately, without publishing application runtime.
 
