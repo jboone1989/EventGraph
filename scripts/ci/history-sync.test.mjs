@@ -114,6 +114,18 @@ test("native update-branch keeps a safe sync mergeable after develop advances", 
     assert.notEqual(check(cwd, nextDevelop, sync).status, 0, "stale PR head must fail");
   } finally { rmSync(cwd, { recursive: true, force: true }); }
 });
+test("develop push of a safe history-only PR does not rebuild/redeploy the app", () => {
+  const { cwd, develop } = fixture();
+  try {
+    git(cwd, "checkout", "-q", "develop");
+    git(cwd, "merge", "--no-ff", "sync/main-history-test", "-m", "github merge commit");
+    const merged = git(cwd, "rev-parse", "HEAD");
+    assert.equal(classify(cwd, develop, merged, {
+      SCOPE_BASE_REF: "develop", SCOPE_HEAD_REF: "develop",
+      SCOPE_EVENT_NAME: "push",
+    }).stdout.trim(), "docs_only=true");
+  } finally { rmSync(cwd, { recursive: true, force: true }); }
+});
 test("main advances after old sync: never merge the stale head", () => {
   const { cwd, develop, sync } = fixture();
   try {
