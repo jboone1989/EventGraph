@@ -230,7 +230,7 @@ jobs:
 
       - name: Test Spec gate and scope detectors
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/validate-tasks.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/parse-review-verdict.test.mjs
+        run: node --test scripts/ci/check-spec.test.mjs scripts/ci/scope-changes.test.mjs scripts/ci/check-docs.test.mjs scripts/ci/spec-task-producer.test.mjs scripts/ci/validate-tasks.test.mjs scripts/ci/spec-review-gate.test.mjs scripts/ci/parse-review-verdict.test.mjs scripts/ci/promotion-source-equivalence.test.mjs scripts/ci/gh-aw-local-worker.test.mjs
       - name: Enforce pre-existing approved Spec
         if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         env:
@@ -508,11 +508,16 @@ jobs:
   release_develop:
     name: release_develop # 开发发布调用入口；保持生产镜像核验所用的状态名称
     needs: [changes, check, e2e]
+    # The optional spec-review is skipped on develop pushes. Without an explicit
+    # status function, GitHub's implicit success() also checks skipped ancestors
+    # and silently suppresses this deploy despite successful check + e2e.
     if: >-
-      ${{ (github.event_name == 'push' ||
+      ${{ always() && !cancelled() &&
+          (github.event_name == 'push' ||
            (github.event_name == 'workflow_dispatch' &&
             inputs.expected_sha != '' && inputs.expected_sha == github.sha)) &&
           github.ref_name == 'develop' &&
+          needs.changes.result == 'success' &&
           needs.changes.outputs.docs_only != 'true' &&
           needs.check.result == 'success' &&
           needs.e2e.result == 'success' }}
@@ -735,16 +740,16 @@ jobs:
             echo "::notice::History-preserving sync PR; skip squash auto-merge"
             exit 0
           fi
-          # Auto-merge can already be enabled for a behind PR. Never attempt a
-          # workflow-file update with the token before checking that condition:
-          # GitHub rejects such updates without a separate workflow scope.
+          # Auto-merge can already be enabled for a behind PR. It is persistent
+          # PR state on GitHub's side: it survives this run being cancelled by a
+          # later branch refresh and merges once branch protection — including
+          # any up-to-date requirement, satisfied by refresh_behind_prs — allows
+          # it. Rewriting the verified head with update-branch instead discards
+          # the green checks of this exact HEAD, cancels the in-flight run and
+          # re-pays the whole pipeline (Claude review included) on every develop
+          # advance; PR #464 looped exactly that way without ever merging.
           if jq -e '.auto_merge != null' <<< "$pr" >/dev/null; then
             echo "Auto-merge already enabled; the exact-head review gate succeeded"
-            exit 0
-          fi
-          if jq -e '.mergeable_state == "behind"' <<< "$pr" >/dev/null; then
-            gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/update-branch" -f expected_head_sha="$EXPECTED_HEAD" >/dev/null
-            echo "::notice::Updated branch against develop; rerun checks at new HEAD"
             exit 0
           fi
           if jq -e '.mergeable_state == "dirty"' <<< "$pr" >/dev/null; then
@@ -776,6 +781,18 @@ jobs:
             head_ref="$(jq -r '.head.ref' <<< "$pr")"
             [[ "$head_ref" != main && "$head_ref" != chore/aihot-upstream-* ]] || continue
             state="$(jq -r '.mergeable_state' <<< "$pr")"
+            if [[ "$state" == "unknown" ]]; then
+              # GitHub computes mergeability lazily; this job starts moments after
+              # the develop push, so the first read can still report unknown. A
+              # single-shot check would leave the PR stale until the next develop
+              # advance (PR #464 stayed behind that way after #475 merged).
+              for _ in 1 2 3; do
+                sleep 10
+                pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number")"
+                state="$(jq -r '.mergeable_state' <<< "$pr")"
+                [[ "$state" != "unknown" ]] && break
+              done
+            fi
             if [[ "$state" == behind ]]; then
               sha="$(jq -r '.head.sha' <<< "$pr")"
               if gh api --method PUT "repos/$GITHUB_REPOSITORY/pulls/$number/update-branch" -f expected_head_sha="$sha" >/dev/null; then

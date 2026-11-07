@@ -6,17 +6,11 @@ Official source: `main`. Current release source: `/home/ubuntu/livingruntime-pro
 
 Production is **only** VM09 and the `livingruntime` Docker Compose project. Cloudflare Tunnel forwards to `127.0.0.1:3000`. Web, API, one worker, PostgreSQL, Graphiti and Neo4j run in the same Compose project. VM13 is not a production host; its separate Web + API development preview uses no production database volumes.
 
-**For every ordinary software release, from VM09:**
+**Normal release path:** merge a reviewed `develop` PR into `main` using a **merge commit**. The `main` push workflow automatically selects the most recent runtime-equivalent `develop` commit with a successful published-image smoke check, reads its `sha-<source SHA>` tag from GHCR, and verifies the immutable digest. It does **not** require a separate production-image pin PR, and never builds the app on `main` or VM09. A main-only change that is not a genuine develop merge fails closed.
 
-```bash
-cd /home/ubuntu/livingruntime-prod-source
-bash scripts/deploy-prod.sh --check
-bash scripts/deploy-prod.sh
-```
+VM09 deployment remains gated by `EVENTGRAPH_PROD_AUTO_DEPLOY=true` and the configured production SSH credentials/environment. GitHub Actions passes `EVENTGRAPH_PROMOTED_MAIN_SHA`, `EVENTGRAPH_PROMOTED_SOURCE_SHA` and `EVENTGRAPH_PROMOTED_IMAGE_REF` as one release tuple. The VM09 script refuses missing or mismatched values and does not read the historical `.github/production-image.env` for automatic releases. For a manual recovery, trigger the pinned `release-main.yml` workflow on the exact current main SHA, rather than editing a stale pin file on `main`.
 
-The release fetches the exact `main` SHA and its reviewed `.github/production-image.env` pin. The pinned digest **must** be the successful `develop` image already published in GHCR; neither `main` nor VM09 compiles an application image. VM09 pulls that immutable digest, assigns a local `livingruntime-app:<main-sha>` tag, preserves the current Graphiti image, and reconciles only `api`, `worker`, `web` with `--no-build --pull never --no-deps`. PostgreSQL, Neo4j and their volumes remain untouched by the application rollout. The existing production content/graph smoke check still gates success.
-
-Automatic VM09 rollout from GitHub Actions is only active once distinct production SSH credentials and `EVENTGRAPH_PROD_AUTO_DEPLOY=true` are configured. Without them, merging to `main` is an **image promotion**, not a completed server deployment.
+The host fetches that exact main commit, rechecks runtime equivalence against the published develop SHA, pulls only the validated immutable digest, and reconciles `api`, `worker`, and `web` with `--no-build --pull never --no-deps`. PostgreSQL, Neo4j and their volumes are left untouched. The existing production content/graph smoke still gates deployment success. The live digest is remembered as `LRSITE_APP_IMAGE_REF` in the private host `.env` for idempotent redeployment.
 
 **Initial migration is a separate one-time task, not part of ordinary deployment.** The old host application, three app systemd units and old `lrsite` host PostgreSQL database have been removed. Never revive them or copy legacy databases into production.
 

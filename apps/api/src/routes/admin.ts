@@ -19,7 +19,7 @@ import { evaluateCandidate, holdCandidate, previewCandidate, startTrial } from "
 import { resolveDelivery } from "@aihot/backend/notify/deliver";
 import { releaseReceipt } from "@aihot/backend/operations/recover";
 import { removeBudgetLimit, replaceContactQr, setTargetEnabled, settingsOverview, updateBudget } from "@aihot/backend/admin/settings";
-import { createSource, fetchNow, listSources, previewSource, previewStoredSource, sourceDetail, updateSource } from "@aihot/backend/admin/sources";
+import { createSource, deleteSource, fetchNow, listSources, previewSource, previewStoredSource, sourceDetail, updateSource } from "@aihot/backend/admin/sources";
 import { sendProblem } from "../http/respond.ts";
 import { adminHandler } from "./admin-auth.ts";
 
@@ -51,6 +51,11 @@ export function registerAdmin(app: FastifyInstance) {
   app.patch("/api/admin/sources/:id", adminHandler(async (req, reply, admin) => {
     const b = body<AdminSourceUpdate>(req);
     return orNotFound(req, reply, await updateSource(param(req, "id"), b, actorOf(admin)));
+  }));
+  app.delete("/api/admin/sources/:id", adminHandler(async (req, reply, admin) => {
+    const b = body<{ version: string }>(req);
+    if (typeof b.version !== "string") throw Object.assign(new Error("version is required"), { statusCode: 400 });
+    return orNotFound(req, reply, await deleteSource(param(req, "id"), b.version, actorOf(admin)));
   }));
   app.post("/api/admin/sources/:id/preview", adminHandler(async (req, reply) => orNotFound(req, reply, await previewStoredSource(param(req, "id")))));
   app.post("/api/admin/sources/:id/fetch", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await fetchNow(param(req, "id"), actorOf(admin)))));

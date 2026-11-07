@@ -1,7 +1,7 @@
 /** OpenRouter's model catalog includes chat, embeddings and other endpoint families. */
 export type CatalogModel={
  id?:unknown;
- pricing?:{prompt?:unknown;completion?:unknown;request?:unknown;image?:unknown;audio?:unknown};
+ pricing?:Record<string,unknown>;
  endpoints?:unknown;
  architecture?:{input_modalities?:unknown;output_modalities?:unknown};
 };
@@ -12,13 +12,26 @@ export type FreeCatalogModel={
  probe:({capability:'text';body:{messages:{role:string;content:string}[]};response:'chat'}|{capability:'embedding';body:{input:string};response:'embedding'})|null;
 };
 const zero=(value:unknown):boolean=>
- (typeof value==='string'||typeof value==='number')&&String(value).trim()!==''&&Number(value)===0;
+ (typeof value==='string'||typeof value==='number')&&String(value).trim()!==''&&Number.isFinite(Number(value))&&Number(value)===0;
 const strings=(value:unknown):string[]=>Array.isArray(value)?value.filter((item):item is string=>typeof item==='string'):[];
-const free=(model:CatalogModel):boolean=>
- zero(model.pricing?.prompt)&&zero(model.pricing?.completion)&&
- (model.pricing?.request==null||zero(model.pricing.request))&&
- (model.pricing?.image==null||zero(model.pricing.image))&&
- (model.pricing?.audio==null||zero(model.pricing.audio));
+const overrideConditions=new Set(['min_prompt_tokens','utc_days','utc_start','utc_end']);
+/** Do not mistake zero token rates for a free image/audio/video model.
+ * All quoted charge dimensions, including future pricing keys and overrides, must be zero. */
+const free=(model:CatalogModel):boolean=>{
+ const pricing=model.pricing;
+ if(!pricing||typeof pricing!=='object'||Array.isArray(pricing))return false;
+ const charges=Object.entries(pricing).filter(([key])=>key!=='discount'&&key!=='overrides');
+ if(!charges.length||charges.some(([,value])=>value!==null&&!zero(value)))return false;
+ const overrides=pricing.overrides;
+ if(overrides!=null&&(!Array.isArray(overrides)||overrides.some(override=>
+  !override||typeof override!=='object'||Array.isArray(override)||
+  Object.entries(override).some(([key,value])=>!overrideConditions.has(key)&&value!==null&&!zero(value)))))return false;
+ // Video can be priced per second while token rates stay zero. Without an explicit
+ // zero video/duration rate, the catalog does not prove that video output is free.
+ if(strings(model.architecture?.output_modalities).includes('video')&&
+    !charges.some(([key,value])=>/(?:video|seconds?|duration|frames?)/i.test(key)&&zero(value)))return false;
+ return true;
+};
 
 /** Classify by advertised API endpoint, never expose rerank/decision models as chat. */
 export function classifyOpenRouterFreeCatalog(data:unknown[]):{
