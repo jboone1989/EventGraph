@@ -33,6 +33,27 @@ test('same sha only once for exact bot/owner marker',()=>{const o=mk();o.comment
 test('two distinct attempts cap all further automatic repair',()=>{const o=mk();o.comments=['c','d'].map(x=>({user:{login:'github-actions[bot]'},body:`<!-- eventgraph-pr-repair:v1 pr=501 sha=${x.repeat(40)} -->`}));assert.equal(decide(o).reason,'two_attempts_exhausted');});
 test('untrusted users cannot consume repair attempts',()=>{const o=mk();o.comments=[{user:{login:'attacker'} ,body:`<!-- eventgraph-pr-repair:v1 pr=501 sha=${sha} -->`}];assert.equal(attempts(o.comments,501).length,0);assert.equal(decide(o).kind,'inspect');});
 test('Typecheck and browser assertion are code failures',()=>{const f=mk().jobs.filter(x=>x.conclusion==='failure');assert.equal(classifyLogs(f,new Map([[3,'error TS2559: types mismatch apps/web/tests/runs-badge.test.ts']])).kind,'dispatch');});
+test('a real failed Typecheck step ignores quota and 429 words in passing tests',()=>{
+  const log=[
+    '2026-11-08T11:22:11Z ✔ external dependency and model quota are visible manual blockers',
+    '2026-11-08T11:22:12Z ✔ HTTP 429 quota exceeded fixture passed',
+    '2026-11-08T11:22:45Z ##[group]Run npm run typecheck',
+    '2026-11-08T11:22:55Z ##[error]tests/runs-badge.test.ts(90,57): error TS2559: Type mismatch',
+    '2026-11-08T11:22:55Z ##[error]Process completed with exit code 1.'
+  ].join('\n');
+  assert.equal(classifyLogs([{id:3,name:'check'}],new Map([[3,log]])).kind,'dispatch');
+});
+test('a real 429 inside the failed step stays an infrastructure blocker',()=>{
+  const log=[
+    '✔ earlier error TS2559 fixture passed',
+    '##[group]Run npm ci',
+    '##[error]HTTP 429 quota exceeded',
+    '##[error]Process completed with exit code 1.'
+  ].join('\n');
+  const result=classifyLogs([{id:3,name:'check'}],new Map([[3,log]]));
+  assert.equal(result.kind,'manual');
+  assert.equal(result.reason,'infrastructure_check_failure');
+});
 test('external dependency and model quota are visible manual blockers',()=>{for(const log of ['HTTP 429 quota exceeded','provider timeout','missing secret OPENROUTER_API_KEY','runner unavailable']){const r=classifyLogs([{id:3,name:'check'}],new Map([[3,log]]));assert.equal(r.kind,'manual',log);}});
 test('independent reviewer requires confirmed code finding, not provider error',()=>{const job={id:12,name:'claude-review'};assert.equal(classifyLogs([job],new Map([[12,'Claude Review found 2 blockers']])).kind,'dispatch');assert.equal(classifyLogs([job],new Map([[12,'Response parse failed']])).reason,'unverified_reviewer_or_provider_failure');});
 test('unreadable logs fail closed',()=>{assert.equal(classifyLogs([{id:3,name:'check'}],new Map()).kind,'manual');});
