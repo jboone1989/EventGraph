@@ -87,7 +87,7 @@ test("runs badge equals the failed execution units and refreshes with the page",
     state.rows = state.rows.map(row => row.status === "failed" ? { ...row, status: "processing" as const } : row);
     state.runs = 0;
     await page.getByRole("button", { name: "刷新" }).click();
-    await expect(page.getByTitle(title)).toHaveCount(0, "no failures hides the badge");
+    await expect(page.getByTitle(title)).toHaveCount(0);
     await expect(page.getByRole("button", { name: "处理失败" })).toContainText("0");
     await expect(page.getByText("当前没有对应执行项")).toBeVisible();
     await page.close();
