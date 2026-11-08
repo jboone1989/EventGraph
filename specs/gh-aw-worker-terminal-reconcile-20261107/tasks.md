@@ -1,0 +1,13 @@
+# Work items — auto-reconcile terminal GH-AW Worker reservations
+
+## Work Items
+
+### T001 — Reconcile every verified terminal Worker without retrying failed Agents
+**Scope:** Extend existing `.github/workflows/eventgraph-native-queue-events.yml` to reconcile verified terminal native Worker reservations on **all** same-repo Worker `status == completed` runs, without a conclusion allowlist (including startup_failure/skipped/future values) using the pinned official `gh aw work-queue reconcile --dispatch-id` command. Parse the actual native run title safely, make failure visible, and keep existing dispatch, queue pause, PR serialization, Spec intake, and review behavior unchanged; run reconciliation even when the dispatch flag is disabled or native grants are paused, but cleanly skip dispatch. Add focused deterministic contract tests. Do not create new schedulers or touch production/main.
+**Depends on:** none
+**Acceptance:**
+- For genuine same-repository native Worker `workflow_dispatch` completed events (including failed/cancelled/timed_out/startup_failure/skipped/unknown future conclusions), validate the workflow path and anchored exact `display_title` and call official `reconcile --dispatch-id` once before any dispatch gate; never guess or operate on a different ID.
+- Reconcile confirmed-terminal evidence with official native semantics, remain idempotent on repeated events, record release/no-change/error truthfully; failures are visible and do not force-edit the ledger.
+- On unsuccessful Worker outcome, never launch an additional paid Worker, re-run a Claim, mark it successful or duplicate a previously-created PR. Native terminal evidence, not the Actions conclusion allowlist, determines if release is permitted. Preserve success-only downstream dispatch plus existing one-open-`agent-work`-PR and paused/eligibility checks.
+- For trusted completed Worker events, reconcile even if `EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED` is disabled or `grants_paused` is true; normal pause must cleanly skip dispatch, not create an Actions error, but real reconcile errors must fail visibly. Protect against foreign repo, wrong workflow, missing/ambiguous title, nonterminal run, missing `GH_AW_GITHUB_TOKEN`, and errors with deterministic tests and actionable diagnostics; do not change Queue Policy, concurrency, secrets, or PR merge gates.
+- Validate workflow syntax/actionlint and existing Check; provide a scenario → implementation → observed tests/results matrix in the worker implementation PR. Document that develop merge alone does not activate the default-branch workflow; do not publish main or production.
