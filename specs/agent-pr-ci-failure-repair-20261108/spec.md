@@ -31,7 +31,7 @@
 4. **安全边界**：修复范围限于当前 Issue 的原业务/测试文件。禁止更改 `.github/**`、审核/部署/Spec/迁移/鉴权/密钥/依赖或重新生成业务规则；需要产品决定/数据删除风险时停在原 PR 上说明，不默默扩大 Spec。
 5. **有界恢复**：同一 `(repo, PR, failing HEAD SHA)` 只执行一次；整个 PR 最多 2 次自动修复机会。用 GH Actions 原生运行证据及原 PR 可核验记录去重，不用新表、定时器、额外 Project 或平行队列。若 CI 不可用或修复失败，明确展示“需接管”的原因；禁止无限模型调用。
 6. **自动接续**：若修复 push 成功，现有 PR `synchronize` 再跑 Check/Docker/E2E/独立 Review，通过后由原生自动合并入 `develop`，VM13 正常部署；原有成功的 develop Check 继续驱动后续 Todo。失败 PR 持续独占串行槽时要明确可操作原因，不得谎报队列无 Work。
-7. **不可绕过**：不得改变 `check` / `docker` / `e2e` / `claude-review` / Spec 审查语义，不伪造 Check 结论、不人为修改规则集、不自动合并红灯 PR、不触碰 `main`、VM09 或生产。
+7. **不可绕过**：不得改变 `check` / `docker` / `e2e` / `claude-review` / Spec 审查语义，不伪造 Check 结论、不人为修改规则集、不自动合并红灯 PR。**修复 Agent** 不允许直接修改 `main`、VM09 或生产数据；唯一例外是上文控制面 bootstrap 通过**已存在的、受保护的 `develop → main` 正常发布流程**安装 workflow 文件，不允许直接推送 main 或部署额外业务变更。
 
 ## 验收样本和可见结果
 
