@@ -25,7 +25,7 @@
 
 ## 触发、授权和执行合同
 
-1. **可信触发**：既有 Check 的 `workflow_run completed + failure`，事件必须来自本仓库已完成的 PR Run，且 PR 属于 `develop`、非 Draft、带 `agent-work` 标签，HEAD SHA 等于失败 Run 的 `head_sha` 和实时 PR HEAD。明确排除 fork、主分支、取消/正在执行/过期 Run、纯 Spec、非代理 PR。
+1. **可信触发和覆盖范围**：v1 以现有**整个 `Check` GitHub Actions 工作流**的 `workflow_run completed + failure` 为唯一事件入口，而不是只检查名称为 `check` 的 Job。该工作流的必需 Job 包括 `check`（Typecheck/单测等）、`docker`、`e2e`、`claude-review`（独立代码审核）。这四项**任何一项失败均在恢复检测范围内**：例如 `check=success, docker=failure`、`check=success, e2e=failure`、三个基础 Job 成功但 `claude-review=failure`，不能因 `check` 成功就忽略整条失败的工作流。解析实际各 Job/步骤结论，区分具体可修复代码或测试缺陷与临时 runner、镜像仓库、模型凭据/额度、审核器输出格式等基础设施失败；后者只产生可观察的人工接管/基础设施恢复信息，不把它伪装为业务代码缺陷或无限派 Agent 修代码。事件必须来自本仓库**已完成的 `pull_request` Run**，PR 属于 `develop`、非 Draft、带 `agent-work` 标签，HEAD SHA 等于失败 Run 的 `head_sha` 和实时 PR HEAD。明确排除 fork、主分支、取消/正在执行/过期 Run、纯 Spec、非代理 PR。
 2. **修复输入**：根据 GH API 读取实际失败步骤/日志、当前 PR 的不可变 Issue/Task/Spec 关联和源代码；将日志、PR 文本当作不可信数据。只给原修复 Agent 与当前失败 SHA 绑定的单次授权，不能让 PR 评论扩大权限。
 3. **官方安全写入**：仅使用 GH-AW `push-to-pull-request-branch` 对原 PR 的 agent 分支做非 force、最新 HEAD 校验后的可验证提交；不改变 PR 所属 Issue/Spec/Claim；无修改时报告真实原因，不制造绿灯。
 4. **安全边界**：修复范围限于当前 Issue 的原业务/测试文件。禁止更改 `.github/**`、审核/部署/Spec/迁移/鉴权/密钥/依赖或重新生成业务规则；需要产品决定/数据删除风险时停在原 PR 上说明，不默默扩大 Spec。
@@ -38,7 +38,7 @@
 - **首个真实样本：#501 / #491 T002**。使用其真实 TS2559 失败事件验证自动识别后，将原 PR 代码/测试修复推到**同一分支**，在新 HEAD 上通过 Typecheck、Docker、E2E、独立 Review，并且自动合并 `develop`；导航 badge 与运行失败明细共用 UTC 今日失败执行单元口径、刷新后与分页可核对，完成 VM13 预览验收。不能通过直接编辑这条 PR 冒充恢复 Agent 运行。
 - **接续样本：#477 和 #490**。#501 原 PR 合并后，在下一次成功 develop Check 事件上能观察到原生队列自动派工并生成新代理 PR；若有依赖/策略阻止，提供真实原生队列证据而非猜测。
 - **安全样本：#482**。Draft 与“删除新闻”风险必须保持阻断；用户要求硬删除来源但保留历史文章和图关系。不得自动强行修复或合并未批准的数据删除语义。
-- **防回归测试**：重复/过期 HEAD、fork、无标签、Draft、成功 CI、超过修复上限、审核反馈 VS 环境故障、当前 HEAD 提前变动、越权修改、无实际修改、真实自动复跑和续办。所有未运行的功能浏览器验收标记 UNVERIFIED。
+- **防回归测试**：分别注入 `check=failure`、`check=success + docker=failure`、`check=success + e2e=failure`、基础检查均成功但 `claude-review=failure`（有明确代码缺陷报告）、审核器 API/额度错误（不触发代码修复、显示人工接管）、重复/过期 HEAD、fork、无标签、Draft、整个工作流成功、超过修复上限、当前 HEAD 提前变动、越权修改、无实际修改、真实自动复跑和续办。Docker/E2E 失败若只有基础设施/环境原因，也必须明确显示阻断原因和恢复入口，不能静默占用队列或假装已修复。所有未运行的功能浏览器验收标记 UNVERIFIED。
 
 
 ## 首次落地的启动死锁（必须正面解决）
