@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {decide,provenance,classifyLogs,attempts} from './agent-pr-repair.mjs';
+import {decide,provenance,classifyLogs,attempts,handleEvent} from './agent-pr-repair.mjs';
 const REPO='jboone1989/EventGraph',sha='a'.repeat(40),spec='b'.repeat(40);
 const mk=()=>({
  event:{action:'completed',workflow_run:{id:123,run_attempt:1,status:'completed',conclusion:'failure',event:'pull_request',path:'.github/workflows/check.yml',head_sha:sha,head_branch:'agent/t002-runs-badge',head_repository:{full_name:REPO}}},
@@ -36,3 +36,30 @@ test('Typecheck and browser assertion are code failures',()=>{const f=mk().jobs.
 test('external dependency and model quota are visible manual blockers',()=>{for(const log of ['HTTP 429 quota exceeded','provider timeout','missing secret OPENROUTER_API_KEY','runner unavailable']){const r=classifyLogs([{id:3,name:'check'}],new Map([[3,log]]));assert.equal(r.kind,'manual',log);}});
 test('independent reviewer requires confirmed code finding, not provider error',()=>{const job={id:12,name:'claude-review'};assert.equal(classifyLogs([job],new Map([[12,'Claude Review found 2 blockers']])).kind,'dispatch');assert.equal(classifyLogs([job],new Map([[12,'Response parse failed']])).reason,'unverified_reviewer_or_provider_failure');});
 test('unreadable logs fail closed',()=>{assert.equal(classifyLogs([{id:3,name:'check'}],new Map()).kind,'manual');});
+
+test('unavailable original Issue escalates on same PR without crashing or dispatching', async t => {
+  const o=mk();
+  let posted='',dispatches=0;
+  t.mock.method(globalThis,'fetch',async (url,opts={})=>{
+    const request=new URL(url);
+    const path=request.pathname.replace('/repos/jboone1989/EventGraph','');
+    const method=opts.method??'GET';
+    if(path==='/pulls') return Response.json([o.pr]);
+    if(path==='/issues/491') return new Response('Not Found',{status:404});
+    if(path==='/actions/workflows/check.yml/runs')
+      return Response.json({workflow_runs:[{...o.latestRun,head_branch:o.event.workflow_run.head_branch,run_number:30}]});
+    if(path==='/actions/runs/123/jobs') return Response.json({jobs:o.jobs});
+    if(path==='/issues/501/comments' && method==='GET') return Response.json([]);
+    if(path==='/issues/501/comments' && method==='POST') {
+      posted=JSON.parse(opts.body).body;
+      return Response.json({id:12345});
+    }
+    if(path.includes('/dispatches')) dispatches++;
+    return new Response('Unknown mocked endpoint',{status:404});
+  });
+  const result=await handleEvent({event:o.event,token:'test-token',repo:REPO});
+  assert.equal(result.kind,'manual');
+  assert.equal(result.reason,'invalid_immutable_issue_spec_provenance');
+  assert.match(posted,/eventgraph-pr-repair-manual:v1 pr=501 sha=/);
+  assert.equal(dispatches,0);
+});
