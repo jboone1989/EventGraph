@@ -31,6 +31,37 @@ jobs:
               exit 1
             }
           fi
+      # One-time bootstrap: publish only the exact official compiler artifact
+      # to this same-repository PR branch, never to develop/main.
+      - name: Commit official compiled lock to bootstrap PR
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 511 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'develop' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          # Once a lock exists on the checked-out PR commit, the above compiler
+          # has already proven the committed lock is exact. Do not write again.
+          [[ ! -f .github/workflows/eventgraph-pr-repair.lock.yml ]] || exit 0
+          [[ "$PR_HEAD_REF" == feat/ghaw-failed-pr-repair-bootstrap-20261108 ]] || exit 1
+          latest="$(gh api "repos/$GITHUB_REPOSITORY/branches/$PR_HEAD_REF" --jq .commit.sha)"
+          [[ "$latest" == "$PR_HEAD_SHA" ]] || {
+            echo '::notice::PR branch changed; let its newer Check recompile.'
+            exit 0
+          }
+          # Use a JSON request file: the compiled 129 KiB YAML exceeds Linux's
+          # per-argument limit once base64 encoded.
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const yaml=readFileSync('.github/workflows/eventgraph-pr-repair.lock.yml');
+          writeFileSync(process.env.RUNNER_TEMP+'/repair-lock-content.json',JSON.stringify({
+            message:'chore(ci): pin official GH-AW v1.0.1 compiled PR repair lock',
+            branch:process.env.PR_HEAD_REF,content:yaml.toString('base64')
+          }));
+          NODE
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/contents/.github/workflows/eventgraph-pr-repair.lock.yml" --input "$RUNNER_TEMP/repair-lock-content.json" --silent
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: official-ghaw-pr-repair-lock
