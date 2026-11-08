@@ -35,7 +35,7 @@
 
 ## 验收样本和可见结果
 
-- **首个真实样本：#501 / #491 T002**。使用其真实 TS2559 失败事件验证自动识别后，将原 PR 代码/测试修复推到**同一分支**，在新 HEAD 上通过 Typecheck、Docker、E2E、独立 Review，并且自动合并 `develop`；导航 badge 与运行失败明细共用 UTC 今日失败执行单元口径、刷新后与分页可核对，完成 VM13 预览验收。不能通过直接编辑这条 PR 冒充恢复 Agent 运行。
+- **首个真实样本：#501 / #491 T002**。修复流水线以 #501 当前真实 TS2559 失败记录作为触发证据；同一 `agent/` PR 新 HEAD 必须经过 Typecheck、Docker、E2E、独立 Review 和 GitHub 原生合并，随后验证 VM13 预览。**业务功能本身由已批准的 `specs/admin-runs-count-and-model-binding-20261107/spec.md@8b01d9475d55487ff36f623c9572e55874a03035` 的产品规则 A（Issue #491/T002）拥有和验收，本恢复 Spec 不重新定义、不扩大为 #477 的批量重试范围。**验收界面是 `/admin/runs`、后台导航栏“运行与积压”徽标：本 UTC 日全类型失败执行单元数与页面“处理失败”卡片及全类型明细总数同口径；页面按既有 20 条分页及筛选展示，导航全局数不随局部筛选变化，同一刷新完成后数字一致，处理成功后从失败计数退出。详尽 Given/When/Then、桌面 1530px/手机 390px 和测试数据以 #491 原 Spec 为准。不能由协调者直接编辑 #501 业务测试冒充恢复 Agent。
 - **接续样本：#477 和 #490**。#501 原 PR 合并后，在下一次成功 develop Check 事件上能观察到原生队列自动派工并生成新代理 PR；若有依赖/策略阻止，提供真实原生队列证据而非猜测。
 - **安全样本：#482**。Draft 与“删除新闻”风险必须保持阻断；用户要求硬删除来源但保留历史文章和图关系。不得自动强行修复或合并未批准的数据删除语义。
 - **防回归测试**：分别注入 `check=failure`、`check=success + docker=failure`、`check=success + e2e=failure`、基础检查均成功但 `claude-review=failure`（有明确代码缺陷报告）、审核器 API/额度错误（不触发代码修复、显示人工接管）、重复/过期 HEAD、fork、无标签、Draft、整个工作流成功、超过修复上限、当前 HEAD 提前变动、越权修改、无实际修改、真实自动复跑和续办。Docker/E2E 失败若只有基础设施/环境原因，也必须明确显示阻断原因和恢复入口，不能静默占用队列或假装已修复。所有未运行的功能浏览器验收标记 UNVERIFIED。
@@ -45,7 +45,9 @@
 
 已验证 `#501` 当前占用唯一 `agent-work` PR 串行槽，所以新 T001 如果仅入队，将被现有 `open != 0` 门禁直接跳过。**不能把任务提交成功当作已开始修复。**
 
-本功能首次安装允许且仅允许一次「控制面 bootstrap」：在本 Spec 审核合入 develop 后，由正常 feature PR 实现/编译官方 GH-AW 修复入口，保持普通 Check/Docker/E2E/独立 Review 和自动合并；不得改 #501 业务/测试文件，不得改 GH-AW ledger 或关闭 #501 释放槽位，不得直接修改 main。只有该修复入口通过现有发行流程进入 GH-AW 可执行的默认分支，才能在 #501 上进行首次真实自动修复。随后一切失败恢复由 GH-AW 执行，bootstrap 权限不延伸到其他业务修复。
+本功能首次安装允许且仅允许一次「控制面 bootstrap」，**这是经本 Spec 批准后、独立于 Producer 队列的正常 feature PR 交付步骤，而不是需要原 Work Queue 执行的第二个 Agent Work**：批准并合并本 Spec 到 `develop` 后，协调者可以只为控制面安装提交一个非 `agent-work`、不修改 #501 业务代码的 feature PR，引用本 Spec 的固定批准 SHA；仅新增/最小修改 GitHub 原生失败事件入口、GH-AW 官方 repair workflow 和相应验证测试，使用官方 v1.0.1 编译生成 lock；完整通过 Check/Docker/E2E/独立代码审核，走正常自动合并到 `develop`。由于 `workflow_run` 需要使用默认分支上的 workflow 文件，安装完成后仍须走已有 `develop → main` 审核、**Merge Commit** 发布路径，将控制面工作流带到 `main`；不得直接推送/绕过 main 保护或人为影响生产业务数据。最后用 GH Actions 原生方式对 #501 的当前失败 HEAD 做一次有界的 bootstrap 触发/重放并核对真实结果，不能假定历史 workflow_run 事件会自动重放。后续失败恢复必须完全由 GH-AW 自动执行，bootstrap 授权不延伸到其他业务 PR。
+
+**任务分工，避免 Producer 死锁或重复实现**：合并的 `tasks.md` 中 `T001` 是**安装后的回归覆盖/验收补足 Work**，由现有 Producer 创建 Issue/Work，不能被要求在 #501 尚未修复时执行，也不得二次实现 bootstrap 修复器。唯一控制面 bootstrap 是普通功能 PR（不带 `agent-work`），不消耗原生 Work Queue Claim；#501 原 PR 恢复/合并后，串行槽释放并触发既有事件续办，T001 才能够作为常规后续任务执行。对 T001 的排队状态必须可见，不能把创建 Issue 当作完成。
 
 **CI 触发真实性：** GH-AW 官方说明默认 `GITHUB_TOKEN` 的安全输出 push 不保证产生新的 pull_request CI 事件。必须配置已存在的仓库自动化凭证（如 `GH_AW_GITHUB_TOKEN`）作为受限安全输出的 GitHub token，或使用官方 `github-token-for-extra-empty-commit`，并以实际最新 HEAD 的 Check Run 验证；不能假定推送=重跑。参考：https://github.github.com/gh-aw/reference/triggering-ci/
 
@@ -55,4 +57,4 @@
 
 不改变原 Worker 原任务的已完成 Claim/Result，不重新提交旧 Claim、不绕过原生 work queue，不添加按小时续办/第二套 Agent 产品；不以这次 CI 修复修改 #482 的删除决策；不将真实业务问题视作测试通关后自动解决。
 
-**Approval rule:** 本 PR 仅包含 Spec/Plan/Tasks；等独立 Spec Review 自动批准并合入 develop 后，再由既有 GH-AW Producer 创建实现任务，禁止用 Spec PR 自己改工作流。
+**Approval rule:** 本 PR 仅包含 Spec/Plan/Tasks；独立 Spec Review 通过并自动合入 `develop` 后，**先**以唯一正常功能 PR 安装上述控制面 bootstrap（不可由当前被 #501 堵塞的 Worker 执行），**再**让 #501 在同一原 PR 被 GH-AW 实际修复和合并。既有 GH-AW Producer 自动创建的 `T001` 仅作 bootstrap 后的补充回归/验收 Work，不重复安装修复器；全部功能 PR 仍按原有 CI/独立审查自动合并，严禁在本 Spec PR 直接改工作流。
