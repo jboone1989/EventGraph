@@ -40,7 +40,7 @@ test('a real failed Typecheck step ignores quota and 429 words in passing tests'
     '2026-11-08T11:22:45Z ##[group]Run npm run typecheck',
     '2026-11-08T11:22:55Z ##[error]tests/runs-badge.test.ts(90,57): error TS2559: Type mismatch',
     '2026-11-08T11:22:55Z ##[error]Process completed with exit code 1.'
-  ].join('\\n');
+  ].join('\n');
   assert.equal(classifyLogs([{id:3,name:'check'}],new Map([[3,log]])).kind,'dispatch');
 });
 test('a real 429 inside the failed step stays an infrastructure blocker',()=>{
@@ -49,7 +49,7 @@ test('a real 429 inside the failed step stays an infrastructure blocker',()=>{
     '##[group]Run npm ci',
     '##[error]HTTP 429 quota exceeded',
     '##[error]Process completed with exit code 1.'
-  ].join('\\n');
+  ].join('\n');
   const result=classifyLogs([{id:3,name:'check'}],new Map([[3,log]]));
   assert.equal(result.kind,'manual');
   assert.equal(result.reason,'infrastructure_check_failure');
