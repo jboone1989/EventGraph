@@ -1,6 +1,6 @@
 # GH-AW 现有 PR 的 CI 失败自动修复与队列续办
 
-**Status:** Draft — existing independent Spec Review / owner-delegated approval required
+**Status:** Owner-approved (owner-delegated Spec Review of 0e17855ab07b1aa915201a3eb772d3aefc38ea49)
 **Date:** 2026-11-08
 **System:** GitHub-native EventGraph; `develop`, GH-AW v1.0.1, native Work Queue, Check and Claude/GLM Review, Project #2
 
