@@ -66,7 +66,13 @@ export function classifyLogs(jobs, logTexts) {
   for (const job of jobs) {
     const log = String(logTexts.get(job.id) ?? '');
     if (!log) return {kind:'manual',reason:`unreadable_${job.name}_logs`};
-    if (INFRA.test(log)) return {kind:'manual',reason:`infrastructure_${job.name}_failure`};
+    // A successful earlier test can mention "HTTP 429", quotas, or runner errors as
+    // fixture text. Classify the actual failing GitHub Actions step, not the entire
+    // job log. Fall back to the full log for unstructured/provider failure logs.
+    const lastError = log.lastIndexOf('##[error]');
+    const failedStepStart = lastError < 0 ? -1 : log.lastIndexOf('##[group]Run ', lastError);
+    const failureEvidence = failedStepStart < 0 ? log : log.slice(failedStepStart);
+    if (INFRA.test(failureEvidence)) return {kind:'manual',reason:`infrastructure_${job.name}_failure`};
     if (job.name === 'claude-review' && !/review found \d+ blocker|status["': ]+FAIL|structured review.*FAIL/i.test(log)) {
       return {kind:'manual',reason:'unverified_reviewer_or_provider_failure'};
     }
