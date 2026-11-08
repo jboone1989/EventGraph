@@ -43,6 +43,17 @@ test('a real failed Typecheck step ignores quota and 429 words in passing tests'
   ].join('\n');
   assert.equal(classifyLogs([{id:3,name:'check'}],new Map([[3,log]])).kind,'dispatch');
 });
+test('post-Typecheck PostgreSQL cleanup auth warnings do not become CI failure evidence',()=>{
+  const log=[
+    '✔ earlier quota and HTTP 429 tests passed',
+    '##[group]Run npm run typecheck',
+    '##[error]tests/runs-badge.test.ts(90,57): error TS2559: Type mismatch',
+    '##[error]Process completed with exit code 1.',
+    '##[group]Run tail -n 60 backend.log',
+    'initdb: warning: enabling "trust" authentication for local connections'
+  ].join('\n');
+  assert.equal(classifyLogs([{id:3,name:'check'}],new Map([[3,log]])).kind,'dispatch');
+});
 test('a real 429 inside the failed step stays an infrastructure blocker',()=>{
   const log=[
     '✔ earlier error TS2559 fixture passed',
