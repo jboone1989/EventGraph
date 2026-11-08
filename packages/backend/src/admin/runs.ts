@@ -389,6 +389,12 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
   return rows.sort((a,b) => asMillis(b.at) - asMillis(a.at) || a.key.localeCompare(b.key));
 }
 
+/** Today's failed flow execution units, from the same definition the runs page's failed detail lists. */
+export async function failedFlowUnitCount(): Promise<number> {
+  const items = await allFlowItemsOverview(await currentNewsQueueItems());
+  return items.filter(item => item.status === "failed").length;
+}
+
 export async function runsOverview(): Promise<Runs> {
   const currentJobs = (await Promise.all(serverModules().flatMap((m) => m.admin?.currentJobs ? [m.admin.currentJobs()] : []))).flat();
   const [
