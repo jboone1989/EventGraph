@@ -1,25 +1,22 @@
-# Work items — restore original Agent PR on failing CI
+# Work items — post-bootstrap CI repair regression and queue continuation
 
-## T001 — GH-AW native same-PR CI repair and queue continuation
+## One-time control-plane bootstrap (not a native Work)
 
-**Priority:** Blocker
+**Prerequisite (not T000):** After this Spec has passed independent review and merged to develop, install the GH-AW repair entry through one normal, non-`agent-work` feature PR, with the official GH-AW compiled lock, usual Check/Docker/E2E/independent reviewer and native develop merge. Promote its workflow to GitHub's default branch via the existing guarded `develop -> main` Merge Commit release. With the GH-AW entry available, recover the historical #501 failure on its **existing PR branch** and verify real current-head CI / reviewer / auto-merge / VM13 preview. None of these actions can be delegated to the queued Worker while #501 occupies the single `agent-work` PR slot; do not create a duplicate or direct-merge #501.
+
+## Work Items
+
+### T001 — Verify and extend post-bootstrap same-PR CI repair regression coverage
+
+**Scope:** After the one-time bootstrap and original #501 auto-merge have released the serial Agent PR slot, use the existing GH-AW native Work Queue to add missing focused regression tests and accurate operator diagnostics in the already installed repair lifecycle. Do not reimplement the bootstrap, rewrite #501 business code, alter CI gates or create new queues. Preserve the fixed approved Spec/Issue scope.
+
 **Depends on:** none
-**Spec:** specs/agent-pr-ci-failure-repair-20261108/spec.md
 
-### Scope
+**Acceptance:**
 
-Implement bounded, safe, event-driven repair of a failed current-head `agent-work` PR through official GH-AW `push-to-pull-request-branch`. Preserve original PR/Issue/Spec and existing independent checks. Avoid adding a second queue or agent-runner infrastructure.
-
-### Observable acceptance
-
-1. #501 current Typecheck TS2559 failure is detected from GitHub's exact run/job logs without manual code edits, repaired on #501's existing branch by GH-AW, and new HEAD receives genuine check/docker/e2e/review.
-2. A green current-head check auto-merges #501 to `develop`; verified development release/VM13 follows.
-3. Once #501 releases its serialization slot, the *existing native queue* admits/dispatches the next eligible approved tasks (#477 and #490) without a timer or operator manually choosing a Work.
-4. Explicitly cover the complete Check workflow's failed required Jobs: `check`-only, Docker-only (`check` green), E2E-only (`check` green), and an actionable `claude-review` finding; each has the same PR/HEAD-scoped recovery path. Runner/registry/provider/quota or unstructured reviewer failures report an actionable infrastructure/manual-takeover blocker, **without** pretending a code fix can solve them.
-5. Repeated events and stale SHA are ignored; two failed repair rounds stop visibly; attempts never modify dangerous/protected paths or bypass review rules.
-6. #482 Draft remains unmerged until it stops deleting historical articles, regardless of unrelated CI success.
-7. Official compiler-generated lock files match sources, focused regression tests pass, existing full CI and independent code review pass.
-
-### Non-goals
-
-No secondary PR to implement #501, no manual coordinator edit to its business tests; no changes to main/production, migrations, credentials, review required checks or Work Queue ledger.
+- Prove the repair event gate recognizes a failed whole Check workflow for Typecheck-only, Docker-only, E2E-only and independently reviewed actionable code defects, not merely the `check` job.
+- Ensure runner/container registry/model credential/quota/provider failures produce a visible infrastructure takeover reason, without dispatching blind business-code repair.
+- Test original PR/Issue/Task/Spec/current-HEAD authorization, same-repo branch-only safe update, idempotent repeated events, stale SHA, fork, Draft, no label, two-attempt bound, protected files and actual fresh Check triggering.
+- Preserve the single open `agent-work` PR gate and confirm native queue continuation can take original approved tasks #477 and #490 after #501 merges, only if native eligibility is met.
+- Use existing GitHub-native workflow/official GH-AW safe outputs, and verify normal Check/Docker/E2E/independent Review and native develop auto-merge; no extra queue, runner, timer or direct production action.
+- Do not auto-merge #482 Draft or erase historical articles while attempting source deletion; that separate product decision stays outside this Work.
