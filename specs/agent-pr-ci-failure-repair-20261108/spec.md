@@ -40,6 +40,17 @@
 - **安全样本：#482**。Draft 与“删除新闻”风险必须保持阻断；用户要求硬删除来源但保留历史文章和图关系。不得自动强行修复或合并未批准的数据删除语义。
 - **防回归测试**：重复/过期 HEAD、fork、无标签、Draft、成功 CI、超过修复上限、审核反馈 VS 环境故障、当前 HEAD 提前变动、越权修改、无实际修改、真实自动复跑和续办。所有未运行的功能浏览器验收标记 UNVERIFIED。
 
+
+## 首次落地的启动死锁（必须正面解决）
+
+已验证 `#501` 当前占用唯一 `agent-work` PR 串行槽，所以新 T001 如果仅入队，将被现有 `open != 0` 门禁直接跳过。**不能把任务提交成功当作已开始修复。**
+
+本功能首次安装允许且仅允许一次「控制面 bootstrap」：在本 Spec 审核合入 develop 后，由正常 feature PR 实现/编译官方 GH-AW 修复入口，保持普通 Check/Docker/E2E/独立 Review 和自动合并；不得改 #501 业务/测试文件，不得改 GH-AW ledger 或关闭 #501 释放槽位，不得直接修改 main。只有该修复入口通过现有发行流程进入 GH-AW 可执行的默认分支，才能在 #501 上进行首次真实自动修复。随后一切失败恢复由 GH-AW 执行，bootstrap 权限不延伸到其他业务修复。
+
+**CI 触发真实性：** GH-AW 官方说明默认 `GITHUB_TOKEN` 的安全输出 push 不保证产生新的 pull_request CI 事件。必须配置已存在的仓库自动化凭证（如 `GH_AW_GITHUB_TOKEN`）作为受限安全输出的 GitHub token，或使用官方 `github-token-for-extra-empty-commit`，并以实际最新 HEAD 的 Check Run 验证；不能假定推送=重跑。参考：https://github.github.com/gh-aw/reference/triggering-ci/
+
+新 GH-AW 源必须由官方 v1.0.1 CLI 生成 lock，bootstrap 阶段不得手写、复制过期 lock，也不得启用未经审核的临时生产代码。
+
 ## 非目标
 
 不改变原 Worker 原任务的已完成 Claim/Result，不重新提交旧 Claim、不绕过原生 work queue，不添加按小时续办/第二套 Agent 产品；不以这次 CI 修复修改 #482 的删除决策；不将真实业务问题视作测试通关后自动解决。
