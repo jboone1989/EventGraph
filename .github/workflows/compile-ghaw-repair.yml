@@ -20,10 +20,16 @@ jobs:
         with:
           version: v1.0.1
       - name: Compile with official GH-AW v1.0.1 and verify checked-in lock
+        id: compilation
         run: |
           set -euo pipefail
           lock=.github/workflows/eventgraph-pr-repair.lock.yml
-          if [ -f "$lock" ]; then cp "$lock" "$RUNNER_TEMP/pr-repair.lock.expected.yml"; fi
+          if [ -f "$lock" ]; then
+            echo "lock_was_present=true" >> "$GITHUB_OUTPUT"
+            cp "$lock" "$RUNNER_TEMP/pr-repair.lock.expected.yml"
+          else
+            echo "lock_was_present=false" >> "$GITHUB_OUTPUT"
+          fi
           gh aw compile eventgraph-pr-repair --strict --approve --no-check-update
           if [ -f "$RUNNER_TEMP/pr-repair.lock.expected.yml" ]; then
             cmp "$RUNNER_TEMP/pr-repair.lock.expected.yml" "$lock" || {
@@ -34,7 +40,7 @@ jobs:
       # One-time bootstrap: publish only the exact official compiler artifact
       # to this same-repository PR branch, never to develop/main.
       - name: Commit official compiled lock to bootstrap PR
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 511 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'develop' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 511 && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'develop' && steps.compilation.outputs.lock_was_present == 'false' }}
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -44,7 +50,6 @@ jobs:
           [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
           # Once a lock exists on the checked-out PR commit, the above compiler
           # has already proven the committed lock is exact. Do not write again.
-          [[ ! -f .github/workflows/eventgraph-pr-repair.lock.yml ]] || exit 0
           [[ "$PR_HEAD_REF" == feat/ghaw-failed-pr-repair-bootstrap-20261108 ]] || exit 1
           latest="$(gh api "repos/$GITHUB_REPOSITORY/branches/$PR_HEAD_REF" --jq .commit.sha)"
           [[ "$latest" == "$PR_HEAD_SHA" ]] || {
