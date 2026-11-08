@@ -110,7 +110,7 @@ export async function handleEvent({ event, token, repo = REPO }) {
   const m=one(pr.body ?? '',META.issue);
   if (!m) return {kind:'manual',reason:'missing_worker_issue_metadata'};
   const [issue,runs,jobs,comments]=await Promise.all([
-    api(token,`/issues/${m[1]}`),
+    api(token,`/issues/${m[1]}`).catch(() => null),
     api(token,`/actions/workflows/check.yml/runs?head_sha=${run.head_sha}&event=pull_request&per_page=100`),
     api(token,`/actions/runs/${run.id}/jobs?per_page=100`),
     pages(token,`/issues/${pr.number}/comments`)
