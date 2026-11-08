@@ -1,0 +1,39 @@
+name: Compile official GH-AW PR repair workflow
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/eventgraph-pr-repair.md'
+      - '.github/workflows/eventgraph-pr-repair.lock.yml'
+      - '.github/workflows/compile-ghaw-repair.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  official-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up pinned official GH-AW CLI
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      - name: Compile with official GH-AW v1.0.1 and verify checked-in lock
+        run: |
+          set -euo pipefail
+          lock=.github/workflows/eventgraph-pr-repair.lock.yml
+          if [ -f "$lock" ]; then cp "$lock" "$RUNNER_TEMP/pr-repair.lock.expected.yml"; fi
+          gh aw compile eventgraph-pr-repair --strict --approve --no-check-update
+          if [ -f "$RUNNER_TEMP/pr-repair.lock.expected.yml" ]; then
+            cmp "$RUNNER_TEMP/pr-repair.lock.expected.yml" "$lock" || {
+              echo '::error::Compiled GH-AW repair lock is stale; use the official compiler artifact.'
+              exit 1
+            }
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: official-ghaw-pr-repair-lock
+          path: .github/workflows/eventgraph-pr-repair.lock.yml
+          if-no-files-found: error
+          retention-days: 3
