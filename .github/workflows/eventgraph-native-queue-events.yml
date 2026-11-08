@@ -41,19 +41,38 @@ jobs:
              github.event.workflow_run.path == '.github/workflows/check.yml' &&
              github.event.workflow_run.head_branch == 'develop' &&
              (github.event.workflow_run.event == 'push' ||
-              github.event.workflow_run.event == 'workflow_dispatch')))) }}
+              github.event.workflow_run.event == 'workflow_dispatch')) ||
+            (github.event_name == 'workflow_run' &&
+             github.event.workflow_run.head_repository.full_name == github.repository &&
+             github.event.workflow_run.path == '.github/workflows/check.yml' &&
+             github.event.workflow_run.event == 'pull_request' &&
+             github.event.workflow_run.status == 'completed' &&
+             github.event.workflow_run.conclusion == 'failure'))) }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
       - name: Checkout verified develop SHA for approved Spec task intake
-        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Setup Node for exact-SHA Spec task intake
-        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # Untrusted failing PR code is never checked out by the trusted repair gate.
+      - name: Checkout trusted main for failed PR repair
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Setup Node for trusted failed PR gate
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
@@ -102,7 +121,7 @@ jobs:
           fi
           jq -c '{state, reason, release}' <<< "$result"
       - name: Admit approved Spec tasks only from current verified develop
-        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml'
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop'
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
           EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
@@ -123,13 +142,25 @@ jobs:
           for graph_file in "$SPEC_WORK_GRAPH_DIR"/*.json; do
             gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-graph --file "$graph_file"
           done
+      - name: Dispatch authorized same-PR GH-AW repair on failed CI
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          node scripts/ci/agent-pr-repair.mjs
       - name: Dispatch at most one eligible native Work
         if: >-
           ${{ vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
               (github.event_name != 'workflow_run' ||
                github.event.workflow_run.path != '.github/workflows/eventgraph-worker.lock.yml' ||
                (github.event.workflow_run.status == 'completed' &&
-                github.event.workflow_run.conclusion == 'success')) }}
+                github.event.workflow_run.conclusion == 'success')) &&
+              (github.event_name != 'workflow_run' ||
+               github.event.workflow_run.path != '.github/workflows/check.yml' ||
+               github.event.workflow_run.conclusion != 'failure') }}
         env:
           GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
           EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
