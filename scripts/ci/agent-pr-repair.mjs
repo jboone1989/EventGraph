@@ -71,7 +71,11 @@ export function classifyLogs(jobs, logTexts) {
     // job log. Fall back to the full log for unstructured/provider failure logs.
     const lastError = log.lastIndexOf('##[error]');
     const failedStepStart = lastError < 0 ? -1 : log.lastIndexOf('##[group]Run ', lastError);
-    const failureEvidence = failedStepStart < 0 ? log : log.slice(failedStepStart);
+    // Post-failure runner/DB cleanup may mention "trust authentication" or quota
+    // after the Typecheck error. Stop at the final failing step annotation.
+    const lastErrorEnd = lastError < 0 ? -1 : log.indexOf('\n', lastError);
+    const failureEvidence = failedStepStart < 0 ? log : log.slice(failedStepStart,
+      lastErrorEnd < 0 ? log.length : lastErrorEnd);
     if (INFRA.test(failureEvidence)) return {kind:'manual',reason:`infrastructure_${job.name}_failure`};
     if (job.name === 'claude-review' && !/review found \d+ blocker|status["': ]+FAIL|structured review.*FAIL/i.test(log)) {
       return {kind:'manual',reason:'unverified_reviewer_or_provider_failure'};
