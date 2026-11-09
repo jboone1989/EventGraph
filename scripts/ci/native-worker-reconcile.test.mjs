@@ -42,11 +42,15 @@ const cliStub = `
 gh() {
   printf '%s\\n' "$*" >> "$MOCK_CALLS"
   if [[ "\${MOCK_FAIL:-0}" == 1 ]]; then return 41; fi
-  printf '%s\\n' "$MOCK_RESPONSE"
+  if [[ "${MOCK_OUTPUT_STREAM:-stdout}" == "stderr" ]]; then
+    printf '%s\\n' "$MOCK_RESPONSE" >&2
+  else
+    printf '%s\\n' "$MOCK_RESPONSE"
+  fi
 }
 `;
 
-function invoke({ title = runTitle, token = "fixture-token", fail = false, response = '{"state":"bound","reason":"native_released_delivery_independent"}', conclusion = "failure" } = {}) {
+function invoke({ title = runTitle, token = "fixture-token", fail = false, response = '{"state":"bound","reason":"native_released_delivery_independent"}', conclusion = "failure", outputStream = "stdout" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "eventgraph-reconcile-"));
   const callsPath = join(dir, "calls");
   try {
@@ -63,6 +67,7 @@ function invoke({ title = runTitle, token = "fixture-token", fail = false, respo
         MOCK_CALLS: callsPath,
         MOCK_FAIL: fail ? "1" : "0",
         MOCK_RESPONSE: response,
+        MOCK_OUTPUT_STREAM: outputStream,
       },
     });
     let calls = [];
@@ -94,6 +99,27 @@ test("every terminal conclusion uses one exact pinned official native CLI call",
   }
 });
 
+test("official reconcile JSON written to stderr is captured and validated", () => {
+  const response = JSON.stringify({
+    dispatch_id: dispatchId,
+    state: "bound",
+    reason: "native_released_delivery_independent",
+    changed: true,
+    publication: { commit: { request: { operations: [{ kind: "Release", dispatch_id: dispatchId }] } } },
+  });
+  const r = invoke({ outputStream: "stderr", response });
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.deepEqual(r.calls, ["aw work-queue --repo jboone1989/EventGraph reconcile --dispatch-id " + dispatchId + " --json"]);
+  assert.match(r.stdout, /native_released_delivery_independent/);
+  assert.doesNotMatch(r.stdout, /Malformed native reconciliation response/);
+});
+
+test("non-JSON output on stderr fails closed even when CLI exits successfully", () => {
+  const r = invoke({ outputStream: "stderr", response: "unexpected diagnostic" });
+  assert.notEqual(r.status, 0);
+  assert.equal(r.calls.length, 1);
+  assert.match(r.stdout, /Malformed native reconciliation response/);
+});
 test("missing token and invalid or ambiguous titles fail closed without CLI", () => {
   const variants = [
     "gh-aw work-queue d_" + "b".repeat(63) + "_1",
