@@ -128,6 +128,11 @@ export const currentSignals = () => sql`(
       WHERE fa.article_id = ss.article_id AND f.story_id = ss.story_id AND ${evidenceCondition()}))
 )`;
 
+/** The stories the ranking rules admit: at least MIN_PARTICIPANTS independent participants, one editorial. */
+export function eligibleHotRows(rows: HeatRow[]): HeatRow[] {
+  return rows.filter((r) => Number(r.participants) >= MIN_PARTICIPANTS && Number(r.editorial_participants) >= 1);
+}
+
 /**
  * Heat of every story at `at` (defaults to now) from the current evidence; `behind` marks sources not
  * fully observed. The change compares with six hours before over that time's own 48-hour window, and
@@ -182,7 +187,7 @@ export function heatIndex(heat: number): number {
 
 export async function computeHotRanking(at = new Date()): Promise<{ id: number; entries: number }> {
   const behind = behindSources(await sourceClocks(), at.getTime(), true);
-  const rows = (await heatRows(at, behind)).filter((r) => Number(r.participants) >= MIN_PARTICIPANTS && Number(r.editorial_participants) >= 1);
+  const rows = eligibleHotRows(await heatRows(at, behind));
   rows.sort((a, b) => Number(b.heat) - Number(a.heat) || (b.latest_at?.getTime() ?? 0) - (a.latest_at?.getTime() ?? 0));
 
   const entries: HotEntry[] = [];

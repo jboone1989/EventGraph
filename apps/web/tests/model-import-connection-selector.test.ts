@@ -57,19 +57,37 @@ test("model import uses each configured connection without squeezing the page he
   for(const connection of providers)assert.ok(optionLabels.some(label=>label.includes(connection.name+" · "+connection.vendor)));
   assert.equal(optionLabels.filter(label=>label.includes(" · groq · ")).length,3,"all three Groq accounts must be selectable");
   assert.equal(await page.getByRole("button",{name:/^导入 groq(?:-03|-2)? 免费模型$/}).count(),0,"no button per connection");
-  await select.selectOption(providers[3]!.id);
-  await page.getByRole("button",{name:"导入所选连接的免费模型"}).click();
-  await expect(page.getByRole("status").filter({hasText:"groq-2：候选 3 个"})).toBeVisible();
-  assert.equal(requests[0]!.path,"/api/admin/providers/"+providers[3]!.id+"/free-catalog/sync");
-  assert.deepEqual(requests[0]!.body,{confirmFreeTier:true});
+  const groqConnections=providers.filter(p=>p.vendor==="groq");
+  for(const [index,connection] of groqConnections.entries()){
+   await select.selectOption(connection.id);
+   await page.getByRole("button",{name:"导入所选连接的免费模型"}).click();
+   await expect(page.getByRole("status").filter({hasText:connection.name+"：候选 3 个"})).toBeVisible();
+   assert.equal(requests[index]!.path,"/api/admin/providers/"+connection.id+"/free-catalog/sync");
+   assert.deepEqual(requests[index]!.body,{confirmFreeTier:true});
+  }
+  const previousRequests=requests.length;
   await select.selectOption(providers[4]!.id);
   await page.getByRole("button",{name:"导入所选连接的免费模型"}).click();
   await expect(page.getByRole("status").filter({hasText:"OpenRouter：官方目录"})).toBeVisible();
-  assert.equal(requests[1]!.path,"/api/admin/providers/"+providers[4]!.id+"/openrouter-free/sync");
+  assert.equal(requests[previousRequests]!.path,"/api/admin/providers/"+providers[4]!.id+"/openrouter-free/sync");
+  await select.selectOption(providers[5]!.id);
+  await expect(page.getByRole("button",{name:"导入所选连接的免费模型"})).toBeDisabled();
+  await expect(page.getByText("当前连接不支持一键导入，可手动新增模型。")).toBeVisible();
+  assert.equal(requests.length,previousRequests+1,"unknown vendor must never send a sync request");
+  await page.setViewportSize({width:768,height:844});
+  const tabletBounds=await heading.boundingBox();
+  assert.ok(tabletBounds&&tabletBounds.width>=90,"tablet title must remain horizontal");
   await page.setViewportSize({width:390,height:844});
   await expect(heading).toBeVisible();
   await expect(select).toBeVisible();
   const mobileBounds=await heading.boundingBox();
   assert.ok(mobileBounds&&mobileBounds.width>=90,"mobile title must remain horizontal");
+  providers.push(entry(7,"groq-4","groq"));
+  await page.reload();
+  await expect(page.getByLabel("导入模型的厂商连接").locator("option")).toHaveCount(7);
+  providers.splice(0,providers.length);
+  await page.reload();
+  await expect(page.getByRole("button",{name:"导入所选连接的免费模型"})).toBeDisabled();
+  await expect(page.getByText(/尚未配置厂商连接/)).toBeVisible();
  }finally{await browser?.close();await web.stop();}
 });

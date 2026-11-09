@@ -65,11 +65,13 @@ function NavCount({ counts, countsKey, name, className }: Counts & { name: strin
         {(resolved: AdminNavCounts) => {
           const value = resolved[name];
           if (!value) return null;
-          // The runs badge counts problem articles, not failed job/receipt attempts.
-          // Keep it readable without the high-alert style used for actionable source failures.
+          // The runs badge is today's failed flow execution units — the same count as the runs
+          // page's 处理失败 detail, not unfinished articles. Keep it readable without the
+          // high-alert style used for actionable source failures.
           return name === "runs"
             ? <span className="relative ml-1 rounded-full bg-bg-sunk px-1.5 py-0.5 text-[11px] font-medium text-ink-3 ring-1 ring-line"
-                title="当前 UTC 日未完成新闻（按篇计数）">{value}</span>
+                title="UTC 今日失败执行单元（按执行单元计数，非新闻篇数）"
+                aria-label={`UTC 今日失败执行单元 ${value}`}>{value}</span>
             : <span className={className}>{value}</span>;
         }}
       </Await>

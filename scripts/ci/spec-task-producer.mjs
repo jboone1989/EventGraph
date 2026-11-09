@@ -182,13 +182,28 @@ export function defaultWorkerRoute(queueState) {
   const poolName = "default";
   const pool = policy.pools?.[poolName];
   if (!pool || !pool.default_profile) fail("Native Work Queue has no approved default Worker pool");
+  if (!pool.allowed_repositories?.includes("jboone1989/EventGraph")) {
+    fail("Default Worker pool is not authorized for EventGraph repository");
+  }
   const profileName = pool.default_profile;
   const profile = pool.profiles?.[profileName];
-  if (!profile || !profile.trust_domain) fail("Default Worker profile is missing its trust domain");
+  if (!profile?.trust_domain) fail("Default Worker profile is missing its trust domain");
   const deployment = queueState.deployments?.[poolName]?.[profileName];
-  const revision = deployment?.revisions?.[deployment.current_ref];
-  if (!deployment?.current_ref || !deployment.current_contract || revision?.available !== true) {
+  const currentRef = deployment?.current_ref;
+  const current = deployment?.revisions?.[currentRef];
+  if (!/^[a-f0-9]{40}$/.test(currentRef ?? "") ||
+      !/^[a-f0-9]{64}$/.test(deployment?.current_contract ?? "") ||
+      current?.available !== true || !current?.profile) {
     fail("Default Worker profile has no available installed deployment");
+  }
+  const active = current.profile;
+  // Official GH-AW v1.0.1 deploymentBoundary(): these identity/authority
+  // properties must not change across compatible registered revisions.
+  const boundary = ["workflow", "principal", "trust_domain", "credential_scope",
+    "effect_scope", "max_claims", "share_keys"];
+  if (boundary.some((key) => profile[key] !== active[key]) ||
+      active.ref !== currentRef || active.logical_contract !== deployment.current_contract) {
+    fail("Current Worker deployment does not match its approved Policy identity or registered contract");
   }
   const limits = policy.limits;
   if (!limits?.payload_bytes || !limits?.predecessors || !limits?.assignment_bytes) {
@@ -260,7 +275,10 @@ export function buildWorkGraph({ tasks, issues, queueState, repo, repositoryId, 
       priority: 3,
       fairness_key: "",
       worker_profile: profileName,
-      ...(profile.logical_contract ? { logical_contract: profile.logical_contract } : {}),
+      // Do not pin the installed Policy's historical contract: official GH-AW
+      // binds the current verified Deployment revision on admission and
+      // persists the immutable AdmissionContract. An explicit stale pin
+      // would reject compatible Worker upgrades with work_invalid.
       batch_trust_domain: profile.trust_domain,
       payload,
       depends_on: dependencies,
