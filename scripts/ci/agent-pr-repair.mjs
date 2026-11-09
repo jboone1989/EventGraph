@@ -116,9 +116,14 @@ export async function handleEvent({ event, token, repo = REPO }) {
   const targets = prs.filter(p => p.head?.sha === run.head_sha && p.head?.ref === run.head_branch);
   if (targets.length !== 1) return {kind:'skip',reason:'not_one_current_pr'};
   const pr=targets[0];
-  if (!pr.labels?.some(x=>x.name==='agent-work') || pr.draft || pr.head?.repo?.full_name !== REPO) return {kind:'skip',reason:'not_eligible_agent_pr'};
+  // Distinct skip reasons name the actionable cause (owner decision vs label fix
+  // vs fork) instead of one blanket ineligible bucket; every result keeps the
+  // PR number so the continuation log line identifies the PR it acted on.
+  if (pr.draft) return {kind:'skip',reason:'draft_pr_awaits_owner_decision',prNumber:pr.number};
+  if (pr.head?.repo?.full_name !== REPO) return {kind:'skip',reason:'fork_pr_head_not_supported',prNumber:pr.number};
+  if (!pr.labels?.some(x=>x.name==='agent-work')) return {kind:'skip',reason:'missing_agent_work_label',prNumber:pr.number};
   const m=one(pr.body ?? '',META.issue);
-  if (!m) return {kind:'manual',reason:'missing_worker_issue_metadata'};
+  if (!m) return {kind:'manual',reason:'missing_worker_issue_metadata',prNumber:pr.number};
   const [issue,runs,jobs,comments]=await Promise.all([
     api(token,`/issues/${m[1]}`).catch(() => null),
     api(token,`/actions/workflows/check.yml/runs?head_sha=${run.head_sha}&event=pull_request&per_page=100`),
@@ -128,7 +133,7 @@ export async function handleEvent({ event, token, repo = REPO }) {
   const latest=(runs.workflow_runs ?? []).filter(x=>x.head_sha===run.head_sha && x.head_branch===run.head_branch)
     .sort((a,b)=>b.run_number-a.run_number||b.run_attempt-a.run_attempt)[0];
   const action=decide({event,pr,issue,latestRun:latest,jobs:jobs.jobs,comments,repository:repo});
-  if (action.kind==='skip') return action;
+  if (action.kind==='skip') return {...action,prNumber:pr.number};
   let result=action;
   if(action.kind==='inspect') {
     const logTexts=new Map();
@@ -143,14 +148,14 @@ export async function handleEvent({ event, token, repo = REPO }) {
     const marker=`<!-- eventgraph-pr-repair-manual:v1 pr=${pr.number} sha=${run.head_sha} reason=${result.reason} -->`;
     if(!comments.some(c=>String(c.body??'').includes(marker)))
       await note(token,pr.number,`自动 CI 修复需要人工接管：\`${result.reason}\`。源 Check Run #${run.id}；未尝试修改代码或放行审核。\n\n${marker}`);
-    return result;
+    return {...result,prNumber:pr.number};
   }
   if(result.kind!=='dispatch') return result;
   await api(token,'/actions/workflows/eventgraph-pr-repair.lock.yml/dispatches',{
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ref:'main',inputs:{pr_number:String(pr.number),expected_head:run.head_sha,source_run_id:String(run.id)}})
   });
   await note(token,pr.number,`GH-AW 原 PR 修复已派发：失败 Check Run #${run.id}，原 PR HEAD \`${run.head_sha}\`，第 ${action.attempt}/2 次。仍须在新 HEAD 上通过全部必需 CI 和独立审核。\n\n<!-- eventgraph-pr-repair:v1 pr=${pr.number} sha=${run.head_sha} -->`);
-  return {...action,kind:'dispatched'};
+  return {...result,kind:'dispatched'};
 }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href===import.meta.url) {
