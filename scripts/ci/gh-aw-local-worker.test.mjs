@@ -70,6 +70,7 @@ test("the GLM Worker has enough turns for code tasks and its compiled budget mat
   assert.match(source, /^max-turns: 1000$/m);
   assert.match(lock, /^\s+GH_AW_MAX_TURNS: 1000$/m);
   assert.match(lock, /maxRuns.{0,8}1000/, "compiled AWF proxy must enforce the updated budget");
+  assert.match(lock, /claude_harness\\.cjs claude --print --no-chrome --strict-mcp-config --max-turns 1000 --allowed-tools/, "compiled Claude CLI must honor the source 1000-turn limit, not the old 120-turn cap");
   assert.match(source, /^timeout-minutes: 60\njobs:\n  agent:\n    timeout-minutes: 75$/m);
   assert.match(lock, /^    timeout-minutes: 75\n    env:\n      DEFAULT_BRANCH:/m);
   assert.match(lock, /^        timeout-minutes: 60\n        run: \|/m);
@@ -78,4 +79,10 @@ test("the GLM Worker has enough turns for code tasks and its compiled budget mat
   const expectedHash = createHash("sha256").update(JSON.stringify({ "frontmatter-text": frontmatter })).digest("hex");
   const metadata = JSON.parse(lock.split("\n")[0].slice("# gh-aw-metadata: ".length));
   assert.equal(metadata.frontmatter_hash, expectedHash, "recompile the lock when changing frontmatter");
+});
+
+
+test("GH-AW Worker can install Node dependencies inside the default-deny agent firewall", () => {
+  assert.match(source, /network:\\n  allowed:\\n    - github\\.com\\n    - open\\.bigmodel\\.cn\\n    - node\\n/);
+  assert.match(lock, /registry\\.npmjs\\.org/, "compiled AWF allowDomains must include npm through the official node ecosystem");
 });
