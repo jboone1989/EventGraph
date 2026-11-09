@@ -109,7 +109,7 @@ jobs:
             exit 1
           fi
           echo "Verified terminal Worker run ${WORKER_RUN_ID}; reconciling ${dispatch_id}"
-          if ! result="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" reconcile --dispatch-id "$dispatch_id" --json)"; then
+          if ! result="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" reconcile --dispatch-id "$dispatch_id" --json 2>&1)"; then
             echo "::error::Native reconciliation failed for ${dispatch_id} (run ${WORKER_RUN_ID}, ${WORKER_RUN_URL})."
             echo "Manual recovery: gh aw work-queue --repo ${GITHUB_REPOSITORY} reconcile --dispatch-id ${dispatch_id} --json"
             exit 1
