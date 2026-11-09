@@ -35,10 +35,11 @@ AdSense is pending approval: verification, ad scripts and ad tracking stay disab
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.knowledge.yml --profile knowledge ps
 docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.knowledge.yml --profile knowledge logs --tail=100
+export EVENTGRAPH_HOT_DIAGNOSTIC_CMD="docker compose -f docker-compose.yml -f docker-compose.production.yml -f docker-compose.knowledge.yml -f docker-compose.release.yml --profile knowledge exec -T api node scripts/hot-diagnose.ts --api-entries"
 python3 scripts/production-smoke.py
 ```
 
-Production smoke must verify actual news content, a nonempty hot ranking, positive graph entity/relationship counts, canonical pages, and default-off AdSense. A 200 response by itself is not proof of a deployed graph.
+Production smoke must verify actual news content, a hot ranking proven by evidence, positive graph entity/relationship counts, canonical pages, and default-off AdSense. A 200 response by itself is not proof of a deployed graph. An empty hot list passes only as a proven sparse window (`expected sparse window`): `scripts/deploy-prod.sh` exports `EVENTGRAPH_HOT_DIAGNOSTIC_CMD`, the smoke runs the read-only `scripts/hot-diagnose.ts` probe inside the deployed api image, and a stale ranking, mismatched rule version, hidden eligible candidate, lagging source clock or inconsistent count fails the release with its own reason. A release image older than that probe cannot prove an empty list and also fails closed; deploy the current release instead of muting the check.
 
 VM09 memory is about 3.6 GiB plus 2 GiB swap. Keep only one worker and watch RAM/swap. Never run `docker compose down -v`: it deletes production database/graph data.
 
