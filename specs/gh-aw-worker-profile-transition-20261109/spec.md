@@ -1,6 +1,6 @@
 # GH-AW Worker contract-safe admission after compatible deployment
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of b3e1f50dd8729ccbfd182ff6e5a85817a4ceaf1e)
 **Scope:** Existing GitHub-native GH-AW Producer contract binding and regression tests; no new Worker, no queue migration.
 **Incident:** The approved Spec #529 merged at `develop@874078a95e44b3c84791a36279f46a39a65550cf`. Native Producer created existing Issue #530 and then failed `submit-graph` in [run 42614406063](https://github.com/jboone1989/EventGraph/actions/runs/42614406063): `work_invalid: node identity/profile/trust/account mismatch`.
 
