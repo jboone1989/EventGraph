@@ -119,7 +119,7 @@ jobs:
             echo "Manual verification: gh aw work-queue --repo ${GITHUB_REPOSITORY} reconcile --dispatch-id ${dispatch_id} --json"
             exit 1
           fi
-          jq -c '{state, reason, release}' <<< "$result"
+          jq -c '{state, reason, changed, release_published: ([.publication.commit.request.operations[]? | select(.kind == "Release")] | length > 0)}' <<< "$result"
       - name: Admit approved Spec tasks only from current verified develop
         if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop'
         env:
