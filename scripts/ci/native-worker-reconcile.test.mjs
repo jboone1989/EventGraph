@@ -111,6 +111,8 @@ test("official reconcile JSON written to stderr is captured and validated", () =
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.deepEqual(r.calls, ["aw work-queue --repo jboone1989/EventGraph reconcile --dispatch-id " + dispatchId + " --json"]);
   assert.match(r.stdout, /native_released_delivery_independent/);
+  assert.match(r.stdout, /"changed":true/);
+  assert.match(r.stdout, /"release_published":true/);
   assert.doesNotMatch(r.stdout, /Malformed native reconciliation response/);
 });
 
@@ -158,6 +160,7 @@ test("duplicate event repeats idempotent official reconcile, not a custom Releas
     assert.equal(r.status, 0);
     assert.equal(r.calls.length, 1);
     assert.match(r.stdout, /native_already_reconciled/);
+    assert.match(r.stdout, /"release_published":false/);
   }
   assert.doesNotMatch(reconciliationShell, /work-queue\s+(dispatch|claim|submit-graph)/);
 });
