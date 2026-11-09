@@ -37,7 +37,21 @@ test('exact immutable inputs are validated and original remote preview script is
   assert.match(deploy, /EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT: \$\{\{ secrets\.EVENTGRAPH_PROD_SSH_FINGERPRINT \}\}/);
   assert.match(deploy, /@sha256:\[a-f0-9\]\{64\}/);
   assert.match(deploy, /\[a-f0-9\]\{40\}/);
-  assert.match(deploy, /\bsh -s"/);
+  assert.ok(deploy.includes('sh \\"\\$script_file\\"'), 'must run the complete buffered file, not stdin-backed sh -s');
+  assert.ok(deploy.includes('cat > \\"\\$script_file\\"'), 'must fully receive the file before running Docker commands');
+  assert.match(deploy, /sha256sum scripts\/ci\/deploy-vm13-preview[.]sh/);
+  assert.match(deploy, /deployment script transfer checksum mismatch/);
+  assert.doesNotMatch(deploy, / sh -s"/);
   assert.match(deploy, /< scripts\/ci\/deploy-vm13-preview\.sh/);
   assert.match(workflow, /name: "验证 VM13 在线预览"/);
+});
+
+test('VM13 script transfer is completed before running potentially stdin-reading Docker commands', () => {
+  const readAll = deploy.indexOf('cat > ');
+  const checksum = deploy.indexOf('actual_sha=');
+  const verify = deploy.indexOf('checksum mismatch');
+  const execute = deploy.indexOf(' sh \\"\\$script_file\\"');
+  assert.ok(readAll >= 0 && checksum > readAll && verify > checksum && execute > verify,
+    'buffer, verify checksum, then execute script file in that order');
+  assert.match(deploy, /trap 'rm -f/);
 });
