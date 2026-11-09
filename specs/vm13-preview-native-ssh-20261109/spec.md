@@ -1,6 +1,6 @@
 # VM13 preview: eliminate runtime SSH binary download in GitHub Actions
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 794f7924978454b908a6391a3d0a8a85b599b08d)
 **Scope:** develop preview deployment only. No VM09 deployment, branch-protection edits, new timer, queue, worker, or application-code change.
 
 ## Verified failure
