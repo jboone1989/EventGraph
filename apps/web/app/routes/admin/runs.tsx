@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { SITE } from "@aihot/site";
-import { Link, useFetcher } from "react-router";
+import { Link, useRevalidator } from "react-router";
 import type { Route } from "./+types/runs";
 import type { AdminFlowItem, AdminRuns } from "@aihot/contracts/admin";
 import { adminGet } from "../../lib/admin.server";
@@ -58,8 +58,8 @@ const kindNames: Record<AdminFlowItem["kind"], string> = {
 };
 
 export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
-  const refresh = useFetcher<typeof loader>();
-  const r = refresh.data ?? loaderData;
+  const revalidator = useRevalidator();
+  const r = loaderData;
   const { run, pending } = useAdminAction();
   const [state, setState] = useState<QueueState>("failed");
   const [kind, setKind] = useState("all");
@@ -69,12 +69,14 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
   const [billed, setBilled] = useState("false");
 
+  // One revalidation refreshes this page and the navigation badges together, so the 处理失败
+  // total and the 运行与积压 badge never drift apart after a refresh.
   useEffect(() => {
     const interval = setInterval(() => {
-      if (document.visibilityState === "visible" && refresh.state === "idle") refresh.load("/admin/runs");
+      if (document.visibilityState === "visible" && revalidator.state === "idle") revalidator.revalidate();
     }, 20_000);
     return () => clearInterval(interval);
-  }, [refresh]);
+  }, [revalidator]);
 
   const allItems = r.flowItems;
   const scoped = (allItems ?? []).filter(item => kind === "all" || item.kind === kind);
@@ -105,11 +107,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       path = "/api/admin/sources/" + encodeURIComponent(item.key.slice("source:".length)) + "/fetch";
     } else return;
     const result = await run<{ requeued?: number; jobId?: string | null }>("POST", path, body,
-      { label: "requeue:" + item.key, revalidate: false });
-    if (result !== null) {
-      toast("已提交重新入队", "ok");
-      refresh.load("/admin/runs");
-    }
+      { label: "requeue:" + item.key });
+    if (result !== null) toast("已提交重新入队", "ok");
   }
 
   const action = (item: AdminFlowItem) => {
@@ -135,10 +134,10 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
 
   return (
     <AdminPage title="运行与积压" subtitle={<>UTC 今日实时执行记录 · 每 20 秒刷新 · {bj(r.checkedAt)} · <Badge tone={worker?.alive ? "ok" : "bad"}>{worker?.alive ? "Worker 在线" : "Worker 未确认在线"}</Badge></>}>
-      <Card title="所有流程 · 三个实时状态" right={<Button size="sm" onClick={() => refresh.load("/admin/runs")}>刷新</Button>}>
+      <Card title="所有流程 · 三个实时状态" right={<Button size="sm" onClick={() => revalidator.revalidate()}>刷新</Button>}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[12px] text-ink-3">按执行单元计数；一次新闻的任务和模型请求分别记录</span>
-          <Select value={kind} onChange={e => { setKind(e.target.value); setPage(0); }}>
+          <span className="text-[12px] text-ink-3">按执行单元计数，与新闻篇数不同；一次新闻的任务和模型请求分别记录</span>
+          <Select value={kind} aria-label="流程类型" onChange={e => { setKind(e.target.value); setPage(0); }}>
             <option value="all">全部流程</option>
             <option value="article">新闻处理</option>
             <option value="model">模型调用</option>
@@ -204,8 +203,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         confirmLabel="记录并放行" busy={pending === "receipt"} onClose={() => setReceiptId(null)}
         onSubmit={async note => {
           const result = await run("POST", "/api/admin/receipts/" + receiptId + "/release",
-            { billed: billed === "true", note }, { label: "receipt", revalidate: false });
-          if (result !== null) { setReceiptId(null); refresh.load("/admin/runs"); }
+            { billed: billed === "true", note }, { label: "receipt" });
+          if (result !== null) setReceiptId(null);
           return result !== null;
         }}>
         <Field label="供应商是否计费">
@@ -221,8 +220,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         onClose={() => setDeliveryId(null)}
         onSubmit={async note => {
           const result = await run("POST", "/api/admin/deliveries/" + deliveryId + "/resolve",
-            { outcome, note }, { label: "delivery", revalidate: false });
-          if (result !== null) { setDeliveryId(null); refresh.load("/admin/runs"); }
+            { outcome, note }, { label: "delivery" });
+          if (result !== null) setDeliveryId(null);
           return result !== null;
         }}>
         <Field label="处理结果">

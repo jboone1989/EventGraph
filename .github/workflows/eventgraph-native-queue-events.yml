@@ -1,5 +1,8 @@
 # Queue continuation is independent of CI and release job results.
 # Failed Workers never self-dispatch another paid Agent attempt.
+# workflow_run events fire from the default branch's copy of this workflow:
+# merging to develop alone does not activate reconciliation or dispatch; the
+# approved develop→main promotion must carry this YAML first.
 name: "Agent · 任务队列续办与 PR 生命周期"
 run-name: "Agent 队列 · ${{ github.event_name }}"
 
@@ -109,7 +112,7 @@ jobs:
             exit 1
           fi
           echo "Verified terminal Worker run ${WORKER_RUN_ID}; reconciling ${dispatch_id}"
-          if ! result="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" reconcile --dispatch-id "$dispatch_id" --json)"; then
+          if ! result="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" reconcile --dispatch-id "$dispatch_id" --json 2>&1)"; then
             echo "::error::Native reconciliation failed for ${dispatch_id} (run ${WORKER_RUN_ID}, ${WORKER_RUN_URL})."
             echo "Manual recovery: gh aw work-queue --repo ${GITHUB_REPOSITORY} reconcile --dispatch-id ${dispatch_id} --json"
             exit 1
@@ -119,7 +122,7 @@ jobs:
             echo "Manual verification: gh aw work-queue --repo ${GITHUB_REPOSITORY} reconcile --dispatch-id ${dispatch_id} --json"
             exit 1
           fi
-          jq -c '{state, reason, release}' <<< "$result"
+          jq -c '{state, reason, changed, release_published: ([.publication.commit.request.operations[]? | select(.kind == "Release")] | length > 0)}' <<< "$result"
       - name: Admit approved Spec tasks only from current verified develop
         if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop'
         env:

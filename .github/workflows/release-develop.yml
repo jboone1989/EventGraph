@@ -244,20 +244,61 @@ jobs:
           fi
       - name: Deploy VM13 Web and API from immutable digest
         if: steps.current.outputs.deploy == 'true'
-        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        shell: bash
+        timeout-minutes: 13
         env:
           EVENTGRAPH_IMAGE: ${{ needs.publish.outputs.image_ref }}
           EVENTGRAPH_PREVIEW_RELEASE: ${{ needs.publish.outputs.source_sha }}
           EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
-        with:
-          host: 43.133.185.154
-          username: ubuntu
-          key: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
-          fingerprint: SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
-          envs: EVENTGRAPH_IMAGE,EVENTGRAPH_PREVIEW_RELEASE,EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT
-          command_timeout: 12m
-          version: '1.8.2'
-          script_path: scripts/ci/deploy-vm13-preview.sh
+          EVENTGRAPH_DEV_SSH_KEY: ${{ secrets.EVENTGRAPH_DEV_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          # The hosted runner already includes OpenSSH. Do not download drone-ssh at runtime.
+          [[ "$EVENTGRAPH_IMAGE" =~ ^ghcr[.]io/jboone1989/eventgraph-app@sha256:[a-f0-9]{64}$ ]] || { echo '::error::Invalid immutable image'; exit 1; }
+          [[ "$EVENTGRAPH_PREVIEW_RELEASE" =~ ^[a-f0-9]{40}$ ]] || { echo '::error::Invalid exact release SHA'; exit 1; }
+          [[ "$EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT" =~ ^SHA256:[a-zA-Z0-9+/=]+$ ]] || { echo '::error::Missing/invalid production tunnel fingerprint'; exit 1; }
+          [[ -n "${EVENTGRAPH_DEV_SSH_KEY:-}" ]] || { echo '::error::Missing VM13 deployment key'; exit 1; }
+          for program in ssh ssh-keyscan ssh-keygen; do command -v "$program" >/dev/null || { echo "::error::Missing OpenSSH tool: $program"; exit 1; }; done
+          umask 077
+          key_file="$(mktemp "${RUNNER_TEMP}/vm13-ssh-key.XXXXXXXX")"
+          known_hosts="$(mktemp "${RUNNER_TEMP}/vm13-known-hosts.XXXXXXXX")"
+          scanned="$(mktemp "${RUNNER_TEMP}/vm13-host-scan.XXXXXXXX")"
+          candidate="$(mktemp "${RUNNER_TEMP}/vm13-host-candidate.XXXXXXXX")"
+          trap 'rm -f "$key_file" "$known_hosts" "$scanned" "$candidate"' EXIT
+          printf '%s\n' "$EVENTGRAPH_DEV_SSH_KEY" > "$key_file"
+          chmod 600 "$key_file" "$known_hosts"
+          ssh-keygen -y -P '' -f "$key_file" >/dev/null 2>&1 || { echo '::error::Invalid VM13 SSH private key'; exit 1; }
+          host=43.133.185.154
+          fingerprint=SHA256:950EdynTTleTOtbmusu5UrYvSQwgsl4hX3/frQniLh4
+          found=false
+          for attempt in 1 2 3; do
+            ssh-keyscan -T 10 -t rsa,ed25519,ecdsa "$host" 2>/dev/null > "$scanned" || true
+            while IFS= read -r entry; do
+              [[ "$entry" == "$host "* ]] || continue
+              printf '%s\n' "$entry" > "$candidate"
+              observed="$(ssh-keygen -lf "$candidate" 2>/dev/null | awk '{print $2}')"
+              if [[ "$observed" == "$fingerprint" ]]; then
+                printf '%s\n' "$entry" > "$known_hosts"
+                found=true
+                break
+              fi
+            done < "$scanned"
+            [[ "$found" == true ]] && break
+            [[ "$attempt" == 3 ]] || sleep 5
+          done
+          [[ "$found" == true && -s "$known_hosts" ]] || { echo '::error::VM13 host key does not match pinned fingerprint'; exit 1; }
+          # Consume and checksum the entire script before execution. A direct
+          # ssh ... sh -s makes Docker Compose subprocesses steal stdin from sh,
+          # truncating a later "compose up" command to "com" (run 42591533875).
+          # All forwarded inputs have strict shell-safe alphabet validation above.
+          script_sha="$(sha256sum scripts/ci/deploy-vm13-preview.sh | awk '{print $1}')"
+          [[ "$script_sha" =~ ^[a-f0-9]{64}$ ]] || { echo '::error::Invalid deployment script checksum'; exit 1; }
+          ssh -i "$key_file" -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=30 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+            "ubuntu@$host" \
+            "set -eu; umask 077; script_file=\$(mktemp /tmp/eventgraph-vm13-preview.XXXXXXXX); trap 'rm -f \"\$script_file\"' EXIT; cat > \"\$script_file\"; actual_sha=\$(sha256sum \"\$script_file\" | awk '{print \$1}'); [ \"\$actual_sha\" = \"$script_sha\" ] || { echo 'VM13 deployment script transfer checksum mismatch' >&2; exit 1; }; EVENTGRAPH_IMAGE=$EVENTGRAPH_IMAGE EVENTGRAPH_PREVIEW_RELEASE=$EVENTGRAPH_PREVIEW_RELEASE EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT=$EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT sh \"\$script_file\"" \
+            < scripts/ci/deploy-vm13-preview.sh
 
   # Acceptance runs on GitHub-hosted Actions with the official Playwright image.
   # GitHub checks VM13 directly; there is no SSH or dependency on cn-dev.

@@ -20,6 +20,7 @@ network:
   allowed:
     - github.com
     - open.bigmodel.cn
+    - node
 sandbox:
   agent:
     token-steering: false
