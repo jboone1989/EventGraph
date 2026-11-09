@@ -51,7 +51,7 @@ test("model import uses each configured connection without squeezing the page he
   await expect(heading).toBeVisible();
   const bounds=await heading.boundingBox();
   assert.ok(bounds&&bounds.width>=90,"page title must not be squeezed into a one-character column");
-  const select=page.getByLabel("导入模型的厂商连接");
+  const select=page.getByLabel("免费模型导入账户");
   await expect(select.locator("option")).toHaveCount(providers.length);
   const optionLabels=await select.locator("option").allTextContents();
   for(const connection of providers)assert.ok(optionLabels.some(label=>label.includes(connection.name+" · "+connection.vendor)));
@@ -84,7 +84,7 @@ test("model import uses each configured connection without squeezing the page he
   assert.ok(mobileBounds&&mobileBounds.width>=90,"mobile title must remain horizontal");
   providers.push(entry(7,"groq-4","groq"));
   await page.reload();
-  await expect(page.getByLabel("导入模型的厂商连接").locator("option")).toHaveCount(7);
+  await expect(page.getByLabel("免费模型导入账户").locator("option")).toHaveCount(7);
   providers.splice(0,providers.length);
   await page.reload();
   await expect(page.getByRole("button",{name:"导入所选连接的免费模型"})).toBeDisabled();

@@ -38,7 +38,7 @@ export default function ModelsAdmin({loaderData}:Route.ComponentProps){
    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
     <label className="min-w-0 flex-1 space-y-1 text-sm">
      <span className="block font-medium">免费模型导入 · 选择厂商连接</span>
-     <Select aria-label="导入模型的厂商连接" value={selected?.id??""} disabled={busy||!selected}
+     <Select aria-label="免费模型导入账户" value={selected?.id??""} disabled={busy||!selected}
       onChange={e=>{setSelectedId(e.target.value);setFeedback("");}}>
       {loaderData.providers.map(p=><option key={p.id} value={p.id}>{p.name+" · "+p.vendor+" · "+p.id.slice(-8)}</option>)}
      </Select>
