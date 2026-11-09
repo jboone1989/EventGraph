@@ -33,6 +33,21 @@ const issues = new Map([
   ["T001", { id: 9001, number: 101, html_url: "https://github.com/" + repo + "/issues/101" }],
   ["T002", { id: 9002, number: 102, html_url: "https://github.com/" + repo + "/issues/102" }]
 ]);
+const workerPolicyProfile = {
+  trust_domain: "default",
+  logical_contract: "b".repeat(64),
+  ref: "a".repeat(40),
+  workflow: ".github/workflows/eventgraph-worker.lock.yml",
+  credential_scope: "repository",
+  effect_scope: repo,
+  max_claims: 1,
+  share_keys: false
+};
+const workerActiveProfile = {
+  ...workerPolicyProfile,
+  ref: "c".repeat(40),
+  logical_contract: "d".repeat(64)
+};
 const queueState = {
   grants_paused: false,
   admission_paused: false,
@@ -42,9 +57,8 @@ const queueState = {
     pools: {
       default: {
         default_profile: "eventgraph-worker",
-        profiles: {
-          "eventgraph-worker": { trust_domain: "default", logical_contract: "b".repeat(64) }
-        }
+        allowed_repositories: [repo],
+        profiles: { "eventgraph-worker": workerPolicyProfile }
       }
     }
   },
@@ -53,7 +67,7 @@ const queueState = {
       "eventgraph-worker": {
         current_ref: "c".repeat(40),
         current_contract: "d".repeat(64),
-        revisions: { ["c".repeat(40)]: { available: true } }
+        revisions: { ["c".repeat(40)]: { available: true, profile: workerActiveProfile } }
       }
     }
   }
@@ -225,7 +239,9 @@ test("builds a native graph with policy-derived routing and completed Issue depe
   const graph = buildWorkGraph({ tasks, issues, queueState, repo, repositoryId: "1416699488", specPath, specSha, specPrUrl, now: 1234 });
   assert.equal(graph.length, 2);
   assert.equal(graph[0].worker_profile, "eventgraph-worker");
-  assert.equal(graph[0].logical_contract, "b".repeat(64));
+  assert.equal(Object.hasOwn(graph[0], "logical_contract"), false,
+    "let GH-AW choose and persist the current verified deployment contract");
+  assert.equal(Object.hasOwn(graph[0], "execution_ref"), false);
   assert.equal(graph[0].batch_trust_domain, "default");
   assert.deepEqual(graph[0].depends_on, []);
   assert.deepEqual(graph[1].depends_on, [{
@@ -245,6 +261,52 @@ test("builds a native graph with policy-derived routing and completed Issue depe
   assert.equal(graph[0].payload.spec_sha, specSha);
   assert.equal(graph[0].payload.issue_number, 101);
   assert.equal(graph[0].enqueued, 1234);
+});
+
+test("current compatible Worker contract is never overwritten by the historical Policy pin", () => {
+  const tasks = parseTasks(validTasks);
+  const params = { tasks, issues, repo, repositoryId: "1416699488", specPath, specSha, specPrUrl };
+  // Production incident: installed Policy B but active immutable deployment D.
+  const upgraded = buildWorkGraph({ ...params, queueState });
+  assert.equal(workerPolicyProfile.logical_contract, "b".repeat(64));
+  assert.equal(workerActiveProfile.logical_contract, "d".repeat(64));
+  assert.equal(upgraded[0].worker_profile, "eventgraph-worker");
+  assert.equal(Object.hasOwn(upgraded[0], "logical_contract"), false);
+  assert.equal(Object.hasOwn(upgraded[0], "execution_ref"), false);
+  assert.equal(upgraded[0].work_id, workId("spec-" + specSha, "T001"));
+  // Legacy matching policy+deployment also binds through the native current route.
+  const matching = structuredClone(queueState);
+  matching.deployments.default["eventgraph-worker"].current_contract = "b".repeat(64);
+  matching.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.logical_contract = "b".repeat(64);
+  assert.equal(Object.hasOwn(buildWorkGraph({ ...params, queueState: matching })[0], "logical_contract"), false);
+});
+
+test("refuses missing or incompatible current Worker identity before Issue creation", () => {
+  const tasks = parseTasks(validTasks);
+  const args = { tasks, issues, repo, repositoryId: "1416699488", specPath, specSha, specPrUrl };
+  function withActive(change) {
+    const state = structuredClone(queueState);
+    change(state);
+    return state;
+  }
+  const invalid = [
+    withActive(s => { s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.workflow = ".github/workflows/other.lock.yml"; }),
+    withActive(s => { s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.trust_domain = "other"; }),
+    withActive(s => { s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.effect_scope = "attacker/repo"; }),
+    withActive(s => { s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.credential_scope = "other"; }),
+    withActive(s => { s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.max_claims = 2; }),
+    withActive(s => { s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.share_keys = true; }),
+    withActive(s => { s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.logical_contract = "e".repeat(64); }),
+    withActive(s => { s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile.ref = "f".repeat(40); })
+  ];
+  for (const state of invalid) {
+    assert.throws(() => buildWorkGraph({ ...args, queueState: state }),
+      /does not match its approved Policy identity or registered contract/);
+  }
+  const missingProfile = withActive(s => { delete s.deployments.default["eventgraph-worker"].revisions["c".repeat(40)].profile; });
+  assert.throws(() => buildWorkGraph({ ...args, queueState: missingProfile }), /no available installed deployment/);
+  const wrongRepo = withActive(s => { s.policy.pools.default.allowed_repositories = ["someone/else"]; });
+  assert.throws(() => buildWorkGraph({ ...args, queueState: wrongRepo }), /not authorized for EventGraph repository/);
 });
 
 test("refuses a paused or incomplete native queue policy", () => {
