@@ -1,5 +1,8 @@
 # Queue continuation is independent of CI and release job results.
 # Failed Workers never self-dispatch another paid Agent attempt.
+# workflow_run events fire from the default branch's copy of this workflow:
+# merging to develop alone does not activate reconciliation or dispatch; the
+# approved develop→main promotion must carry this YAML first.
 name: "Agent · 任务队列续办与 PR 生命周期"
 run-name: "Agent 队列 · ${{ github.event_name }}"
 

@@ -191,3 +191,10 @@ test("continuation contains exactly one Spec intake and one paid dispatch step",
   const dispatch = workflow.slice(workflow.indexOf("      - name: Dispatch at most one eligible native Work"));
   assert.doesNotMatch(dispatch, /reconcile --dispatch-id|WORKER_DISPLAY_TITLE|native_title_re/);
 });
+
+test("workflow documents that develop merge alone does not activate continuation", () => {
+  const header = workflow.slice(0, workflow.indexOf("name:"));
+  assert.match(header, /default branch/);
+  assert.match(header, /develop/);
+  assert.match(header, /main/);
+});
