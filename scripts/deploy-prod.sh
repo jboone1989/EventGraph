@@ -4,6 +4,10 @@ set -Eeuo pipefail
 cd "${EVENTGRAPH_PROD_REPO_DIR:-$(dirname "${BASH_SOURCE[0]}")/..}"
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.production.yml
  -f docker-compose.knowledge.yml -f docker-compose.release.yml --profile knowledge)
+# The production smoke verifies an empty hot list with the backend's own read-only probe, run inside
+# the deployed api image (specs/prod-hot-ranking-release-gate-20261109); the smoke appends the public
+# entry count it observed over HTTP. Read-only, so a failed smoke or a re-run reconciles idempotently.
+export EVENTGRAPH_HOT_DIAGNOSTIC_CMD="${COMPOSE[*]} exec -T api node scripts/hot-diagnose.ts --api-entries"
 START=$SECONDS
 [[ "${1:-}" == "" || "${1:-}" == "--check" ]] || { echo "Usage: $0 [--check]" >&2; exit 2; }
 git diff --quiet && git diff --cached --quiet || { echo "Dirty checkout; abort" >&2; exit 1; }
