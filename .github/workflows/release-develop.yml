@@ -287,12 +287,17 @@ jobs:
             [[ "$attempt" == 3 ]] || sleep 5
           done
           [[ "$found" == true && -s "$known_hosts" ]] || { echo '::error::VM13 host key does not match pinned fingerprint'; exit 1; }
-          # Only values matching strict harmless alphabets are forwarded to the remote POSIX shell.
+          # Consume and checksum the entire script before execution. A direct
+          # ssh ... sh -s makes Docker Compose subprocesses steal stdin from sh,
+          # truncating a later "compose up" command to "com" (run 42591533875).
+          # All forwarded inputs have strict shell-safe alphabet validation above.
+          script_sha="$(sha256sum scripts/ci/deploy-vm13-preview.sh | awk '{print $1}')"
+          [[ "$script_sha" =~ ^[a-f0-9]{64}$ ]] || { echo '::error::Invalid deployment script checksum'; exit 1; }
           ssh -i "$key_file" -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts" \
             -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=30 \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
             "ubuntu@$host" \
-            "EVENTGRAPH_IMAGE=$EVENTGRAPH_IMAGE EVENTGRAPH_PREVIEW_RELEASE=$EVENTGRAPH_PREVIEW_RELEASE EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT=$EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT sh -s" \
+            "set -eu; umask 077; script_file=\$(mktemp /tmp/eventgraph-vm13-preview.XXXXXXXX); trap 'rm -f \"\$script_file\"' EXIT; cat > \"\$script_file\"; actual_sha=\$(sha256sum \"\$script_file\" | awk '{print \$1}'); [ \"\$actual_sha\" = \"$script_sha\" ] || { echo 'VM13 deployment script transfer checksum mismatch' >&2; exit 1; }; EVENTGRAPH_IMAGE=$EVENTGRAPH_IMAGE EVENTGRAPH_PREVIEW_RELEASE=$EVENTGRAPH_PREVIEW_RELEASE EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT=$EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT sh \"\$script_file\"" \
             < scripts/ci/deploy-vm13-preview.sh
 
   # Acceptance runs on GitHub-hosted Actions with the official Playwright image.
