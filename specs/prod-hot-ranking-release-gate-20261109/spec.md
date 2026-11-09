@@ -1,6 +1,6 @@
 # Production release smoke: distinguish genuine hot-ranking data faults from legitimate sparse windows
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 6b52111a7405bab58a653dfc3c0c9e9015917843)
 **Scope:** Existing production release acceptance and hot-ranking diagnostics, not the heat algorithm or end-user publishing rules.
 **Incident:** GitHub Actions `release-main.yml` run [42602690058](https://github.com/jboone1989/EventGraph/actions/runs/42602690058), main `fa08c36799638c8d6456a679183361088d8fed3d`, 2026-11-09.
 
