@@ -1,6 +1,6 @@
 # Default workflow model: one-click apply to all workflows
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of f4f1c371ddb313428ca69c1a6d4d2ab75f02f6f1)
 
 ## Purpose
 The admin chooses the default chat model/routing policy once and presses **一键应用到全部流程**. This action **must also reset every advanced per-chat-workflow binding**; previously saved fixed models may not keep overriding the new default. Afterward, advanced settings are for deliberate exceptions only.
