@@ -78,6 +78,8 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
   actions={<ButtonLink to="/admin/models">模型管理</ButtonLink>}>
   <Card title="默认模型">
    <p className="mb-3 text-sm text-ink-4">选择默认模型后，点击「一键应用到全部流程」，将同时清除高级设置中的所有聊天流程单独绑定，之后每个流程按默认路由自动选模。有问题的流程再在高级设置单独修改。向量模型使用独立配置，不会被聊天模型覆盖；自动路由只使用免费模型。</p>
+   {!choices.some(choice=>choice.adapter==="chat")&&
+    <p className="mb-2 text-sm text-amber" role="status">暂无已注册的聊天模型；自动路由需等待配置可用免费模型。仍可选择部署默认，或提前保存自动路由策略。</p>}
    <ModelBinding key={"default:"+loaderData.defaultModel.model} step={defaultStep} choices={choices}/>
    <p className="mt-2 text-xs text-ink-4">当前：{display(loaderData.defaultModel.model)||"部署默认"}</p>
   </Card>
