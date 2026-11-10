@@ -34,6 +34,12 @@ const api = createServer(async (req, res) => {
     res.statusCode = badgeFailure ? 503 : 200;
     return res.end(JSON.stringify(badgeFailure ? { detail: "busy" } : { sources: badge }));
   }
+  if (url.pathname === "/api/admin/providers") return res.end(JSON.stringify({ providers: [], models: [], workflows: [], protocols: [] }));
+  if (url.pathname === "/api/admin/model-bindings") return res.end(JSON.stringify({
+    defaultModel: { model: "auto", source: "admin" }, choices: [],
+    steps: [{ key: "understand", label: "新闻统一分析", vision: false, embedding: false,
+      autoTier: "medium", current: { model: "", source: "default" }, effective: { model: "auto", source: "admin" } }],
+  }));
   if (url.pathname === "/api/admin/sources") return res.end(JSON.stringify({ rows: [], totals: { total: 0, enabled: 0, failing: 0, degraded: 0 }, page: 1 }));
   res.statusCode = 404;
   res.end(JSON.stringify({ detail: "not_found" }));
@@ -80,13 +86,52 @@ test("admin HTML and navigation begin before delayed badges while remaining priv
   }
 });
 
-test("admin streaming still verifies identity before returning the page", async () => {
+test("bot-like authenticated admin requests stream model pages without waiting for the optional badge", async () => {
+  const agent = "Googlebot/2.1";
+  for (const [path, expected] of [
+    ["/admin/models", /模型管理/],
+    ["/admin/model-bindings", /工作流模型绑定/],
+  ] as const) {
+    holdBadges();
+    const response = fetch(web.origin + path, { headers: { "user-agent": agent }, redirect: "manual" });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const early = await Promise.race([response, new Promise<null>(resolve => {
+        timer = setTimeout(() => resolve(null), 1200);
+      })]);
+      assert.ok(early, path + " blocked on badge despite valid admin session");
+      assert.equal(early.status, 200);
+      assert.equal(early.headers.get("Cache-Control"), "private, no-store");
+      assert.equal(early.headers.get("X-Accel-Buffering"), "no");
+      const first = await early.body!.getReader().read();
+      assert.match(new TextDecoder().decode(first.value), expected);
+    } finally {
+      clearTimeout(timer);
+      resumeBadges();
+      await response;
+    }
+  }
+  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    const response = await mobile.goto(web.origin + "/admin/models");
+    assert.equal(response?.status(), 200);
+    await expect(mobile.getByRole("heading", { name: "模型管理", exact: true })).toBeVisible();
+  } finally { await mobile.close(); }
+});
+
+test("admin streaming verifies identity for both human and bot-like model clients", async () => {
   signedIn = false;
   try {
-    const res = await fetch(web.origin + "/admin/content", { redirect: "manual" });
-    assert.equal(res.status, 302);
-    assert.match(res.headers.get("Location")!, /\/api\/auth\/login/);
-    assert.equal(res.headers.get("Cache-Control"), "private, no-store");
+    for (const [path, userAgent] of [
+      ["/admin/content", "Mozilla/5.0 Safari/537.36"],
+      ["/admin/models", "Googlebot/2.1"],
+      ["/admin/model-bindings", "Googlebot/2.1"],
+    ]) {
+      const res = await fetch(web.origin + path, { redirect: "manual", headers: { "user-agent": userAgent } });
+      assert.equal(res.status, 302, "unverified identity at " + path);
+      assert.match(res.headers.get("Location")!, /\/api\/auth\/login/);
+      assert.equal(res.headers.get("Cache-Control"), "private, no-store");
+    }
   } finally { signedIn = true; }
 });
 
