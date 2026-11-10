@@ -101,6 +101,21 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await page.getByRole("button",{name:"保存"}).first().click();
   await expect(page.getByText("继承默认",{exact:true}).first()).toHaveText("继承默认");
   assert.equal(writes.at(-1)?.body.model,null);
+  // The default apply is also a valid "restore deployment default" action.
+  await defaultPicker.selectOption("");
+  await page.getByRole("button",{name:"一键应用到全部流程"}).click();
+  assert.equal(writes.at(-1)?.path,"/api/admin/models/apply-default");
+  assert.equal(writes.at(-1)?.body.model,null);
+  await expect(defaultPicker).toHaveValue("");
+  await expect(page.getByRole("combobox",{name:"为Graphiti 向量生成选择模型"})).toHaveValue(embeddingKey);
+  // Failed bulk updates do not change the saved default or the advanced rows.
+  await defaultPicker.selectOption("auto");
+  failure=true;
+  await page.getByRole("button",{name:"一键应用到全部流程"}).click();
+  await expect(page.getByRole("alert")).toContainText("模型暂不可用");
+  assert.equal(data.defaultModel.model,"");
+  assert.equal(data.steps[1]!.current.model,embeddingKey);
+  failure=false;
   data.choices.splice(0,1);
   await page.reload();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toHaveCount(0);
