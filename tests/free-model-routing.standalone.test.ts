@@ -31,6 +31,11 @@ test('free-first routing never silently selects paid models',()=>{
 test('task complexity keeps light work on light models and deep work on deep models',()=>{
  assert.equal(stageComplexity('prefilter'),'light');
  assert.equal(stageComplexity('groupReview'),'heavy');
+ assert.equal(stageComplexity('report'),'heavy');
+ assert.equal(stageComplexity('summarize'),'light');
+ for(const stage of ['understand','group','graphiti','english','digest','explain'])
+  assert.equal(stageComplexity(stage),'medium',stage+' must not route every call to advanced tier');
+ assert.equal(stageComplexity('unrecognized-future-stage'),'medium');
  assert.equal(stageComplexity('light'),'light');
  assert.deepEqual(rankFreeModels(candidates,connections,'groupReview').map(m=>m.id),['or-heavy']);
 });
@@ -52,6 +57,27 @@ test('the last successful free model is reused until it fails',()=>{
  coolDownModel('cached',60);
  assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'second');
 });
+test('a remembered higher-tier fallback never preempts an available exact-tier free model',()=>{
+ const elevated=model('elevated-tier-cache','or','zz-advanced','heavy');
+ const exact=model('exact-tier-free','nv','aa-light','light');
+ rememberSuccessfulRoute('model:elevated-tier-cache','prefilter');
+ const preferred=rankFreeModels([elevated,exact],connections,'prefilter');
+ assert.deepEqual(preferred.map(m=>m.id),['exact-tier-free','elevated-tier-cache']);
+ // An advanced task may not downgrade to an available light model.
+ assert.deepEqual(rankFreeModels([elevated,exact],connections,'groupReview').map(m=>m.id),['elevated-tier-cache']);
+});
+
+test('standard task prefers standard free model and keeps higher-tier fallback',()=>{
+ const medium=model('stage-medium-exact','or','aa-standard','medium');
+ const heavy=model('stage-heavy-lastgood','nv','zz-advanced','heavy');
+ const paid=model('paid','or','paid-model','medium');
+ rememberSuccessfulRoute('model:stage-heavy-lastgood','understand');
+ assert.deepEqual(rankFreeModels([heavy,medium,paid],connections,'understand').map(m=>m.id),
+  ['stage-medium-exact','stage-heavy-lastgood']);
+ assert.deepEqual(rankFreeModels([heavy,paid],connections,'understand').map(m=>m.id),
+  ['stage-heavy-lastgood']);
+});
+
 test('parameter count supplies only an initial, overridable tier',()=>{
  assert.equal(complexityFromModelId('model-26b-a4b'),'light');
  assert.equal(complexityFromModelId('model-120b-a12b'),'medium');

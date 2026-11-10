@@ -1,5 +1,6 @@
 import {writeWorkflowModel,loadModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
 import {registeredRuntime} from '../providers/registry/runtime.ts';
+import {stageComplexity} from '../providers/registry/selection.ts';
 // Admin "模型与评测": the model each capability uses and where that choice comes from,
 // the prompt versions in use, quality / latency / cost of the last days per model, the switch history
 // and the SelectBench runs that compare models on the same batch. A switch is audited and applies to
@@ -25,7 +26,8 @@ export async function modelBindingsOverview(): Promise<AdminModelBindings> {
  return {
   defaultModel:selection('default'),
   steps:Object.entries(capabilities()).filter(([key])=>!(key in CAPABILITIES) || ACTIVE_MODEL_BINDINGS.has(key)).map(([key,c])=>({
-   key,label:c.label,vision:!!c.vision,embedding:!!c.embedding,current:selection(key),effective:effective[key]!
+   key,label:c.label,vision:!!c.vision,embedding:!!c.embedding,
+   autoTier:c.embedding?null:stageComplexity(key),current:selection(key),effective:effective[key]!
   })),
   choices:models.filter(m=>m.adapter==='chat'||m.adapter==='embedding').map(m=>({
    key:'model:'+m.id,modelId:m.modelId,provider:names.get(m.providerId)??m.providerId,

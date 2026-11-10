@@ -11,6 +11,18 @@ import {applyDefaultModelToAll,modelBindingsOverview,switchModel} from "@aihot/b
 import {listRegisteredModels,deleteRegisteredModel,configurationFingerprint,configurationSnapshot,loadConnection,loadModel} from "@aihot/backend/providers/registry/connections";
 
 after(closeDb);
+test("admin model inventory exposes the same automatic tiers as the live router",async()=>{
+ const {stageComplexity}=await import('@aihot/backend/providers/registry/selection');
+ const inventory=await modelBindingsOverview();
+ for(const key of ['understand','group','graphiti','english','digest','summarize','groupReview','report']){
+  const stage=inventory.steps.find(x=>x.key===key);
+  assert.ok(stage,'visible workflow must exist: '+key);
+  assert.equal(stage.autoTier,stageComplexity(key));
+ }
+ assert.equal(inventory.steps.find(x=>x.key==='graphitiEmbedding')?.autoTier,null,
+  'embedding does not inherit the chat route tier');
+});
+
 test("model list and bindings use the same inventory and support CRUD",async()=>{
  const connectionId=randomUUID(),modelId=randomUUID();
  await sql`INSERT INTO provider_connections

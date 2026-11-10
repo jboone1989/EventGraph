@@ -10,9 +10,9 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
  const embeddingKey="model:33333333-3333-4333-a333-333333333333";
  const data:AdminModelBindings={
   defaultModel:{model:"",source:"default"},
-  steps:[{key:"prefilter",label:"精选预筛（宽召回）",vision:false,
+  steps:[{key:"prefilter",label:"精选预筛（宽召回）",vision:false,autoTier:"light",
    current:{model:"default",source:"default"},effective:{model:"default",source:"default"}},
-   {key:"graphitiEmbedding",label:"Graphiti 向量生成",vision:false,embedding:true,
+   {key:"graphitiEmbedding",label:"Graphiti 向量生成",vision:false,embedding:true,autoTier:null,
     current:{model:embeddingKey,source:"admin"},effective:{model:embeddingKey,source:"admin"}}],
   choices:[],
  };
@@ -63,7 +63,13 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
 
   await expect(picker.locator('option[value="default"]')).toHaveCount(0);
   await expect(picker.locator('option')).toHaveCount(5);
-  await expect(picker.locator('option[value="auto"]')).toHaveText(/自动.*免费模型池/);
+  await expect(picker.locator('option[value="auto"]')).toHaveText(/自动.*按流程复杂度/);
+  await expect(defaultPicker.locator('option[value="auto"]')).toHaveText(/自动.*按流程复杂度.*推荐/);
+  for(const tier of ["light","medium","heavy"]){
+   await expect(defaultPicker.locator('option[value="auto:'+tier+'"]')).toHaveCount(0);
+   await expect(picker.locator('option[value="auto:'+tier+'"]')).toHaveCount(1);
+  }
+  await expect(page.getByText("独立向量模型",{exact:true})).toBeVisible();
   await expect(picker.locator('option[value="auto:heavy"]')).toHaveText(/高级模型/);
   data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",
    adapter:"chat",vision:false});
@@ -123,6 +129,20 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   assert.equal(data.defaultModel.model,"");
   assert.equal(data.steps[1]!.current.model,embeddingKey);
   failure=false;
+  // A successful one-click auto reset shows the actual stage tier, not a generic "auto" badge.
+  await page.getByRole("button",{name:"一键应用到全部流程"}).click();
+  assert.equal(writes.at(-1)?.body.model,"auto");
+  await expect(page.getByText("轻量",{exact:true})).toBeVisible();
+  await expect(page.getByText("独立向量模型",{exact:true})).toBeVisible();
+  // An existing global pinned tier is kept visible but cannot be chosen anew.
+  data.defaultModel={model:"auto:heavy",source:"admin"};
+  await page.reload();
+  await expect(defaultPicker).toHaveValue("auto:heavy");
+  await expect(defaultPicker.locator('option[value="auto:heavy"]')).toContainText("旧全局等级");
+  await expect(page.getByText(/当前是旧全局固定等级/)).toBeVisible();
+  await defaultPicker.selectOption("auto");
+  await page.getByRole("button",{name:"一键应用到全部流程"}).click();
+  assert.equal(writes.at(-1)?.body.model,"auto");
   data.choices.splice(0,1);
   await page.reload();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toHaveCount(0);

@@ -4,9 +4,9 @@ import type { RegisteredModel, ProviderConnection } from '@aihot/contracts/provi
 
 export type Complexity = 'light' | 'medium' | 'heavy';
 const weights: Record<string, Complexity> = {
-  prefilter: 'light', score: 'medium', understand: 'heavy', summarize: 'light',
-  wording: 'light', structure: 'medium', group: 'heavy', groupReview: 'heavy',
-  digest: 'heavy', report: 'heavy', graphiti: 'heavy', translate: 'medium', english: 'medium', explain: 'heavy',
+  prefilter: 'light', score: 'medium', understand: 'medium', summarize: 'light',
+  wording: 'light', structure: 'medium', group: 'medium', groupReview: 'heavy',
+  digest: 'medium', report: 'heavy', graphiti: 'medium', translate: 'medium', english: 'medium', explain: 'medium',
 };
 const levels: Record<Complexity, number> = { light: 0, medium: 1, heavy: 2 };
 const cooling = new Map<string, number>();
@@ -42,11 +42,11 @@ export function rankFreeModels(models:RegisteredModel[],connections:ProviderConn
       m.routing.eligibleCapabilities.includes(capability)&&levels[m.complexity]>=levels[target]&&
       !excluded.has(m.id)&&(cooling.get(m.id)??0)<=now;
   }).sort((a,b)=>{
-    // Previously successful free model wins; otherwise stay in the requested tier.
+    // Exact tier wins over a previously cached higher-tier fallback. Within the
+    // same tier, reuse the last successful free model before probing alternatives.
+    const tierDifference=(levels[a.complexity]-levels[target])-(levels[b.complexity]-levels[target]);
     const cachedDifference=Number(b.id===cached)-Number(a.id===cached);
-    return cachedDifference||
-      (levels[a.complexity]-levels[target])-(levels[b.complexity]-levels[target])||
-      a.modelId.localeCompare(b.modelId)||a.id.localeCompare(b.id);
+    return tierDifference||cachedDifference||a.modelId.localeCompare(b.modelId)||a.id.localeCompare(b.id);
   });
 }
 
