@@ -8,7 +8,7 @@ import { actorOf } from "@aihot/backend/admin/auth";
 import { navCounts } from "@aihot/backend/admin/navigation";
 import { listAudit } from "@aihot/backend/audit";
 import { importSelectBenchRun, listSelectBenchRuns, selectBenchRun } from "@aihot/backend/admin/selectbench";
-import { modelBindingsOverview, switchModel } from "@aihot/backend/admin/models";
+import { applyDefaultModelToAll, modelBindingsOverview, switchModel } from "@aihot/backend/admin/models";
 import { contentChain, curatePending, overrideFields, rerun, searchContent, setSeoIndexed, setSeoIndexedBatch, setVisibility } from "@aihot/backend/admin/content";
 import { listNotes, saveNote } from "@aihot/backend/admin/notes";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
@@ -128,6 +128,12 @@ export function registerAdmin(app: FastifyInstance) {
 
   // Models and evaluation
   app.get("/api/admin/model-bindings", adminHandler(async () => modelBindingsOverview()));
+  // Save the default and remove all advanced chat-stage overrides in one audited transaction.
+  // Separate from per-stage editing so the operator can restore exceptions later.
+  app.post("/api/admin/models/apply-default", adminHandler(async (req, _reply, admin) => {
+    const b = body<{ model: string | null; reason: string }>(req);
+    return applyDefaultModelToAll(b.model ?? null, String(b.reason ?? ""), actorOf(admin));
+  }));
   app.post("/api/admin/models/:capability", adminHandler(async (req, _reply, admin) => {
     const b = body<{ model: string | null; reason: string }>(req);
     return switchModel(param(req, "capability"), b.model ?? null, String(b.reason ?? ""), actorOf(admin));

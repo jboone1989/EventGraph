@@ -7,7 +7,7 @@ import {graphitiModelRequest} from "@aihot/backend/providers/graphiti-proxy";
 import {clearRegisteredModelCache} from "@aihot/backend/providers/registry/connections";
 import {after,test} from "node:test";
 import {closeDb,sql} from "@aihot/backend/db";
-import {modelBindingsOverview,switchModel} from "@aihot/backend/admin/models";
+import {applyDefaultModelToAll,modelBindingsOverview,switchModel} from "@aihot/backend/admin/models";
 import {listRegisteredModels,deleteRegisteredModel,configurationFingerprint,configurationSnapshot,loadConnection,loadModel} from "@aihot/backend/providers/registry/connections";
 
 after(closeDb);
@@ -148,5 +148,81 @@ test("Graphiti registered chat is non-streaming upstream and reuses received rec
   if(previous.testKey===undefined)delete process.env.GRAPHITI_INTEGRATION_TEST_KEY;else process.env.GRAPHITI_INTEGRATION_TEST_KEY=previous.testKey;
   if(previous.dim===undefined)delete process.env.GRAPHITI_EMBEDDING_DIM;else process.env.GRAPHITI_EMBEDDING_DIM=previous.dim;
   await agent.close();
+ }
+});
+
+
+test("one-click default atomically resets old chat bindings while preserving Graphiti embeddings",async()=>{
+ const connectionId=randomUUID(),chatId=randomUUID(),embeddingId=randomUUID();
+ const keys=['models.default','models.understand','models.english','models.graphitiEmbedding'];
+ const previous=await sql<{key:string;value:{model?:string};updated_by:string}[]>`SELECT key,value,updated_by FROM settings WHERE key IN ${sql(keys)}`;
+ const previousRefs=await sql<{setting_key:string;model_id:string}[]>`SELECT setting_key,model_id FROM provider_workflow_models WHERE setting_key IN ${sql(keys)}`;
+ try{
+  await sql`INSERT INTO provider_connections
+   (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,updated_by)
+   VALUES (${connectionId}::uuid,'Apply-default test','custom','openai-compatible','https://model.example.org/v1',60000,true,'none','test')`;
+  await sql`INSERT INTO registered_models
+   (id,provider_id,model_id,adapter,capabilities,enabled,route_enabled,updated_by)
+   VALUES
+    (${chatId}::uuid,${connectionId}::uuid,'apply-default-chat','chat','["text"]'::jsonb,false,false,'test'),
+    (${embeddingId}::uuid,${connectionId}::uuid,'apply-default-embedding','embedding','["embedding"]'::jsonb,false,false,'test')`;
+  // Old fixed selections must not mask a saved global default after one-click apply.
+  await switchModel('understand','model:'+chatId,'old fixed selection','test');
+  await switchModel('english','model:'+chatId,'old fixed selection','test');
+  // Embeddings retain their independent reference (dimension validation is a separate concern).
+  await sql`INSERT INTO settings(key,value,updated_by) VALUES
+   ('models.graphitiEmbedding',${sql.json({model:'model:'+embeddingId})},'test')
+   ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by`;
+  await sql`INSERT INTO provider_workflow_models(setting_key,model_id) VALUES
+   ('models.graphitiEmbedding',${embeddingId}::uuid)
+   ON CONFLICT(setting_key) DO UPDATE SET model_id=EXCLUDED.model_id`;
+
+  const applied=await applyDefaultModelToAll('auto:medium','apply free default to all stages','test');
+  assert.deepEqual(new Set(applied.clearedSteps).has('understand'),true);
+  assert.deepEqual(new Set(applied.clearedSteps).has('english'),true);
+  const rows=await sql<{key:string;value:{model?:string}}[]>`SELECT key,value FROM settings WHERE key IN ${sql(keys)}`;
+  const settings=new Map(rows.map(r=>[r.key,r.value.model]));
+  assert.equal(settings.get('models.default'),'auto:medium');
+  assert.equal(settings.has('models.understand'),false);
+  assert.equal(settings.has('models.english'),false);
+  assert.equal(settings.get('models.graphitiEmbedding'),'model:'+embeddingId);
+  const refs=await sql<{setting_key:string;model_id:string}[]>`SELECT setting_key,model_id FROM provider_workflow_models WHERE setting_key IN ${sql(keys)}`;
+  assert.deepEqual(refs.map(x=>x.setting_key),['models.graphitiEmbedding']);
+  assert.equal(refs[0]!.model_id,embeddingId);
+  const {modelFor,modelSources}=await import('@aihot/backend/editorial/models');
+  assert.equal(await modelFor('understand'),'auto:understand:medium');
+  assert.equal(await modelFor('english'),'auto:english:medium');
+  const effective=await modelSources();
+  assert.equal(effective.understand!.model,'auto:medium');
+  const repeated=await applyDefaultModelToAll('auto:medium','repeat unchanged default','test');
+  assert.deepEqual(repeated.clearedSteps,[]);
+
+  // A later manual exception is deliberately erased by applying the same default again.
+  await switchModel('understand','model:'+chatId,'temporary exception','test');
+  assert.deepEqual((await applyDefaultModelToAll('auto:medium','reset exception','test')).clearedSteps,['understand']);
+
+  await assert.rejects(applyDefaultModelToAll('model:'+embeddingId,'wrong adapter','test'),/chat model/);
+  await assert.rejects(applyDefaultModelToAll('invalid','unregistered default','test'),/Choose a model/);
+  const [untouched]=await sql<{value:{model?:string}}[]>`SELECT value FROM settings WHERE key='models.default'`;
+  assert.equal(untouched?.value.model,'auto:medium','invalid selection must not mutate settings');
+  const reset=await applyDefaultModelToAll(null,'restore deployment choice','test');
+  assert.equal(reset.after.model,'');
+  const [globalDefault]=await sql`SELECT 1 FROM settings WHERE key='models.default'`;
+  assert.equal(globalDefault,undefined);
+  const [embedding]=await sql<{model_id:string}[]>`SELECT model_id FROM provider_workflow_models WHERE setting_key='models.graphitiEmbedding'`;
+  assert.equal(embedding?.model_id,embeddingId);
+  const [auditRecord]=await sql<{reason:string;after:{model?:string}}[]>`SELECT reason,after FROM audit_log
+   WHERE action='models.default.apply-all' AND reason='restore deployment choice'
+   ORDER BY id DESC LIMIT 1`;
+  assert.equal(auditRecord?.after.model,null);
+ }finally{
+  await sql.begin(async tx=>{
+   for(const key of keys)await tx`DELETE FROM settings WHERE key=${key}`;
+   for(const row of previous)await tx`INSERT INTO settings(key,value,updated_by) VALUES (${row.key},${tx.json(row.value)},${row.updated_by})`;
+   for(const ref of previousRefs)await tx`INSERT INTO provider_workflow_models(setting_key,model_id) VALUES (${ref.setting_key},${ref.model_id}::uuid)`;
+  });
+  await sql`DELETE FROM registered_models WHERE id IN (${chatId}::uuid,${embeddingId}::uuid)`;
+  await sql`DELETE FROM provider_connections WHERE id=${connectionId}::uuid`;
+  const {invalidateModelCache}=await import('@aihot/backend/editorial/models');invalidateModelCache();
  }
 });
