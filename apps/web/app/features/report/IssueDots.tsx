@@ -8,12 +8,11 @@ import { useNavigate } from "react-router";
 import type { ReportNavigationEntry, ReportKind } from "@aihot/contracts/site";
 import type { DisplayLanguage } from "../../lib/format";
 import { periodGrid, reportPath } from "./format";
+import { easeOutBack } from "./easing";
 
 const ROW = 20;
 const TAU = Math.PI * 2;
 const INTRO_MS = 700;
-// Floating-point cancellation at p=0 may yield -2e-16; Canvas arc radii must be nonnegative.
-export const easeOutBack = (p: number) => Math.max(0, 1 + 2.2 * (p - 1) ** 3 + 1.2 * (p - 1) ** 2);
 
 export function IssueDots({ kind, reportKey, issueNumber, index, lang = "zh", className = "" }: { kind: ReportKind; reportKey: string; issueNumber: number; index: ReportNavigationEntry[]; lang?: DisplayLanguage; className?: string }) {
   const grid = useMemo(() => periodGrid(kind, reportKey, index, issueNumber, lang), [kind, reportKey, index, issueNumber, lang]);
