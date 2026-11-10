@@ -119,13 +119,19 @@ test("bot-like authenticated admin requests stream model pages without waiting f
   } finally { await mobile.close(); }
 });
 
-test("admin streaming still verifies identity before returning the page", async () => {
+test("admin streaming verifies identity for both human and bot-like model clients", async () => {
   signedIn = false;
   try {
-    const res = await fetch(web.origin + "/admin/content", { redirect: "manual" });
-    assert.equal(res.status, 302);
-    assert.match(res.headers.get("Location")!, /\/api\/auth\/login/);
-    assert.equal(res.headers.get("Cache-Control"), "private, no-store");
+    for (const [path, userAgent] of [
+      ["/admin/content", "Mozilla/5.0 Safari/537.36"],
+      ["/admin/models", "Googlebot/2.1"],
+      ["/admin/model-bindings", "Googlebot/2.1"],
+    ]) {
+      const res = await fetch(web.origin + path, { redirect: "manual", headers: { "user-agent": userAgent } });
+      assert.equal(res.status, 302, "unverified identity at " + path);
+      assert.match(res.headers.get("Location")!, /\/api\/auth\/login/);
+      assert.equal(res.headers.get("Cache-Control"), "private, no-store");
+    }
   } finally { signedIn = true; }
 });
 
