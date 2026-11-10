@@ -1,6 +1,6 @@
 # Auto model routing: balance stage tiers and make the policy visible
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 460b2a772e50c4ee155213bc21b4a3d1550273ab)
 
 ## User goal and scope
 The operator wants **one-click "自动 · 按流程复杂度"** to actually choose appropriate FREE light, standard, or advanced models per task, instead of sending most traffic to advanced models. Keep the existing router, model registry, successful-candidate cache, per-stage overrides, and the previously approved one-click reset command; **no new router, database migration, provider, background job, or paid fallback**. This is a small, evidence-based reclassification of workflow defaults and their admin presentation.
