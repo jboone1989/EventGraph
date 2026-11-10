@@ -58,13 +58,17 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(picker).toHaveValue("");
   const defaultPicker=page.getByRole("combobox",{name:"为默认模型选择模型"});
   await expect(defaultPicker).toHaveValue("");
+  await expect(page.getByRole("status")).toContainText("暂无已注册的聊天模型");
+  await expect(page.getByRole("button",{name:"一键应用到全部流程"})).toBeEnabled();
+
   await expect(picker.locator('option[value="default"]')).toHaveCount(0);
   await expect(picker.locator('option')).toHaveCount(5);
-  await expect(picker.locator('option[value="auto"]')).toHaveText(/自动.*免费优先/);
+  await expect(picker.locator('option[value="auto"]')).toHaveText(/自动.*免费模型池/);
   await expect(picker.locator('option[value="auto:heavy"]')).toHaveText(/高级模型/);
   data.choices.push({key:modelKey,modelId:"fresh-model",provider:"New provider",
    adapter:"chat",vision:false});
   await page.reload();
+  await expect(page.getByRole("status")).toHaveCount(0);
   await page.getByText(/高级设置 · 为各工作流单独指定模型/).click();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toBeEnabled();
   await expect(picker.locator('option[value="'+modelKey+'"]')).toContainText("fresh-model");
