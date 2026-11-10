@@ -8,6 +8,7 @@ import { after, before, test } from "node:test";
 import type { ReportDetail, ReportKind, ReportNavigationEntry } from "@aihot/contracts/site";
 import { isoWeekLabel } from "@aihot/contracts/time";
 import { issueNumber, periodGrid } from "../app/features/report/format.ts";
+import { easeOutBack } from "../app/features/report/easing.ts";
 import { startWebServer, type WebServer } from "./web-server.ts";
 
 const kinds: ReportKind[] = ["daily", "weekly", "monthly"];
@@ -51,6 +52,12 @@ function masthead(html: string): string {
   assert.ok(header, "the report masthead is rendered");
   return header[1]!.replace(/<[^>]+>/g, "");
 }
+
+test("issue-dot easing never produces an invalid negative Canvas arc radius",()=>{
+ assert.equal(easeOutBack(0),0,"floating-point cancellation at p=0 must clamp to zero");
+ for(let i=0;i<=1000;i++)assert.ok(easeOutBack(i/1000)>=0,"negative radius at p="+i/1000);
+ assert.ok(easeOutBack(0.8)>1,"preserve the normal easing overshoot");
+});
 
 for (const kind of kinds) {
   test(`the ${kind} masthead numbers the newest of 405 issues 405, not the navigation's 400`, async () => {
