@@ -17,7 +17,8 @@ export default function handleRequest(request: Request, responseStatusCode: numb
     // The authenticated admin shell has its own optional deferred nav badges. A
     // bot-like user agent must not wait for every badge before seeing the page:
     // the badge query can be slower than the public 6s SSR deadline.
-    const isAdmin = new URL(request.url).pathname.match(/^\\/admin(?:\\/|$)/) !== null;
+    const pathname = new URL(request.url).pathname;
+    const isAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
     const ready: keyof RenderToPipeableStreamOptions = isAdmin
       ? "onShellReady"
       : (userAgent && isbot(userAgent)) || routerContext.isSpaMode ? "onAllReady" : "onShellReady";
