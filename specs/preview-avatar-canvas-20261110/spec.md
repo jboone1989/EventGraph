@@ -1,6 +1,6 @@
 # VM13 preview browser acceptance: optional avatar failure and issue-dot animation
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of e555503cc727442136042586e28dde21d851f849)
 
 ## Problem and evidence
 On the latest merged develop release `b9545df67e2b00c7c18e72d6261b407a06d325f3`, GitHub Actions run `42801568062` successfully published and deployed VM13, but online browser acceptance failed on two attempts. The English daily repeatedly requested a third-party Bitcoin Magazine source avatar through signed `/api/img-proxy?mode=avatar-48` and got 502. On a later attempt, the Chinese daily also logged `IndexSizeError: CanvasRenderingContext2D.arc radius provided (-7.54952e-16) is negative` during the issue-dot entrance animation. The pages themselves returned 200; all functional tests and source SHA health checks passed.
