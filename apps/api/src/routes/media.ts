@@ -57,7 +57,7 @@ export function registerMedia(app: FastifyInstance) {
       // Source avatars are decoration, not article evidence. An unavailable remote
       // icon is genuinely empty: 204 lets SourceAvatar.onError show its source initial.
       // Keep all other media failures explicit; never mask quota/budget exhaustion.
-      if (verdict.mode === "avatar" || /^avatar-\\d+$/.test(verdict.mode)) {
+      if (verdict.mode === "avatar" || /^avatar-\d+$/.test(verdict.mode)) {
         return reply.code(204)
           .header("Cache-Control", imageCacheControl(q.exp!, 60))
           .header("X-Img-Proxy-Fallback", "unavailable")
