@@ -43,10 +43,14 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
    <Select aria-label={"为"+step.label.split("（")[0]+"选择模型"} value={selected}
     disabled={busy} onChange={e=>{setSelected(e.target.value);setError("");}}>
     <option value="">{step.embedding?"未绑定向量模型":step.key==="default"?"使用部署默认模型":"继承默认模型"}</option>
-    {!step.embedding&&<><option value="auto">自动 · 免费模型池（按流程复杂度）</option>
+    {!step.embedding&&<option value="auto">自动 · 按流程复杂度{applyAll?"（推荐）":""}</option>}
+    {!step.embedding&&!applyAll&&<>
     <option value="auto:light">自动 · 轻量模型</option>
     <option value="auto:medium">自动 · 标准模型</option>
     <option value="auto:heavy">自动 · 高级模型</option></>}
+    {applyAll&&/^auto:(light|medium|heavy)$/.test(original)&&<option value={original}>
+     旧全局等级 · {original.slice(5)}（请改用按流程复杂度）
+    </option>}
     {selected&&!chosen&&!isAuto&&<option value={selected} disabled>{selected}（旧配置，仅保留当前值）</option>}
     {choices.map(choice=>{
      const ok=usable(choice,step);
@@ -58,6 +62,8 @@ function ModelBinding({step,choices}:{step:Step;choices:Choice[]}){
    </Select>
    <Button size="sm" disabled={busy||!canSave} onClick={save}>{applyAll?"一键应用到全部流程":"保存"}</Button>
   </div>
+  {applyAll&&/^auto:(light|medium|heavy)$/.test(original)&&
+   <p className="text-xs text-amber">当前是旧全局固定等级，所有聊天流程会采用同一等级。建议选择「自动 · 按流程复杂度（推荐）」。</p>}
   {selected&&chosen&&!usable(chosen,step)&&<p className="text-xs text-amber">
    此模型不支持当前工作流需要的输入类型。
   </p>}
@@ -70,16 +76,23 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
  const defaultStep:Step={key:"default",label:"默认模型",
   vision:loaderData.steps.some(step=>!step.embedding&&step.vision),
   current:loaderData.defaultModel,effective:loaderData.defaultModel};
+ const tierLabel=(tier:Step["autoTier"])=>tier==="light"?"轻量":tier==="medium"?"标准":tier==="heavy"?"高级":"未标注";
+ const routingTier=(s:Step)=>{
+  if(s.embedding)return "独立向量模型";
+  if(s.effective.model==="auto")return tierLabel(s.autoTier);
+  const explicit=/^auto:(light|medium|heavy)$/.exec(s.effective.model);
+  return explicit?tierLabel(explicit[1] as Step["autoTier"]):"固定模型";
+ };
  const display=(key:string)=>{
   const choice=choices.find(c=>c.key===key);
-  const auto:Record<string,string>={auto:"自动 · 免费优先","auto:light":"自动 · 轻量","auto:medium":"自动 · 标准","auto:heavy":"自动 · 高级"};
+  const auto:Record<string,string>={auto:"自动 · 按流程复杂度","auto:light":"自动 · 轻量","auto:medium":"自动 · 标准","auto:heavy":"自动 · 高级"};
   return choice?titleFor(choice):auto[key]??(key||"部署默认");
  };
  return <AdminPage title="工作流模型绑定"
   subtitle="一键将默认路由应用到全部聊天流程；高级设置只用于之后单独处理例外。"
   actions={<ButtonLink to="/admin/models">模型管理</ButtonLink>}>
   <Card title="默认模型">
-   <p className="mb-3 text-sm text-ink-4">选择默认模型后，点击「一键应用到全部流程」，将同时清除高级设置中的所有聊天流程单独绑定，之后每个流程按默认路由自动选模。有问题的流程再在高级设置单独修改。向量模型使用独立配置，不会被聊天模型覆盖；自动路由只使用免费模型。</p>
+   <p className="mb-3 text-sm text-ink-4">推荐「自动 · 按流程复杂度」：摘要用轻量，新闻分析、事件归组和 Graphiti 聊天用标准，归组复核与跨事件报告用高级。点击「一键应用到全部流程」会清除之前的所有聊天流程高级绑定；此后可在高级设置单独修改。向量模型独立配置，不会被聊天模型覆盖；自动路由只选免费模型。</p>
    {!choices.some(choice=>choice.adapter==="chat")&&
     <p className="mb-2 text-sm text-amber" role="status">暂无已注册的聊天模型；自动路由需等待配置可用免费模型。仍可选择部署默认，或提前保存自动路由策略。</p>}
    <ModelBinding key={"default:"+loaderData.defaultModel.model} step={defaultStep} choices={choices}/>
@@ -93,6 +106,7 @@ export default function ModelBindings({loaderData}:Route.ComponentProps){
       <div className="font-medium text-ink">{s.label.split("（")[0]}</div>
       {s.label.includes("（")&&<div className="text-xs text-ink-4">{s.label.slice(s.label.indexOf("（"))}</div>}
      </div>},
+     {key:"autoTier",label:"路由等级",render:s=><span className="whitespace-nowrap text-xs font-medium">{routingTier(s)}</span>},
      {key:"current",label:"生效模型",render:s=><span className="block max-w-[200px] break-all font-mono text-xs">
       {s.embedding&&!s.effective.model?"未绑定":display(s.effective.model)}</span>},
      {key:"source",label:"来源",render:s=><Badge tone={s.current.source==="admin"?"accent":"muted"}>
