@@ -1,6 +1,6 @@
 # Restore authenticated admin SSR when optional navigation badges are slow
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of 694e071acafef18f85c2661be8db045e6d7bb3a8)
 
 ## Reproduced VM13 incident
 On November 10, 2026, `/admin/models` logged `web render failed: The render was aborted by the server without a reason`, originating from `entry.server.tsx`'s fixed six-second streaming abort. The authenticated `/api/admin/providers` endpoint returned HTTP 200 in about **0.55s** and `/api/admin/model-bindings` returned HTTP 200 in **0.27s**, while optional `/api/admin/nav-counts` took **13.2s**. Existing admin layout already renders nav counts in `<Suspense><Await>` so they should not block the shell, but React SSR currently chooses `onAllReady` for user agents identified as bots, including automated/browser-like clients. This waits for slow navigation badges and can trigger the 6s abort.
