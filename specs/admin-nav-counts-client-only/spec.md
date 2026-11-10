@@ -1,6 +1,6 @@
 # 后台导航角标客户端加载隔离
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of b31da0a1d5ac136ef2d0508a6141536c5309093a)
 
 ## 已复现故障
 2026-11-10 VM13 预览：已部署的 8379094 镜像在 14:17:39 UTC 对 `/admin/models` 产生 SSR aborted 500；`/api/admin/nav-counts` 于 14:17:42 UTC 才返回 200，耗时 24451ms。当前 `navCounts()` 会执行全流程明细统计，慢查询不得阻断页面。
