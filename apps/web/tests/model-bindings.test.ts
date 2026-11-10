@@ -93,7 +93,14 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(page.getByText("单独指定",{exact:true}).first()).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,modelKey);
   assert.match(writes.at(-1)!.body.reason,/prefilter/);
+  // The successful save revalidates the loader and remounts the keyed selector.
+  // Wait for that refresh before choosing the next value, or the in-flight refresh
+  // can overwrite the user's selection and leave a disabled Save button.
+  await page.waitForLoadState("networkidle");
+  await expect(picker).toHaveValue(modelKey);
   await picker.selectOption("");
+  await expect(picker).toHaveValue("");
+  await expect(page.getByRole("button",{name:"保存"}).first()).toBeEnabled();
   failure=true;
   await page.getByRole("button",{name:"保存"}).first().click();
   await expect(page.getByRole("alert")).toContainText("模型暂不可用");
