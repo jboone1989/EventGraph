@@ -264,7 +264,7 @@ export async function backlogCausesOverview(): Promise<NonNullable<Runs["backlog
 
 /** Current data already written by every execution family; no probes, guesses or new queues. */
 export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsItems"]>): Promise<NonNullable<Runs["flowItems"]>> {
-  type Rows = NonNullable<Runs["flowItems"]>;
+  type Rows = Array<NonNullable<Runs["flowItems"]>[number] & { sourceId?: string | null }>;
   const [jobs, schedules, models, sources, deliveries] = await Promise.all([
     sql<Rows>`
       WITH ranked AS (
@@ -283,7 +283,7 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
         j.name AS process,
         coalesce(a.title, src.name, j.data->>'storyId', j.data->>'url',
                  j.data->>'key', j.singleton_key, j.name) AS subject,
-        j.data->>'articleId' AS "articleId",
+        j.data->>'articleId' AS "articleId", j.data->>'sourceId' AS "sourceId",
         NULL::text AS provider, NULL::text AS model,
         CASE WHEN j.state = 'failed' THEN left(coalesce(j.output->>'error',
              j.output->>'message', j.output::text, '任务失败，未记录错误内容'), 2000)
@@ -389,6 +389,14 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
         NULL::timestamptz AS "retryAt", NULL::text AS "jobId", NULL::integer AS "receiptId"
       FROM sources s WHERE s.enabled AND s.health = 'failing'
         AND s.last_fetch_at >= ${utcDayStart()}
+        -- The source's old health error is history once a new fetch is in flight.
+        -- Its live pg-boss job is already shown by the job query as pending/processing.
+        AND NOT EXISTS (
+          SELECT 1 FROM pgboss.job j WHERE j.data->>'sourceId' = s.id
+            AND j.name IN ('sources.fetch', 'sources.mp')
+            AND j.state IN ('created', 'retry', 'active')
+            AND j.created_on >= ${utcDayStart()}
+        )
     `,
     sql<Rows>`
       SELECT 'delivery:' || d.id::text AS key, 'delivery' AS kind, 'failed' AS status,
@@ -414,6 +422,8 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
   }));
   const newsIds = new Set(news.map(article => article.id));
   for (const job of jobs) {
+    // Source failure is one execution unit: show the source error OR its live job, not both.
+    if (job.sourceId && sources.some(source => source.key === "source:" + job.sourceId)) continue;
     // The corresponding model-flow row already represents this exact targeted English replay.
     // Do not count the same pg-boss job twice or show it as a separate schedule failure.
     if (job.process === 'cron.content.english' && models.some(model =>
