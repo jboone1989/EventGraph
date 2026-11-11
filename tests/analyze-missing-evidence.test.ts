@@ -1,7 +1,7 @@
 // A title cannot supply the missing article: no scoring, writing or public eligibility until
 // material arrives. Feed excerpts, quoted text and displayable original posts keep their path.
 import { pointModels, stub, tag } from "./setup.ts";
-import { analysisStep, SELECTING_SCORE } from "./analysis-steps.ts";
+import { analysisStep, combinedAnswer } from "./analysis-steps.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { closeDb } from "@aihot/backend/db";
@@ -13,10 +13,7 @@ const steps: string[] = [];
 const provider = await stub((_hit, request) => {
   const step = analysisStep(request.body);
   steps.push(step);
-  const output = step === "prefilter" ? { label, reason: "fixture" }
-    : step === "score" ? { attentionScore: SELECTING_SCORE }
-    : step === "structure" ? { scope: "unknown", category: "model", tags: [], subjects: [], fact: null }
-    : { itemType: "model_release", authorRole: "principal", titleZh: "模型发布", summaryZh: "来源确认模型发布。", bodyZh: "来源确认模型发布。", tags: [], editorialJudgment: "fixture" };
+  const output = combinedAnswer({ label });
   return { choices: [{ message: { content: JSON.stringify(output) } }] };
 });
 pointModels(provider.url);
@@ -36,7 +33,7 @@ test("title-only articles wait for evidence regardless of the prefilter label", 
     steps.length = 0;
     const run = await runFresh(article({ bodyText: " \n", excerpt: " " }));
     const out = normalizeAnalysis(run);
-    assert.deepEqual(steps, ["prefilter"]);
+    assert.deepEqual(steps, ["combined"]);
     assert.equal(out.relevance, "unknown");
     assert.equal(out.score, null);
     assert.equal(out.selected, false);
@@ -46,14 +43,14 @@ test("title-only articles wait for evidence regardless of the prefilter label", 
   });
 });
 
-test("real body, feed excerpt and quoted text still receive both scores and writing", async (t) => {
+test("real body, feed excerpt and quoted text receive one combined judgement", async (t) => {
   label = "PASS";
   for (const changes of [{ bodyText: "来源确认模型发布。" }, { excerpt: "来源确认模型发布。" },
     { xPost: { text: "支持", quoted: { text: "来源确认模型发布。" } } }]) await t.test(JSON.stringify(changes), async () => {
     steps.length = 0;
     const out = normalizeAnalysis(await runFresh(article(changes)));
-    assert.equal(steps.filter((step) => step === "score").length, 2);
-    assert.ok(steps.includes("understand"));
+    assert.deepEqual(steps, ["combined"], "only one model request");
+    assert.ok(steps.includes("combined"));
     assert.equal(out.relevance, "pass");
     assert.equal(out.selected, true);
   });
@@ -65,8 +62,8 @@ test("an empty or link-only original post keeps scoring and verbatim publication
     steps.length = 0;
     const run = await runFresh(article({ xPost: { text, media: [] } }));
     const out = normalizeAnalysis(run);
-    assert.equal(steps.filter((step) => step === "score").length, 2);
-    assert.equal(steps.filter((step) => step === "understand" || step === "summarize").length, 0);
+    assert.deepEqual(steps, ["combined"], "only one model request");
+    assert.equal(steps.length, 1);
     assert.equal(run.writing?.kind, "verbatim");
     assert.equal(out.relevance, "pass");
     assert.equal(out.selected, true);
@@ -80,7 +77,7 @@ test("a later material revision can be scored after the title-only revision wait
   assert.equal(normalizeAnalysis(await runFresh(input)).relevance, "unknown");
   steps.length = 0;
   const out = normalizeAnalysis(await runFresh({ ...input, revision: 2, bodyStatus: "ok", bodyText: "来源确认模型发布。" }));
-  assert.equal(steps.filter((step) => step === "score").length, 2);
+  assert.deepEqual(steps, ["combined"], "only one model request");
   assert.equal(out.relevance, "pass");
   assert.equal(out.selected, true);
 });

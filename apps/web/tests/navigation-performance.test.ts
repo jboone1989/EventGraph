@@ -146,6 +146,9 @@ test('SSR all-pages and report kinds return offline with their own content',asyn
   const context=await chrome.newContext();const page=await context.newPage();
   try{
     await page.goto(origin+'/all');
+    // An SSR link can navigate the document before hydration. Offline back only
+    // exercises the client router cache after its handlers have been attached.
+    await expect(page.locator('section[aria-labelledby="market-title"]')).toContainText('行情暂时不可用。');
     await page.locator('a[href="/all?page=2"]').first().click();
     await expect(page.getByRole('link',{name:'全部第 2 页',exact:true})).toBeVisible();
     await context.setOffline(true);await page.goBack();

@@ -50,7 +50,7 @@ export function useText() {
 }
 
 /** Shared browser preference. Article pages move between /items/:id and its English page /en/items/:id.
- * A Chinese-original article remains Chinese; it must never be mislabeled as translated English.
+ * Chinese originals get English bodies only after the worker stores a valid translation.
  */
 export function LanguageSwitch() {
   const lang = useUiLanguage();
@@ -59,7 +59,7 @@ export function LanguageSwitch() {
   const choose=(next: UiLanguage) => {
     if(next===lang) return;
     setUiLanguage(next);
-    // An article's English page is its /en address, which reads the original-language text.
+    // An article's /en address reads an English translation where available, otherwise the English original.
     const match=/^(?:\/en)?\/items\/([a-zA-Z0-9_-]{1,80})(?:\/original)?$/.exec(pathname);
     if(match) { void navigate(`${next==="en"?"/en":""}/items/${match[1]}`,{replace:true}); return; }
     // A page with an English edition moves to the address of the language chosen.

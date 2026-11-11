@@ -13,6 +13,8 @@ specs/<feature>/
 
 Get the user's approval before implementing substantial behavior changes. Reference the approved `spec.md` **Git SHA and path** (or approved Issue) in the implementation PR. A spec edited only in an implementation branch is a draft, not proof of approval.
 
+For Specs intended for automatic task intake, use the strict Work Items format in [docs/spec-review.md](../docs/spec-review.md) and [Spec 015](015-spec-task-intake/spec.md). The Producer creates Issues only after an owner-merged, owner-approved Spec PR reaches `develop`.
+
 For a small fix, an Issue with concrete acceptance criteria is sufficient. Either ChatGPT or Claude can review against the approved version.
 
 ## Product specifications
@@ -26,5 +28,6 @@ For a small fix, an Issue with concrete acceptance criteria is sufficient. Eithe
 
 - [GitHub-hosted autonomous development queue (012) — owner-approved, operational](012-github-hosted-agent-queue/spec.md)
 - [Multi-engine GH-AW Workers (013) — Owner-approved 2026-10-30; pending merge](013-projects-agent-workers/spec.md)
+- [Spec-driven GitHub Projects + native Work Queue intake (015) — Owner-approved 2026-11-03; pending merge](015-spec-task-intake/spec.md)
 
 The Explorer + Story documents remain **DRAFT** until explicitly approved. Spec 013 is owner-approved on 2026-10-30; implementation must pin its exact merged revision.

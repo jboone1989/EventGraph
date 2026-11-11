@@ -13,6 +13,7 @@ export const KEYS = {
   feedbackDraft: "aihot-feedback-draft-v1",
   recentSearches: "aihot-recent-searches",
   follows: "eventgraph-follows",
+  feedVisit: "eventgraph-feed-last-visit",
 } as const;
 
 const STARRED_LIMIT = 500;
@@ -137,6 +138,17 @@ function invalidate(key: string) {
 function editLocalData<T>(change: () => T): T {
   cache.clear();
   return change();
+}
+
+// One visit baseline per browser session. Use the existing guarded storage rather than a second
+// reading-state store. A denied write means there is no trustworthy previous-visit baseline.
+let feedSessionPreviousVisit: string | null | undefined;
+export function beginFeedVisit(now = new Date().toISOString()): string | null {
+  if (feedSessionPreviousVisit !== undefined) return feedSessionPreviousVisit;
+  const saved = readRaw(KEYS.feedVisit);
+  if (!writeRaw(KEYS.feedVisit, now)) return null;
+  feedSessionPreviousVisit = isDisplayableDate(saved) && Date.parse(saved) < Date.parse(now) ? saved : null;
+  return feedSessionPreviousVisit;
 }
 
 // starred

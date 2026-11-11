@@ -1,6 +1,6 @@
 // Recovery must finish the same evaluation that failed, and commit the release, queue and audit together.
 import { gate, pointModels, Reply, stub, tag } from "./setup.ts";
-import { analysisStep, SELECTING_SCORE } from "./analysis-steps.ts";
+import { analysisStep, combinedAnswer } from "./analysis-steps.ts";
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { after, afterEach, before, test } from "node:test";
@@ -28,19 +28,17 @@ const provider = await stub(async (_hit, request) => {
   }
   const step = analysisStep(request.body);
   calls.push(step);
-  if (step === "score" && refuseScore) {
+  if (step === "combined" && !original && refuseScore) {
     refuseScore = false;
     return new Reply(503, { error: "temporary outage" });
   }
-  const content = step === "prefilter" ? { label: original ? "BLOCK" : "PASS", reason: "local fixture" }
-    : step === "score" ? { attentionScore: SELECTING_SCORE }
-    : step === "structure" ? { category: "guide", tags: [], subjects: [], fact: null }
-    : { itemType: "model_release", authorRole: "principal", tags: ["模型发布"], editorialJudgment: "模型能力提升", titleZh: `新判断 ${T}`, summaryZh: "模型发布并提供评测和价格。" };
+  const content = combinedAnswer({ label: original ? "BLOCK" : "PASS", titleZh: `新判断 ${T}` });
   return { choices: [{ message: { content: JSON.stringify(content) } }] };
 });
 pointModels(provider.url);
 
 before(async () => {
+  await getBoss(); // The first recovery test must not depend on a previous test creating pg-boss tables.
   await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
     VALUES (${SOURCE},'Recovery','rss','T1','editorial','2100-01-01')`;
 });
@@ -49,10 +47,10 @@ afterEach(async () => {
   await sql`DELETE FROM pgboss.job WHERE data->>'articleId' IN (SELECT id FROM articles WHERE source_id=${SOURCE})`;
 });
 
-async function article(name: string) {
+async function article(name: string, backfill: string | null = "test fixture") {
   return (await upsertMaterial({ sourceId: SOURCE, url: `https://example.org/${T}/${name}`, title: `AI model ${T} ${name}`,
     bodyText: `AI lab release ${T} ${name}. ` + "The new model includes benchmark and price details. ".repeat(12),
-    bodyStatus: "ok", via: "fetch", backfill: "test fixture", publishedAt: new Date() })).articleId;
+    bodyStatus: "ok", via: "fetch", ...(backfill ? { backfill } : {}), publishedAt: new Date() })).articleId;
 }
 
 /** Wakes this process's analysis workers to fetch now, instead of waiting out their polling interval. */
@@ -70,7 +68,7 @@ async function waitFor(check: () => Promise<boolean>) {
 }
 
 test("operator can requeue only two articles from a recoverable model error group", async () => {
-  const ids = await Promise.all(["bounded-a", "bounded-b", "bounded-c"].map(article));
+  const ids = await Promise.all(["bounded-a", "bounded-b", "bounded-c"].map(name => article(name, null)));
   const group = "Model cannot route text: retest required for selected model";
   await sql`UPDATE articles SET processing_state='failed',processing_error=${group},processing_attempts=8
     WHERE id=ANY(${ids}::text[])`;
@@ -89,6 +87,21 @@ test("operator can requeue only two articles from a recoverable model error grou
   assert.equal(jobs[0]!.n, 2);
   assert.equal((await sql`SELECT count(*)::int n FROM audit_log WHERE action='processing.requeue'
     AND reason='limited paid model recovery'`)[0]!.n, 1);
+});
+
+test("manual bulk retry skips unresolved provider receipts to prevent double billing", async () => {
+  const id = await article("unverified-receipt", null);
+  const group = "receipt outcome unknown";
+  await sql`UPDATE articles SET processing_state='failed', processing_error=${group} WHERE id=${id}`;
+  const [receipt] = await sql<{ id: number }[]>`
+    INSERT INTO receipts (logical_key,service,purpose,subject,status)
+    VALUES (${`unverified-${T}`},'test','analyze_article',${`article:${id}@1`},'unknown')
+    RETURNING id`;
+  const result = await requeueFailedArticles({ group, reason: "operator retry", limit: 5 }, "test");
+  assert.equal(result.requeued, 0);
+  assert.equal((await sql`SELECT processing_state FROM articles WHERE id=${id}`)[0]!.processing_state, "failed");
+  assert.equal((await sql`SELECT status FROM receipts WHERE id=${receipt!.id}`)[0]!.status, "unknown");
+  assert.equal((await sql`SELECT 1 FROM pgboss.job WHERE data->>'articleId'=${id}`).length, 0);
 });
 
 test("a failed audit rolls back the receipt release and the processing job", async () => {
@@ -131,8 +144,9 @@ test("a manual re-evaluation survives extraction, a lost job, and receipt releas
   await boss.complete(QUEUES.analyze, afterBody!.id);
   await sql`UPDATE articles SET processing_state='failed' WHERE id=${id}`;
   const [r] = await sql<{ id: number }[]>`INSERT INTO receipts (logical_key,service,purpose,subject,status)
-    VALUES (${`identity-${T}`},'deepseek','score_article',${`article:${id}@1`},'unknown') RETURNING id`;
-  await releaseReceipt(r!.id, { billed: false, note: "verified" }, "test");
+    VALUES (${`identity-${T}`},'deepseek','analyze_article',${`article:${id}@1`},'unknown') RETURNING id`;
+  const released = await releaseReceipt(r!.id, { billed: false, note: "verified" }, "test");
+  assert.equal(released?.requeued, true, "released combined receipt queues the article again");
   const [afterRelease] = await boss.fetch(QUEUES.analyze);
   assert.deepEqual(afterRelease!.data, { articleId: id, attemptTag });
   await boss.complete(QUEUES.analyze, afterRelease!.id);
@@ -174,8 +188,7 @@ test("a temporary provider failure resumes the manual evaluation instead of rein
   await waitFor(async () => (await sql`SELECT 1 FROM pgboss.job WHERE name=${QUEUES.analyze} AND data->>'articleId'=${id} AND state<'completed'`).length === 0);
   assert.equal((await sql`SELECT processing_state FROM articles WHERE id=${id}`)[0]!.processing_state, "analyzed");
   assert.equal((await sql`SELECT selection_candidate FROM publications WHERE article_id=${id}`)[0]!.selection_candidate, true);
-  assert.equal(calls.filter((s) => s === "prefilter").length, 2, "one original and one manual prefilter; recovery buys neither again");
-  assert.equal(calls.filter((s) => s === "structure").length, 1, "the paid structure response survives the score failure");
+  assert.equal(calls.filter((s) => s === "combined").length, 3, "one original, one rejected retry, one settled bilingual analysis");
 });
 
 // Failure modes: an old paid call can fail after a new material revision has already finished;
@@ -184,7 +197,7 @@ test("a late refusal for an old revision preserves the new revision's completed 
   const id = await article("revision-race");
   const asked = gate();
   const release = gate();
-  heldFailure = { input: `revision-race`, asked, release };
+  heldFailure = { input: `AI lab release ${T} revision-race`, asked, release };
   const jobId = await queueProcessing(id);
   await wakeAnalysis();
   await asked.promise;

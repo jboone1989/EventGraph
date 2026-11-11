@@ -4,15 +4,22 @@ import {config} from '../../config.ts';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
 import {guardedFetch} from '../../lib/http-fetch.ts';
-import {paidRequest,ProviderRejectedError,rejectReceivedResponse} from '../receipts.ts';
+import {paidRequest,ProviderRejectedError,ReceiptUnknownError,BudgetExceededError,rejectReceivedResponse} from '../receipts.ts';
 import {parseSseCompletion} from './adapter.ts';
 import {loadConnection,loadModel,modelInput,connectionView,configurationFingerprint,configurationSnapshot,routingState,type CheckRow,type ModelRow,type ConnectionRow} from './connections.ts';
 import {storedCredential} from './connection-secrets.ts';
+import {anthropicRequest,anthropicResponse} from './anthropic-compat.ts';
 import {checkApiUrl,checkConnectionPolicy,checkModel} from './connection-validation.ts';
 import {ProviderConfigError} from './connection-types.ts';
+import {isVerifiedFreeTrialProvider} from './types.ts';
 
 export function modelEndpoint(c:ConnectionRow,m?:ModelRow):string {
- return m?.endpoint_override??c.base_url.replace(/\/$/,'')+(m?.adapter==='embedding'?'/embeddings':m?'/chat/completions':'/models');
+ const base=c.base_url.replace(/\/$/,'');
+ if(c.protocol==='anthropic-compatible'){
+  const root=base.endsWith('/v1')?base:base+'/v1';
+  return m?.endpoint_override??root+(m?'/messages':'/models');
+ }
+ return m?.endpoint_override??base+(m?.adapter==='embedding'?'/embeddings':m?'/chat/completions':'/models');
 }
 export async function registeredRuntime(id:string,capability?:string) {
  const m=await loadModel(id),c=await loadConnection(m.provider_id);
@@ -24,6 +31,30 @@ export async function registeredRuntime(id:string,capability?:string) {
  }
  return {m,c,fingerprint,snapshot};
 }
+/** Extract only short, redacted diagnostics from an upstream JSON error. Never expose a raw body. */
+function providerErrorDetail(raw:string,key:string):string|null {
+ if(raw.length>4096)return null;
+ let value:unknown;
+ try{value=JSON.parse(raw);}catch{return null;}
+ if(!value||typeof value!=='object'||Array.isArray(value))return null;
+ const root=value as Record<string,unknown>;
+ const error=root.error&&typeof root.error==='object'&&!Array.isArray(root.error)
+  ?root.error as Record<string,unknown>:root;
+ const rawCode=error.code??root.code??error.type;
+ const candidate=String(rawCode);
+ const code=(typeof rawCode==='string'||typeof rawCode==='number')&&/^[\w.-]{1,64}$/.test(candidate)
+  &&!candidate.includes(key)&&!/^(?:sk-|key-|Bearer)/i.test(candidate)&&!/[A-Za-z0-9_-]{32,}/.test(candidate)
+  ?'code '+candidate:'';
+ const rawMessage=[error.message,error.msg,root.message,root.msg].find(x=>typeof x==='string'&&x.trim());
+ const message=typeof rawMessage==='string'?rawMessage
+  .replaceAll(key,'[redacted]')
+  .replace(/\bBearer\s+[^\s"'<>]+/gi,'Bearer [redacted]')
+  .replace(/\b(?:api[_ -]?key|access[_ -]?token|authorization|secret)\s*[:=]\s*["']?[^\s"',;]+/gi,'credential=[redacted]')
+  .replace(/\b(?:sk-[\w-]{8,}|[A-Za-z0-9_-]{48,})\b/g,'[redacted]')
+  .replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,240):'';
+ return [code,message].filter(Boolean).join(': ')||null;
+}
+
 async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<string,unknown>) {
  if(!config.modelCallsEnabled)throw new ProviderConfigError('Model calls are disabled','connection',409);
  const key=storedCredential(c);
@@ -31,25 +62,44 @@ async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<strin
  checkApiUrl(c.base_url);
  checkConnectionPolicy(c.base_url,c.policy);
  if(m)checkModel({...modelInput(m),enabled:true,routeEnabled:false},connectionView(c));
+ const anthropic=c.protocol==='anthropic-compatible';
+ const payload=anthropic&&body?anthropicRequest(body):body;
  try {
-  const res=await guardedFetch(modelEndpoint(c,m),{method:body?'POST':'GET',headers:{authorization:'Bearer '+key,
-   'content-type':'application/json',accept:body?.stream===true?'text/event-stream':'application/json'},
-   body:body?JSON.stringify(body):undefined,timeoutMs:m?.timeout_override_ms??c.timeout_ms,maxRedirects:0,maxBytes:8*1024*1024});
-  if(res.status<200||res.status>=300)throw new ProviderRejectedError('Provider HTTP '+res.status,res.status,res.status===429||res.status>=500);
+  const headers:Record<string,string>=anthropic?{'x-api-key':key,'anthropic-version':'2023-06-01','content-type':'application/json',accept:'application/json'}:
+   {authorization:'Bearer '+key,'content-type':'application/json',accept:body?.stream===true?'text/event-stream':'application/json'};
+  const res=await guardedFetch(modelEndpoint(c,m),{method:body?'POST':'GET',headers,
+   body:payload?JSON.stringify(payload):undefined,timeoutMs:m?.timeout_override_ms??c.timeout_ms,maxRedirects:0,maxBytes:8*1024*1024});
+  if(res.status<200||res.status>=300) {
+   const detail=providerErrorDetail(res.text(),key);
+   throw new ProviderRejectedError('Provider HTTP '+res.status+(detail?' — '+detail:''),res.status,
+    res.status===429||res.status>=500,detail??undefined);
+  }
   const raw=res.text().split(key).join('[redacted]');
-  const data=body?.stream===true?parseSseCompletion(raw):JSON.parse(raw) as Record<string,unknown>;
-  if(!data||typeof data!=='object'||Array.isArray(data))throw Error('Invalid response');
+  const parsed=body?.stream===true?parseSseCompletion(raw):JSON.parse(raw) as Record<string,unknown>;
+  if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw Error('Invalid response');
+  const data=anthropic&&body?anthropicResponse(parsed):parsed;
   return {data,requestId:res.headers.get('x-request-id')};
  } catch(error) {
-  if(error instanceof ProviderRejectedError)throw error;
-  throw new ProviderConfigError('Provider request failed: network, destination policy or response format','baseUrl',502);
+  if(error instanceof ProviderRejectedError||error instanceof ProviderConfigError)throw error;
+  if(error instanceof SyntaxError)throw new ProviderConfigError('Provider returned invalid JSON','baseUrl',502);
+  if(error instanceof Error&&(error.name==='TimeoutError'||error.name==='AbortError'))
+   throw new ProviderConfigError('Provider request timed out','baseUrl',504);
+  const problem=error as {code?:string;cause?:{code?:string}};
+  const code=problem?.cause?.code??problem?.code;
+  if(code==='ENOTFOUND'||code==='EAI_AGAIN')
+   throw new ProviderConfigError('Provider DNS resolution failed','baseUrl',502);
+  if(code==='ECONNREFUSED'||code==='ECONNRESET')
+   throw new ProviderConfigError('Provider connection failed or reset','baseUrl',502);
+  if(typeof code==='string'&&(/CERT|TLS|SSL/).test(code))
+   throw new ProviderConfigError('Provider TLS certificate or handshake failed','baseUrl',502);
+  throw new ProviderConfigError('Provider network or destination-policy error (no valid response)','baseUrl',502);
  }
 }
-export async function requestRegisteredModel(id:string,capability:string,body:Record<string,unknown>,expectedFingerprint?:string) {
+export async function requestRegisteredModel(id:string,capability:string,body:Record<string,unknown>,expectedFingerprint?:string,forceNonStreaming=false) {
  // Re-read immediately before transport: a selection made before an edit is not authorization.
  const {m,c,fingerprint}=await registeredRuntime(id,capability);
  if(expectedFingerprint&&fingerprint!==expectedFingerprint)throw new ProviderConfigError('Configuration changed before request; retry selection','model',409);
- return transport(c,m,{...m.request_defaults,...body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})});
+ return transport(c,m,{...m.request_defaults,...body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:forceNonStreaming?false:m.stream})});
 }
 export async function discoverModels(id:string) {
  const c=await loadConnection(id),{data}=await transport(c,undefined);
@@ -63,25 +113,60 @@ export async function discoverModels(id:string) {
 export async function testConnection(id:string) {
  const c=await loadConnection(id);await transport(c,undefined);return {ok:true,detail:'Connection and models endpoint responded; model capability is not verified'};
 }
+/** Return safe, actionable diagnostics without exposing upstream response bodies or secrets. */
+export function diagnoseProbeFailure(error:unknown):{status:'failed'|'unknown';detail:string}{
+ const cause=error instanceof ReceiptUnknownError?(error.cause??error):error;
+ if(cause instanceof ProviderRejectedError){
+  const code=cause.status;
+  const detail=code===410?'Provider HTTP 410 (model retired or unavailable on this endpoint)':
+   code===429?'Provider HTTP 429 (rate limit or capacity; retry later)':'Provider HTTP '+(code??'?');
+  return {status:'failed',detail:detail+(cause.providerDetail?' — '+cause.providerDetail:'')};
+ }
+ if(cause instanceof ProviderConfigError)return {status:error instanceof ReceiptUnknownError?'unknown':'failed',detail:cause.message};
+ if(cause instanceof BudgetExceededError)return {status:'failed',detail:cause.message};
+ if(error instanceof ReceiptUnknownError)return {status:'unknown',detail:'Provider outcome unknown; inspect receipt '+error.receiptId+' before retesting'};
+ return {status:'unknown',detail:'Unexpected model test error'};
+}
 export async function testRegisteredModel(id:string,capability:string,actor:string) {
  const {m,c,fingerprint,snapshot}=await registeredRuntime(id);
- if(!m.probe_spec||m.probe_spec.capability!==capability||!m.capabilities.includes(capability as never))
-  throw new ProviderConfigError('Configure a matching capability test request first','probeSpec');
+ if(m.adapter==='unconfigured')
+  throw new ProviderConfigError('This upstream API endpoint has no registered test adapter','model',409);
+ // Standard chat/embedding probes need no manually written JSON.
+ const probe=m.probe_spec??(m.adapter==='chat'
+  ?{capability:'text',body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'}
+  :m.adapter==='embedding'
+  ?{capability:'embedding',body:{input:'Hello world'},response:'embedding'}:null);
+ if(!probe)throw new ProviderConfigError('This API endpoint has no test adapter yet','probeSpec');
+ if(probe.capability!==capability||!m.capabilities.includes(capability as never))
+  throw new ProviderConfigError('The test capability does not match this model','probeSpec');
+ // Fail before reserving a paid-request receipt: an inactive deployment or missing
+ // credential must never be reported as an uncertain upstream response.
+ if(!config.modelCallsEnabled)throw new ProviderConfigError('Model tests are disabled on this deployment (MODEL_CALLS_ENABLED=false)','connection',409);
+ if(!storedCredential(c))throw new ProviderConfigError('Configure the provider API key before testing','credential',409);
+ if(c.policy==='nvidia-free-trial'&&!isVerifiedFreeTrialProvider(m.model_id))
+  throw new ProviderConfigError('This model is not on the verified NVIDIA Free Endpoint list','modelId',409);
  const started=Date.now();let status='failed',detail='Response shape mismatch';
  try {
-  const body={...m.request_defaults,...m.probe_spec.body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})};
+  const body={...m.request_defaults,...probe.body,model:m.model_id,...(m.adapter==='embedding'?{}:{stream:m.stream})};
   const receipt=await paidRequest({service:c.vendor,model:m.model_id,purpose:'model_provider_probe',subject:id+':'+capability,
    identity:{id,fingerprint,body},attemptTag:randomUUID(),requestSummary:{modelId:id,capability}},async()=>{
    const {data,requestId}=await transport(c,m,body);
    return {response:data,requestId,usage:(data.usage as Record<string,unknown>)??null};
   });
   const d=receipt.response as Record<string,unknown>;
-  const text=(d.choices as Array<{message?:{content?:unknown}}>|undefined)?.[0]?.message?.content;
+  const choice=(d.choices as Array<{message?:{content?:unknown;reasoning_content?:unknown};finish_reason?:unknown}>|undefined)?.[0];
+  const text=choice?.message?.content;
   const vector=(d.data as Array<{embedding?:unknown}>|undefined)?.[0]?.embedding;
-  const valid=m.probe_spec.response==='chat'?typeof text==='string'&&!!text.trim():
-   m.probe_spec.response==='embedding'?Array.isArray(vector)&&vector.length>0&&vector.every(x=>typeof x==='number'&&Number.isFinite(x)):Object.keys(d).length>0&&!d.error;
-  if(valid){status='verified';detail='Valid '+m.probe_spec.response+' response';}
- }catch(error){status='unknown';detail=error instanceof ProviderRejectedError?'HTTP '+error.status:'Request failed; check credential, destination and response format';}
+  const valid=probe.response==='chat'?typeof text==='string'&&!!text.trim():
+   probe.response==='embedding'?Array.isArray(vector)&&vector.length>0&&vector.every(x=>typeof x==='number'&&Number.isFinite(x)):Object.keys(d).length>0&&!d.error;
+  if(valid){status='verified';detail='Valid '+probe.response+' response';}
+  else if(probe.response==='chat'){
+   if(choice?.finish_reason==='length')detail='Output token limit reached before final answer; increase max_tokens or lower reasoning effort';
+   else if(typeof choice?.message?.reasoning_content==='string'&&choice.message.reasoning_content.trim())
+    detail='Reasoning returned without final assistant text; adjust thinking mode or output tokens';
+   else detail=choice?'Provider returned no usable final assistant text':'Provider returned no chat choices';
+  }
+ }catch(error){const failed=diagnoseProbeFailure(error);status=failed.status;detail=failed.detail;}
  const elapsedMs=Date.now()-started;
  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,config_snapshot,status,verified_at,latency_ms,detail)
   VALUES (${id}::uuid,${capability},${fingerprint},${sql.json(snapshot)},${status},${status==='verified'?new Date():null},${elapsedMs},${detail})

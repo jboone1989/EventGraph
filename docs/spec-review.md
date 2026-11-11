@@ -13,6 +13,25 @@
 - **必须先单独合入 Spec PR，再做实现 PR**；用户决定范围后才能开工。实现 PR 描述中写 `Spec: specs/<feature>/spec.md@<40位提交SHA>`，同时写明实际审批记录。Spec 需已存在于目标分支，且与锁定提交内容一致；在实现 PR 中临时补 spec.md 不符合门禁。
 - 分支策略仍为 `feature → develop → main`，不安装 Spec Kit 可选 Git 扩展；常规开发合并到 `develop`，每周才发布 `main`。
 
+## 自动任务入队格式
+
+需要自动进入 GitHub Projects #2 和 GH-AW Work Queue 的功能 Spec，必须使用完整的 `spec.md + plan.md + tasks.md`，并在 `spec.md` 明确写出 `**Status:** Owner-approved`。Spec PR 合并到 `develop` 且由仓库所有者合并后，确定性 Producer 才会读取任务；普通小修复和未声明自动入队的 Spec 不会被自动拆分。
+
+`tasks.md` 必须包含唯一的 `## Work Items`，每项采用以下格式：
+
+```markdown
+### T001 — Task title
+**Scope:** One concise implementation scope.
+**Depends on:** none
+**Acceptance:**
+- Observable acceptance condition.
+- Focused automated test.
+```
+
+Task ID 使用 `T001` 格式；每项必须有 Scope、Depends on 和至少一条 Acceptance。依赖只能引用同一 Spec 中存在的 Task ID，不得自依赖或形成环。每个 Spec 最多 256 项；不完整或有歧义的任务清单会被拒绝，不会由模型猜测补齐。
+
+Producer 为每项创建一个带 `agent-work` 标签的 Issue；现有 Project #2 Auto-add 负责将其加入 Todo。随后一次性提交 GH-AW 原生 Work Graph。前置任务 Issue 只有在对应 PR 合并且 develop 检查成功后才以 `completed` 原因关闭，后续任务才会解除依赖。Project 状态只是可视化，不构成执行授权。完整规范见 [Spec 015](../specs/015-spec-task-intake/spec.md)。
+
 ## GitHub 强制门禁
 
 纯文档和 Spec Markdown 修改不阻塞；**可执行 CI、workflow、部署脚本与生产配置变更必须引用事先确定的 Spec**。仅首次安装门禁本身、且改动严格限于受限 bootstrap 文件时可免引用；独立评审仍必需。

@@ -1,10 +1,11 @@
-# EventGraph: 24-hour operational freshness
+# EventGraph · UTC 日界新闻积压清理
 
-Status: operator-approved requirement (2026-10-26).
+Status: 2026-11-05 站点负责人明确批准，以本规则取代 2026-10-26 的滚动 24 小时清理/保留要求。
 
-- Delete pg-boss jobs created more than 24 hours ago if still created/retry/active.
-- Mark articles with no new material for 24 hours (later of first discovery and current revision update), still in new/failed processing states, as skipped and clear retry/queue metadata; retain their stored content, publications, events, receipts and audit history. A genuine source revision gets a fresh bounded 24-hour processing window.
-- Prevent recovery sweep, receipt release and bulk failure retry from reviving out-of-date news. Manual pipeline reruns of expired news must return a clear error before changing state; editing published content is outside this policy.
-- Make the run/admin backlog reflect this 24-hour window. Preserve historical job_runs as audit.
-- Run cleanup periodically without manual intervention and make repeat runs idempotent.
-- Validate fresh pending tasks are retained and no stale backlog reappears.
+- 运营后台只展示当前有效的三种未完成新闻状态：待处理、处理中、失败。按唯一新闻 ID 统计，不叠加任务尝试次数；处理失败可以手动重试。
+- 新闻队列以 UTC 日期为界，每天 **00:00 UTC** 清理前一 UTC 日未完成的工作，而非计算滚动 24 小时累计失败。清理任务只注册一次。
+- 对未发布且状态仍为 new/failed 的隔日新闻，删除对应的待执行/重试/执行中 pg-boss 作业，将文章标记为 skipped 并清除重试状态；**保留 article 身份去重记录**，防止 RSS 再发现时重复创建新文章、重新调用模型或重复计费。此处的“清空队列”指不再参与待处理/处理中/失败统计和执行，不物理删除身份记录。已分析完成或公开发布的新闻也不物理删除。
+- 对已发布而尚未完成的旧修订，撤出待处理/失败队列并标记 skipped；若发布过的新闻在当前 UTC 日发生了真实内容修订，则保留/恢复分析能力，不能因为其原始发现时间早而丢失修订。
+- 模型调用的 pending 回执转为 unknown；unknown 回执不得转为可重发的 failed。真实是否计费仍须管理员通过原有回执核对/放行流程确认。批量重试排除未核实的回执。
+- 「全部重试」必须覆盖当前日符合条件的所有失败新闻，先安排有界批次，其余由现有 sweep 续接；失败分组展示的可操作数量与真正可重试的文章一致。
+- 公开新闻、已有内容输出、已结算模型成本及审计历史不受清理影响；清理重复执行须幂等。

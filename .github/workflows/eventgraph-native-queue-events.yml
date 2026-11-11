@@ -1,0 +1,197 @@
+# Queue continuation is independent of CI and release job results.
+# Failed Workers never self-dispatch another paid Agent attempt.
+# workflow_run events fire from the default branch's copy of this workflow:
+# merging to develop alone does not activate reconciliation or dispatch; the
+# approved develop→main promotion must carry this YAML first.
+name: "Agent · 任务队列续办与 PR 生命周期"
+run-name: "Agent 队列 · ${{ github.event_name }}"
+
+on:
+  workflow_run:
+    workflows: [Check, EventGraph GH-AW Worker]
+    types: [completed]
+  pull_request:
+    types: [opened, labeled, closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eventgraph-native-queue-continuation
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    name: "续办 GH-AW 任务队列"
+    if: >-
+      ${{ (github.event_name == 'workflow_run' &&
+           github.event.workflow_run.head_repository.full_name == github.repository &&
+           github.event.workflow_run.path == '.github/workflows/eventgraph-worker.lock.yml' &&
+           github.event.workflow_run.event == 'workflow_dispatch' &&
+           github.event.workflow_run.status == 'completed') ||
+          (vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
+           (github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'pull_request' &&
+             github.event.action == 'closed' &&
+             github.event.pull_request.merged == false &&
+             github.event.pull_request.base.ref == 'develop' &&
+             github.event.pull_request.head.repo.full_name == github.repository &&
+             contains(github.event.pull_request.labels.*.name, 'agent-work')) ||
+            (github.event_name == 'workflow_run' &&
+             github.event.workflow_run.head_repository.full_name == github.repository &&
+             github.event.workflow_run.conclusion == 'success' &&
+             github.event.workflow_run.path == '.github/workflows/check.yml' &&
+             github.event.workflow_run.head_branch == 'develop' &&
+             (github.event.workflow_run.event == 'push' ||
+              github.event.workflow_run.event == 'workflow_dispatch')) ||
+            (github.event_name == 'workflow_run' &&
+             github.event.workflow_run.head_repository.full_name == github.repository &&
+             github.event.workflow_run.path == '.github/workflows/check.yml' &&
+             github.event.workflow_run.event == 'pull_request' &&
+             github.event.workflow_run.status == 'completed' &&
+             github.event.workflow_run.conclusion == 'failure'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout verified develop SHA for approved Spec task intake
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node for exact-SHA Spec task intake
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # Untrusted failing PR code is never checked out by the trusted repair gate.
+      - name: Checkout trusted main for failed PR repair
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Setup Node for trusted failed PR gate
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install official pinned GH-AW CLI
+        uses: github/gh-aw/actions/setup-cli@0627fdbe4beb5f3b71aa569f8d97150b87f2111a # v1.0.1
+        with:
+          version: v1.0.1
+      # Terminal reservation cleanup is independent of queue intake/dispatch flags.
+      - name: Reconcile verified terminal native Worker
+        if: >-
+          ${{ github.event_name == 'workflow_run' &&
+              github.event.workflow_run.head_repository.full_name == github.repository &&
+              github.event.workflow_run.path == '.github/workflows/eventgraph-worker.lock.yml' &&
+              github.event.workflow_run.event == 'workflow_dispatch' &&
+              github.event.workflow_run.status == 'completed' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          WORKER_DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+          WORKER_RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKER_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || {
+            echo "::error::GH_AW_GITHUB_TOKEN missing; Worker run ${WORKER_RUN_ID} (${WORKER_RUN_URL})"
+            exit 1
+          }
+          native_title_re='^gh-aw work-queue (d_[0-9a-f]{64}_[1-9][0-9]*)$'
+          if [[ "$WORKER_DISPLAY_TITLE" =~ $native_title_re ]]; then
+            dispatch_id="${BASH_REMATCH[1]}"
+          else
+            echo "::error::Unrecognized native Worker run title; run ${WORKER_RUN_ID} (${WORKER_RUN_URL}). Expected exact gh-aw work-queue d_<64-hex>_<attempt>; no reconciliation attempted."
+            exit 1
+          fi
+          echo "Verified terminal Worker run ${WORKER_RUN_ID}; reconciling ${dispatch_id}"
+          if ! result="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" reconcile --dispatch-id "$dispatch_id" --json 2>&1)"; then
+            echo "::error::Native reconciliation failed for ${dispatch_id} (run ${WORKER_RUN_ID}, ${WORKER_RUN_URL})."
+            echo "Manual recovery: gh aw work-queue --repo ${GITHUB_REPOSITORY} reconcile --dispatch-id ${dispatch_id} --json"
+            exit 1
+          fi
+          if ! jq -e '(.reason | type == "string") and (.state | type == "string")' <<< "$result" >/dev/null; then
+            echo "::error::Malformed native reconciliation response for ${dispatch_id}; do not assume Release."
+            echo "Manual verification: gh aw work-queue --repo ${GITHUB_REPOSITORY} reconcile --dispatch-id ${dispatch_id} --json"
+            exit 1
+          fi
+          jq -c '{state, reason, changed, release_published: ([.publication.commit.request.operations[]? | select(.kind == "Release")] | length > 0)}' <<< "$result"
+      - name: Admit approved Spec tasks only from current verified develop
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop'
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
+          SPEC_WORK_GRAPH_DIR: ${{ runner.temp }}/spec-work-graphs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
+          if [[ "$current" != "$EXPECTED_HEAD" ]]; then
+            echo '::notice::Stale develop Check; newer Check will admit tasks'
+            exit 0
+          fi
+          rm -rf "$SPEC_WORK_GRAPH_DIR"
+          mkdir -p "$SPEC_WORK_GRAPH_DIR"
+          node scripts/ci/spec-task-producer.mjs
+          shopt -s nullglob
+          for graph_file in "$SPEC_WORK_GRAPH_DIR"/*.json; do
+            gh aw work-queue --repo "$GITHUB_REPOSITORY" submit-graph --file "$graph_file"
+          done
+      - name: Dispatch authorized same-PR GH-AW repair on failed CI
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/check.yml' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          node scripts/ci/agent-pr-repair.mjs
+      - name: Dispatch at most one eligible native Work
+        if: >-
+          ${{ vars.EVENTGRAPH_NATIVE_QUEUE_EVENTS_ENABLED == 'true' &&
+              (github.event_name != 'workflow_run' ||
+               github.event.workflow_run.path != '.github/workflows/eventgraph-worker.lock.yml' ||
+               (github.event.workflow_run.status == 'completed' &&
+                github.event.workflow_run.conclusion == 'success')) &&
+              (github.event_name != 'workflow_run' ||
+               github.event.workflow_run.path != '.github/workflows/check.yml' ||
+               github.event.workflow_run.conclusion != 'failure') }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
+          EXPECTED_HEAD: ${{ github.event.workflow_run.head_sha }}
+          CHECK_EVENT: ${{ github.event.workflow_run.path == '.github/workflows/check.yml' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing'; exit 1; }
+          if [[ "$CHECK_EVENT" == true ]]; then
+            current="$(gh api "repos/$GITHUB_REPOSITORY/branches/develop" --jq '.commit.sha')"
+            [[ "$current" == "$EXPECTED_HEAD" ]] || {
+              echo '::notice::Superseded Check; skip dispatch'; exit 0;
+            }
+          fi
+          open="$(gh pr list --repo "$GITHUB_REPOSITORY" --base develop --state open --label agent-work --json number --jq length)"
+          [[ "$open" == 0 ]] || { echo 'Open agent-work PR; no parallel dispatch'; exit 0; }
+          snapshot="$(gh aw work-queue --repo "$GITHUB_REPOSITORY" stats --json 2>&1)"
+          jq -e '
+            (.grants_paused | type == "boolean") and
+            (.pools | type == "array") and
+            all(.pools[]; (.pool | type == "string") and (.scheduling_eligible | type == "number"))
+          ' <<< "$snapshot" >/dev/null || {
+            echo '::error::Malformed native Work Queue stats'; exit 1;
+          }
+          if ! jq -e '
+            .grants_paused == false and
+            ([.pools[] | select(.pool == "default") | .scheduling_eligible] | add // 0) > 0
+          ' <<< "$snapshot" >/dev/null; then
+            echo 'No eligible native Work'; exit 0
+          fi
+          gh aw work-queue --repo "$GITHUB_REPOSITORY" dispatch eventgraph-dispatcher --wait

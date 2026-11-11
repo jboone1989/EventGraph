@@ -1,10 +1,8 @@
-# VM13: development Web and API from the tested GHCR digest. Web reaches only the
-# local API container; the API connects to the isolated development PostgreSQL on
-# cn-dev through the host SSH tunnel started by scripts/ci/deploy-vm13-preview.sh
-# (devdb -> docker bridge gateway -> 127.0.0.1:15432 on VM13 -> cn-dev loopback
-# 5432, published by docker-compose.dev-db.yml on cn-dev). cn-dev keeps the
-# development database, worker and collection workloads. First run needs vm13.env
-# (docs/vm13-preview.md).
+# VM13: develop Web/API using the existing production database over a private tunnel.
+# Administrative writes intentionally affect production data. No worker or database
+# runs on VM13, and preview deploys do not run migrations or seeds.
+# devdb is only the VM13 gateway alias to the production DB tunnel.
+# Configuration: docs/vm13-preview.md.
 name: eventgraph-vm13-preview
 services:
   api:
@@ -19,8 +17,12 @@ services:
       NODE_ENV: production
       API_HOST: 0.0.0.0
       API_PORT: "3001"
+      # VM13 has no worker: allow only explicitly triggered admin model probes.
+      MODEL_CALLS_ENABLED: "true"
       AIHOT_DATA_DIR: /data
       AIHOT_RELEASE: ${EVENTGRAPH_PREVIEW_RELEASE:?Source commit required}
+      EVENTGRAPH_PREVIEW_READONLY: "false"
+      EVENTGRAPH_PREVIEW_MODE: "true"
     volumes:
       - data:/data
     mem_limit: 768m

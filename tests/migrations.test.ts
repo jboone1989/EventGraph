@@ -117,6 +117,20 @@ test("bounded vacuum settings apply without rewriting data or waiting for ordina
 // The two development CD jobs (VM13 Web/API and the cn-dev worker) run setup on
 // the same database concurrently; the advisory lock must serialize them so both
 // succeed and the shared migration is applied exactly once.
+test("retiring an old model table rejects nonempty data without recording the migration", async () => {
+  const name = "0123_retire_legacy_service_prices.sql";
+  await db`DELETE FROM schema_migrations WHERE name = ${name}`;
+  await db`CREATE TABLE IF NOT EXISTS service_prices (id integer)`;
+  await db`INSERT INTO service_prices (id) VALUES (1)`;
+  const root = fixture({ ["database/migrations/" + name]: "DROP TABLE IF EXISTS service_prices;" });
+  await assert.rejects(runMigrations(db, root), /refusing to remove nonempty legacy model data/);
+  assert.equal((await db`SELECT count(*) AS n FROM service_prices`)[0].n, "1");
+  assert.equal((await db`SELECT 1 FROM schema_migrations WHERE name = ${name}`).length, 0);
+  await db`DELETE FROM service_prices`;
+  assert.equal(await runMigrations(db, root), 1);
+  assert.equal((await db`SELECT to_regclass('service_prices') AS name`)[0].name, null);
+});
+
 test("concurrent runMigrations calls serialize instead of double-applying a migration", async () => {
   const root = fixture({
     "database/migrations/9009_concurrent.sql": "CREATE TABLE IF NOT EXISTS migration_concurrent (id int)",

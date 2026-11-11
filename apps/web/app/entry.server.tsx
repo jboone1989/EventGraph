@@ -14,8 +14,15 @@ export default function handleRequest(request: Request, responseStatusCode: numb
   return new Promise((resolve, reject) => {
     let shellRendered = false;
     const userAgent = request.headers.get("user-agent");
-    const ready: keyof RenderToPipeableStreamOptions = (userAgent && isbot(userAgent)) || routerContext.isSpaMode ? "onAllReady" : "onShellReady";
-    const timer = setTimeout(() => abort(), streamTimeout + 1000);
+    // The authenticated admin shell has its own optional deferred nav badges. A
+    // bot-like user agent must not wait for every badge before seeing the page:
+    // the badge query can be slower than the public 6s SSR deadline.
+    const pathname = new URL(request.url).pathname;
+    const isAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
+    const ready: keyof RenderToPipeableStreamOptions = isAdmin
+      ? "onShellReady"
+      : (userAgent && isbot(userAgent)) || routerContext.isSpaMode ? "onAllReady" : "onShellReady";
+    const timer = setTimeout(() => abort(), (isAdmin ? 20_000 : streamTimeout) + 1000);
     const { pipe, abort } = renderToPipeableStream(<ServerRouter context={routerContext} url={request.url} />, {
       [ready]() {
         shellRendered = true;

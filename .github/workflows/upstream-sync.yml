@@ -1,14 +1,12 @@
-# Only the upstream check is new; all tests and deployments stay in check.yml.
+# Propose scheduled AIHOT updates, without CI review duplication.
 # Scheduled workflows run from the default branch (main), but changes target develop.
-name: Sync AIHOT upstream
+name: "维护 · 同步 AIHOT 上游"
+run-name: "上游同步 · ${{ github.event_name }}"
 
 on:
   schedule:
     - cron: '23 3 * * *'
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['.github/workflows/upstream-sync.yml']
 
 permissions:
   contents: write
@@ -21,6 +19,7 @@ concurrency:
 
 jobs:
   propose:
+    name: "检查上游并创建同步 PR"
     if: github.repository == 'jboone1989/EventGraph'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -109,7 +108,7 @@ jobs:
               echo "**BLOCKED: application merge conflicts.** No upstream app code has been committed."
               echo "The draft PR records the upstream SHA and conflicting paths, keeping EventGraph operational."
               echo "Workflow-only changes are also blocked for separate review (GITHUB_TOKEN cannot push workflow history)."
-              echo "Codex must merge upstream/main into this branch, resolve conflicts, retain EventGraph CI from develop, then ask Claude to review."
+              echo "Codex must merge upstream/main into this branch, resolve conflicts, retain EventGraph CI from develop, then request normal CI and owner review."
               echo "Never merge this PR until the real combined code and CI are verified."
               echo ""
               echo "Conflicting files:"

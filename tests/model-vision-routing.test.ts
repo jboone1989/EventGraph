@@ -3,11 +3,10 @@ import "./setup.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { closeDb } from "@aihot/backend/db";
-import { modelsOverview, switchModel } from "@aihot/backend/admin/models";
+import { switchModel } from "@aihot/backend/admin/models";
 import {
   CAPABILITIES,
   capabilityAcceptsModel,
-  modelFor,
   modelSupportsVision,
 } from "@aihot/backend/editorial/models";
 import { MODELS } from "@aihot/backend/providers/llm";
@@ -22,13 +21,11 @@ test("every step takes a model that reads images; only a step that needs images 
   assert.equal(capabilityAcceptsModel(CAPABILITIES.score, MODELS["qwen3-vl-flash"]!), true);
   assert.equal(capabilityAcceptsModel({ ...understand, vision: true }, MODELS["deepseek-flash"]!), false);
 
-  await switchModel("understand", "qwen3-vl-flash", "vision routing test", "test");
-  assert.equal(await modelFor("understand"), "qwen3-vl-flash");
-  await switchModel("understand", "deepseek-flash", "text routing test", "test");
-  assert.equal(await modelFor("understand"), "deepseek-flash");
+  await assert.rejects(
+    switchModel("understand", "qwen3-vl-flash", "disallow implicit preset", "test"),
+    /Choose a model from Model Management/);
 
-  const overview = await modelsOverview(1);
-  assert.equal(overview.capabilities.find((capability) => capability.key === "understand")?.vision, false);
+  assert.equal('vision' in understand, false);
 });
 
 test("runtime image attachment is explicit rather than probing presets with unspecified vision support", async () => {

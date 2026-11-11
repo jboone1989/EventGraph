@@ -1,7 +1,7 @@
-// Official giscus client: third-party code loads only after reader interaction.
-import { useEffect, useRef, useState } from "react";
+// Official giscus client: asynchronous script and lazy iframe; no reader click required.
+import { useEffect, useRef } from "react";
 import { useUiLanguage, useText } from "../../components/LanguageSwitch";
-import { discussionTermFor } from "../../lib/discussions";
+import { discussionTermFor, itemDiscussionTermFor } from "../../lib/discussions";
 import { resolvedTheme } from "../../lib/local-state";
 import { SITE } from "@aihot/site";
 
@@ -43,24 +43,20 @@ function Embed({ term, lang }: { term: string; lang: "en" | "zh-CN" }) {
   return <div ref={ref} className="giscus min-w-0" />;
 }
 
-export function StoryDiscussion({ storyPublicId }: { storyPublicId: string | null | undefined }) {
-  const [expanded, setExpanded] = useState(false);
+export function StoryDiscussion({ storyPublicId, itemId }: { storyPublicId?: string | null; itemId?: string | null }) {
+  const isItem = itemId !== undefined;
   const t = useText();
   const language = useUiLanguage();
-  const term = discussionTermFor(storyPublicId);
+  const term = isItem ? itemDiscussionTermFor(itemId) : discussionTermFor(storyPublicId);
   // Do not display a dead comments UI until GitHub Discussion category is configured.
   if (!term || !CATEGORY || !DISCUSSION_REPO || !REPO_ID) return null;
-  return <section className="mt-7 min-w-0 rounded-panel border border-line-soft p-4" aria-label={t("事件讨论", "Event discussion")}>
-    <h2 className="text-[16px] font-semibold text-ink">{t("事件讨论", "Event discussion")}</h2>
+  return <section className="mt-7 min-w-0 rounded-panel border border-line-soft p-4" aria-label={isItem ? t("新闻讨论", "Article discussion") : t("事件讨论", "Event discussion")}>
+    <h2 className="text-[16px] font-semibold text-ink">{isItem ? t("新闻讨论", "Article discussion") : t("事件讨论", "Event discussion")}</h2>
     <p className="mt-1 text-[12px] leading-relaxed text-ink-4">
       {t("读者观点通过 GitHub Discussions 发布，发言需登录 GitHub；评论不等于已经核实的事实。",
         "Reader opinions are hosted on GitHub Discussions; posting requires a GitHub account. Comments are not verified facts.")}
     </p>
-    {!expanded && <button type="button" onClick={() => setExpanded(true)}
-      className="mt-3 rounded-control border border-line px-4 py-2 text-[13px] font-semibold text-accent hover:border-accent">
-      {t("加载讨论", "Load discussion")}
-    </button>}
-    {expanded && <div className="mt-4"><Embed term={term} lang={language === "en" ? "en" : "zh-CN"} /></div>}
+    <div className="mt-4"><Embed term={term} lang={language === "en" ? "en" : "zh-CN"} /></div>
     <a href={`https://github.com/${DISCUSSION_REPO}/discussions`} target="_blank" rel="noopener noreferrer"
       className="mt-3 inline-block text-[12px] text-accent hover:underline">
       {t("在 GitHub 打开讨论", "Open GitHub Discussions")}

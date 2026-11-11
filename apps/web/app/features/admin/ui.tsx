@@ -1,5 +1,5 @@
 // Shared admin building blocks: page frame, cards, stats, badges, tables, buttons, fields and a
-// reason dialog (manual changes always carry a reason for the audit log).
+// confirmation and reason dialogs (audit records changes even when no reason is collected).
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -8,12 +8,12 @@ import { ago, bj } from "./format";
 export function AdminPage({ title, subtitle, actions, children }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode }) {
   return (
     <div className="mx-auto min-w-0 w-full max-w-[1320px] px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pt-8">
-      <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
+      <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="min-w-0 sm:min-w-48 sm:flex-1">
           <h1 className="text-[22px] font-semibold tracking-tight text-ink sm:text-[24px]">{title}</h1>
           {subtitle && <p className="mt-1 text-[13.5px] leading-relaxed text-ink-3">{subtitle}</p>}
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+        {actions && <div className="flex max-w-full min-w-0 flex-wrap items-center gap-2">{actions}</div>}
       </header>
       {children}
     </div>
@@ -272,6 +272,7 @@ export function ReasonDialog({
   confirmLabel = "确认",
   danger,
   requireReason = true,
+  showReason = true,
   children,
   onClose,
   onSubmit,
@@ -283,6 +284,7 @@ export function ReasonDialog({
   confirmLabel?: string;
   danger?: boolean;
   requireReason?: boolean;
+  showReason?: boolean;
   children?: ReactNode;
   onClose: () => void;
   onSubmit: (reason: string) => Promise<boolean | void> | boolean | void;
@@ -293,9 +295,10 @@ export function ReasonDialog({
   useEffect(() => {
     if (!open) return;
     setReason("");
+    if (!showReason) return;
     const t = setTimeout(() => ref.current?.focus(), 60);
     return () => clearTimeout(t);
-  }, [open]);
+  }, [open, showReason]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -317,7 +320,7 @@ export function ReasonDialog({
             className="relative w-full max-w-lg rounded-sheet bg-raised p-5 shadow-2xl ring-1 ring-line-strong"
             onSubmit={async (e) => {
               e.preventDefault();
-              if (requireReason && !reason.trim()) return;
+              if (showReason && requireReason && !reason.trim()) return;
               const closed = await onSubmit(reason.trim());
               if (closed !== false) onClose();
             }}
@@ -325,14 +328,16 @@ export function ReasonDialog({
             <h2 className="text-[16px] font-semibold text-ink">{title}</h2>
             {description && <div className="mt-1.5 text-[13px] leading-relaxed text-ink-3">{description}</div>}
             {children && <div className="mt-4 space-y-3">{children}</div>}
-            <div className="mt-4">
-              <Field label={requireReason ? "原因（写进审计记录）" : "备注（可选）"}>
-                <Textarea ref={ref} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={requireReason ? "为什么做这个改动" : ""} rows={2} />
-              </Field>
-            </div>
+            {showReason && (
+              <div className="mt-4">
+                <Field label={requireReason ? "原因（写进审计记录）" : "备注（可选）"}>
+                  <Textarea ref={ref} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={requireReason ? "为什么做这个改动" : ""} rows={2} />
+                </Field>
+              </div>
+            )}
             <div className="mt-5 flex justify-end gap-2">
               <Button tone="ghost" onClick={onClose}>取消</Button>
-              <Button type="submit" tone={danger ? "danger" : "primary"} busy={busy} disabled={requireReason && !reason.trim()}>
+              <Button type="submit" tone={danger ? "danger" : "primary"} busy={busy} disabled={showReason && requireReason && !reason.trim()}>
                 {confirmLabel}
               </Button>
             </div>

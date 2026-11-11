@@ -14,12 +14,66 @@ function fail(message) {
   process.exit(1);
 }
 if (!hash.test(base) || !hash.test(head)) fail("Missing or invalid PR base/head SHA.");
+// Prevent new main-only application history: production promotion may only come
+// from this repository's develop branch. A main hotfix must go through develop first.
+if (process.env.SPEC_BASE_REF === "main" &&
+    (process.env.SPEC_HEAD_REF !== "develop" ||
+     !process.env.SPEC_REPOSITORY ||
+     process.env.SPEC_HEAD_REPO !== process.env.SPEC_REPOSITORY)) {
+  fail("main accepts only same-repository develop -> main promotions; merge fixes into develop first.");
+}
 if (process.env.SPEC_BASE_REF === "main" &&
     process.env.SPEC_HEAD_REF === "develop" &&
     process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY &&
     process.env.SPEC_REPOSITORY) {
   // Promotion is already checked by individual implementation PRs into develop.
   console.log("Spec gate PASS: same-repo develop -> main promotion.");
+  process.exit(0);
+}
+// Allow main -> develop history synchronization if main adds no application code.
+// Compare main to the common ancestor, not develop's current tip: develop may
+// already have subsequent feature commits by the time the back-sync PR opens.
+// Regular Spec/CI/review rules still apply to all other changes.
+if (process.env.SPEC_BASE_REF === "develop" &&
+    process.env.SPEC_HEAD_REF === "main" &&
+    process.env.SPEC_REPOSITORY &&
+    process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY) {
+  const syncBase = git("merge-base", base, head).trim();
+  const changed = git("diff", "--no-renames", "--name-only", "-z", syncBase, head)
+    .split("\0").filter(Boolean);
+  if (changed.every(file => file === ".github/production-image.env")) {
+    console.log("Spec gate PASS: verified main -> develop release-history synchronization.");
+    process.exit(0);
+  }
+}
+// A history-sync PR can be refreshed by GitHub's normal update-branch merge
+// when develop advances. Require both current tips in the ancestry and an
+// identical tree; a real main-only change may never be discarded.
+if (process.env.SPEC_BASE_REF === "develop" &&
+    /^sync\/main-history-[a-z0-9-]+$/.test(process.env.SPEC_HEAD_REF || "") &&
+    process.env.SPEC_REPOSITORY &&
+    process.env.SPEC_HEAD_REPO === process.env.SPEC_REPOSITORY) {
+  const parents = git("rev-list", "--parents", "-n", "1", head).trim().split(/\s+/);
+  if (head === base || parents.length !== 3 || parents[0] !== head) {
+    fail("History sync must be a distinct merge commit.");
+  }
+  let mainTip;
+  try { mainTip = git("rev-parse", "refs/remotes/origin/main").trim(); }
+  catch { mainTip = git("rev-parse", "refs/heads/main").trim(); }
+  try {
+    git("merge-base", "--is-ancestor", base, head);
+    git("merge-base", "--is-ancestor", mainTip, head);
+  } catch {
+    fail("History sync must include current develop and main ancestry.");
+  }
+  const mainBase = git("merge-base", base, mainTip).trim();
+  if (!mainBase || git("diff", "--name-only", mainBase, mainTip).trim()) {
+    fail("History sync cannot discard main-only file changes.");
+  }
+  if (git("rev-parse", `${head}^{tree}`).trim() !== git("rev-parse", `${base}^{tree}`).trim()) {
+    fail("History sync tree must exactly match current develop.");
+  }
+  console.log("Spec gate PASS: verified no-content history-only release sync.");
   process.exit(0);
 }
 const ancestor = git("merge-base", base, head).trim();

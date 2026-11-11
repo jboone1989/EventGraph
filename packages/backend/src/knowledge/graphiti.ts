@@ -37,6 +37,7 @@ export async function ingestGraphitiOnce() {
     SELECT a.id, a.revision, a.title, a.url, a.excerpt, a.body_text,
            a.published_at, s.name AS source_name
     FROM articles a JOIN sources s ON s.id=a.source_id
+    JOIN publications p ON p.article_id=a.id AND p.visibility='public' AND p.selected AND p.seat
     LEFT JOIN graphiti_ingestions g ON g.article_id=a.id AND g.revision=a.revision
     LEFT JOIN settings cooldown
       ON cooldown.key = 'graphiti.ingest.failure:' || a.id || ':r' || a.revision::text
@@ -146,6 +147,21 @@ export async function graphForEntity(uuid: string, time?: GraphTime) {
   } catch (error) {
     console.error("graphiti_entity_lookup_failed", error);
     return { entity: null, edges: [], status: "unavailable" };
+  }
+}
+
+/** Entities one article's ingested episode directly mentions, before public filtering. */
+export type EpisodeEntities = { entities: Array<{ key: string; name: string }>; status?: string };
+
+/** One report page's entity block: only the episode of that article's current revision, 4s budget. */
+export async function graphArticleEntities(articleId: string, revision: number): Promise<EpisodeEntities> {
+  if (!process.env.GRAPHITI_API_URL) return { entities: [], status: "disabled" };
+  try {
+    return await graphiti<EpisodeEntities>(
+      `/articles/${encodeURIComponent(articleId)}/entities?revision=${revision}`, { timeoutMs: 4000 });
+  } catch (error) {
+    console.error("graphiti_article_entities_failed", error);
+    return { entities: [], status: "unavailable" };
   }
 }
 

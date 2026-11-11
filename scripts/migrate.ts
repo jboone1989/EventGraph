@@ -5,7 +5,14 @@ import path from "node:path";
 import type postgres from "postgres";
 import { FIRST_ONLINE_MIGRATION, migrationPlan, type MigrationPlan } from "./migration-safety.ts";
 
-export async function runMigrations(sql: postgres.Sql, root: string): Promise<number> {
+/** These three retired structures are safe to drop only when they hold no user data. */
+const retiredModelObjects: Record<string, { table: string; column?: string }> = {
+  "0122_retire_legacy_model_pool.sql": { table: "model_provider_bulk_checks" },
+  "0123_retire_legacy_service_prices.sql": { table: "service_prices" },
+  "0124_retire_legacy_model_check_detail.sql": { table: "model_provider_checks", column: "detail" },
+};
+
+export function listMigrationFiles(root: string): {name:string;file:string}[] {
   const sqlFiles = (dir: string) => existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".sql")).map((name) => ({ name, file: path.join(dir, name) })) : [];
   const modules = path.join(root, "modules");
   const migrations = [
@@ -15,6 +22,11 @@ export async function runMigrations(sql: postgres.Sql, root: string): Promise<nu
   for (const [i, migration] of migrations.entries()) {
     if (migrations[i + 1]?.name === migration.name) throw new Error(`two migrations are named ${migration.name}: ${migration.file} and ${migrations[i + 1].file}`);
   }
+  return migrations;
+}
+
+export async function runMigrations(sql: postgres.Sql, root: string): Promise<number> {
+  const migrations = listMigrationFiles(root);
   // Validate the complete set before making any change; old files remain installable as history.
   const prepared = migrations.map((migration) => {
     const text = readFileSync(migration.file, "utf8");
@@ -57,6 +69,25 @@ export async function runMigrations(sql: postgres.Sql, root: string): Promise<nu
         } else {
           await session`BEGIN`;
           try {
+            const retired = retiredModelObjects[name];
+            if (retired) {
+              const [relation] = await session<{ present: boolean }[]>`SELECT to_regclass(${retired.table}) IS NOT NULL AS present`;
+              if (relation?.present) {
+                // Hold the lock through the DROP so data cannot arrive after the check.
+                await session.unsafe(`LOCK TABLE ${retired.table} IN ACCESS EXCLUSIVE MODE`);
+                const column = retired.column
+                  ? (await session<{ present: boolean }[]>`SELECT EXISTS (
+                      SELECT 1 FROM information_schema.columns
+                      WHERE table_schema = 'public' AND table_name = ${retired.table} AND column_name = ${retired.column}
+                    ) AS present`)[0]?.present
+                  : true;
+                if (column) {
+                  const predicate = retired.column ? ` WHERE ${retired.column} IS NOT NULL` : "";
+                  const [row] = await session.unsafe<{ has_data: boolean }[]>(`SELECT EXISTS (SELECT 1 FROM ${retired.table}${predicate}) AS has_data`);
+                  if (row?.has_data) throw new Error(`refusing to remove nonempty legacy model data from ${retired.table}; export and verify it before retiring this object`);
+                }
+              }
+            }
             await session.unsafe(text);
             await session`INSERT INTO schema_migrations (name) VALUES (${name})`;
             await session`COMMIT`;

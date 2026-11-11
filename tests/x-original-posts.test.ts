@@ -2,7 +2,7 @@
 // them through another writer; rebuilding keeps old model replies or loses pool membership; stored
 // translations leak into detail/export or licensed full RSS drops media; real prose and fetched X Articles stop being written.
 import { pointModels, stub, tag } from "./setup.ts";
-import { analysisStep, SELECTING_SCORE } from "./analysis-steps.ts";
+import { analysisStep, SELECTING_SCORE, combinedAnswer } from "./analysis-steps.ts";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
@@ -17,11 +17,8 @@ const requests: string[] = [];
 const provider = await stub((_hit, req) => {
   const step = analysisStep(req.body);
   requests.push(step);
-  const content = step === "prefilter" ? { label: "UNKNOWN", reason: "No standalone text evidence" }
-    : step === "score" ? { attentionScore: req.body.includes("high-score") ? SELECTING_SCORE : 12 }
-    : step === "structure" ? { category: "term", tags: [], subjects: [], scope: "single", fact: null }
-    : step === "understand" ? { itemType: "product_update", authorRole: "principal", tags: [], editorialJudgment: "产品更新", titleZh: "实际正文标题", summaryZh: "这是实际正文的中文摘要。" }
-    : "title_zh: 实际正文标题\nbody_zh: 这是实际正文的中文摘要。";
+  const content = combinedAnswer({ label: "UNKNOWN", attentionScore: req.body.includes("high-score") ? SELECTING_SCORE : 12,
+    category: "term", titleZh: "实际正文标题", summaryZh: "这是实际正文的中文摘要。" });
   return { choices: [{ message: { content: typeof content === "string" ? content : JSON.stringify(content) } }] };
 });
 pointModels(provider.url);
@@ -85,15 +82,13 @@ test("rebuilding an image-only post replaces historical model replies across pub
   assert.equal(detail.links.original, url);
   const feed = (await app.inject({ method: "GET", url: "/api/site/pool" })).json();
   assert.ok(JSON.stringify(feed).includes(id), "image-only post stays in the website feed");
-  for (const path of ["/api/v1/items?mode=all&window=7d&limit=100", `/items/${id}/markdown`, "/feed/full.xml"]) {
+  assert.equal((await app.inject({ method: "GET", url: `/items/${id}/markdown` })).statusCode, 404,
+    "image-only post has no summary to export; the original publisher remains linked");
+  for (const path of ["/api/v1/items?mode=all&window=7d&limit=100", "/feed/full.xml"]) {
     const res = await app.inject({ method: "GET", url: path });
     assert.equal(res.statusCode, 200, path);
     assert.ok(res.body.includes(url), `${path}: original address survives`);
     assert.ok(!/请补充正文|错误译文|没有推文文字内容/.test(res.body), `${path}: no model reply survives`);
-    if (path.endsWith("markdown")) {
-      assert.ok(res.body.includes("screenshot.png"), "the image survives export");
-      assert.match(res.body, /!\[\]\(https?:\/\//, "the downloaded image link works outside the website");
-    }
     if (path === "/feed/full.xml") {
       assert.ok(res.body.includes("content:encoded") && res.body.includes("screenshot.png"), "the licensed image survives full RSS");
     }
@@ -109,7 +104,7 @@ test("real text containing links and a fetched X Article keep their normal writi
     if (name === "long-article") await sql`UPDATE articles SET x_article=${sql.json({title:"A model release",text:"A model adds speech support with multilingual benchmarks."})} WHERE id=${id}`;
     const start = requests.length;
     await analyzeArticle(id);
-    assert.ok(requests.slice(start).includes("summarize"), `${name}: real material is still translated`);
+    assert.deepEqual(requests.slice(start), ["combined"], `${name}: real material is translated during the one AI call`);
     await publishArticle(id, released());
     const [p] = await sql`SELECT summary FROM publications WHERE article_id=${id}`;
     assert.equal(p!.summary, "这是实际正文的中文摘要。");

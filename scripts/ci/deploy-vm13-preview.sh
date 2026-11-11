@@ -1,8 +1,7 @@
 #!/bin/sh
-# Deploy a tested develop digest to VM13 as development Web + API. The API reaches
-# the production PostgreSQL and knowledge service through an on-host SSH tunnel to
-# the production host. The development environment runs no worker or database of
-# its own: collection and judging happen only in the production stack.
+# Deploy the develop Web/API using the existing production database, including
+# explicit operator-approved admin writes. Keep production host/worker untouched,
+# with no preview worker, migration, seeding or second maintenance scheduler.
 set -eu
 : "${EVENTGRAPH_IMAGE:?immutable GHCR digest required}"
 : "${EVENTGRAPH_PREVIEW_RELEASE:?release SHA required}"
@@ -26,7 +25,7 @@ knowledge_port=15434
 # The egress path drops connections at peak; one refused keyscan or inspect is
 # transient and must not abort a deploy. Three attempts, five seconds apart.
 prod_ssh() {
-  ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "ubuntu@$prod_host" "$@"
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$PROD_KNOWN_HOSTS" -o HostKeyAlgorithms="$prod_algo" -o ConnectTimeout=10 "ubuntu@$prod_host" "$@"
 }
 prod_ssh_retry() {
   i=0
@@ -41,8 +40,10 @@ grep -q '^DATABASE_URL=.*@devdb:'"$tunnel_port"'/' "$env_file" \
   || { echo "$env_file DATABASE_URL must target devdb:$tunnel_port" >&2; exit 1; }
 
 previous_image=""
+previous_release=""
 if sudo -n docker inspect eventgraph-vm13-preview-web-1 >/dev/null 2>&1; then
   previous_image="$(sudo -n docker inspect --format '{{.Config.Image}}' eventgraph-vm13-preview-web-1)"
+  previous_release="$(sudo -n docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' eventgraph-vm13-preview-web-1 | sed -n 's/^AIHOT_RELEASE=//p' | head -n1)"
 fi
 
 git fetch --quiet --no-tags origin develop
@@ -50,6 +51,16 @@ staged_compose="$(mktemp "$PWD/.vm13-next.XXXXXX.yml")"
 backup_compose="$(mktemp "$PWD/.vm13-prev.XXXXXX.yml")"
 cleanup() { rm -f "$staged_compose" "$backup_compose"; }
 trap cleanup EXIT
+restore() {
+  echo "Preview deployment failed; restoring the previous image and Compose file" >&2
+  cp "$backup_compose" "$compose_file"
+  if [ -n "$previous_image" ] && [ -n "$previous_release" ]; then
+    sudo -n env EVENTGRAPH_APP_IMAGE="$previous_image" EVENTGRAPH_PREVIEW_RELEASE="$previous_release" \
+      docker compose -f "$compose_file" up -d --no-build --pull never --force-recreate api web \
+      || echo "Previous preview containers could not be restarted" >&2
+  fi
+  exit 1
+}
 git show "$EVENTGRAPH_PREVIEW_RELEASE:$compose_file" > "$staged_compose"
 cp "$compose_file" "$backup_compose"
 
@@ -64,30 +75,20 @@ image_id="$(sudo -n docker image inspect --format '{{.Id}}' "$EVENTGRAPH_IMAGE")
 # a stale address fails the deploy visibly instead of misrouting data. The
 # egress path drops connections at peak, so both the address reads and the
 # host-key scan retry before giving up.
-bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
-db_ip="$(prod_ssh_retry \
-  'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
-  || { echo "Could not read the production database container address" >&2; exit 1; }
-[ -n "$db_ip" ] || { echo "Production database container has no address" >&2; exit 1; }
-knowledge_ip="$(prod_ssh_retry \
-  'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
-  || { echo "Could not read the production knowledge container address" >&2; exit 1; }
-[ -n "$knowledge_ip" ] || { echo "Production knowledge container has no address" >&2; exit 1; }
-
 # Pin the production host key for the tunnel: the runner verifies this
-# fingerprint (secrets.EVENTGRAPH_DEV_SSH_FINGERPRINT) on its own hops, and the
-# same pin must authorize the VM13→production tunnel before the unit below
+# production fingerprint (secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT) separately, and the
+# dedicated pin must authorize the VM13→production tunnel before the unit below
 # connects. A known_hosts.prod written under the same pin stays valid — the
 # host key does not change between deploys, and re-scanning through the
 # peak-time egress window is exactly what failed a previous deploy — so an
 # existing matching pin file is reused and only a missing or non-matching one
 # triggers a rescan, with retries for the same reason.
-: "${EVENTGRAPH_DEV_SSH_FINGERPRINT:?pinned production host key fingerprint (SHA256:...) required}"
+: "${EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT:?pinned production host key fingerprint (SHA256:...) required}"
 mkdir -p "${HOME}/.ssh"
 PROD_KNOWN_HOSTS="${HOME}/.ssh/known_hosts.prod"
 pin_ok=""
 if [ -s "$PROD_KNOWN_HOSTS" ] \
-   && ssh-keygen -lf "$PROD_KNOWN_HOSTS" 2>/dev/null | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }'; then
+   && ssh-keygen -lf "$PROD_KNOWN_HOSTS" 2>/dev/null | awk -v fp="$EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }'; then
   echo "Reusing pinned production host key from $PROD_KNOWN_HOSTS"
   pin_ok=1
 else
@@ -95,7 +96,7 @@ else
   i=0
   while [ "$i" -lt 6 ] && [ -z "$pin_ok" ]; do
     ssh-keyscan -T 10 -t ed25519,ecdsa "$prod_host" 2>/dev/null | awk -v h="$prod_host" '$1 == h' > "$prod_scan"
-    ssh-keygen -lf "$prod_scan" 2>/dev/null | awk -v fp="$EVENTGRAPH_DEV_SSH_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }' && pin_ok=1
+    ssh-keygen -lf "$prod_scan" 2>/dev/null | awk -v fp="$EVENTGRAPH_PROD_TUNNEL_HOST_FINGERPRINT" '$2 == fp { found=1 } END { exit !found }' && pin_ok=1
     [ -n "$pin_ok" ] || { i=$((i+1)); sleep 15; }
   done
   if [ -n "$pin_ok" ]; then
@@ -111,6 +112,17 @@ else
   fi
 fi
 prod_algo="$(awk '{print $2; exit}' "$PROD_KNOWN_HOSTS")"
+
+bridge_gw="$(sudo -n docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')"
+db_ip="$(prod_ssh_retry \
+  'docker inspect livingruntime-db-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
+  || { echo "Could not read the production database container address" >&2; exit 1; }
+[ -n "$db_ip" ] || { echo "Production database container has no address" >&2; exit 1; }
+knowledge_ip="$(prod_ssh_retry \
+  'docker inspect livingruntime-knowledge-1 --format "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"')" \
+  || { echo "Could not read the production knowledge container address" >&2; exit 1; }
+[ -n "$knowledge_ip" ] || { echo "Production knowledge container has no address" >&2; exit 1; }
+
 sudo -n tee "/etc/systemd/system/$tunnel_unit.service" >/dev/null <<UNIT
 [Unit]
 Description=EventGraph production database and knowledge SSH tunnel for the VM13 preview
@@ -149,10 +161,15 @@ wait_for_db() {
 }
 wait_for_db || { echo "Database tunnel did not become ready" >&2; restore; }
 
-# The preview reads the production database through this tunnel. Run idempotent
-# migrations and missing-source seed here — the same steps a production deploy
-# runs — so the schema always matches the containers being started.
-compose run --rm --no-deps -T --entrypoint sh api -c 'node scripts/migrate.ts && node scripts/seed.ts' || restore
+# Use the exact tested Compose file. Keep the prior file for rollback.
+cp "$staged_compose" "$compose_file"
+
+# Prove this database role can write without leaving production changes. The probe
+# INSERT and readback happen in one transaction that always rolls back. Production
+# migrations and source seeding still belong only to the production release.
+compose run --rm --no-deps api node scripts/ci/vm13-db-write-probe.ts || restore
+# No schema writes from VM13: fail before swapping in API/Web code that expects missing columns.
+compose run --rm --no-deps api node scripts/ci/check-vm13-schema.ts || restore
 
 compose up -d --no-build --pull never --force-recreate --remove-orphans api web || restore
 for service in api web; do

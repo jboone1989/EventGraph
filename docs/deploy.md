@@ -1,19 +1,24 @@
 # 部署
 
-## Provider Connections 数据迁移（先在开发副本验证）
+## 当前厂商连接、模型及工作流路由（2026-11-04）
 
-新增的 `0107`–`0110` 是添加新表的结构迁移，**不会自动迁移历史 Provider 资格**。旧 API/worker 停止写入后，先对 PostgreSQL 做自有私有备份，再在数据库副本进行显式的数据转换：
+厂商连接、模型和工作流绑定统一从 PostgreSQL 的 `provider_connections`、`registered_models`、`provider_workflow_models` 以及 `settings` 读取。NVIDIA 只是一种普通厂商连接，**没有另一套独立的 NVIDIA 模型池**；旧的自动探测、导入和批量验证脚本已删除，不要执行 `scripts/migrate-provider-connections.ts` 或 `scripts/import-nvidia-registered-models.ts`。
 
-```bash
-# 使用部署环境真实的运行时环境文件，不能用空白、示例文件或测试凭据代替。
-# 文件需要包含 DATABASE_URL、MODEL_CREDENTIAL_ENCRYPTION_KEY，以及
-# 旧 model_providers.credential_env 指向的每一个提供商 API key。
-docker compose -f docker-compose.yml -f docker-compose.production.yml \
-  run --rm --no-deps api node scripts/migrate-provider-connections.ts
+发布前在目标生产库执行以下**只读检查**，确认默认值、全部实际启用的流程以及需要 vision/embedding 的流程都有预期模型，不能依靠旧 NVIDIA 的隐式默认路由：
+
+```sql
+SELECT key, value->>'model' AS model_reference
+FROM settings WHERE key LIKE 'models.%' ORDER BY key;
+SELECT b.setting_key, m.model_id, c.name AS connection_name
+FROM provider_workflow_models b
+JOIN registered_models m ON m.id = b.model_id
+JOIN provider_connections c ON c.id = m.provider_id
+ORDER BY b.setting_key;
 ```
 
-任何旧 `credential_env` 变量缺失时必须中止，不应留下部分转换结果。验证所有原先真正可路由的模型：逐能力检查 `routingState.eligibleCapabilities`；只有旧表对应能力存在 `verified` 且 `verified_at` 在最近 24 小时内，才允许以 `legacy` 过渡，时间戳必须保持原样。没有验证过的 vision/embedding 能力不可自动获得资格；过期能力必须重新测试。切到 `MODEL_PROVIDER_REGISTRY_ENABLED=true` 前，先核对副本库的旧路由资格与新路由资格的差异，不接受意外新增或失去的能力。正式切换需单独的迁移/回滚计划；本 PR 不改动生产启用状态。 数据导入完成**不会自动切换路由**。必须先在服务环境显式设置 `MODEL_PROVIDER_REGISTRY_ENABLED=true`，再在维护窗口执行 `docker compose -f docker-compose.yml -f docker-compose.production.yml run --rm --no-deps api node scripts/migrate-provider-connections.ts --activate`；只有 **环境开关和 `providerConnections.activation.v1` 标记同时成立** 才激活。启动前确认实际生产 Compose 文件组合、密钥注入路径与数据库服务健康，并核对能力探测续期任务，避免 24 小时后因失效导致请求失败。 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 需要作为受保护的持久密钥供各进程一致使用，不可在日志、CI 或文档里填写真实值。
+2026-11-04 在 VM09 生产库实测：`models.default` 为 `auto`，15 个工作流步骤均已设置模型（其中 Graphiti chat/embedding 是两个显式的 `model:<uuid>` 绑定），不需要旧默认路由。后续管理员可以改动这些设置，**每次发布仍以实时查询为准**。新环境必须先在后台配置默认模型并检查每项流程的绑定，尤其是图像输入与 Graphiti embedding 的独立资格，不能因为旧路由删除便默默改用无 vision 能力的模型。
 
+`MODEL_CREDENTIAL_ENCRYPTION_KEY` 是跨服务器一致的持久密钥，解密现有数据库密文必须使用原密钥；不要因为连接失败就重置 API Key 或重新生成加密密钥。
 
 ## 用 Docker（推荐）
 
@@ -77,6 +82,10 @@ MCP 默认接受 `SITE_URL` 的主机以及 `localhost`、`127.0.0.1`、`[::1]`�
 
 ### 更新
 
+**2026-11-06 · 站内统计面板退役，改看 Cloudflare 官方台（会删除数据）**：后台「效果」组的「流量与广告」替换为「Cloudflare 分析」外链，地址在 `site/site.ts` 的 `cloudflareAnalyticsUrl` 配置后才显示；`/admin/analytics` 页面、`/api/admin/analytics`、`/api/analytics/events` 信标和本地报表拉取服务一并移除。迁移 `0126_retire_product_analytics.sql` **永久删除 `product_analytics_events` 表及其历史站内事件数据**，**升级前如需保留这些数据，先按上方 [备份](#备份) 一节导出该表**。Cloudflare、Search Console、AdSense 平台侧的官方历史数据不受影响，详见[分析入口](analytics.md)。
+
+**2026-11-05 · 新闻任务 UTC 零点清理（会删除数据）**：每天 UTC 00:00，Worker 清除前一 UTC 日仍处于 `new` / `failed` 的新闻待办和关联 pg-boss 任务。文章保留身份去重标记并转为 `skipped`，防止信源反复推送引发重复模型计费。**升级前如需保留旧失败新闻，先备份数据库。** 已发布新闻保留；旧的已发布修订如果无当日新变化则退出待办，来源今天真正修订时仍可重新分析。未确认计费的模型回执继续保留为 `unknown`，不因清理或批量重试自动再次调用。后台的三类实时积压按 UTC 当日新闻 ID 计数，跨日重置不代表历史模型调用费用清零。
+
 正文原生视频修复会为已有可用视频补播放控件，并去掉空播放器，不写回文章、不调用模型。旧版清洗时已经丢弃的媒体地址无法从存档恢复；升级不批量重新抽取，已有成功正文会跳过抽取，内容哈希相同时重新抽取也可能保留原 HTML。后续新正文按[信源说明](sources.md)保留原生视频，文件继续由浏览器直连原站，签名地址可能过期。
 
 先按下方 [备份](#备份) 一节备份。构建完成后停止旧服务，再运行迁移和新版服务：
@@ -102,18 +111,11 @@ docker compose run --rm setup && docker compose up -d
 
 一个新迁移 `0112_editor_notes.sql`（新表 `editor_notes`，不动已有数据）。按既有顺序更新：备份、停止旧 API 和 worker、`scripts/migrate.ts`、`scripts/seed.ts`、启动——种子会把 `site/editor-notes.ts` 里已写日期的手记插入一次（`ON CONFLICT DO NOTHING`，不覆盖后台编辑），此后手记全部在后台「内容 → 编辑手记」维护。镜像部署脚本的迁移一致性检查会拒绝带着未执行迁移的镜像，属预期保护：先在目标库跑迁移再部署新镜像。
 
-#### Provider 连接与模型管理
+#### EventGraph：移除旧 NVIDIA 模型池和历史模型管理（2026 年 11 月 4 日）
 
-`0106`–`0110` 只新增连接、模型、验证记录和引用映射表，不删除旧数据。新管理页、API、运行时和数据迁移必须一起交付。
+已安装的 Provider 连接、模型 CRUD、工作流绑定和单模型能力测试保持不变。旧 `NVIDIA_MODEL_POOL_ENABLED`、`NVIDIA_MODEL_DISCOVERY_PROBES_ENABLED`、`NVIDIA_POOL_ROUTE_DEFAULT` 以及旧 `/api/admin/model-providers*` 路由、5 分钟 NVIDIA 探测任务、一次性 Provider 数据导入脚本已移除。缺少工作流配置时**不得假设旧 NVIDIA 默认池会补位**；部署前按上面的只读 SQL 检查 `models.default` 与各 `models.<step>`，验证所选模型的 text/vision/embedding 能力；没有可用模型应在管理后台补齐设置。
 
-先在数据库副本上验证，再按维护窗口执行：备份、停止旧 API 和 worker、运行 `scripts/migrate.ts`，然后运行 `docker compose -f docker-compose.yml -f docker-compose.production.yml \
-  run --rm --no-deps api node scripts/migrate-provider-connections.ts`，核验结果后启动新版服务。不要在旧 worker 仍运行时单独迁移 `models.*` 引用。
-
-新凭据通过 `MODEL_CREDENTIAL_ENCRYPTION_KEY` 加密；设置为随机 32 字节的 base64 值，并与数据库备份一起妥善保管。已有环境凭据引用由迁移保留，替换或清除只影响该连接。
-
-迁移保留模型级超时和现有引用。只有迁移前已经开启路由的模型取得当前配置的 `legacy` 资格；原先关闭的路由仍须测试通过才能开启。修改地址、凭据或调用配置会使旧资格失效，界面分别显示路由开关和实际可用性。没有可用模型时明确报错。
-
-完成标记、数据和引用在同一事务提交。重跑只核验，管理员后来删除的对象不会恢复。迁移后旧管理写接口返回 409，请使用新的连接与模型页面。[API 和兼容约定](provider-api.md)。
+数据库迁移 `0122_retire_legacy_model_pool.sql`、`0123_retire_legacy_service_prices.sql` 和 `0124_retire_legacy_model_check_detail.sql` **永久删除**历史 `model_provider_bulk_checks`、`service_prices` 两张表及 `model_provider_checks.detail` 列。2026-11-04 检查 VM09 生产库时两表及该旧字段中的记录均为 0；**其他部署/还原库不保证为空**。执行迁移前会锁定目标旧表并检查数据：表中仍有行，或待删 `detail` 列存在非空值时，迁移直接报错并回滚，不删数据也不记录成功；先备份、导出、核对并清理旧数据后才能继续升级。现有 `registered_models`、`provider_connections`、`provider_workflow_models`、`registered_model_checks`、Neo4j 图谱和 `graphiti_ingestions` 不在这些删除操作范围内。
 
 #### EventGraph：删除旧的本地知识图谱原型（2026 年 10 月 16 日）
 
@@ -332,7 +334,7 @@ cd apps/web && NODE_ENV=production node --env-file=../../.env server.ts   # 网�
 
 ### 可选公共事件讨论（GitHub Discussions / giscus）
 
-事件页及其相关新闻共用一个 GitHub Discussion。使用官方 giscus，读者需要点击“加载讨论”才会执行第三方脚本。默认禁用，不安装评论服务器或账号系统。
+**每篇公开新闻详情都有独立的讨论区**，无论它有没有归属事件；新闻的中文、英文、原文版本共用该新闻的 Discussion。事件详情另有独立的事件级 Discussion。配置好讨论分类后，进入页面自动显示官方 giscus（脚本异步加载、讨论 iframe 懒加载），不需要点击“加载讨论”。未配置分类时隐藏讨论区，不安装评论服务器或账号系统。只有读者首次发表评论时才按 giscus 的机制建立讨论帖，浏览文章不会批量创建空帖。
 
 在已启用 GitHub Discussions 的**公开仓库**安装 giscus App，创建或选定一个适合的 Discussion 分类；到 [giscus 官方配置页](https://giscus.app/) 核对该仓库的分类 ID。仓库身份由 `site/site.ts` 的 `SITE.discussions.repo/repoId` 提供，其他部署需在此调整。将真实分类 ID 填入 `VITE_GISCUS_CATEGORY_ID` 后**重新构建 Web 镜像**；这是 Vite 构建时变量，在运行中的容器里仅设置环境变量不会生效。标准 Compose 使用根 `.env` 传入 Docker build arg；GitHub GHCR 工作流使用仓库变量 `EVENTGRAPH_GISCUS_CATEGORY_ID`。未配置分类时整块讨论入口隐藏，不得填写猜测的 ID。
 

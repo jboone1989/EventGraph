@@ -1,136 +1,119 @@
-import {resolveModelReference,writeWorkflowModel,loadModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
+import {writeWorkflowModel,loadModel,listRegisteredModels,listConnections} from '../providers/registry/connections.ts';
+import {registeredRuntime} from '../providers/registry/runtime.ts';
+import {stageComplexity} from '../providers/registry/selection.ts';
 // Admin "模型与评测": the model each capability uses and where that choice comes from,
 // the prompt versions in use, quality / latency / cost of the last days per model, the switch history
 // and the SelectBench runs that compare models on the same batch. A switch is audited and applies to
 // new work only.
-import type { AdminModels, BeforeJson } from "@aihot/contracts/admin";
+import type { AdminModelBindings } from "@aihot/contracts/admin";
 import { sql } from "../db.ts";
-import { capabilities, capabilityAcceptsModel, invalidateModelCache, modelSources } from "../editorial/models.ts";
-import { MODELS } from "../providers/llm.ts";
-import { poolOverview } from "../providers/nvidia-pool.ts";
-import {listProviders} from "../providers/registry/repository.ts";
+import { ACTIVE_MODEL_BINDINGS, CAPABILITIES, capabilities, invalidateModelCache, modelSources } from "../editorial/models.ts";
 import { audit } from "../audit.ts";
 
-interface UsageRow {
-  purpose: string;
-  model: string | null;
-  prompt_version: string | null;
-  calls: number;
-  ok: number;
-  failed: number;
-  unknown: number;
-  p50: number | null;
-  p95: number | null;
-  tokens_in: string | null;
-  /** Prompt tokens served from the provider's cache, among those without a cost of their own. */
-  tokens_cached: string | null;
-  tokens_out: string | null;
-  /** Of calls without a cost of their own. */
-  tokens_in_uncosted: string | null;
-  tokens_out_uncosted: string | null;
-  actual_cost: string | null;
-  currency: string | null;
+/** Registry choices and settings-based auto routes share the same admin page. */
+export async function modelBindingsOverview(): Promise<AdminModelBindings> {
+ const [models,connections,rows,effective]=await Promise.all([
+  listRegisteredModels(),listConnections(),
+  sql<{key:string;value:{model?:string}}[]>`SELECT key,value FROM settings WHERE key LIKE 'models.%'`,
+  modelSources(),
+ ]);
+ const names=new Map(connections.map(c=>[c.id,c.name]));
+ const saved=new Map(rows.map(r=>[r.key,r.value?.model??'']));
+ const selection=(key:string)=>{
+  const model=saved.get('models.'+key);
+  return model?{model,source:'admin' as const}:{model:'',source:'default' as const};
+ };
+ return {
+  defaultModel:selection('default'),
+  steps:Object.entries(capabilities()).filter(([key])=>!(key in CAPABILITIES) || ACTIVE_MODEL_BINDINGS.has(key)).map(([key,c])=>({
+   key,label:c.label,vision:!!c.vision,embedding:!!c.embedding,
+   autoTier:c.embedding?null:stageComplexity(key),current:selection(key),effective:effective[key]!
+  })),
+  choices:models.filter(m=>m.adapter==='chat'||m.adapter==='embedding').map(m=>({
+   key:'model:'+m.id,modelId:m.modelId,provider:names.get(m.providerId)??m.providerId,
+   adapter:m.adapter,vision:m.capabilities.includes('vision')
+  })),
+ };
 }
 
-export async function modelsOverview(days = 7): Promise<BeforeJson<AdminModels>> {
-  const since = new Date(Date.now() - days * 86400_000);
-  const [sources, usage, prices, history, benches, nvidiaPool, providers] = await Promise.all([
-    modelSources(),
-    sql<UsageRow[]>`
-      SELECT r.purpose, a.model, r.request->>'promptVersion' AS prompt_version, count(*)::int AS calls,
-             count(*) FILTER (WHERE a.status = 'received')::int AS ok,
-             count(*) FILTER (WHERE a.status = 'failed')::int AS failed,
-             count(*) FILTER (WHERE a.status = 'unknown')::int AS unknown,
-             percentile_disc(0.5) WITHIN GROUP (ORDER BY a.latency_ms) AS p50,
-             percentile_disc(0.95) WITHIN GROUP (ORDER BY a.latency_ms) AS p95,
-             sum((a.usage->>'prompt_tokens')::bigint) AS tokens_in, sum((a.usage->>'completion_tokens')::bigint) AS tokens_out,
-             sum((a.usage->>'prompt_tokens')::bigint) FILTER (WHERE a.cost IS NULL) AS tokens_in_uncosted,
-             sum((a.usage->>'completion_tokens')::bigint) FILTER (WHERE a.cost IS NULL) AS tokens_out_uncosted,
-             sum(coalesce((a.usage->'prompt_tokens_details'->>'cached_tokens')::bigint, (a.usage->>'prompt_cache_hit_tokens')::bigint, 0)) FILTER (WHERE a.cost IS NULL) AS tokens_cached,
-             sum(a.cost) FILTER (WHERE a.cost_basis = 'actual') AS actual_cost, max(a.currency) AS currency
-      FROM receipt_attempts a JOIN receipts r ON r.id = a.receipt_id
-      WHERE a.started_at >= ${since} AND a.origin = 'live' AND a.model IS NOT NULL
-      GROUP BY 1, 2, 3 ORDER BY 1, 4 DESC`,
-    sql<{ service: string; model: string; currency: string; input_per_mtok: string | null; cached_per_mtok: string | null; output_per_mtok: string | null }[]>`
-      SELECT service, model, currency, input_per_mtok, cached_per_mtok, output_per_mtok FROM service_prices`,
-    sql<BeforeJson<AdminModels["history"][number]>[]>`
-      SELECT created_at AS at, actor, subject, reason, before, after FROM audit_log WHERE action = 'models.switch' ORDER BY created_at DESC LIMIT 30`,
-    sql<{ id: string; label: string; sample_size: number; prompt_version: string | null; models: string[]; summary: unknown; created_at: Date }[]>`
-      SELECT id, label, sample_size, prompt_version, models,
-             (SELECT coalesce(jsonb_object_agg(key, value - 'sweep'), '{}'::jsonb) FROM jsonb_each(r.summary)) AS summary,
-             created_at FROM selectbench_runs r ORDER BY created_at DESC LIMIT 8`,
-    poolOverview(),
-    listProviders(),
-  ]);
-  const serviceOf = (model: string) => Object.values(MODELS).find((m) => m.model === model || m.key === model)?.service ?? null;
-  // Cached prompt tokens at the cache price, the rest at the input price; calls that carry their own cost
-  // are not estimated again.
-  const priced = (u: UsageRow) => {
-    const service = u.model ? serviceOf(u.model) : null;
-    const p = prices.find((x) => x.service === service && x.model === u.model) ?? prices.find((x) => x.service === service && x.model === "");
-    if (!p || (!p.input_per_mtok && !p.output_per_mtok)) return null;
-    const cached = Number(u.tokens_cached ?? 0);
-    const fresh = Number(u.tokens_in_uncosted ?? 0) - cached;
-    const amount = (fresh / 1e6) * Number(p.input_per_mtok ?? 0) + (cached / 1e6) * Number(p.cached_per_mtok ?? p.input_per_mtok ?? 0) + (Number(u.tokens_out_uncosted ?? 0) / 1e6) * Number(p.output_per_mtok ?? 0);
-    return { amount, currency: p.currency };
-  };
-  const steps = Object.entries(capabilities()).map(([key, c]) => ({
-    key,
-    label: c.label,
-    env: c.env,
-    defaultModel: c.default,
-    vision: !!c.vision,
-    current: sources[key]!,
-    usage: usage
-      .filter((u) => c.purposes.includes(u.purpose))
-      .map((u) => ({
-        purpose: u.purpose,
-        model: u.model,
-        promptVersion: u.prompt_version,
-        calls: u.calls,
-        ok: u.ok,
-        failed: u.failed,
-        unknown: u.unknown,
-        p50: u.p50,
-        p95: u.p95,
-        tokensIn: Number(u.tokens_in ?? 0),
-        tokensOut: Number(u.tokens_out ?? 0),
-        actualCost: u.actual_cost === null ? null : Number(u.actual_cost),
-        currency: u.currency,
-        estimate: priced(u),
-      })),
-  }));
-  const registered=await listRegisteredModels(),connections=await listConnections();
-  const choices = Object.values(MODELS).map((m) => ({ key: m.key, service: m.service, vision: !!m.vision }));
-  choices.push(...registered.map(m=>({key:'model:'+m.id,service:connections.find(c=>c.id===m.providerId)?.name??m.providerId,vision:m.capabilities.includes('vision')})));
-  return { days, capabilities: steps, choices, history, benches, nvidiaPool, providers };
+/** A setting is either a fixed model reference or an automatic free routing policy. */
+export async function switchModel(capability:string,model:string|null,reason:string,actor:string){
+ const step=capability==='default'?{vision:false,embedding:false}:capabilities()[capability];
+ if(!step)throw Object.assign(new Error('unknown capability'),{statusCode:400});
+ if(!reason.trim())throw Object.assign(new Error('a reason is required'),{statusCode:400});
+ const automatic=model==='auto'||(model!==null&&/^auto:(light|medium|heavy)$/.test(model));
+ if(step.embedding&&automatic)throw Object.assign(new Error('Choose a specific embedding model'),{statusCode:400});
+ let id:string|null=null;
+ if(model!==null&&!automatic){
+  if(!model.startsWith('model:'))
+   throw Object.assign(new Error('Choose a model from Model Management'),{statusCode:400});
+  const selected=await loadModel(model.slice(6));
+  if(selected.adapter!==(step.embedding?'embedding':'chat'))
+   throw Object.assign(new Error(step.embedding?'This workflow needs an embedding model':'This workflow needs a chat model'),{statusCode:400});
+  if(step.embedding)await registeredRuntime(selected.id,'embedding');
+  if(step.vision&&!selected.capabilities.includes('vision'))
+   throw Object.assign(new Error('This workflow needs a vision model'),{statusCode:400});
+  id=selected.id;
+ }
+ const key='models.'+capability;
+ const [previous]=await sql<{value:{model?:string}}[]> `SELECT value FROM settings WHERE key=${key}`;
+ const before=previous?.value?.model??null;
+ await sql.begin(async tx=>{
+  if(automatic){
+   await tx`INSERT INTO settings(key,value,updated_by) VALUES (${key},${tx.json({model})},${actor})
+    ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
+   await tx`DELETE FROM provider_workflow_models WHERE setting_key=${key}`;
+  }else await writeWorkflowModel(tx,key,id,actor);
+  await audit(actor,'models.switch','capability:'+capability,reason,{model:before},{model:model},{db:tx});
+ });
+ invalidateModelCache();
+ return {capability,before:{model:before??'',source:before?'admin':'default'},
+  after:{model:model??'',source:model?'admin':'default'}};
 }
 
-/** Switches a capability to another registered model (or back to the environment/default when null). */
-export async function switchModel(capability: string, model: string | null, reason: string, actor: string) {
-  const c = capabilities()[capability];
-  if (!c) throw Object.assign(new Error("unknown capability"), { statusCode: 400 });
-  if (!reason.trim()) throw Object.assign(new Error("a reason is required"), { statusCode: 400 });
-  let id:string|null=null;
-  if(model!==null) {
-    id=await resolveModelReference(model);
-    const registered=id?await loadModel(id):null;
-    const spec=registered?{vision:registered.capabilities.includes('vision')}:MODELS[model];
-    if(!spec)throw Object.assign(new Error('unknown model'),{statusCode:400});
-    if(!capabilityAcceptsModel(c,spec))throw Object.assign(new Error('this capability needs a vision model'),{statusCode:400});
+/**
+ * One explicit action installs the default and removes every known chat-stage override.
+ * Clearing settings also cascades provider_workflow_models via its existing FK.
+ * Embedding bindings are deliberately excluded: their vector dimensions cannot inherit a chat model.
+ */
+export async function applyDefaultModelToAll(model:string|null,reason:string,actor:string) {
+ if(!reason.trim())throw Object.assign(new Error('a reason is required'),{statusCode:400});
+ if(model!==null&&typeof model!=='string')throw Object.assign(new Error('Invalid default model'),{statusCode:400});
+ const automatic=model==='auto'||(model!==null&&/^auto:(light|medium|heavy)$/.test(model));
+ const stages=Object.entries(capabilities()).filter(([key,step])=>key!=='default'&&!step.embedding);
+ let id:string|null=null;
+ if(model!==null&&!automatic){
+  if(!model.startsWith('model:'))
+   throw Object.assign(new Error('Choose a model from Model Management'),{statusCode:400});
+  const selected=await loadModel(model.slice(6));
+  if(selected.adapter!=='chat')
+   throw Object.assign(new Error('Default must be a chat model'),{statusCode:400});
+  if(stages.some(([,step])=>step.vision&&!selected.capabilities.includes('vision')))
+   throw Object.assign(new Error('This default model cannot read images required by a workflow'),{statusCode:400});
+  id=selected.id;
+ }
+ const result=await sql.begin(async tx=>{
+  // Lock old bindings before replacing them, so the audit reflects exactly what was cleared.
+  const rows=await tx<{key:string;value:{model?:string}}[]>`SELECT key,value FROM settings WHERE key LIKE 'models.%' FOR UPDATE`;
+  const previous=new Map(rows.map(r=>[r.key,r.value?.model??'']));
+  const before=previous.get('models.default')??null;
+  const cleared=stages
+   .map(([key])=>'models.'+key)
+   .filter(key=>previous.has(key))
+   .map(key=>({step:key.slice('models.'.length),model:previous.get(key)}));
+  if(automatic){
+   await tx`INSERT INTO settings(key,value,updated_by) VALUES ('models.default',${tx.json({model})},${actor})
+    ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
+   await tx`DELETE FROM provider_workflow_models WHERE setting_key='models.default'`;
+  }else{
+   await writeWorkflowModel(tx,'models.default',id,actor);
   }
-  const before=(await modelSources())[capability];
-  await sql.begin(async tx=>{
-    if(id!==null||model===null)await writeWorkflowModel(tx,'models.'+capability,id,actor);
-    else {
-      // Built-in deployment presets have no normalized row; remove any prior FK binding atomically.
-      await tx`DELETE FROM provider_workflow_models WHERE setting_key=${'models.'+capability}`;
-      await tx`INSERT INTO settings(key,value,updated_by) VALUES (${'models.'+capability},${tx.json({model})},${actor})
-       ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
-    }
-    await audit(actor,'models.switch','capability:'+capability,reason,before??null,{model:id?'model:'+id:model},{db:tx});
-  });
-  invalidateModelCache();
-  const after = (await modelSources())[capability];
-  return { capability, before, after };
+  for(const [key] of stages)await writeWorkflowModel(tx,'models.'+key,null,actor);
+  await audit(actor,'models.default.apply-all','capability:default',reason,
+   {model:before,overrides:cleared},{model,clearedSteps:cleared.map(c=>c.step)}, {db:tx});
+  return {before,clearedSteps:cleared.map(c=>c.step)};
+ });
+ invalidateModelCache();
+ return {capability:'default',before:{model:result.before??'',source:result.before?'admin':'default'},
+  after:{model:model??'',source:model?'admin':'default'},clearedSteps:result.clearedSteps};
 }

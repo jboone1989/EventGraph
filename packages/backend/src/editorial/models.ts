@@ -9,8 +9,6 @@ import { DEFAULTS } from "@aihot/site/models";
 import { sql } from "../db.ts";
 import { serverModules } from "../modules.ts";
 import { MODELS } from "../providers/llm.ts";
-import { availableModel } from "../providers/nvidia-pool.ts";
-import {selectConfiguredProviderForStage} from "../providers/registry/selection.ts";
 import { nvidiaCapability } from "../providers/nvidia-catalog.ts";
 
 export interface Capability {
@@ -22,6 +20,8 @@ export interface Capability {
   purposes: string[];
   /** The step needs a model that reads images. */
   vision?: boolean;
+  /** Embedding stages do not inherit the default chat model. */
+  embedding?: boolean;
   /** The step has nothing to do on this site, so a service's outage does not stop it. */
   idle?: () => boolean;
 }
@@ -29,7 +29,7 @@ export interface Capability {
 export const CAPABILITIES = {
   prefilter: { label: "精选预筛（是否属于这个行业，宽召回）", env: "PREFILTER_MODEL", default: DEFAULTS.prefilter ?? "default", purposes: ["prefilter_article"] },
   score: { label: "精选评分（两次独立评分，按信源分级门槛）", env: "SCORE_MODEL", default: DEFAULTS.score ?? "default", purposes: ["score_article"] },
-  understand: { label: "内容理解（入选和接近入选的标题、摘要、推荐理由，能看图时看首图）", env: "UNDERSTAND_MODEL", default: DEFAULTS.understand ?? "default", purposes: ["understand_article"] },
+  understand: { label: "新闻统一分析（一次请求完成判断、评分、结构、中英文摘要和解读；沿用当前模型配置）", env: "UNDERSTAND_MODEL", default: DEFAULTS.understand ?? "default", purposes: ["analyze_article", "understand_article"] },
   summarize: { label: "标题摘要（其余文章的中文标题与摘要）", env: "SUMMARIZE_MODEL", default: DEFAULTS.summarize ?? "default", purposes: ["summarize_article"] },
   wording: { label: "改用词（标题、摘要、理由用了本站不用的词时，只改这些词）", env: "WORDING_MODEL", default: DEFAULTS.wording ?? "default", purposes: ["mend_wording"], idle: () => !READER_WORDING.length },
   structure: { label: "结构抽取（分类、标签、主体公司、事件事实，不写读者文字）", env: "STRUCTURE_MODEL", default: DEFAULTS.structure ?? "default", purposes: ["structure_article"] },
@@ -41,7 +41,14 @@ export const CAPABILITIES = {
   translate: { label: "精选全文翻译（含引用帖）", env: "TRANSLATE_MODEL", default: DEFAULTS.translate ?? "default", purposes: ["translate_body", "translate_quoted"] },
   english: { label: "英文版文字（公开报道的英文标题和摘要、精选报道的推荐理由，事件的英文概览）", env: "ENGLISH_MODEL", default: DEFAULTS.english ?? "default", purposes: ["english_copy", "english_digest"] },
   explain: { label: "新闻解读（5W1H、为什么重要、接下来看；只写来源能支撑的字段）", env: "EXPLAIN_MODEL", default: DEFAULTS.explain ?? "default", purposes: ["explain_item"] },
+  graphiti: { label: "Graphiti 知识抽取与关系复核（复用默认聊天模型，可单独覆盖）", env: "GRAPHITI_CHAT_MODEL", default: DEFAULTS.graphiti ?? "default", purposes: ["graphiti_chat"] },
+  graphitiEmbedding: { label: "Graphiti 向量生成（必须单独指定向量模型，维度与现有知识图谱一致）", env: "GRAPHITI_EMBEDDING_MODEL_REF", default: "", purposes: ["graphiti_embedding"], embedding: true },
 } satisfies Record<string, Capability>;
+
+// The active runtime bindings; legacy individual-step entry points remain for evaluators only.
+export const ACTIVE_MODEL_BINDINGS = new Set([
+  "understand", "summarize", "group", "groupReview", "digest", "report", "english", "graphiti", "graphitiEmbedding",
+]);
 
 export type CapabilityKey = keyof typeof CAPABILITIES;
 
@@ -57,6 +64,7 @@ export async function stepsOnService(service: string): Promise<string[]> {
   const current = await modelSources();
   const names:string[]=[];
   for(const [key,c] of Object.entries(capabilities())) {
+    if (key in CAPABILITIES && !ACTIVE_MODEL_BINDINGS.has(key)) continue;
     const reference=current[key]!.model;
     let owner=MODELS[reference]?.service;
     if(reference.startsWith('model:')) {
@@ -87,6 +95,7 @@ export function invalidateModelCache() {
 
 /** Whether a registered model explicitly declares image input support. Unspecified means text-only. */
 export async function modelSupportsVision(model: string): Promise<boolean> {
+  if(model.startsWith('auto:'))return false;
   if(model.startsWith('model:'))return (await loadModel(model.slice(6))).capabilities.includes('vision');
   if (MODELS[model]) return MODELS[model].vision === true;
   // The healthy NVIDIA pool resolves a preset to its concrete service model ID.
@@ -101,6 +110,7 @@ export function capabilityAcceptsModel(capability: Capability, model: { vision?:
 
 /** An invalid or deleted admin reference must not suppress a valid environment choice. */
 async function validChoice(reference:string):Promise<boolean> {
+ if(reference==='auto'||/^auto:(light|medium|heavy)$/.test(reference))return true;
  if(MODELS[reference])return true;
  try {
   if(reference.startsWith('model:')){await loadModel(reference.slice(6));return true;}
@@ -128,17 +138,15 @@ async function effectiveChoice(c:Capability,admin?:string):Promise<{model:string
 export async function modelFor(capability: CapabilityKey | (string & {})): Promise<string> {
   const c = capabilities()[capability];
   if (!c) throw new Error(`unknown model step: ${capability}`);
-  const chosen=(await effectiveChoice(c,(await overrides())[capability])).model;
-  if(chosen.startsWith('model:')){await registeredRuntime(chosen.slice(6),c.vision?'vision':'text');return chosen;}
-  if (process.env.NVIDIA_MODEL_POOL_ENABLED === "true") {
-    const nvidiaChosen=MODELS[chosen]?.service==="nvidia" ||
-      (chosen==="default"&&process.env.NVIDIA_POOL_ROUTE_DEFAULT==="true");
-    if(nvidiaChosen&&process.env.MODEL_PROVIDER_REGISTRY_ENABLED==="true")
-      return selectConfiguredProviderForStage(capability,!!c.vision);
-    if (MODELS[chosen]?.service === "nvidia") return availableModel(chosen);
-    if (chosen === "default" && process.env.NVIDIA_POOL_ROUTE_DEFAULT === "true")
-      return availableModel(c.vision ? "nvidia-glm-5.3-flash" : "nvidia-gpt-oss-20b");
+  const saved=await overrides();
+  const chosen=(await effectiveChoice(c,saved[capability]??(c.embedding?undefined:saved.default))).model;
+  if(c.embedding){
+    if(!chosen.startsWith('model:'))throw new Error('Configure a registered embedding model for '+capability);
+    await registeredRuntime(chosen.slice(6),'embedding');
+    return chosen;
   }
+  if(chosen==='auto'||/^auto:(light|medium|heavy)$/.test(chosen))return 'auto:'+capability+(chosen==='auto'?'':':'+chosen.slice(5));
+  if(chosen.startsWith('model:')){await registeredRuntime(chosen.slice(6),c.vision?'vision':'text');return chosen;}
   if(await normalizedRegistryActive()){const id=await resolveModelReference(chosen);if(id){await registeredRuntime(id,c.vision?'vision':'text');return 'model:'+id;}}
   if(!MODELS[chosen])throw new Error('Unknown configured model: '+chosen);
   return chosen;
@@ -149,6 +157,6 @@ export async function modelSources(): Promise<Record<string, { model: string; so
   const o = await overrides();
   const out: Record<string, { model: string; source: "admin" | "env" | "default" }> = {};
   for(const [key,c] of Object.entries(capabilities()))
-    out[key]=await effectiveChoice(c,o[key]);
+    out[key]=await effectiveChoice(c,o[key]??(c.embedding?undefined:o.default));
   return out;
 }

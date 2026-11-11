@@ -4,10 +4,9 @@ import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {sql,closeDb} from '@aihot/backend/db';
 import {createConnection,updateConnection,deleteConnection,listConnections,loadConnection,
  createRegisteredModel,updateRegisteredModel,deleteRegisteredModel,getRegisteredModel,
- configurationFingerprint,routingState,normalizedRegistryActive,loadModel,writeWorkflowModel,resolveModelReference,resolveLegacyModel} from '@aihot/backend/providers/registry/connections';
+ configurationFingerprint,routingState,loadModel,writeWorkflowModel,clearRegisteredModelCache} from '@aihot/backend/providers/registry/connections';
 import {storedCredential,credentialDigest} from '@aihot/backend/providers/registry/connection-secrets';
 import {ProviderConfigError,type ConnectionInput,type ModelInput} from '@aihot/backend/providers/registry/connection-types';
-import {migrateProviderConnections,migratedId} from '../scripts/migrate-provider-connections.ts';
 
 process.env.MODEL_CREDENTIAL_ENCRYPTION_KEY=randomBytes(32).toString('base64');
 const actor='provider-test';
@@ -18,10 +17,57 @@ const model=(providerId:string,extra:Partial<ModelInput>={}):ModelInput=>({provi
  body:{messages:[{role:'user',content:'Reply OK'}]},response:'chat'},stream:false,complexity:'medium',
  documentationUrl:null,notes:null,enabled:false,routeEnabled:false,...extra});
 after(closeDb);
+test('runtime model cache hits until cleared, while CRUD invalidates it automatically',async()=>{
+ const c=await createConnection(connection({name:'cache-'+randomUUID()}),'create',actor);
+ const m=await createRegisteredModel(model(c.id,{modelId:'before'}),'create',actor);
+ assert.equal((await loadModel(m.id)).model_id,'before');
+ await sql`UPDATE registered_models SET model_id='after' WHERE id=${m.id}::uuid`;
+ assert.equal((await loadModel(m.id)).model_id,'before');
+ clearRegisteredModelCache();
+ assert.equal((await loadModel(m.id)).model_id,'after');
+ const edited=await updateRegisteredModel(m.id,model(c.id,{modelId:'edited'}),m.version,'edit',actor);
+ assert.equal((await loadModel(m.id)).model_id,'edited');
+ await deleteRegisteredModel(m.id,edited.version,'delete',actor);
+ await assert.rejects(loadModel(m.id),/Model not found/);
+});
+
+test('new connection and model IDs use time-sortable UUIDv7 while old v4 keys remain usable',async()=>{
+ const before=Date.now();
+ const c=await createConnection(connection({name:'ordered-'+randomUUID()}),'create',actor);
+ const m=await createRegisteredModel(model(c.id,{modelId:'ordered-model'}),'create',actor);
+ const timestamp=(id:string)=>Number.parseInt(id.replaceAll('-','').slice(0,12),16);
+ for(const id of [c.id,m.id]){
+  assert.match(id,/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.ok(timestamp(id)>=before-1000&&timestamp(id)<=Date.now()+1000);
+ }
+ assert.equal((await getRegisteredModel(m.id)).providerId,c.id);
+ // Existing UUIDv4 records still resolve and can be edited by their original primary key.
+ const legacyModelId=randomUUID();
+ const [legacy]=await sql<{id:string}[]>`UPDATE registered_models SET id=${legacyModelId}::uuid WHERE id=${m.id}::uuid RETURNING id`;
+ assert.equal(legacy?.id,legacyModelId);
+ clearRegisteredModelCache();
+ const oldRecord=await getRegisteredModel(legacyModelId);
+ assert.equal(oldRecord.id,legacyModelId);
+ const edited=await updateRegisteredModel(oldRecord.id,model(c.id,{modelId:'legacy-edited'}),oldRecord.version,'edit',actor);
+ assert.equal(edited.id,legacyModelId);
+});
+
 test('persisted credential fingerprint is keyed, never the offline SHA-256 of an API secret',()=>{
  const weak='weak-secret-for-test',plain=createHash('sha256').update(weak).digest('hex');
  assert.notEqual(credentialDigest(weak),plain);
  assert.notEqual(credentialDigest(weak),credentialDigest(weak+'-rotated'));
+});
+
+
+test('a provider with no models can be deleted in one CRUD operation even when enabled',async()=>{
+ const first=await createConnection(connection({name:'empty-'+randomUUID(),enabled:true}),'create',actor);
+ assert.deepEqual(await deleteConnection(first.id,first.version,'delete empty connection',actor),{deleted:true});
+ const second=await createConnection(connection({name:'has-model-'+randomUUID(),enabled:true}),'create',actor);
+ const child=await createRegisteredModel(model(second.id),'create child',actor);
+ await assert.rejects(deleteConnection(second.id,second.version,'delete with child',actor),
+  e=>e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.id===child.id));
+ await deleteRegisteredModel(child.id,child.version,'delete child',actor);
+ assert.deepEqual(await deleteConnection(second.id,second.version,'delete empty connection',actor),{deleted:true});
 });
 
 test('credentials support replace, keep and clear, without values in views or audits',async()=>{
@@ -61,6 +107,27 @@ test('same upstream model name is independent across connections; duplicates on 
  await assert.rejects(updateRegisteredModel(ma.id,model(a.id),ma.version,'stale',actor),(e:unknown)=>e instanceof ProviderConfigError&&e.statusCode===409);
 });
 
+test('two Groq connections store separate credentials and same-name models with independent UUIDs',async()=>{
+ const first=await createConnection(connection({name:'Groq-A',vendor:'groq',
+  baseUrl:'https://api.groq.com/openai/v1',credential:{action:'replace',value:'groq-key-a'}}),'test',actor);
+ const second=await createConnection(connection({name:'Groq-B',vendor:'groq',
+  baseUrl:'https://api.groq.com/openai/v1',credential:{action:'replace',value:'groq-key-b'}}),'test',actor);
+ const a=await createRegisteredModel(model(first.id,{modelId:'openai/gpt-oss-120b',billing:'free'}),'test',actor);
+ const b=await createRegisteredModel(model(second.id,{modelId:'openai/gpt-oss-120b',billing:'free'}),'test',actor);
+ assert.notEqual(a.id,b.id);
+ assert.equal(a.modelId,b.modelId);
+ assert.equal(a.providerId,first.id);
+ assert.equal(b.providerId,second.id);
+ assert.equal(storedCredential(await loadConnection(first.id)),'groq-key-a');
+ assert.equal(storedCredential(await loadConnection(second.id)),'groq-key-b');
+ assert.notEqual(configurationFingerprint(await loadConnection(first.id),await loadModel(a.id)),
+  configurationFingerprint(await loadConnection(second.id),await loadModel(b.id)));
+ await assert.rejects(createRegisteredModel(model(first.id,{modelId:a.modelId,billing:'free'}),'test',actor),
+  (e:unknown)=>e instanceof ProviderConfigError&&e.statusCode===409);
+ await deleteRegisteredModel(a.id,a.version,'delete',actor);
+ assert.equal((await getRegisteredModel(b.id)).id,b.id);
+});
+
 test('protected endpoints cannot be bypassed through brand, policy payload or a host change',async()=>{
  const c=await createConnection(connection({vendor:'anything',baseUrl:'https://integrate.api.nvidia.com/v1'}),'test',actor);
  assert.equal(c.policy,'nvidia-free-trial');
@@ -83,11 +150,19 @@ test('verification follows configuration fingerprints, including external creden
  await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,status,verified_at)
   VALUES (${m.id}::uuid,'text',${fingerprint},'verified',now())`;
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
- // Even an exact legacy fingerprint cannot authorize checks older than 24 hours.
- const stale=routingState({...await loadModel(m.id),enabled:true,route_enabled:true},await loadConnection(c.id),
-  [{model_id:m.id,capability:'text',config_fingerprint:fingerprint,status:'legacy',
-    verified_at:new Date(Date.now()-25*60*60*1000),latency_ms:null}]);
- assert.deepEqual(stale.eligibleCapabilities,[]);
+ // A matching successful check remains valid when only time has passed.
+ const eligibleRow={...await loadModel(m.id),enabled:true,route_enabled:true};
+ const eligibleConnection=await loadConnection(c.id);
+ const oldCheck={model_id:m.id,capability:'text',config_fingerprint:fingerprint,status:'legacy',
+    verified_at:new Date(Date.now()-25*60*60*1000),latency_ms:null};
+ const stillVerified=routingState(eligibleRow,eligibleConnection,[oldCheck]);
+ assert.deepEqual(stillVerified.eligibleCapabilities,['text']);
+ // Probes report diagnostics but do not block actual-request routing.
+ const future=routingState(eligibleRow,eligibleConnection,[{...oldCheck,status:'verified',
+   verified_at:new Date(Date.now()+60*60*1000)}]);
+ assert.deepEqual(future.eligibleCapabilities,['text']);
+ const failed=routingState(eligibleRow,eligibleConnection,[{...oldCheck,status:'failed'}]);
+ assert.deepEqual(failed.eligibleCapabilities,['text']);
  const renamed=await updateConnection(c.id,connection({name:'New display name'}),c.version,'display',actor);
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.status,'verified');
  process.env.PROVIDER_TEST_KEY='rotated';
@@ -95,99 +170,36 @@ test('verification follows configuration fingerprints, including external creden
  process.env.PROVIDER_TEST_KEY='first';
  const edited=await updateRegisteredModel(m.id,model(c.id,{requestDefaults:{temperature:0.8}}),m.version,'params',actor);
  assert.equal(edited.checks[0]?.status,'unverified');
- await assert.rejects(updateRegisteredModel(m.id,model(c.id,{requestDefaults:{temperature:0.8},enabled:true,routeEnabled:true}),edited.version,'route',actor),/successful capability test/);
+ const routed=await updateRegisteredModel(m.id,model(c.id,{requestDefaults:{temperature:0.8},enabled:true,routeEnabled:true}),edited.version,'route',actor);
+ assert.deepEqual(routed.routing.eligibleCapabilities,['text']);
  const changed=await updateConnection(c.id,connection({baseUrl:'https://example.com/another/v1'}),renamed.version,'address',actor);
  assert.equal(changed.baseUrl,'https://example.com/another/v1');
  assert.equal((await getRegisteredModel(m.id)).checks[0]?.verifiedAt,null);
 });
 
-test('deletion reports concrete model/workflow dependencies and keeps enable separate',async()=>{
+test('a successful 25-hour-old capability test can enable routing without repeated paid calls',async()=>{
+ const c=await createConnection(connection({name:'persistent-'+randomUUID(),
+  credential:{action:'replace',value:'test-key-'+randomUUID()}}),'create',actor);
+ const input=model(c.id,{enabled:true});
+ const m=await createRegisteredModel(input,'create',actor);
+ const fingerprint=configurationFingerprint(await loadConnection(c.id),await loadModel(m.id));
+ await sql`INSERT INTO registered_model_checks(model_id,capability,config_fingerprint,status,verified_at)
+   VALUES (${m.id}::uuid,'text',${fingerprint},'verified',now()-interval '25 hours')`;
+ const routed=await updateRegisteredModel(m.id,{...input,routeEnabled:true},m.version,'enable',actor);
+ assert.deepEqual(routed.routing.eligibleCapabilities,['text']);
+});
+
+test('deleting a bound model clears its workflow assignment and settings atomically',async()=>{
  const c=await createConnection(connection({enabled:false}),'test',actor);
  const m=await createRegisteredModel(model(c.id),'test',actor);
  const key='models.provider-test-'+randomUUID();
  await sql.begin(tx=>writeWorkflowModel(tx,key,m.id,actor));
- await assert.rejects(deleteRegisteredModel(m.id,m.version,'delete',actor),(e:unknown)=>
-  e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.kind==='workflow'&&d.id===key));
  await assert.rejects(deleteConnection(c.id,c.version,'delete',actor),(e:unknown)=>
   e instanceof ProviderConfigError&&e.statusCode===409&&e.dependencies.some(d=>d.kind==='model'&&d.id===m.id)&&e.dependencies.some(d=>d.id===key));
- await sql.begin(tx=>writeWorkflowModel(tx,key,null,actor));
  assert.deepEqual(await deleteRegisteredModel(m.id,m.version,'delete',actor),{deleted:true});
+ const [binding]=await sql`SELECT 1 FROM provider_workflow_models WHERE setting_key=${key}`;
+ const [setting]=await sql`SELECT 1 FROM settings WHERE key=${key}`;
+ assert.equal(binding,undefined);
+ assert.equal(setting,undefined);
  assert.deepEqual(await deleteConnection(c.id,c.version,'delete',actor),{deleted:true});
-});
-
-test('migration is repeatable, preserves source configurations and validates actual workflow targets',async()=>{
- process.env.NVIDIA_API_KEY='migration-test-key';
- const oldIds=['openai/gpt-oss-20b','nvidia/nemotron-3-super-120b-a12b'];
- for(const id of oldIds)await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,capabilities,request_defaults,enabled,route_enabled)
-  VALUES ('nvidia',${id},'chat','https://integrate.api.nvidia.com/v1/chat/completions','NVIDIA_API_KEY','["text"]'::jsonb,'{"temperature":0.7}'::jsonb,true,true)`;
- for(const [i,id] of oldIds.entries())await sql`INSERT INTO settings(key,value,updated_by)
-  VALUES (${'models.migration-'+i},${sql.json({model:'nvidia:'+id})},${actor})`;
- // Old route switches are not probe evidence. Only a fresh successful exact
- // capability check may become legacy, and its original timestamp is preserved.
- const verifiedAt=new Date(Date.now()-10*60*1000);
- for(const id of oldIds)await sql`INSERT INTO model_provider_checks
-  (vendor,model_id,capability,status,verified_at,latency_ms,detail)
-  VALUES ('nvidia',${id},'text','verified',${verifiedAt},400,'prior verified probe')`;
- await sql`INSERT INTO model_provider_checks
-  (vendor,model_id,capability,status,verified_at)
-  VALUES ('nvidia',${oldIds[0]},'vision','failed',NULL)`;
-
- await sql`UPDATE model_providers SET timeout_ms=120000 WHERE model_id=${oldIds[1]!}`;
- await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,enabled,route_enabled) VALUES ('nvidia','disabled-legacy','unconfigured','https://integrate.api.nvidia.com/v1/chat/completions','NVIDIA_API_KEY',false,false)`;
- // Preflight fails atomically when even a disabled legacy connection references
- // a runtime key not present in this environment. Never write partial mappings.
- delete process.env.PROVIDER_MIGRATION_MISSING_KEY;
- await sql`INSERT INTO model_providers(vendor,model_id,adapter,endpoint,credential_env,enabled,route_enabled)
-  VALUES ('example','missing-key','unconfigured','https://example.com/v1','PROVIDER_MIGRATION_MISSING_KEY',false,false)`;
- await assert.rejects(migrateProviderConnections(),/Missing provider runtime credential: PROVIDER_MIGRATION_MISSING_KEY/);
- assert.equal((await sql`SELECT 1 FROM settings WHERE key='providerConnections.migration.v1'`).length,0);
- await sql`DELETE FROM model_providers WHERE vendor='example' AND model_id='missing-key'`;
- delete process.env.MODEL_PROVIDER_REGISTRY_ENABLED;
- const first=await migrateProviderConnections();
- assert.equal(first.createdModels,3);assert.equal(first.migratedReferences,0);
- assert.equal(first.activated,false);
- assert.equal(await normalizedRegistryActive(),false);
- assert.equal((await sql`SELECT 1 FROM settings WHERE key='providerConnections.activation.v1'`).length,0);
- process.env.MODEL_PROVIDER_REGISTRY_ENABLED='true';
- assert.equal(await normalizedRegistryActive(),false,'flag alone must not activate old data');
- const activated=await migrateProviderConnections({activate:true});
- assert.equal(activated.migratedReferences,2);
- assert.equal(await normalizedRegistryActive(),true);
- const original=oldIds.map(id=>migratedId('model',['nvidia',id]));
- for(const [i,id] of original.entries()) {
-  const m=await getRegisteredModel(id);
-  assert.equal(m.modelId,oldIds[i]);assert.equal(m.enabled,true);assert.equal(m.routeEnabled,true);
-  assert.equal(await resolveLegacyModel('nvidia',oldIds[i]!),id);
-  assert.equal(await resolveModelReference('nvidia:'+oldIds[i]),id);
-  assert.equal(await resolveModelReference('model:'+id),id);
-  assert.equal(await resolveModelReference(oldIds[i]!),null);
-  assert.deepEqual(m.requestDefaults,{temperature:0.7});
-  assert.deepEqual(m.routing.eligibleCapabilities,['text']);
-  assert.equal(m.checks.find(c=>c.capability==='text')?.status,'legacy');
-  assert.equal(m.checks.find(c=>c.capability==='text')?.verifiedAt,verifiedAt.toISOString());
-  assert.notEqual(m.checks.find(c=>c.capability==='vision')?.status,'legacy');
-  assert.equal(m.timeoutOverrideMs,i===0?60000:120000);
-  const [setting]=await sql`SELECT value FROM settings WHERE key=${'models.migration-'+i}`;
-  assert.equal(setting!.value.model,'model:'+id);
- }
- assert.equal((await getRegisteredModel(original[0]!)).providerId,(await getRegisteredModel(original[1]!)).providerId);
- assert.equal((await getRegisteredModel(migratedId('model',['nvidia','disabled-legacy']))).checks.some(x=>x.status==='legacy'),false);
- const edited=await getRegisteredModel(original[0]!);
- await sql`UPDATE registered_models SET notes='admin edit',version=version+1 WHERE id=${edited.id}::uuid`;
- const again=await migrateProviderConnections();
- assert.equal(again.createdModels,0);assert.equal(again.migratedReferences,0);
- assert.equal((await getRegisteredModel(edited.id)).notes,'admin edit');
- assert.equal(await resolveModelReference('nvidia-gpt-oss-20b'),original[0]);
- // Same number of bindings, wrong target: the migration must reject and roll back.
- await sql`UPDATE provider_workflow_models SET model_id=${original[1]!}::uuid WHERE setting_key='models.migration-0'`;
- await assert.rejects(migrateProviderConnections(),/binding disagrees/);
- await sql.begin(tx=>writeWorkflowModel(tx,'models.migration-0',null,actor));
- await sql`UPDATE registered_models SET enabled=false,route_enabled=false WHERE id=${original[0]!}::uuid`;
- const deleting=await getRegisteredModel(original[0]!);
- await deleteRegisteredModel(deleting.id,deleting.version,'remove migrated model',actor);
- await migrateProviderConnections();
- assert.equal((await sql`SELECT 1 FROM registered_models WHERE id=${original[0]!}::uuid`).length,0);
- assert.equal(await resolveLegacyModel('nvidia',oldIds[0]!),null);
- await assert.rejects(resolveModelReference('nvidia:'+oldIds[0]),/has been deleted/);
- await assert.rejects(resolveModelReference('nvidia-gpt-oss-20b'),/has been deleted/);
 });

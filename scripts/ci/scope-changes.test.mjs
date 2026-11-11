@@ -194,9 +194,9 @@ test("push runs use per-commit concurrency so a docs commit cannot evict queued 
   assert.ok(wf.includes("cancel-in-progress: ${{ github.event_name == 'pull_request' }}"));
 });
 
-test("every remaining release gate restores shallow ancestry on later docs tips", () => {
-  const wf = readFileSync(resolve(".github/workflows/check.yml"), "utf8");
-  // One occurrence per release-gate deploy job (dev-worker deploy removed 2026-11-02).
+test("the isolated develop publisher and deploy gate restore shallow ancestry", () => {
+  const wf = readFileSync(resolve(".github/workflows/release-develop.yml"), "utf8");
+  // The publish and VM13 preview paths still retain the ancestry-preserving fetch.
   assert.equal((wf.match(/git fetch --unshallow origin "\$current"/g) ?? []).length, 2);
 });
 

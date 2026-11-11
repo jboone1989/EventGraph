@@ -949,13 +949,16 @@
           "messages": [
             {
               "role": "user",
-              "content": "Answer in one short sentence: What is AIHOT?"
+              "content": "Reply with the single word OK."
             }
           ],
-          "max_tokens": 384
+          "max_tokens": 1024,
+          "reasoning_effort": "none",
+          "temperature": 1,
+          "top_p": 0.95
         },
         "response": "chat",
-        "source": "catalog-family-sample; official model-specific example pending"
+        "source": "https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-super-vl-120b-a12b-infer (reasoning_effort=none supported)"
       }
     },
     {
@@ -1139,7 +1142,22 @@
     {
       "vendor": "nvidia",
       "modelId": "stepfun-ai/step-5-preview",
-      "probeSpec": null
+      "probeSpec": {
+        "capability": "text",
+        "body": {
+          "messages": [
+            {
+              "role": "user",
+              "content": "Reply with the single word OK."
+            }
+          ],
+          "max_tokens": 4096,
+          "temperature": 0.5,
+          "top_p": 1
+        },
+        "response": "chat",
+        "source": "https://docs.api.nvidia.com/nim/reference/stepfun-ai-step-5-preview-infer"
+      }
     },
     {
       "vendor": "nvidia",

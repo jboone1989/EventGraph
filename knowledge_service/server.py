@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import os
 
+from embedding_batches import embedding_batches
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from graphiti_core import Graphiti
@@ -13,23 +15,31 @@ from graphiti_core.embedder.openai import OpenAIEmbedder, OpenAIEmbedderConfig
 from graphiti_core.cross_encoder.openai_reranker_client import OpenAIRerankerClient
 
 
-class NvidiaEmbedder(OpenAIEmbedder):
-    """NVIDIA embeddings distinguish document passages from search queries."""
+class GraphitiEmbedder(OpenAIEmbedder):
+    """Preserve query/passage intent; the backend chooses the registered embedding model."""
+
+    def _dimension_checked(self, vector):
+        if len(vector) != self.config.embedding_dim:
+            raise ValueError(f"Graphiti embedding dimension mismatch: {len(vector)} != {self.config.embedding_dim}")
+        return vector
     async def create(self, input_data):
         r = await self.client.embeddings.create(
             model=self.config.embedding_model, input=input_data,
             extra_body={"input_type": "query"},
         )
-        return r.data[0].embedding[:self.config.embedding_dim]
+        return self._dimension_checked(r.data[0].embedding)
 
     async def create_batch(self, texts):
-        if not texts:
-            return []
-        r = await self.client.embeddings.create(
-            model=self.config.embedding_model, input=texts,
-            extra_body={"input_type": "passage"},
-        )
-        return [item.embedding[:self.config.embedding_dim] for item in r.data]
+        vectors = []
+        for batch in embedding_batches(texts):
+            r = await self.client.embeddings.create(
+                model=self.config.embedding_model, input=batch,
+                extra_body={"input_type": "passage"},
+            )
+            if len(r.data) != len(batch):
+                raise ValueError("Graphiti embedding response count mismatch")
+            vectors.extend(self._dimension_checked(item.embedding) for item in r.data)
+        return vectors
 
 
 class Episode(BaseModel):
@@ -56,15 +66,17 @@ class ArticleRelations(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    key = os.environ["NVIDIA_API_KEY"]
-    base = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
-    model = os.environ.get("GRAPHITI_LLM_MODEL", "openai/gpt-oss-20b")
+    # Stable OpenAI-compatible endpoint, dynamic provider/model credentials live exclusively
+    # in EventGraph. The backend selects the current workflow model on every request.
+    token = os.environ["GRAPHITI_MODEL_PROXY_TOKEN"]
+    if len(token) < 32:
+        raise ValueError("GRAPHITI_MODEL_PROXY_TOKEN must be at least 32 characters")
+    base = os.environ.get("GRAPHITI_MODEL_PROXY_URL", "http://api:3001/api/internal/graphiti/v1")
     llm = OpenAIGenericClient(config=LLMConfig(
-        api_key=key, base_url=base, model=model, small_model=model, max_tokens=4096,
+        api_key=token, base_url=base, model="graphiti", small_model="graphiti", max_tokens=4096,
     ))
-    embedder = NvidiaEmbedder(config=OpenAIEmbedderConfig(
-        api_key=key, base_url=base,
-        embedding_model=os.environ.get("GRAPHITI_EMBEDDING_MODEL", "nvidia/nemotron-3-embed-1b"),
+    embedder = GraphitiEmbedder(config=OpenAIEmbedderConfig(
+        api_key=token, base_url=base, embedding_model="graphiti-embedding",
         embedding_dim=int(os.environ.get("GRAPHITI_EMBEDDING_DIM", "2048")),
     ))
     graph = Graphiti(
@@ -190,6 +202,20 @@ async def relations_by_articles(request: ArticleRelations):
     if request.as_of is not None:
         result["temporalSupport"] = "bitemporal-v1"
     return result
+
+
+@app.get("/articles/{article_id}/entities")
+async def entities_by_article(article_id: str, revision: int):
+    """Entities one ingested episode directly mentions (Episodic-MENTIONS->Entity), before any
+    public filtering: raw key/name pairs, the report page dedupes, orders and truncates them."""
+    if len(article_id) > 80 or revision < 1:
+        raise HTTPException(status_code=400, detail="invalid article")
+    rows, _, _ = await app.state.graph.driver.execute_query(
+        "MATCH (ep:Episodic {group_id:'aihot', name: $name})-[:MENTIONS]->(n:Entity {group_id:'aihot'}) "
+        "RETURN n.uuid AS key, n.name AS name ORDER BY n.uuid",
+        name=f"aihot:{article_id}:r{revision}", routing_="r",
+    )
+    return {"entities": [{"key": row["key"], "name": row["name"]} for row in rows]}
 
 
 @app.get("/entities/{uuid}")

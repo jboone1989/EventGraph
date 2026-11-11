@@ -1,4 +1,7 @@
 import {normalizedRegistryActive,resolveModelReference} from './registry/connections.ts';
+import {selectConfiguredProviderForStage,rememberSuccessfulRoute,markFailedAutoRoute,stageComplexity} from './registry/selection.ts';
+import {ProviderConfigError} from './registry/connection-types.ts';
+import { shutdownSignal } from '../lib/shutdown.ts';
 import {registeredRuntime,requestRegisteredModel,modelEndpoint} from './registry/runtime.ts';
 import {storedCredential} from './registry/connection-secrets.ts';
 // OpenAI-compatible chat calls, always through receipts. One model is enough: `default` is whatever the
@@ -12,7 +15,7 @@ import {getProvider} from "./registry/repository.ts";
 import {ChatProvider,instantiateProvider,parseSseCompletion as parseProviderStream} from "./registry/adapter.ts";
 import { config, credential } from "../config.ts";
 import { sha256 } from "../lib/ids.ts";
-import { assertAccepted, paidRequest, ProviderRejectedError, rejectReceivedResponse } from "./receipts.ts";
+import { assertAccepted, paidRequest, ProviderRejectedError, BudgetExceededError, ReceiptBusyError, rejectReceivedResponse } from "./receipts.ts";
 
 export interface ModelSpec {
   key: string;
@@ -74,6 +77,8 @@ export interface ChatJsonOptions<S extends z.ZodType> {
   maxTokens?: number;
   attemptTag?: string;
   timeoutMs?: number;
+  /** Internal annotation for measured automatic routing; never sent to the provider. */
+  routing?: { stage: string; tier: 'light' | 'medium' | 'heavy'; fallbackFrom?: string };
   /** false: the model answers in its own text format (no JSON mode); `parse` turns it into the schema's input. */
   json?: boolean;
   parse?: (content: string) => unknown;
@@ -141,7 +146,52 @@ export const isNvidiaChatModel=(id:string)=>["text","vision"].includes(nvidiaCap
 
 function inputCapabilityFor(user:string|ContentPart[]):string {return Array.isArray(user)&&user.some(p=>p.type==='image_url')?'vision':'text';}
 
+/** Short, schema-constrained grouping should not spend Ultra's output budget on hidden reasoning. */
+export function requestExtrasForTask(spec: Pick<ModelSpec, 'service' | 'model' | 'extra'>, purpose: string): Record<string, unknown> | undefined {
+  if (spec.service === 'nvidia' && spec.model === 'nvidia/nemotron-3-ultra-550b-a55b' &&
+      ['group_article', 'group_review', 'group_signal', 'group_story', 'group_story_review'].includes(purpose)) {
+    return { ...spec.extra, reasoning_effort: 'none' };
+  }
+  return spec.extra;
+}
+
 export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): Promise<ChatJsonResult<z.infer<S>>> {
+  if (opts.model.startsWith('auto:')) {
+    const [stage, level] = opts.model.slice(5).split(':');
+    const tier = stageComplexity(level || stage!);
+    const excluded = new Set<string>();
+    const needsVision = Array.isArray(opts.user) && opts.user.some(p => p.type === 'image_url');
+    let rejectedModel: string | undefined;
+    // Only a schema-validated business result counts as success. On any completed
+    // failure, use another registered model ID; do not retry the same unknown receipt.
+    // In-flight concurrent requests and shutdown are not completed failed attempts.
+    while (true) {
+      let selected: string;
+      try {
+        selected = await selectConfiguredProviderForStage(level || stage!, needsVision, excluded);
+      } catch (error) {
+        if (rejectedModel && error instanceof BudgetExceededError) {
+          throw new ModelOutputError('All eligible automatic models failed or are temporarily unavailable: ' + rejectedModel);
+        }
+        throw error;
+      }
+      try {
+        const result = await chatJson({
+          ...opts, model: selected,
+          routing: { stage: stage!, tier, ...(rejectedModel ? { fallbackFrom: rejectedModel } : {}) },
+        });
+        rememberSuccessfulRoute(selected, level || stage!, needsVision);
+        return result;
+      } catch (error) {
+        if (shutdownSignal.signal.aborted || error instanceof ReceiptBusyError) throw error;
+        // Preserve the failed/unknown receipt in the audit trail, without requiring
+        // a manual billing reconciliation before choosing a *different* model.
+        excluded.add(selected.slice(6));
+        rejectedModel = selected;
+        await markFailedAutoRoute(selected,error);
+      }
+    }
+  }
   // A healthy model chosen by the NVIDIA monitor can be addressed directly by ID.
   // Dynamic routing only accepts compatible text model IDs on our NVIDIA endpoint.
   const normalizedId=opts.model.startsWith('model:')?opts.model.slice(6):
@@ -188,6 +238,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
   const apiKey = normalized?storedCredential(normalized.c):credential("models", spec.apiKeyEnv);
   if (!baseUrl || !apiKey || !spec.model) throw new Error(`Model ${opts.model} is not configured (${spec.baseUrlEnv}, ${spec.apiKeyEnv}${spec.key === "default" ? ", LLM_MODEL" : ""})`);
 
+  const requestExtras = requestExtrasForTask(spec, opts.purpose);
   const temperature = opts.temperature ?? 0.2;
   const maxTokens = Math.max(opts.maxTokens ?? 1500, 512) + (spec.reasoningTokens ?? 0);
   const userText = typeof opts.user === "string" ? opts.user : JSON.stringify(opts.user);
@@ -202,7 +253,7 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
     temperature,
     max_tokens: maxTokens,
     ...(spec.jsonMode && opts.json !== false ? { response_format: { type: "json_object" } } : {}),
-    ...(spec.extra ?? {}),
+    ...requestExtras,
     ...(spec.stream ? {stream:true} : {}),
   };
 
@@ -212,8 +263,8 @@ export async function chatJson<S extends z.ZodType>(opts: ChatJsonOptions<S>): P
       model: spec.model,
       purpose: opts.purpose,
       subject: opts.subject,
-      identity: { connectionModelId:normalizedId,configuration:normalized?.fingerprint,model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(userText), temperature, maxTokens, extra: spec.extra ?? null },
-      requestSummary: { promptVersion: opts.promptVersion, systemHash: sha256(opts.system), userHash: sha256(userText), userChars: userText.length, temperature, maxTokens },
+      identity: { connectionModelId:normalizedId,configuration:normalized?.fingerprint,model: spec.model, promptVersion: opts.promptVersion, system: sha256(opts.system), user: sha256(userText), temperature, maxTokens, extra: requestExtras ?? null },
+      requestSummary: { promptVersion: opts.promptVersion, systemHash: sha256(opts.system), userHash: sha256(userText), userChars: userText.length, temperature, maxTokens, ...(opts.routing ? { routing: opts.routing } : {}) },
       attemptTag: opts.attemptTag,
     },
     async () => {

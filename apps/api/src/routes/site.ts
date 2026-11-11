@@ -7,6 +7,7 @@ import { InvalidCursorError } from "@aihot/backend/lib/cursor";
 import { exportMarkdown, loadItemDetail } from "@aihot/backend/publication/detail";
 import { loadPool, SearchBusyError } from "@aihot/backend/publication/pool";
 import { loadTimeline } from "@aihot/backend/publication/timeline";
+import { loadHeroNews } from "@aihot/backend/publication/hero";
 import { loadStoryFollowups } from "@aihot/backend/publication/followups";
 import { loadGroupReports } from "@aihot/backend/publication/groups";
 import { hotSearchLinks, loadHotStrip } from "@aihot/backend/publication/hot";
@@ -166,6 +167,10 @@ export function registerSite(app: FastifyInstance) {
   }));
 
   registerFeedback(app);
+
+  app.get("/api/site/hero", siteHandler(async (req, reply) => {
+    return sendJsonWithEtag(req, reply, await loadHeroNews(), { etagPrefix: "hero", cacheControl: "public, max-age=30, s-maxage=30" });
+  }));
 
   app.get("/api/site/hot", siteHandler(async (req, reply) => {
     const data = await loadHot();

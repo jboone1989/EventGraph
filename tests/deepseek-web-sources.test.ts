@@ -30,6 +30,8 @@ process.env.DEEPSEEK_API_KEY = "test-key";
 config.allowPrivateNetworkFetch = true;
 
 const HOUR = 3_600_000;
+const searchBucket = () => Math.floor(Date.now() / (15 * 60_000));
+let firstSearchBucket: number | null = null;
 const story = (n: number, over: Record<string, unknown> = {}) => ({
   rerank_score: 2.1,
   title: `Event story ${n}`,
@@ -71,21 +73,25 @@ const articles = async (id = SRC) =>
     SELECT title, url, published_at, body_status, source_id FROM articles WHERE source_id = ${id} ORDER BY url`;
 
 test("results map to articles with their own URL and date; cross-domain and untitled results are filtered", async () => {
-  searchReply = () => ({
-    results: [
-      story(1),
+  let returnedDate: string | null = null;
+  searchReply = () => {
+    firstSearchBucket = searchBucket();
+    const first = story(1);
+    returnedDate = String(first.date);
+    return { results: [
+      first,
       story(2, { date: null }),
       story(3, { url: "https://other-site.example/spill-over" }),
       story(4, { title: "" }),
-    ],
-  });
+    ] };
+  };
   const run = await collectSource(SRC, { force: true });
   assert.equal(run.status, "ok");
   assert.equal(run.found, 3, "the untitled result maps to nothing");
   assert.equal(run.created, 2, "the cross-domain one is filtered");
   const rows = await articles();
   assert.equal(rows[0]!.url, "https://example-news.example/stories/1");
-  assert.ok(rows[0]!.published_at && Math.abs(Date.parse(rows[0]!.published_at) - (Date.now() - HOUR)) < 2000, "the API's UTC date is kept");
+  assert.equal(Math.floor(Date.parse(rows[0]!.published_at!) / 1000), Math.floor(Date.parse(returnedDate!) / 1000), "the API UTC second is kept; database timestamp drops subsecond precision");
   assert.equal(rows[1]!.published_at, null, "an undated result is not dated today");
   assert.ok(rows.every((r) => r.source_id === SRC && r.url.startsWith("https://example-news.example/")), "identity and URL stay the original site's");
 });
@@ -110,12 +116,24 @@ test("each paid search has a receipt; a re-run with a changed query buys one cal
   assert.equal(receipt!.currency, "CNY");
 });
 
-test("preview reuses the paid answer within its window and writes nothing", async () => {
+test("preview reuses paid search within its fixed 15-minute bucket and writes nothing", async () => {
   const hits = deepseek.hits();
   const articlesBefore = await sql`SELECT count(*)::int AS n FROM articles WHERE source_id LIKE ${`test-dsweb-%${T}`}`;
+  assert.notEqual(firstSearchBucket, null, "the first collection made the original request");
+  const beforeBucket = searchBucket();
   const preview = await previewSource({ id: `test-dsweb-preview-${T}`, kind: "json_list" as const, config: scopedConfig() });
+  const afterBucket = searchBucket();
   assert.equal(preview.count, 2, "the same two scoped results come back");
-  assert.equal(deepseek.hits(), hits, "no second call inside the 15-minute window");
+  // Cache identity uses a fixed UTC 15-minute bucket, not a rolling 15-minute TTL.
+  // CI may pass through a quarter-hour boundary between collection and preview.
+  const extraCalls = deepseek.hits() - hits;
+  if (beforeBucket === firstSearchBucket && afterBucket === firstSearchBucket) {
+    assert.equal(extraCalls, 0, "same bucket reuses the original paid search");
+  } else if (beforeBucket !== firstSearchBucket) {
+    assert.equal(extraCalls, 1, "a new bucket buys one new search");
+  } else {
+    assert.ok(extraCalls === 0 || extraCalls === 1, "crossing the boundary buys at most one search");
+  }
   const articlesAfter = await sql`SELECT count(*)::int AS n FROM articles WHERE source_id LIKE ${`test-dsweb-%${T}`}`;
   assert.equal(articlesAfter[0]!.n, articlesBefore[0]!.n, "preview stores no articles");
 });

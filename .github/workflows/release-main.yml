@@ -1,0 +1,285 @@
+# Production selects a published, verified develop digest by ancestry; no manual pin drift.
+name: "生产发布 · 镜像晋级与 VM09 部署"
+run-name: "生产发布 · ${{ github.ref_name }}"
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact main SHA to release
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: eventgraph-main-release
+  cancel-in-progress: false
+jobs:
+  classify:
+    name: "识别本次是否需要生产发布"
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      release: ${{ steps.intent.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify pushed range or explicit pinned release
+        id: intent
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ && "$EXPECTED_SHA" == "$GITHUB_SHA" ]] ||
+              { echo '::error::Manual release must pin main HEAD'; exit 1; }
+            echo 'release=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          release="$(node scripts/ci/promotion-source-equivalence.mjs --classify-push "$BEFORE_SHA" "$GITHUB_SHA")"
+          [[ "$release" == true || "$release" == false ]]
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          [[ "$release" == true ]] || echo '::notice::Governance-only push; no production promotion'
+
+  promote:
+    name: "验证并晋级已发布的镜像"
+    needs: classify
+    if: needs.classify.outputs.release == 'true' && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      packages: read
+      checks: read
+      actions: read
+    outputs:
+      image_ref: ${{ steps.image.outputs.image_ref }}
+      source_sha: ${{ steps.pin.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select the latest runtime-equivalent verified develop publish
+        id: pin
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD^2)" =~ ^[0-9a-f]{40}$ ]] ||
+            { echo '::error::main must receive an actual develop merge commit'; exit 1; }
+          git fetch origin develop
+          git merge-base --is-ancestor "$(git rev-parse HEAD^2)" origin/develop ||
+            { echo '::error::Second parent of main merge is not in develop history'; exit 1; }
+          mapfile -t candidates < <(node scripts/ci/promotion-source-equivalence.mjs --promotion-candidates HEAD)
+          (( ${#candidates[@]} > 0 )) || { echo '::error::No runtime-equivalent develop source'; exit 1; }
+          selected=''
+          for candidate in "${candidates[@]}"; do
+            [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || exit 1
+            check_json="$(gh api "repos/$GITHUB_REPOSITORY/commits/$candidate/check-runs?per_page=100")"
+            if jq -e '[.check_runs[] | select(.name == "release_develop / publish" and .conclusion == "success" and .app.slug == "github-actions")] | length > 0' <<< "$check_json" >/dev/null; then
+              selected="$candidate"
+              break
+            fi
+            # Explicit re-entry publishes can be verified via their workflow run identity.
+            manual_urls="$(jq -r '.check_runs[] | select(.name == "publish" and .conclusion == "success" and .app.slug == "github-actions") | .details_url' <<< "$check_json")"
+            while IFS= read -r details; do
+              [[ "$details" =~ /actions/runs/([0-9]+)/job/[0-9]+ ]] || continue
+              run_id="${BASH_REMATCH[1]}"
+              run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id")"
+              if jq -e --arg sha "$candidate" '
+                (.path == ".github/workflows/release-develop.yml" or
+                 (.path | endswith("/.github/workflows/release-develop.yml"))) and
+                .event == "workflow_dispatch" and .head_branch == "develop" and
+                .head_sha == $sha
+              ' <<< "$run_json" >/dev/null; then
+                selected="$candidate"
+                break
+              fi
+            done <<< "$manual_urls"
+            [[ -z "$selected" ]] || break
+          done
+          [[ -n "$selected" ]] || {
+            echo '::error::No runtime-equivalent develop ancestor has a successful published-image smoke check'
+            exit 1
+          }
+          node scripts/ci/promotion-source-equivalence.mjs "$selected" HEAD
+          echo "source_sha=$selected" >> "$GITHUB_OUTPUT"
+          echo "::notice::Promoting verified develop image for $selected (not an outdated manual pin)"
+
+      - name: Log in to GHCR (read only)
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve and verify immutable digest for exact develop SHA
+        id: image
+        env:
+          SOURCE_SHA: ${{ steps.pin.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          tag="ghcr.io/jboone1989/eventgraph-app:sha-$SOURCE_SHA"
+          manifest="$(docker buildx imagetools inspect "$tag")"
+          image_ref="$(printf '%s\n' "$manifest" | node scripts/ci/promotion-source-equivalence.mjs --immutable-image-ref "$SOURCE_SHA")"
+          docker buildx imagetools inspect "$image_ref" >/dev/null
+          echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
+          echo "::notice::Exact source=$SOURCE_SHA immutable image=$image_ref"
+
+  # VM09 production deployment is opt-in until host SSH credentials are configured.
+  deploy_production:
+    name: "部署生产环境 VM09"
+    needs: promote
+    if: >-
+      ${{ needs.promote.outputs.image_ref != '' &&
+          vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: eventgraph-prod-rollout
+      cancel-in-progress: false
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Deploy verified digest on VM09
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_PROMOTED_IMAGE_REF: ${{ needs.promote.outputs.image_ref }}
+          EVENTGRAPH_PROMOTED_SOURCE_SHA: ${{ needs.promote.outputs.source_sha }}
+          EVENTGRAPH_PROMOTED_MAIN_SHA: ${{ github.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ vars.EVENTGRAPH_PROD_HOST }}
+          username: ${{ vars.EVENTGRAPH_PROD_USER }}
+          key: ${{ secrets.EVENTGRAPH_PROD_SSH_KEY }}
+          fingerprint: ${{ secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT }}
+          envs: EVENTGRAPH_PROMOTED_IMAGE_REF,EVENTGRAPH_PROMOTED_SOURCE_SHA,EVENTGRAPH_PROMOTED_MAIN_SHA,GHCR_TOKEN,GHCR_USER
+          command_timeout: 13m
+          version: '1.8.2'
+          script: |
+            set -euo pipefail
+            cd /home/ubuntu/livingruntime-prod-source
+            git fetch github main
+            [[ "$(git rev-parse FETCH_HEAD)" == "$EVENTGRAPH_PROMOTED_MAIN_SHA" ]] || {
+              echo 'Main moved since digest verification; deployment aborted' >&2
+              exit 1
+            }
+            tmp="$(mktemp -d)"
+            trap 'rm -rf "$tmp"' EXIT
+            # Run the exact reviewed deploy script from the verified main SHA,
+            # even when the VM09 checkout is still on the previous release.
+            git show "$EVENTGRAPH_PROMOTED_MAIN_SHA:scripts/deploy-prod.sh" > "$tmp/deploy-prod.sh"
+            EVENTGRAPH_PROD_REPO_DIR="$PWD" bash "$tmp/deploy-prod.sh"
+
+  # Independent Graphiti image: same reviewed main tree, one image per knowledge_service/ tree.
+  # App release success is not coupled to a knowledge image build or ingestion failure.
+  publish_knowledge:
+    name: "自动发布 · 构建或复用 Graphiti 镜像"
+    needs: deploy_production
+    if: ${{needs.deploy_production.result == 'success' && vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true'}}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{steps.ref.outputs.image_ref}}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{github.actor}}
+          password: ${{secrets.GITHUB_TOKEN}}
+      - name: Reuse a published image for unchanged Graphiti source
+        id: existing
+        shell: bash
+        run: |
+          set -euo pipefail
+          tree_sha="$(git rev-parse 'HEAD:knowledge_service')"
+          [[ "$tree_sha" =~ ^[0-9a-f]{40}$ ]]
+          tag="ghcr.io/jboone1989/eventgraph-knowledge:tree-$tree_sha"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "$tag" >/dev/null 2>&1; then
+            digest="$(docker buildx imagetools inspect "$tag" | awk '/^Digest:/ {print $2; exit}')"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+            echo "image_ref=ghcr.io/jboone1989/eventgraph-knowledge@$digest" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build and publish changed Graphiti source
+        if: steps.existing.outputs.image_ref == ''
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./knowledge_service/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{steps.existing.outputs.tag}}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{github.repository}}
+            org.opencontainers.image.revision=${{github.sha}}
+          cache-from: type=gha,scope=eventgraph-knowledge
+          cache-to: type=gha,mode=max,scope=eventgraph-knowledge
+      - name: Export immutable knowledge image reference
+        id: ref
+        shell: bash
+        env:
+          REUSED_REF: ${{steps.existing.outputs.image_ref}}
+          NEW_DIGEST: ${{steps.build.outputs.digest}}
+        run: |
+          set -euo pipefail
+          if [[ -n "$REUSED_REF" ]]; then
+            [[ "$REUSED_REF" =~ ^ghcr\.io/jboone1989/eventgraph-knowledge@sha256:[0-9a-f]{64}$ ]] || exit 1
+            echo "image_ref=$REUSED_REF" >> "$GITHUB_OUTPUT"
+          else
+            [[ "$NEW_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+            echo "image_ref=ghcr.io/jboone1989/eventgraph-knowledge@$NEW_DIGEST" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy_knowledge:
+    name: "自动部署 · Graphiti 服务（不重启 Neo4j）"
+    needs: publish_knowledge
+    if: ${{needs.publish_knowledge.outputs.image_ref != '' && vars.EVENTGRAPH_PROD_AUTO_DEPLOY == 'true'}}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: eventgraph-prod-knowledge-rollout
+      cancel-in-progress: false
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Deploy only the changed Graphiti container
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
+        env:
+          EVENTGRAPH_KNOWLEDGE_IMAGE: ${{needs.publish_knowledge.outputs.image_ref}}
+          EVENTGRAPH_KNOWLEDGE_RELEASE_SHA: ${{github.sha}}
+          GHCR_USER: ${{github.actor}}
+          GHCR_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        with:
+          host: ${{vars.EVENTGRAPH_PROD_HOST}}
+          username: ${{vars.EVENTGRAPH_PROD_USER}}
+          key: ${{secrets.EVENTGRAPH_PROD_SSH_KEY}}
+          fingerprint: ${{secrets.EVENTGRAPH_PROD_SSH_FINGERPRINT}}
+          envs: EVENTGRAPH_KNOWLEDGE_IMAGE,EVENTGRAPH_KNOWLEDGE_RELEASE_SHA,GHCR_USER,GHCR_TOKEN
+          command_timeout: 10m
+          version: '1.8.2'
+          script: |
+            cd /home/ubuntu/livingruntime-prod-source
+            bash scripts/deploy-knowledge.sh

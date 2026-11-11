@@ -8,12 +8,14 @@ import type { PgBoss } from "pg-boss";
 import { sql, type Db } from "../db.ts";
 import { extractArticleBody, pageFetchable } from "../content/extract.ts";
 import { analyzeArticle, AnalysisInterruptedError } from "../editorial/analyze.ts";
+import { storeAnalyzedEnglish } from "../editorial/english.ts";
 import { isHistorical } from "../content/materials.ts";
 import { publishArticle } from "../publication/publish.ts";
 import { BudgetExceededError, ProviderRejectedError, ReceiptBusyError, ReceiptUnknownError } from "../providers/receipts.ts";
 import { ModelOutputError } from "../providers/llm.ts";
 import { ProviderConfigError } from "../providers/registry/connection-types.ts";
 import { enqueue, QUEUES, shutdownSignal, work } from "./queue.ts";
+import { utcDayStart } from "../operations/stale-work.ts";
 
 /** Minutes to wait after the n-th failed attempt; one more failure after the last ends in "failed". */
 const RETRY_MINUTES = [5, 10, 20, 40, 60, 120, 240, 360];
@@ -41,13 +43,15 @@ interface Route {
  * history adds no heat).
  */
 async function route(articleId: string, db: Db): Promise<Route | null> {
-  const [row] = await db<{ body_status: string; participation_mode: string; tier: string; kind: string; config: Record<string, unknown>; url: string; bare: boolean; backfill: boolean; published_at: Date | null; discovered_at: Date; updated_at: Date }[]>`
+  const [row] = await db<{ body_status: string; participation_mode: string; tier: string; kind: string; config: Record<string, unknown>; url: string; bare: boolean; backfill: boolean; published_at: Date | null; discovered_at: Date; updated_at: Date; has_publication: boolean }[]>`
     SELECT a.body_status, s.participation_mode, s.tier, s.kind, s.config, a.url, (coalesce(a.body_text, '') = '' AND a.x_post IS NULL) AS bare,
-           a.backfill, a.published_at, a.discovered_at, a.updated_at
+           a.backfill, a.published_at, a.discovered_at, a.updated_at,
+           EXISTS(SELECT 1 FROM publications p WHERE p.article_id = a.id) AS has_publication
     FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
   if (!row) return null;
   // Do not automatically revive news that has aged out of the operational queue.
-  if (Math.max(row.discovered_at.getTime(), row.updated_at.getTime()) < Date.now() - 24 * 60 * 60 * 1000) return null;
+  if (row.discovered_at.getTime() < utcDayStart().getTime() &&
+      !(row.has_publication && row.updated_at.getTime() >= utcDayStart().getTime())) return null;
   const historical = isHistorical(row);
   const signal = row.participation_mode !== "editorial";
   const pending = row.body_status === "pending";
@@ -105,8 +109,10 @@ export async function settleNonEditorial(articleId: string): Promise<{ group: bo
 }
 
 async function processingInput(articleId: string) {
-  const [row] = await sql<{ participation_mode: string; tier: string; revision: number; backfill: boolean; published_at: Date | null; discovered_at: Date }[]>`
-    SELECT s.participation_mode, s.tier, a.revision, a.backfill, a.published_at, a.discovered_at FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
+  const [row] = await sql<{ participation_mode: string; tier: string; revision: number; backfill: boolean; published_at: Date | null; discovered_at: Date; updated_at: Date; has_publication: boolean }[]>`
+    SELECT s.participation_mode, s.tier, a.revision, a.backfill, a.published_at, a.discovered_at, a.updated_at,
+           EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id) AS has_publication
+    FROM articles a JOIN sources s ON s.id = a.source_id WHERE a.id = ${articleId}`;
   return row ? { ...row, historical: isHistorical(row) } : null;
 }
 
@@ -118,6 +124,9 @@ async function processingInput(articleId: string) {
 export async function processArticle(articleId: string, opts: { attemptTag?: string } = {}): Promise<{ state: string; retryAt?: Date }> {
   const row = await processingInput(articleId);
   if (!row) return { state: "missing" };
+  // An old published article with a fresh source revision still needs analysis.
+  if (row.discovered_at.getTime() < utcDayStart().getTime() &&
+      !(row.has_publication && row.updated_at.getTime() >= utcDayStart().getTime())) return { state: "expired" };
   try {
     return await processRevision(articleId, row, opts);
   } catch (error) {
@@ -142,7 +151,10 @@ async function processRevision(articleId: string, row: NonNullable<Awaited<Retur
     }
     if (result.stale) return { state: "stale" }; // the newer revision has its own job
     await publishArticle(articleId);
-    // History still completes the identity gate; groupArticle confirms it without a model call.
+    // English is generated in the same analysis call: publish both editions immediately.
+    // Only historical entries and editorial corrections need the separate English backfill worker.
+    await storeAnalyzedEnglish(articleId, result.output.english, result.receiptIds[0]);
+    // Event grouping and Graphiti are enhancements; neither blocks the ordinary news item.
     if (result.output.relevance === "pass") await enqueue(QUEUES.group, { articleId }, { singletonKey: articleId, priority: row.historical ? PRIORITY.history : row.tier === 'T1' ? PRIORITY.liveOfficial : PRIORITY.live });
     await sql`UPDATE articles SET processing_attempts = 0, processing_retry_at = NULL, processing_queued_at = NULL
               WHERE id = ${articleId} AND revision = ${row.revision}`;
@@ -238,9 +250,11 @@ export async function registerExtractionJobs(boss: PgBoss) {
  */
 export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
   const rows = await sql<{ id: string }[]>`
-    SELECT id FROM articles
-    WHERE processing_state = 'new' AND created_at < now() - interval '3 minutes'
-      AND greatest(discovered_at, updated_at) >= now() - interval '24 hours'
+    SELECT a.id FROM articles a
+    WHERE a.processing_state = 'new' AND a.created_at < now() - interval '3 minutes'
+      AND (a.discovered_at >= ${utcDayStart()} OR
+        (a.updated_at >= ${utcDayStart()} AND EXISTS
+          (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
       AND (processing_retry_at IS NULL OR processing_retry_at <= now())
       AND (processing_queued_at IS NULL OR processing_queued_at < now() - ${QUEUED_STALE}::interval)
     ORDER BY discovered_at DESC LIMIT 500`;
@@ -255,7 +269,9 @@ export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
     SELECT a.id FROM articles a JOIN sources s ON s.id = a.source_id
     WHERE a.processing_state = 'analyzed' AND a.grouping_status = 'pending'
       AND a.grouped_at IS NULL AND s.participation_mode = 'editorial'
-      AND greatest(a.discovered_at, a.updated_at) > now() - interval '24 hours'
+      AND (a.discovered_at >= ${utcDayStart()} OR
+        (a.updated_at >= ${utcDayStart()} AND EXISTS
+          (SELECT 1 FROM publications p WHERE p.article_id = a.id)))
       AND greatest(a.discovered_at, a.updated_at) < now() - interval '3 minutes'
     ORDER BY (s.tier = 'T1') DESC, coalesce(a.published_at, a.discovered_at) DESC
     LIMIT 12`;
@@ -269,7 +285,7 @@ export async function sweepUnprocessed(): Promise<{ enqueued: number }> {
  * The receipts of an article's analysis: an unknown outcome on any of them stops the article
  * ("failed"). Extraction never does: it retries, then judges the article on what it has.
  */
-const ARTICLE_STEPS = new Set(["prefilter_article", "score_article", "structure_article", "understand_article", "summarize_article", "mend_wording"]);
+const ARTICLE_STEPS = new Set(["analyze_article", "prefilter_article", "score_article", "structure_article", "understand_article", "summarize_article", "mend_wording"]);
 
 /**
  * After a receipt is released (operations/recover.ts), the article that stopped on it goes straight
@@ -280,7 +296,9 @@ export async function resumeAfterRelease(receipt: { purpose: string; subject: st
   if (!article) return false;
   const [a] = await db`UPDATE articles SET processing_state = 'new', processing_attempts = 0, processing_retry_at = NULL, processing_error = NULL
                         WHERE id = ${article} AND processing_state = 'failed'
-                          AND greatest(discovered_at, updated_at) >= now() - interval '24 hours' RETURNING id`;
+                          AND (discovered_at >= ${utcDayStart()} OR
+                            (updated_at >= ${utcDayStart()} AND EXISTS
+                              (SELECT 1 FROM publications p WHERE p.article_id = articles.id))) RETURNING id`;
   return !!a && !!(await queueProcessing(article, { step: "analyze", db }));
 }
 
@@ -291,22 +309,33 @@ export const failureGroupSql = (column = "processing_error") =>
 /**
  * Admin: reset failed articles, optionally in a bounded batch. An explicit batch cap is useful when
  * recovering a now-routable *paid* model without restarting hundreds of calls at once.
- * Without a cap, process all recent failures within the 24-hour news freshness window.
+ * Without a cap, reset all eligible current-day failures; the sweep handles overflow after the first 500.
  */
 export async function requeueFailed(group: string | null, limit: number | null = null): Promise<{ requeued: number }> {
   if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 500)) throw new Error("requeue limit must be 1..500");
-  const rows = await sql<{ id: string }[]>`
-    WITH picked AS (
-      SELECT id FROM articles
-      WHERE processing_state = 'failed' AND greatest(discovered_at, updated_at) > now() - interval '24 hours'
-        AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
-      ORDER BY discovered_at DESC, id
-      LIMIT ${limit ?? 1000000}
-      FOR UPDATE SKIP LOCKED
-    )
-    UPDATE articles a SET processing_state = 'new', processing_attempts = 0,
-      processing_retry_at = NULL, processing_error = NULL
-    FROM picked WHERE a.id = picked.id RETURNING a.id`;
-  for (const r of rows.slice(0, 500)) await queueProcessing(r.id);
+  const rows = await sql.begin(async tx => {
+    const selected = await tx<{ id: string }[]>`
+      WITH picked AS (
+        SELECT id FROM articles
+        WHERE processing_state = 'failed' AND NOT backfill
+          AND EXISTS (SELECT 1 FROM sources s WHERE s.id = articles.source_id AND s.participation_mode = 'editorial')
+          AND (discovered_at >= ${utcDayStart()} OR (updated_at >= ${utcDayStart()} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = articles.id)))
+          AND (${group}::text IS NULL OR ${failureGroupSql()} = ${group})
+          -- Never retry an unverified provider call: it may already have been billed.
+          AND NOT EXISTS (
+            SELECT 1 FROM receipts r
+            WHERE r.status IN ('pending', 'unknown')
+              AND substring(r.subject from '^article:([^@:#]+)') = articles.id
+          )
+        ORDER BY discovered_at DESC, id
+        LIMIT ${limit ?? 1000000} FOR UPDATE SKIP LOCKED
+      )
+      UPDATE articles a SET processing_state = 'new', processing_attempts = 0,
+        processing_retry_at = NULL, processing_error = NULL
+      FROM picked WHERE a.id = picked.id RETURNING a.id`;
+    return selected;
+  });
+  for (const row of rows.slice(0, 500)) await queueProcessing(row.id);
+  // Remaining rows stay 'new' and are picked up by content.sweep, without a burst of paid calls.
   return { requeued: rows.length };
 }

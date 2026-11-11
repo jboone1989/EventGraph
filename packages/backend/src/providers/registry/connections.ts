@@ -1,4 +1,4 @@
-import {createHash,randomUUID} from 'node:crypto';
+import {createHash,randomUUIDv7} from 'node:crypto';
 import {PRESETS} from '@aihot/site/models';
 import {sql,type Db,type Tx} from '../../db.ts';
 import {audit} from '../../audit.ts';
@@ -14,10 +14,18 @@ export interface ConnectionRow {
 export interface ModelRow {
  id:string;provider_id:string;model_id:string;adapter:RegisteredModel['adapter'];endpoint_override:string|null;timeout_override_ms:number|null;
  capabilities:RegisteredModel['capabilities'];request_defaults:Record<string,unknown>;probe_spec:RegisteredModel['probeSpec'];
- stream:boolean;complexity:RegisteredModel['complexity'];documentation_url:string|null;notes:string|null;
+ stream:boolean;complexity:RegisteredModel['complexity'];billing:'free'|'paid'|null;documentation_url:string|null;notes:string|null;
  enabled:boolean;route_enabled:boolean;upstream_metadata:Record<string,unknown>;version:number;updated_at:Date;
 }
 export type CheckRow={model_id:string;capability:string;config_fingerprint:string;config_snapshot?:Record<string,string>|null;status:string;verified_at:Date|null;latency_ms:number|null};
+// Per-process runtime cache. Admin CRUD and the manual Refresh Models action clear it.
+// Transactions bypass the cache so edits always see their locked database rows.
+const connectionCache=new Map<string,ConnectionRow>();
+const modelCache=new Map<string,ModelRow>();
+export function clearRegisteredModelCache():void {
+ connectionCache.clear();
+ modelCache.clear();
+}
 const missing=(kind:string):never=>{throw new ProviderConfigError(`${kind} not found`,undefined,404);};
 function uuid(value:unknown,field:string):asserts value is string {
  if(typeof value!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value))
@@ -37,9 +45,9 @@ export function connectionView(r:ConnectionRow):ProviderConnection {
   enabled:r.enabled,policy:r.policy,credential:{configured},version:r.version,updatedAt:r.updated_at.toISOString()};
 }
 export function modelInput(r:ModelRow):ModelInput {
- return {providerId:r.provider_id,modelId:r.model_id,adapter:r.adapter,endpointOverride:r.endpoint_override,timeoutOverrideMs:r.timeout_override_ms??null,
+ return {providerId:r.provider_id,modelId:r.model_id,adapter:String(r.adapter)==='special'?'unconfigured':r.adapter,endpointOverride:r.endpoint_override,timeoutOverrideMs:r.timeout_override_ms??null,
   capabilities:r.capabilities,requestDefaults:r.request_defaults,probeSpec:r.probe_spec,stream:r.stream,
-  complexity:r.complexity,documentationUrl:r.documentation_url,notes:r.notes,enabled:r.enabled,routeEnabled:r.route_enabled};
+  complexity:r.complexity,billing:r.billing??'paid',documentationUrl:r.documentation_url,notes:r.notes,enabled:r.enabled,routeEnabled:r.route_enabled};
 }
 function canonical(value:unknown):unknown {
  if(Array.isArray(value))return value.map(canonical);
@@ -47,7 +55,7 @@ function canonical(value:unknown):unknown {
  return value;
 }
 export function configurationSnapshot(c:ConnectionRow,m:ModelRow):Record<string,string> {
- const {documentationUrl:_,notes:__,enabled:___,routeEnabled:____,...relevant}=modelInput(m);
+ const {documentationUrl:_,notes:__,enabled:___,routeEnabled:____,billing:_____,...relevant}=modelInput(m);
  const fields={protocol:c.protocol,address:c.base_url,timeout:m.timeout_override_ms??c.timeout_ms,policy:c.policy,
   credential:[c.credential_version,credentialDigest(storedCredential(c))],model:relevant};
  return Object.fromEntries(Object.entries(fields).map(([key,value])=>[key,createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')]));
@@ -65,21 +73,25 @@ export function routingState(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[],now
  try {if(!storedCredential(c))reasons.push('Credential is missing');snapshot=configurationSnapshot(c,r);fingerprint=configurationFingerprint(c,r);}
  catch {reasons.push('Credential cannot be read');}
  try{checkConnectionPolicy(c.base_url,c.policy);checkModel(modelInput(r),connectionView(c));}catch{reasons.push('Configuration violates endpoint or model policy');}
- const own=checks.filter(x=>x.model_id===r.id);
- const eligible=own.filter(x=>x.config_fingerprint===fingerprint&&
-  (x.status==='legacy'||x.status==='verified')&&x.verified_at&&
-  now>=x.verified_at.getTime()&&now-x.verified_at.getTime()<86400000&&r.capabilities.includes(x.capability as never)).map(x=>x.capability);
- if(!eligible.length) {
-  const mismatched=own.find(x=>x.config_fingerprint!==fingerprint);
-  const changed=mismatched?.config_snapshot?Object.keys(snapshot).filter(k=>snapshot[k]!==mismatched.config_snapshot![k]):[];
-  reasons.push(mismatched?'Configuration changed'+(changed.length?': '+changed.join(', '):' since its last test')+'; retest required':'No current successful capability test; retest required');
+ // Chat-model availability is learned from real requests, not scheduled probes.
+ // Embeddings remain a special case: a verified dimension-compatible probe is required.
+ if(r.adapter==='embedding'&&!checks.some(x=>x.model_id===r.id&&x.config_fingerprint===fingerprint&&
+  (x.status==='verified'||x.status==='legacy')&&x.verified_at&&
+  x.verified_at.getTime()<=now&&r.capabilities.includes(x.capability as never))) {
+  reasons.push('Embedding requires a successful capability test');
  }
- return {eligibleCapabilities:reasons.length?[]:eligible,reasons};
+ return {eligibleCapabilities:reasons.length?[]:r.capabilities,reasons};
+}
+function effectiveBilling(r:ModelRow,c:ConnectionRow):'free'|'paid' {
+ if(r.billing)return r.billing;
+ if(c.vendor.toLowerCase()==='openrouter'&&(r.model_id.endsWith(':free')||r.model_id==='openrouter/free'||r.upstream_metadata?.openrouterFreeSync && (r.upstream_metadata.openrouterFreeSync as {free?:boolean}).free===true))return 'free';
+ if(c.vendor.toLowerCase()==='nvidia'&&c.policy==='nvidia-free-trial')return 'free';
+ return 'paid';
 }
 export function modelView(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[]):RegisteredModel {
  let fingerprint:string|null=null;
  try{fingerprint=configurationFingerprint(c,r);}catch{ /* unreadable credentials invalidate checks */ }
- return {...modelInput(r),timeoutOverrideMs:r.timeout_override_ms??null,id:r.id,upstreamMetadata:r.upstream_metadata,version:r.version,updatedAt:r.updated_at.toISOString(),
+ return {...modelInput(r),billing:effectiveBilling(r,c),timeoutOverrideMs:r.timeout_override_ms??null,id:r.id,upstreamMetadata:r.upstream_metadata,version:r.version,updatedAt:r.updated_at.toISOString(),
   routing:routingState(r,c,checks),
   checks:checks.filter(x=>x.model_id===r.id).map(x=>({capability:x.capability,
    status:x.config_fingerprint===fingerprint?x.status:'unverified',
@@ -87,13 +99,19 @@ export function modelView(r:ModelRow,c:ConnectionRow,checks:CheckRow[]=[]):Regis
 }
 export async function loadConnection(id:string,db:Db=sql):Promise<ConnectionRow> {
  uuid(id,'providerId');
+ if(db===sql&&connectionCache.has(id))return connectionCache.get(id)!;
  const [row]=await db<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${id}::uuid`;
- return row??missing('Connection');
+ if(!row)return missing('Connection');
+ if(db===sql)connectionCache.set(id,row);
+ return row;
 }
 export async function loadModel(id:string,db:Db=sql):Promise<ModelRow> {
  uuid(id,'id');
+ if(db===sql&&modelCache.has(id))return modelCache.get(id)!;
  const [row]=await db<ModelRow[]>`SELECT * FROM registered_models WHERE id=${id}::uuid`;
- return row??missing('Model');
+ if(!row)return missing('Model');
+ if(db===sql)modelCache.set(id,row);
+ return row;
 }
 export async function listConnections():Promise<ProviderConnection[]> {
  return (await sql<ConnectionRow[]>`SELECT * FROM provider_connections ORDER BY name,id`).map(connectionView);
@@ -142,19 +160,21 @@ export async function createConnection(input:ConnectionInput,reason:string,actor
  reasonCheck(reason);checkConnection(input);
  checkConnectionPolicy(input.baseUrl,connectionPolicy(input.baseUrl));
  const key=changedCredential(input);
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   const [row]=await tx<ConnectionRow[]>`INSERT INTO provider_connections
    (id,name,vendor,protocol,base_url,timeout_ms,enabled,policy,credential_secret,credential_env,credential_version,updated_by)
-   VALUES (${randomUUID()}::uuid,${input.name.trim()},${input.vendor.trim()},${input.protocol},${input.baseUrl},
+   VALUES (${randomUUIDv7()}::uuid,${input.name.trim()},${input.vendor.trim()},${input.protocol},${input.baseUrl},
     ${input.timeoutMs},${input.enabled},${connectionPolicy(input.baseUrl)},${key.credential_secret},${key.credential_env},${key.credential_version},${actor}) RETURNING *`;
   const view=connectionView(row!);
   await audit(actor,'provider.connection.create',view.id,reason,null,view,{db:tx});
   return view;
- }) as Promise<ProviderConnection>;
+ });
+ clearRegisteredModelCache();
+ return result;
 }
 export async function updateConnection(id:string,input:ConnectionInput,version:number,reason:string,actor:string):Promise<ProviderConnection> {
  uuid(id,'id');reasonCheck(reason);checkConnection(input);
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   const [old]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Connection');versionCheck(old.version,version);
   // Never preserve an API key when changing to an unrelated host.
@@ -173,7 +193,9 @@ export async function updateConnection(id:string,input:ConnectionInput,version:n
   const view=connectionView(row!);
   await audit(actor,'provider.connection.update',id,reason,connectionView(old),view,{db:tx});
   return view;
- }) as Promise<ProviderConnection>;
+ });
+ clearRegisteredModelCache();
+ return result;
 }
 export async function workflowDependencies(id:string,db:Db=sql):Promise<Dependency[]> {
  const rows=await db<{setting_key:string}[]>`SELECT setting_key FROM provider_workflow_models WHERE model_id=${id}::uuid`;
@@ -181,36 +203,28 @@ export async function workflowDependencies(id:string,db:Db=sql):Promise<Dependen
 }
 export async function deleteConnection(id:string,version:number,reason:string,actor:string):Promise<{deleted:true}> {
  uuid(id,'id');reasonCheck(reason);
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   const [old]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Connection');versionCheck(old.version,version);
   const models=await tx<{id:string;model_id:string}[]>`SELECT id,model_id FROM registered_models WHERE provider_id=${id}::uuid`;
   const dependencies:Dependency[]=models.map(m=>({kind:'model',id:m.id,name:m.model_id}));
   for(const m of models)dependencies.push(...await workflowDependencies(m.id,tx));
   if(dependencies.length)throw new ProviderConfigError('Move or delete the dependent models and workflow references first',undefined,409,dependencies);
-  if(old.enabled)throw new ProviderConfigError('Disable the connection before deletion','enabled',409);
   await tx`DELETE FROM provider_connections WHERE id=${id}::uuid`;
   await audit(actor,'provider.connection.delete',id,reason,connectionView(old),null,{db:tx});
   return {deleted:true as const};
- }) as Promise<{deleted:true}>;
+ });
+ clearRegisteredModelCache();
+ return result;
 }
 function duplicate(error:unknown):never {
  if((error as {code?:string}).code==='23505')throw new ProviderConfigError('This model ID already exists on this connection','modelId',409);
  throw error;
 }
-async function requireRouteEvidence(input:ModelInput,id:string,c:ConnectionRow,db:Db,old?:ModelRow):Promise<void> {
- if(!input.routeEnabled||old?.route_enabled)return;
- if(!c.enabled)throw new ProviderConfigError('Enable the connection before enabling routing','routeEnabled');
- const candidate={...old,...rowValues(input),id} as ModelRow;
- const checks=await db<CheckRow[]>`SELECT * FROM registered_model_checks WHERE model_id=${id}::uuid`;
- const fingerprint=configurationFingerprint(c,candidate);
- if(!checks.some(x=>x.config_fingerprint===fingerprint&&x.status==='verified'&&x.verified_at&&Date.now()-x.verified_at.getTime()<86400000&&input.capabilities.includes(x.capability as never)))
-  throw new ProviderConfigError('Run a successful capability test on the current configuration before enabling routing','routeEnabled');
-}
 function rowValues(input:ModelInput) {
  return {provider_id:input.providerId,model_id:input.modelId,adapter:input.adapter,endpoint_override:input.endpointOverride,timeout_override_ms:input.timeoutOverrideMs??null,
   capabilities:input.capabilities,request_defaults:input.requestDefaults,probe_spec:input.probeSpec,
-  stream:input.stream,complexity:input.complexity,documentation_url:input.documentationUrl,notes:input.notes,
+  stream:input.stream,complexity:input.complexity,billing:input.billing??'paid',documentation_url:input.documentationUrl,notes:input.notes,
   enabled:input.enabled,route_enabled:input.routeEnabled};
 }
 function writeValues(input:ModelInput,db:Db) {
@@ -219,45 +233,55 @@ function writeValues(input:ModelInput,db:Db) {
 }
 export async function createRegisteredModel(input:ModelInput,reason:string,actor:string):Promise<RegisteredModel> {
  uuid(input?.providerId,'providerId');reasonCheck(reason);
- try{return await sql.begin(async tx=>{
+ try{const result=await sql.begin(async tx=>{
   const [connection]=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id=${input.providerId}::uuid FOR UPDATE`;
   if(!connection)return missing('Connection');checkModel(input,connectionView(connection));
-  const id=randomUUID();await requireRouteEvidence(input,id,connection,tx);
-  await tx`INSERT INTO registered_models ${tx({id,...writeValues(input,tx),updated_by:actor})}`;
+  const id=randomUUIDv7();
+  const billing=input.billing??((connection.vendor.toLowerCase()==='openrouter'&& (input.modelId.endsWith(':free')||input.modelId==='openrouter/free'))||(connection.vendor.toLowerCase()==='nvidia'&&connection.policy==='nvidia-free-trial')?'free':'paid');
+  await tx`INSERT INTO registered_models ${tx({id,...writeValues({...input,billing},tx),updated_by:actor})}`;
   const view=await getRegisteredModel(id,tx);
   await audit(actor,'provider.model.create',id,reason,null,view,{db:tx});return view;
- }) as RegisteredModel;}catch(error){return duplicate(error);}
+ }) as RegisteredModel;clearRegisteredModelCache();return result;}catch(error){return duplicate(error);}
 }
 export async function updateRegisteredModel(id:string,input:ModelInput,version:number,reason:string,actor:string):Promise<RegisteredModel> {
  uuid(id,'id');uuid(input?.providerId,'providerId');reasonCheck(reason);
- try{return await sql.begin(async tx=>{
+ try{const result=await sql.begin(async tx=>{
   const previous=await loadModel(id,tx);
   const connections=await tx<ConnectionRow[]>`SELECT * FROM provider_connections WHERE id IN (${previous.provider_id}::uuid,${input.providerId}::uuid) ORDER BY id FOR UPDATE`;
   const connection=connections.find(c=>c.id===input.providerId);
   if(!connection)return missing('Connection');
   const [old]=await tx<ModelRow[]>`SELECT * FROM registered_models WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Model');versionCheck(old.version,version);
-  checkModel(input,connectionView(connection));await requireRouteEvidence(input,id,connection,tx,old);
+  checkModel(input,connectionView(connection));
   const before=await getRegisteredModel(id,tx);
-  await tx`UPDATE registered_models SET ${tx({...writeValues(input,tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
+  // A changed provider or model ID cannot inherit the old free classification.
+  const identityChanged=old.provider_id!==input.providerId||old.model_id!==input.modelId;
+  const billing=identityChanged
+   ? effectiveBilling({...old,provider_id:input.providerId,model_id:input.modelId,billing:null,upstream_metadata:{}},connection)
+   : input.billing??effectiveBilling(old,connection);
+  await tx`UPDATE registered_models SET ${tx({...writeValues({...input,billing},tx),version:old.version+1,updated_by:actor,updated_at:new Date()})} WHERE id=${id}::uuid`;
   const view=await getRegisteredModel(id,tx);
   await audit(actor,'provider.model.update',id,reason,before,view,{db:tx});return view;
- }) as RegisteredModel;}catch(error){return duplicate(error);}
+ }) as RegisteredModel;clearRegisteredModelCache();return result;}catch(error){return duplicate(error);}
 }
 export async function deleteRegisteredModel(id:string,version:number,reason:string,actor:string):Promise<{deleted:true}> {
  uuid(id,'id');reasonCheck(reason);
- return sql.begin(async tx=>{
+ const result=await sql.begin(async tx=>{
   const m=await loadModel(id,tx);
   await tx`SELECT id FROM provider_connections WHERE id=${m.provider_id}::uuid FOR UPDATE`;
   const [old]=await tx<ModelRow[]>`SELECT * FROM registered_models WHERE id=${id}::uuid FOR UPDATE`;
   if(!old)return missing('Model');versionCheck(old.version,version);
-  const dependencies=await workflowDependencies(id,tx);
-  if(dependencies.length)throw new ProviderConfigError('Remove workflow references before deleting this model',undefined,409,dependencies);
-  if(old.enabled||old.route_enabled)throw new ProviderConfigError('Disable the model and routing before deletion','enabled',409);
   const before=await getRegisteredModel(id,tx);
+  // Remove bindings with the model, in the same transaction.
+  // Deleting the corresponding settings rows cascades to provider_workflow_models.
+  const bindings=await tx<{setting_key:string}[]>`
+   SELECT setting_key FROM provider_workflow_models WHERE model_id=${id}::uuid`;
+  for(const binding of bindings)await tx`DELETE FROM settings WHERE key=${binding.setting_key}`;
   await tx`DELETE FROM registered_models WHERE id=${id}::uuid`;
   await audit(actor,'provider.model.delete',id,reason,before,null,{db:tx});return {deleted:true as const};
- }) as Promise<{deleted:true}>;
+ });
+ clearRegisteredModelCache();
+ return result;
 }
 /** Use this in every workflow-setting write, including legacy API and configuration imports. */
 export async function writeWorkflowModel(tx:Tx,key:string,id:string|null,actor:string):Promise<void> {

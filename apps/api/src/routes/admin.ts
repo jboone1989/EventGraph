@@ -8,24 +8,19 @@ import { actorOf } from "@aihot/backend/admin/auth";
 import { navCounts } from "@aihot/backend/admin/navigation";
 import { listAudit } from "@aihot/backend/audit";
 import { importSelectBenchRun, listSelectBenchRuns, selectBenchRun } from "@aihot/backend/admin/selectbench";
-import { modelsOverview, switchModel } from "@aihot/backend/admin/models";
-import {listProviders,createProvider,updateProvider,deleteProvider} from "@aihot/backend/providers/registry/repository";
-import {isVerifiedFreeTrialProvider} from "@aihot/backend/providers/registry/types";
-import {probeConfiguredProvider} from "@aihot/backend/providers/registry/probe";
-import {startBulkRun,latestBulkRun} from "@aihot/backend/providers/registry/bulk";
-import { contentChain, curatePending, overrideFields, rerun, searchContent, setSeoIndexed, setSeoIndexedBatch, setVisibility } from "@aihot/backend/admin/content";
+import { applyDefaultModelToAll, modelBindingsOverview, switchModel } from "@aihot/backend/admin/models";
+import { contentChain, curatePending, overrideFields, rerun, rerunStoryEnglish, searchContent, setSeoIndexed, setSeoIndexedBatch, setVisibility } from "@aihot/backend/admin/content";
 import { listNotes, saveNote } from "@aihot/backend/admin/notes";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
 import { banSource, eraseFeedback, feedbackScreenshot, listFeedback, unbanSource, updateFeedback } from "@aihot/backend/admin/feedback";
-import { requeueFailedArticles, runsOverview } from "@aihot/backend/admin/runs";
+import { requeueFailedArticles, requeueFailedJob, requeueFailedSchedule, runsOverview } from "@aihot/backend/admin/runs";
 import { listCandidates, reviveCandidate } from "@aihot/backend/admin/candidates";
 import { evaluateCandidate, holdCandidate, previewCandidate, startTrial } from "@aihot/backend/admin/lifecycle";
 import { resolveDelivery } from "@aihot/backend/notify/deliver";
 import { releaseReceipt } from "@aihot/backend/operations/recover";
 import { removeBudgetLimit, replaceContactQr, setTargetEnabled, settingsOverview, updateBudget } from "@aihot/backend/admin/settings";
-import { createSource, fetchNow, listSources, previewSource, previewStoredSource, sourceDetail, updateSource } from "@aihot/backend/admin/sources";
+import { createSource, deleteSource, fetchNow, listSources, previewSource, previewStoredSource, sourceDetail, updateSource } from "@aihot/backend/admin/sources";
 import { sendProblem } from "../http/respond.ts";
-import { analyticsOverview } from "@aihot/backend/admin/analytics";
 import { adminHandler } from "./admin-auth.ts";
 
 // What every admin route reads its request with (the modules' admin routes too).
@@ -45,7 +40,6 @@ function decodeImage(dataUrl: unknown): Buffer {
 
 export function registerAdmin(app: FastifyInstance) {
   registerProviderConnections(app);
-  app.get("/api/admin/analytics", adminHandler(async () => analyticsOverview()));
   // Sources
   app.get("/api/admin/sources", adminHandler(async (req) => {
     const f = q(req);
@@ -57,6 +51,11 @@ export function registerAdmin(app: FastifyInstance) {
   app.patch("/api/admin/sources/:id", adminHandler(async (req, reply, admin) => {
     const b = body<AdminSourceUpdate>(req);
     return orNotFound(req, reply, await updateSource(param(req, "id"), b, actorOf(admin)));
+  }));
+  app.delete("/api/admin/sources/:id", adminHandler(async (req, reply, admin) => {
+    const b = body<{ version: string }>(req);
+    if (typeof b.version !== "string") throw Object.assign(new Error("version is required"), { statusCode: 400 });
+    return orNotFound(req, reply, await deleteSource(param(req, "id"), b.version, actorOf(admin)));
   }));
   app.post("/api/admin/sources/:id/preview", adminHandler(async (req, reply) => orNotFound(req, reply, await previewStoredSource(param(req, "id")))));
   app.post("/api/admin/sources/:id/fetch", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await fetchNow(param(req, "id"), actorOf(admin)))));
@@ -74,9 +73,13 @@ export function registerAdmin(app: FastifyInstance) {
   app.post("/api/admin/content/:id/seo", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await setSeoIndexed(param(req, "id"), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/content/:id/override", adminHandler(async (req, _reply, admin) => overrideFields(param(req, "id"), body(req) as never, actorOf(admin))));
   app.post("/api/admin/content/:id/rerun", adminHandler(async (req, reply, admin) => {
-    const b = body<{ step: "extract" | "analyze" | "group" }>(req);
+    const b = body<{ step: "extract" | "analyze" | "group" | "english" }>(req);
     const requestId = String(req.headers["idempotency-key"] ?? "");
     return orNotFound(req, reply, await rerun(param(req, "id"), b.step, requestId, actorOf(admin)));
+  }));
+  app.post("/api/admin/stories/:id/rerun-english", adminHandler(async (req, reply, admin) => {
+    const requestId = String(req.headers["idempotency-key"] ?? "");
+    return orNotFound(req, reply, await rerunStoryEnglish(Number(param(req,"id")),requestId,actorOf(admin)));
   }));
   app.post("/api/admin/content/:id/detach", adminHandler(async (req, _reply, admin) => detachFromFact(param(req, "id"), String(body(req).reason ?? ""), actorOf(admin))));
   app.post("/api/admin/stories/merge", adminHandler(async (req, _reply, admin) => {
@@ -110,6 +113,8 @@ export function registerAdmin(app: FastifyInstance) {
   app.post("/api/admin/receipts/:id/release", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await releaseReceipt(Number(param(req, "id")), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/deliveries/:id/resolve", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await resolveDelivery(Number(param(req, "id")), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/processing/requeue", adminHandler(async (req, _reply, admin) => requeueFailedArticles(body(req) as never, actorOf(admin))));
+  app.post("/api/admin/jobs/:id/retry", adminHandler(async (req, _reply, admin) => requeueFailedJob(param(req, "id"), actorOf(admin))));
+  app.post("/api/admin/schedules/:name/retry", adminHandler(async (req, _reply, admin) => requeueFailedSchedule(param(req, "name"), actorOf(admin))));
 
   // Settings
   app.get("/api/admin/settings", adminHandler(async () => settingsOverview()));
@@ -126,38 +131,16 @@ export function registerAdmin(app: FastifyInstance) {
 
 
   // Models and evaluation
-  app.get("/api/admin/models", adminHandler(async (req) => modelsOverview(Math.min(90, Number(q(req).days) || 7))));
+  app.get("/api/admin/model-bindings", adminHandler(async () => modelBindingsOverview()));
+  // Save the default and remove all advanced chat-stage overrides in one audited transaction.
+  // Separate from per-stage editing so the operator can restore exceptions later.
+  app.post("/api/admin/models/apply-default", adminHandler(async (req, _reply, admin) => {
+    const b = body<{ model: string | null; reason: string }>(req);
+    return applyDefaultModelToAll(b.model ?? null, String(b.reason ?? ""), actorOf(admin));
+  }));
   app.post("/api/admin/models/:capability", adminHandler(async (req, _reply, admin) => {
     const b = body<{ model: string | null; reason: string }>(req);
     return switchModel(param(req, "capability"), b.model ?? null, String(b.reason ?? ""), actorOf(admin));
-  }));
-
-  // Individual model-provider configurations (same CSRF/auth/audit path as all other admin changes).
-  app.get("/api/admin/model-providers",adminHandler(async ()=>({providers:(await listProviders()).filter(p=>p.vendor==="nvidia"&&isVerifiedFreeTrialProvider(p.modelId))})));
-  app.post("/api/admin/model-providers",adminHandler(async (req,_reply,admin)=>{
-    const data=body<{vendor:string;modelId:string}>(req);
-    return createProvider(data.vendor,data.modelId,actorOf(admin));
-  }));
-  app.patch("/api/admin/model-providers",adminHandler(async (req,_reply,admin)=>{
-    const data=body<{vendor:string;modelId:string;version:number;reason:string;changes:import("@aihot/backend/providers/registry/types").ProviderChanges}>(req);
-    return updateProvider(data.vendor,data.modelId,data.changes,data.version,data.reason,actorOf(admin));
-  }));
-
-  app.delete("/api/admin/model-providers",adminHandler(async(req,_reply,admin)=>{
-    const data=body<{vendor:string;modelId:string;version:number;reason:string}>(req);
-    return deleteProvider(data.vendor,data.modelId,data.version,data.reason,actorOf(admin));
-  }));
-
-  app.get("/api/admin/model-providers/bulk-checks",adminHandler(async(req)=>{
-    const requested=q(req).runId;
-    return {run:await latestBulkRun(requested)};
-  }));
-  app.post("/api/admin/model-providers/bulk-checks",adminHandler(async(_req,_reply,admin)=>{
-    return {run:await startBulkRun(actorOf(admin))};
-  }));
-  app.post("/api/admin/model-providers/probe",adminHandler(async(req,_reply,admin)=>{
-    const data=body<{vendor:string;modelId:string;capability:string}>(req);
-    return probeConfiguredProvider(data.vendor,data.modelId,data.capability,actorOf(admin),{allowInactive:true});
   }));
 
   // SelectBench

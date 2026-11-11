@@ -20,7 +20,11 @@ export interface AdminMe {
   dev: boolean;
 }
 
-/** Items waiting for the admin, shown on the navigation: the engine's, and the modules' under their own keys. */
+/**
+ * Items waiting for the admin, shown on the navigation: the engine's, and the modules' under their own keys.
+ * `runs` is today's (UTC) failed flow execution units — the same definition as the runs page's failed
+ * detail, not a count of unfinished articles.
+ */
 export type AdminNavCounts = Partial<Record<"feedback" | "sources" | "runs", number>> & Record<string, number | undefined>;
 
 /** One manual change (audit_log), as a history list shows it. */
@@ -286,6 +290,31 @@ export interface AdminFeedback {
 
 // Runs
 
+/** A live execution unit; an article and its model request can appear separately. */
+export interface AdminFlowItem {
+  key: string;
+  kind: "article" | "job" | "schedule" | "model" | "source" | "delivery";
+  status: "pending" | "processing" | "failed";
+  process: string;
+  subject: string;
+  articleId: string | null;
+  provider: string | null;
+  model: string | null;
+  error: string | null;
+  at: Timestamp;
+  retryAt: Timestamp | null;
+  jobId: string | null;
+  receiptId: number | null;
+  receiptStatus?: string | null;
+  /** Actual parent job/article stage state; distinct from this failure record. */
+  originState?: string | null;
+  /** Only a grounded, executable original-stage replay may populate these. */
+  replayStep?: "extract" | "analyze" | "group" | "english" | "storyEnglish" | null;
+  replayTargetId?: string | null;
+  /** Raw receipt subject can be inspected without crowding the subject column. */
+  rawSubject?: string | null;
+}
+
 export interface AdminReceiptIssue {
   id: number;
   service: string;
@@ -311,26 +340,67 @@ export interface AdminDeliveryIssue {
   updated_at: Timestamp;
 }
 
+/** Live auto-routed attempts since 00:00 UTC of the current calendar day. */
+export interface AdminRoutingEffect {
+  period: 'utc-day';
+  attempts: number;
+  successful: number;
+  failed: number;
+  unknown: number;
+  pending: number;
+  fallbackSuccess: number;
+  p95Ms: number | null;
+  providers: Array<{ provider: string; attempts: number; successful: number; failed: number; unknown: number }>;
+  stages: Array<{ stage: string; attempts: number; successful: number; failed: number; unknown: number; fallbackSuccess: number; p95Ms: number | null }>;
+}
+
 export interface AdminRuns {
+  /** Preview API and the separately deployed worker may run different revisions. */
+  previewRuntime?: { apiRelease: string; workerRelease: string | null };
+  /** Old API fixtures may omit this; production always includes it. */
+  routingEffect?: AdminRoutingEffect;
   checkedAt: Timestamp;
   processes: Array<{ role: string; pid: number; host: string; release: string; startedAt: Timestamp; at: Timestamp; alive: boolean }>;
-  jobs: Array<{ job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null; failed_24h: number; runs_24h: number }>;
+  jobs: Array<{ job: string; started_at: Timestamp | null; finished_at: Timestamp | null; status: string | null; error: string | null; failed_today: number; runs_today: number }>;
   timeline: Array<{ id: number; job: string; started_at: Timestamp; finished_at: Timestamp | null; status: string; error: string | null }>;
   queues: Array<{ name: string; state: string; n: number; oldest: Timestamp }>;
   articleProcessing: { waiting: number; retrying: number; failed: number; filtered: number; unavailableModel: number };
-  /** Articles first discovered within the last 24 hours, excluding historical backfills and signal-only feeds. */
+  /** Live unfinished editorial articles from this UTC day, mutually exclusive counts. */
+  currentNews: { pending: number; processing: number; failed: number };
+  /** Every current execution unit from article work, pg-boss, schedules and model receipts. */
+  flowItems?: AdminFlowItem[];
+  /** One row per unfinished news item: extraction, unified analysis or selected-event grouping. */
+  currentNewsItems?: Array<{
+    id: string; title: string; status: "pending" | "processing" | "failed"; stage: string;
+    discoveredAt: Timestamp; retryAt: Timestamp | null; attempts: number; error: string | null;
+    jobName: string | null; jobState: string | null; queuedAt: Timestamp | null; startedAt: Timestamp | null;
+    provider?: string | null; model?: string | null;
+    unverifiedReceiptId: number | null; receiptStatus: string | null;
+  }>;
+  /** Articles first discovered today (UTC), excluding historical backfills and signal-only feeds. */
   live24h: { discovered: number; analyzed: number; grouped: number; waiting: number; failed: number; filtered: number; stalled: number; newestAt: Timestamp | null };
+  /** Evidence-backed diagnosis of UTC-day unresolved articles. A delayed item may still be recoverable automatically. */
+  backlogCauses?: Array<{
+    kind: "receipt_unknown" | "article_failed" | "provider_retry" | "retry_wait" | "missing_job" | "queue_wait" | "long_running" | "unclassified";
+    count: number;
+    oldest: Timestamp;
+    exampleArticleId: string;
+    exampleError: string | null;
+    nextRetryAt: Timestamp | null;
+  }>;
+  /** Unresolved editorial articles first discovered over 24 hours ago; not included in live24h. */
+  legacyUnresolved: number;
   failedJobs: Array<{ name: string; failed: number; last: Timestamp | null; last_output: string | null }>;
   grouping: {
     waiting: number;
     needsAttention: number;
-    items: Array<{ articleId: string; title: string; since: Timestamp; failed: boolean; recovery: "automatic" | "receipt" | "manual"; receiptId: number | null; error: string | null }>;
+    items: Array<{ articleId: string; title: string; since: Timestamp; failed: boolean; recovery: "automatic" | "receipt" | "manual"; receiptId: number | null; error: string | null; jobState?: "active" | "created" | "retry" | null; queueSince?: Timestamp | null; activeSince?: Timestamp | null; lastFailedJobError?: string | null }>;
   };
   lagging: Array<{
     id: string; name: string; kind: string; health: string; fail_count: number; last_ok_at: Timestamp | null; last_fetch_at: Timestamp | null;
     next_fetch_at: Timestamp | null; interval_minutes: number; last_error: string | null;
   }>;
-  receipts: { counts: Record<string, number>; issues: AdminReceiptIssue[] };
+  receipts: { counts: Record<string, number>; unknownTotal: number; issues: AdminReceiptIssue[] };
   deliveries: AdminDeliveryIssue[];
   errors: Array<{ error: string; n: number; last: Timestamp; example: string }>;
   retrying: { count: number; next: Timestamp | null };
@@ -390,30 +460,14 @@ export interface AdminModelUsage {
   estimate: { amount: number; currency: string } | null;
 }
 
-export interface AdminProviderProfile {
- vendor:string; modelId:string; adapter:"chat"|"embedding"|"document"|"safety"|"special"|"unconfigured";
- endpoint:string|null; credentialEnv:string; capabilities:string[]; requestDefaults:Record<string,unknown>;
- probeSpec:{capability:string;body:Record<string,unknown>;response:"chat"|"embedding"|"json";source?:string}|null;
- timeoutMs:number; stream:boolean; complexity:"light"|"medium"|"heavy";
- documentationUrl:string|null; notes:string|null; enabled:boolean; routeEnabled:boolean;
- version:number; updatedAt:string;
- checks:Array<{capability:string;status:string;verifiedAt:string|null;latencyMs:number|null}>;
-}
-export interface AdminModels {
-  days: number;
-  providers: AdminProviderProfile[];
-  nvidiaPool: {
-    catalogCount: number;
-    catalogAt: string | null;
-    candidates: number;
-    probes: number;
-    inventory: Record<string, { total: number; healthy: number }>;
-    models: Array<{ model: string; capability: string; status: string; latencyMs: number | null; reason: string | null; checkedAt: string | null }>;
-  };
-  capabilities: Array<{ key: string; label: string; env: string; defaultModel: string; vision: boolean; current: { model: string; source: "admin" | "env" | "default" }; usage: AdminModelUsage[] }>;
-  choices: Array<{ key: string; service: string; vision: boolean }>;
-  history: Array<{ at: Timestamp; actor: string; subject: string; reason: string | null; before: { model: string; source: string } | null; after: { model: string; source: string } | null }>;
-  benches: Array<{ id: string; label: string; sample_size: number; prompt_version: string | null; models: string[]; created_at: Timestamp }>;
+/** Lightweight model choices for per-stage binding, refreshed from the registry on each request. */
+export interface AdminModelBindings {
+  defaultModel: {model:string;source:'admin'|'default'};
+  steps: Array<{key:string;label:string;vision:boolean;embedding?:boolean;
+    /** Actual task tier assigned by the shared auto router; null for embedding-only stages. */
+    autoTier?:'light'|'medium'|'heavy'|null;
+    current:{model:string;source:'admin'|'default'};effective:{model:string;source:'admin'|'env'|'default'}}>;
+  choices: Array<{key:string;modelId:string;provider:string;adapter:string;vision:boolean}>;
 }
 
 export interface AdminSelectBenchRun {

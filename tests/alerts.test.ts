@@ -79,47 +79,48 @@ test("a model service's outage names the steps that call it, not the wording ste
   try {
     assert.ok(!(await providerStops(service)).includes(wording), "nothing to look for: the step never calls a model");
     list.push([/禁用词/u, "换一个说法"]);
-    assert.ok((await providerStops(service)).includes(wording));
+    assert.ok(!(await providerStops(service)).includes(wording),
+      "the retired independent wording stage does not claim to block current news analysis");
   } finally {
     list.splice(0, list.length, ...kept);
   }
 });
 
 test("provider impacts follow the current model choice, including overrides, fallback and module steps", async () => {
-  const env = process.env.SCORE_MODEL;
+  const env = process.env.UNDERSTAND_MODEL;
   const moduleEnv = process.env.ALERT_TEST_MODEL;
   const installed = serverModules();
   const stepEnvs = Object.fromEntries(Object.values(capabilities()).map((step) => [step.env, process.env[step.env]]));
-  const label = CAPABILITIES.score.label.split("（")[0]!;
-  const defaultService = MODELS[CAPABILITIES.score.default]!.service;
+  const label = CAPABILITIES.understand.label.split("（")[0]!;
+  const defaultService = MODELS[CAPABILITIES.understand.default]!.service;
   const other = Object.keys(MODELS).find((key) => MODELS[key]!.service !== defaultService)!;
   const otherService = MODELS[other]!.service;
   const scoreOn = async (service: string) => (await providerStops(service)).includes(label);
   try {
-    await sql`DELETE FROM settings WHERE key = 'models.score'`;
+    await sql`DELETE FROM settings WHERE key = 'models.understand'`;
     invalidateModelCache();
-    delete process.env.SCORE_MODEL;
+    delete process.env.UNDERSTAND_MODEL;
     assert.equal(await scoreOn(defaultService), true, "the code default is used without overrides");
-    process.env.SCORE_MODEL = other;
-    assert.equal(await modelFor("score"), other);
+    process.env.UNDERSTAND_MODEL = other;
+    assert.equal(await modelFor("understand"), other);
     assert.equal(await scoreOn(defaultService), false, "the old provider no longer lists scoring");
     assert.equal(await scoreOn(otherService), true, "the environment-selected provider lists scoring");
 
-    await sql`INSERT INTO settings(key,value) VALUES ('models.score', ${sql.json({ model: CAPABILITIES.score.default })})`;
+    await sql`INSERT INTO settings(key,value) VALUES ('models.understand', ${sql.json({ model: CAPABILITIES.understand.default })})`;
     invalidateModelCache();
     assert.equal(await scoreOn(defaultService), true, "the admin choice takes precedence over the environment");
     assert.equal(await scoreOn(otherService), false);
-    await sql`UPDATE settings SET value = ${sql.json({ model: "unknown-model" })} WHERE key = 'models.score'`;
+    await sql`UPDATE settings SET value = ${sql.json({ model: "unknown-model" })} WHERE key = 'models.understand'`;
     invalidateModelCache();
     assert.equal(await scoreOn(otherService), true, "an invalid admin choice yields to a valid environment choice");
-    process.env.SCORE_MODEL = "unknown-model";
-    assert.equal(await modelFor("score"), CAPABILITIES.score.default);
+    process.env.UNDERSTAND_MODEL = "unknown-model";
+    assert.equal(await modelFor("understand"), CAPABILITIES.understand.default);
     assert.equal(await scoreOn(defaultService), true, "an invalid environment choice falls back to the default");
 
     installModules([...installed, { name: "alert-test", models: { alertTest: { label: "模块测试步骤（说明）", env: "ALERT_TEST_MODEL", purposes: [] } } }]);
     process.env.ALERT_TEST_MODEL = other;
     assert.ok((await providerStops(otherService)).includes("模块测试步骤"));
-    await sql`INSERT INTO settings(key,value) VALUES ('models.alertTest', ${sql.json({ model: CAPABILITIES.score.default })})`;
+    await sql`INSERT INTO settings(key,value) VALUES ('models.alertTest', ${sql.json({ model: CAPABILITIES.understand.default })})`;
     invalidateModelCache();
     assert.ok(!(await providerStops(otherService)).includes("模块测试步骤"));
     assert.ok((await providerStops(defaultService)).includes("模块测试步骤"));
@@ -135,21 +136,21 @@ test("provider impacts follow the current model choice, including overrides, fal
     for (const [key, value] of Object.entries(stepEnvs)) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
-    await sql`DELETE FROM settings WHERE key IN ('models.score', 'models.alertTest')`;
+    await sql`DELETE FROM settings WHERE key IN ('models.understand', 'models.alertTest')`;
     invalidateModelCache();
-    if (env === undefined) delete process.env.SCORE_MODEL; else process.env.SCORE_MODEL = env;
+    if (env === undefined) delete process.env.UNDERSTAND_MODEL; else process.env.UNDERSTAND_MODEL = env;
     if (moduleEnv === undefined) delete process.env.ALERT_TEST_MODEL; else process.env.ALERT_TEST_MODEL = moduleEnv;
   }
 });
 
 test("refusal and exhausted-budget findings name the currently selected provider's steps", async () => {
-  const env = process.env.SCORE_MODEL;
-  const label = CAPABILITIES.score.label.split("（")[0]!;
-  const defaultService = MODELS[CAPABILITIES.score.default]!.service;
+  const env = process.env.UNDERSTAND_MODEL;
+  const label = CAPABILITIES.understand.label.split("（")[0]!;
+  const defaultService = MODELS[CAPABILITIES.understand.default]!.service;
   const other = Object.keys(MODELS).find((key) => MODELS[key]!.service !== defaultService)!;
   const service = MODELS[other]!.service;
   try {
-    process.env.SCORE_MODEL = other;
+    process.env.UNDERSTAND_MODEL = other;
     await sql`INSERT INTO receipts(logical_key,service,purpose,status) VALUES ('alert-provider-routing',${service},'score_article','failed')`;
     const [receipt] = await sql<{ id: number }[]>`SELECT id FROM receipts WHERE logical_key='alert-provider-routing'`;
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -160,14 +161,14 @@ test("refusal and exhausted-budget findings name the currently selected provider
     const findings = await collectFindings();
     for (const key of [`provider.refused.${service}`, `budget.day.${service}`]) {
       const impact = findings.find((f) => f.key === key)?.impact;
-      assert.ok(impact?.includes(label), `${key} lists scoring on its current provider`);
+      assert.ok(impact?.includes(label), `${key} lists news analysis on its current provider`);
       assert.doesNotMatch(impact!, /\[object Promise\]/);
     }
   } finally {
     await sql`DELETE FROM receipt_attempts WHERE receipt_id IN (SELECT id FROM receipts WHERE logical_key='alert-provider-routing')`;
     await sql`DELETE FROM receipts WHERE logical_key='alert-provider-routing'`;
     await sql`DELETE FROM budgets WHERE service=${service}`;
-    if (env === undefined) delete process.env.SCORE_MODEL; else process.env.SCORE_MODEL = env;
+    if (env === undefined) delete process.env.UNDERSTAND_MODEL; else process.env.UNDERSTAND_MODEL = env;
     invalidateModelCache();
   }
 });
@@ -207,8 +208,12 @@ test("selected identity delays show reader impact, recovery state and the affect
   const source = "grouping-alert-source";
   const make = async (id: string, age: number, state: "pending" | "failed" | "complete", candidate = true, visibility = "public") => {
     const at = new Date(now - age * 60_000);
+    // Even just after UTC midnight, this fixture represents a recently updated live item.
+    // Keep its selected_ready_at unchanged so alert delay still measures the true wait.
+    const updated = age <= 30 ? new Date(Math.max(at.getTime(), Date.UTC(
+      new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate()))) : at;
     await sql`INSERT INTO articles(id,source_id,identity_key,url,title,published_at,discovered_at,timeline_at,updated_at,grouping_status,grouping_error)
-      VALUES(${id},${source},${id},${`https://example.com/${id}`},${id},${at},${at},${at},${at},${state},${state === "failed" ? "identity provider timed out" : null})`;
+      VALUES(${id},${source},${id},${`https://example.com/${id}`},${id},${at},${at},${at},${updated},${state},${state === "failed" ? "identity provider timed out" : null})`;
     await sql`INSERT INTO publications(article_id,source_id,title,summary,eligible,selected,selection_candidate,visibility,
       selected_ready_at,discovered_at,timeline_at,sort_at,url,category,channel)
       VALUES(${id},${source},${`新闻 ${id}`},'摘要',true,false,${candidate},${visibility},${at},${at},${at},${at},${`https://example.com/${id}`},'industry','news')`;

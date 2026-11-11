@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Promote the develop-verified immutable GHCR digest on VM09. No compile or DB/Neo4j restart.
 set -Eeuo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+cd "${EVENTGRAPH_PROD_REPO_DIR:-$(dirname "${BASH_SOURCE[0]}")/..}"
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.production.yml
  -f docker-compose.knowledge.yml -f docker-compose.release.yml --profile knowledge)
+# The production smoke verifies an empty hot list with the backend's own read-only probe, run inside
+# the deployed api image (specs/prod-hot-ranking-release-gate-20261109); the smoke appends the public
+# entry count it observed over HTTP. Read-only, so a failed smoke or a re-run reconciles idempotently.
+export EVENTGRAPH_HOT_DIAGNOSTIC_CMD="${COMPOSE[*]} exec -T api node scripts/hot-diagnose.ts --api-entries"
 START=$SECONDS
 [[ "${1:-}" == "" || "${1:-}" == "--check" ]] || { echo "Usage: $0 [--check]" >&2; exit 2; }
 git diff --quiet && git diff --cached --quiet || { echo "Dirty checkout; abort" >&2; exit 1; }
@@ -14,17 +18,22 @@ git fetch github main
 NEW_SHA="$(git rev-parse FETCH_HEAD)"
 OLD_SHA="$(git rev-parse HEAD)"
 [[ "$NEW_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
-# The release manifest travels with main and pins the previously validated develop image.
-PIN="$(git show "$NEW_SHA:.github/production-image.env")"
-SOURCE_SHA="$(printf '%s\n' "$PIN" | sed -n 's/^SOURCE_SHA=//p')"
-IMAGE_REF="$(printf '%s\n' "$PIN" | sed -n 's/^IMAGE_REF=//p')"
-[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid pinned develop SHA" >&2; exit 1; }
-[[ "$IMAGE_REF" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]] || { echo "Invalid pinned digest" >&2; exit 1; }
+# A verified main workflow supplies all three immutable values.
+# The repository's historical production-image.env must never silently win.
+SOURCE_SHA="${EVENTGRAPH_PROMOTED_SOURCE_SHA:-}"
+IMAGE_REF="${EVENTGRAPH_PROMOTED_IMAGE_REF:-}"
+EXPECTED_MAIN="${EVENTGRAPH_PROMOTED_MAIN_SHA:-}"
+[[ "$EXPECTED_MAIN" =~ ^[0-9a-f]{40}$ && "$EXPECTED_MAIN" == "$NEW_SHA" ]] ||
+  { echo "Main changed after verified promotion or missing pinned main SHA" >&2; exit 1; }
+[[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Missing verified develop source SHA" >&2; exit 1; }
+[[ "$IMAGE_REF" =~ ^ghcr\.io/jboone1989/eventgraph-app@sha256:[0-9a-f]{64}$ ]] ||
+  { echo "Missing verified immutable digest" >&2; exit 1; }
 git fetch github "$SOURCE_SHA"
 # Changes outside automation/docs/host-only deployment tools must be the proven build inputs.
 git diff --quiet "$SOURCE_SHA" "$NEW_SHA" -- . \
-  ':(exclude).github/**' ':(exclude)scripts/deploy-prod.sh' \
-  ':(exclude)docs/ci-cd.md' ':(exclude)docs/production-deployment.md' ||
+  ':(exclude).github/**' ':(exclude)scripts/ci/**' ':(exclude)specs/**' \
+  ':(exclude)scripts/deploy-prod.sh' ':(exclude)docs/ci-cd.md' \
+  ':(exclude)docs/spec-review.md' ':(exclude)docs/production-deployment.md' ||
   { echo "Main contains unverified application changes" >&2; exit 1; }
 TAG="${NEW_SHA:0:12}"
 read_tag() { sed -n "s/^$1=//p" .env | tail -n1; }
@@ -35,6 +44,8 @@ APP_TAG="${APP_TAG:-$OLD_TAG}"
 KNOWLEDGE_TAG="${KNOWLEDGE_TAG:-$OLD_TAG}"
 VALID='^[0-9a-f]{12}$'
 APP_CHANGED=0; KNOWLEDGE_CHANGED=0; SCHEMA_CHANGED=0
+# Re-tag if the deploy digest changed, even when the source file diff is empty.
+if [[ "$(read_tag LRSITE_APP_IMAGE_REF)" != "$IMAGE_REF" ]]; then APP_CHANGED=1; fi
 # Compare from the image's source commit, not checkout HEAD; source may already
 # be updated while the running containers still have a previous release tag.
 APP_BASE="$OLD_SHA"; KNOWLEDGE_BASE="$OLD_SHA"
@@ -52,7 +63,7 @@ while IFS= read -r path; do
  case "$path" in
   knowledge_service/*) KNOWLEDGE_CHANGED=1 ;;
   database/migrations/*) APP_CHANGED=1; SCHEMA_CHANGED=1 ;;
-  docs/*|.github/*|tests/*|apps/web/tests/*|README*|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|SECURITY.md|NOTICE|LICENSE|.env.example|scripts/deploy-prod.sh|scripts/production-env-check.py|scripts/production-smoke.py) ;;
+  docs/*|.github/*|specs/*|scripts/ci/*|tests/*|apps/web/tests/*|README*|AGENTS.md|CLAUDE.md|CONTRIBUTING.md|SECURITY.md|NOTICE|LICENSE|.env.example|scripts/deploy-prod.sh|scripts/production-env-check.py|scripts/production-smoke.py) ;;
   docker-compose.*.yml|docker-compose.yml) ;; # Compose applies its own configuration hash
   *) APP_CHANGED=1 ;;
  esac
@@ -66,8 +77,8 @@ if [[ "${1:-}" == "--check" ]]; then
  python3 scripts/production-smoke.py
  exit 0
 fi
-# Graphiti/Neo4j has a separate image; an app digest cannot silently replace it.
-# Keep the existing knowledge image/version. Graphiti is released independently.
+# Graphiti is deployed by release-main.yml's separate deploy_knowledge job.
+# This application step intentionally leaves the knowledge/Neo4j services untouched.
 if [[ "$APP_CHANGED" == 1 ]]; then
   echo "[1/5] Pull the already verified develop image (no host build)"
   # GitHub Actions can supply a read-only ephemeral GHCR token; manual releases can reuse host credentials.
@@ -88,14 +99,14 @@ echo "[2/5] Reuse existing Graphiti image and persistent data"
 echo "[3/5] Advance checkout and pin per-service release image"
 git merge --ff-only "$NEW_SHA"
 [[ "$(git rev-parse HEAD)" == "$NEW_SHA" ]] || exit 1
-python3 - "$APP_TAG" "$KNOWLEDGE_TAG" <<'WRITE_RELEASE'
+python3 - "$APP_TAG" "$KNOWLEDGE_TAG" "$IMAGE_REF" <<'WRITE_RELEASE'
 from pathlib import Path
 import os,re,sys
-app,knowledge=sys.argv[1:]
+app,knowledge,image_ref=sys.argv[1:]
 assert all(re.fullmatch(r"[0-9a-f]{12}", tag) for tag in (app,knowledge))
 p=Path(".env")
 data=p.read_text()
-for key,tag in {"LRSITE_APP_RELEASE":app,"LRSITE_KNOWLEDGE_RELEASE":knowledge,"LRSITE_RELEASE":app,"AIHOT_RELEASE":app}.items():
+for key,tag in {"LRSITE_APP_RELEASE":app,"LRSITE_KNOWLEDGE_RELEASE":knowledge,"LRSITE_RELEASE":app,"AIHOT_RELEASE":app,"LRSITE_APP_IMAGE_REF":image_ref}.items():
  if re.search(r"^"+key+r"=",data,re.M):
   data=re.sub(r"^"+key+r"=.*$",key+"="+tag,data,flags=re.M)
  else:data+="\n"+key+"="+tag+"\n"

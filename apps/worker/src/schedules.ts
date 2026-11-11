@@ -4,11 +4,8 @@ import type { PgBoss } from "pg-boss";
 import { ensureQueue, recordRun } from "@aihot/backend/jobs/queue";
 import { responder, serverModules, type Scheduled } from "@aihot/backend/modules";
 import { sweepUnprocessed } from "@aihot/backend/jobs/content";
-import { probeNvidiaPool } from "@aihot/backend/providers/nvidia-pool";
 import { ingestGraphitiOnce } from "@aihot/backend/knowledge/graphiti";
-import { translatePending } from "@aihot/backend/editorial/translate";
 import { writeEnglishPending } from "@aihot/backend/editorial/english";
-import { writeExplanationsPending } from "@aihot/backend/editorial/explain";
 import { adaptIntervals, scheduleDueSources } from "@aihot/backend/sources/collect";
 import { scheduleMpReconcile } from "@aihot/backend/sources/mp";
 import { dajialaConfigured } from "@aihot/backend/providers/dajiala";
@@ -33,19 +30,12 @@ const ENGINE_SCHEDULES: Scheduled[] = [
   ...(process.env.GRAPHITI_INGEST_ENABLED === "true" ? [
     {name:"knowledge.graphiti.ingest",cron:"*/5 * * * *",run:ingestGraphitiOnce},
   ] : []),
-  ...(process.env.NVIDIA_MODEL_POOL_ENABLED === "true" ? [
-    { name: "models.nvidia.probe", cron: "*/5 * * * *", run: probeNvidiaPool },
-  ] : []),
   // Paid probes of registered models whose 24 h success is about to expire (both registry and model-call flags).
   ...(retestEnabled() ? [{ name: "models.registry.retest", cron: "*/30 * * * *", run: () => retestExpiringModels() }] : []),
   { name: "content.sweep", cron: "*/5 * * * *", run: sweepUnprocessed },
-  { name: "ops.expire-stale-work", cron: "*/10 * * * *", run: expireStaleWork },
-  // Full-text translations of newly selected items (model calls; off with MODEL_CALLS_ENABLED=false).
-  { name: "content.translate", cron: "*/5 * * * *", run: () => translatePending() },
-  // English copy of selected reports and story digests for the /en edition (model calls; off with MODEL_CALLS_ENABLED=false).
+  { name: "ops.expire-stale-work", cron: "0 0 * * *", timezone: "UTC", missed: "once", run: expireStaleWork },
+  // Only missing/edited/historical English copies and English story digests need separate calls.
   { name: "content.english", cron: "*/5 * * * *", run: () => writeEnglishPending() },
-  // 5W1H + So What + What Next for recent selected reports (model calls; off with MODEL_CALLS_ENABLED=false).
-  { name: "content.explain", cron: "*/15 * * * *", run: () => writeExplanationsPending() },
   { name: "hot.rank", cron: "*/5 * * * *", run: () => computeHotRanking() },
   { name: "hot.snapshot", cron: "2 * * * *", run: () => snapshotHeat() },
   { name: "stories.links", cron: "12 * * * *", run: linkRelatedStories },
@@ -86,9 +76,21 @@ export async function registerSchedules(boss: PgBoss) {
   for (const s of schedules) {
     const queue = `cron.${s.name}`;
     await ensureQueue(queue, { policy: "singleton", retryLimit: 1, expireInSeconds: 3600 });
-    await boss.schedule(queue, s.cron, {}, { tz: "Asia/Shanghai", missed: s.missed ?? "skip" });
+    await boss.schedule(queue, s.cron, {}, { tz: s.timezone ?? "Asia/Shanghai", missed: s.missed ?? "skip" });
     // Schedules fire at minute boundaries; a 15 s pickup keeps them on time with a third of the polling.
-    await boss.work(queue, { pollingIntervalSeconds: 15 }, async () => recordRun(s.name, s.run));
+    await boss.work(queue, { pollingIntervalSeconds: 15 }, async ([job]) => {
+      // The existing English cron queue also accepts a single manual replay.
+      // Never turn one failed English row into a sweep of unrelated articles.
+      const data = job?.data as { articleId?: unknown; storyId?: unknown; requestId?: unknown } | undefined;
+      if (s.name === "content.english" && data &&
+          (typeof data.articleId === "string" || Number.isSafeInteger(data.storyId))) {
+        const articleId = typeof data.articleId === "string" ? data.articleId : undefined;
+        const storyId = Number.isSafeInteger(data.storyId) ? Number(data.storyId) : undefined;
+        const manualAttemptTag = typeof data.requestId === "string" ? "admin:" + data.requestId : undefined;
+        return recordRun(s.name, () => writeEnglishPending({ articleId, storyId, manualAttemptTag }));
+      }
+      return recordRun(s.name, s.run);
+    });
   }
   // Retired or disabled timers must leave no queued work behind, including queues an earlier release
   // already unscheduled. pg-boss deletes the queue's jobs and schedules; job_runs retains its audit.

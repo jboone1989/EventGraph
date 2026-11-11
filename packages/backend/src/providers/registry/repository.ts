@@ -39,7 +39,7 @@ export async function updateProvider(vendor:string,id:string,changes:ProviderCha
  if((changes.enabled===true||changes.routeEnabled===true)&&!isVerifiedFreeTrialProvider(id))fail("Only officially confirmed NVIDIA free trial API models can be enabled");
  const next:ProviderProfile={...current,...changes};
  if(next.routeEnabled){
-  if(!next.enabled||!next.endpoint||next.adapter==="special"||next.adapter==="unconfigured")fail("provider is not configured for routing");
+  if(!next.enabled||!next.endpoint||next.adapter==="unconfigured")fail("provider is not configured for routing");
   // Check results are backend-owned. Operators cannot promote a model without
   // the independent capability probe succeeding recently.
   if(!current.checks.some(c=>c.status==="verified"&&c.verifiedAt&&Date.now()-Date.parse(c.verifiedAt)<86400000))fail("a recent verified capability check is required for routing");

@@ -64,12 +64,21 @@ EventGraph 的产品方向已在用户 + ChatGPT + Claude 独立反方讨论后�
 
 **任何增长/SEO/新闻页/索引/亚洲信源/复访相关工作开工前，先读** `specs/005-news-growth-funnel/spec.md`、`research.md`、`plan.md`、`tasks.md`，并核查最新 `develop` 和 PR 状态。遵循 Research First → 现有 Spec Kit → 最小实现 → CI/独立评审，不另造工具链。此处为产品方向和接力索引；详细事实与验收标准以 Spec 为准。
 
+## PR 生命周期：一个任务只保留一个实现 PR（2026-11-05）
+
+- **先查再建**：开始实现前查询本仓库同一 Issue、Spec/Task 和实际缺陷对应的开放及已合并 PR，并核对目标分支最新代码；不能只按 PR 标题判断。已有实现时复用，不再另起独立实现。
+- **一个任务一个开发分支，一个开放的实现 PR**：先在分支完成实现和相关测试，再发起 PR；PR 创建后发现 CI / 评审问题，继续向**原 PR 的 head 分支**提交修复，禁止另开“修 CI / 修 Review / 修部署”PR。更新原 PR 会自动触发原有检查。
+- **无法修改现有 PR 时停止而非复制**：如果已存在同一任务的开放 PR，但当前 Agent 的工具或权限无法向其分支提交，报告 PR 链接和阻碍，交由能修改该分支的执行者接续；不得创建第二个 PR 绕过限制。
+- **已经合并的修复不再重做**：按实际改动和测试确认已解决后，关闭或标记被覆盖的重复 PR，附上原 PR / 合并提交链接；有尚未实现的独立验收项则继续原任务或单独定义新任务，不能直接丢弃。
+- **区分 Spec 和实现**：仓库已有 Spec-first 门禁，Spec PR 与其批准后的实现 PR 是两个不同阶段，不视为重复；同一阶段的重复实现才必须去重。不要因为该规则增加新的队列、审核工作流或兼容层。
+
 ## EventGraph Spec-driven development and independent review
 
 For non-trivial feature work, use the upstream [GitHub Spec Kit](https://github.com/github/spec-kit) artifact names and flow; see [docs/spec-review.md](docs/spec-review.md). Small fixes may use the Issue and PR acceptance criteria instead of creating three documents.
 
 - **Search Before Build**: inspect current repository code, the AIHOT upstream implementation, and relevant official documentation before planning a new implementation. Record the reusable findings and alternatives in the Issue / plan; do not duplicate existing graph, CI, or provider subsystems.
 - **Spec before implementation**: write the user-visible behavior and testable acceptance criteria in `specs/<feature>/spec.md` (or a sufficiently detailed approved Issue), then the implementation plan and tasks as appropriate. Keep `feature → develop → main`; the optional Spec Kit Git extension must not change this policy.
+- **Product contract before CRUD**: for admin/backend/UI/API features, follow the canonical checklist in [docs/admin-ui-reuse.md](docs/admin-ui-reuse.md): the Spec must cover the user goal and entry, business semantics of every operation, the complete journey, list/search/pagination choices, main states, long-data/responsive handling and Given/When/Then acceptance. Business-significant decisions (hard vs soft delete, cascades, new fields) need an authorized basis, never an invented default. Implementation reuses the component map in the same guide; re-implementing an existing shared admin component without a reason is a review blocker.
 - **Approval is a reference, not a claim**: PRs doing substantial work identify the approved spec source, its immutable Git commit SHA and path (or the explicitly approved Issue/comment reference), plus the approval evidence. A document newly written on the same implementation branch is a *draft*, not automatically approved. Changes to approved requirements require a separate approval/version.
 - **Implement within scope**: link each acceptance criterion to the affected files, tests, and actual results. Do not mark unrun CI or undeployed features as complete.
 - **Spec-based verification by any reviewer (ChatGPT, Codex, Claude or human)**: compare the approved immutable spec with `spec.md`, `plan.md`, `tasks.md` if present, the PR diff, actual tests and deployment evidence. Look for missing behavior, scope creep, duplicate code, privacy/security regressions and unsupported claims. Report **PASS**, **CHANGES REQUESTED** or **UNVERIFIED** with evidence. `speckit-analyze` checks document consistency; `speckit-converge` checks implementation after `implement` and may append tasks. Neither substitutes for independent PR diff review or GitHub CI.

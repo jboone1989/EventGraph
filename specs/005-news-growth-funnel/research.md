@@ -41,3 +41,50 @@
 - 不能从生产近 7 天约 7,881 采集推导 7,881 条可阅读 editorial 新闻：其中 DEV AI 的 6,295 是 `hot_signal`；真正的新增亚洲 feed 先对账。
 - GSC API 只返回排前面的页面、受匿名化及 `rowLimit` 影响。类型聚合应明确是**返回样本**，不能与另行查询的全部站点总量混淆。
 - 两周流量样本可能低到无法比较 CTR 统计显著性；先做有方向性的“有效页面数、曝光、阅读二跳”，避免假 KPI。
+
+## 2026-11-11 增量复核：SEO / AI Search，Search Before Build
+
+> 本节是 **2026-11-11 `develop` 代码与 GitHub PR 的新快照**；上面的 2026-10-25 记录是历史证据，不代表功能仍在当前分支。此增量研究不修改已批准的 `spec.md` 产品决策，也不视为某功能已部署。
+
+### 已有能力与真实状态（优先复用）
+
+| 当前证据 | 结论 / 下一步 |
+| --- | --- |
+| `apps/web/app/lib/seo.ts`：`pageMeta`、`localized`、Organization / Dataset / Article / Breadcrumb JSON-LD | 已有 title/description/canonical/OG/hreflang/JSON-LD 工具；只做 SSR 输出、事实一致性、中文英文和版本检查，不另装 SEO Meta 管理包 |
+| `apps/web/react-router.config.ts`：`ssr: true`；`apps/web/app/routes/{item,story,explore,knowledge-entity}.tsx` | 已有 SSR、详情页与图谱；检查爬虫看到的完整 HTML、正文、真实超链接及移动端；不新建静态预渲染系统 |
+| `packages/backend/src/publication/sitemap.ts` | 已有 45,000 URL 上限和五分钟缓存；含 story/item/report/topic 索引门槛及中英文 URL。**发现真实风险**：没有可靠 `lastmod` 的静态/集合页用 sitemap 生成时间填充，可能误报重大修改。保留既有 URL 来源，校正更新语义与质量后再考虑 News Sitemap |
+| `packages/backend/src/operations/indexnow.ts` 和 `packages/backend/src/config.ts` | 已实现变更指纹和 IndexNow 提交；`INDEXNOW_SUBMIT_ENABLED` 默认关闭。先核查部署开关、密钥验证和提交回执；**不要第二套通知器**，不要把 IndexNow 当 Google 索引 API |
+| `site/public/robots.txt` | 包含 Sitemap、私有/后台 API 的 Disallow；没有 `Disallow: /explore`。搜寻身份由爬虫验证与实际 HTTP 响应确认，不仅依据 user-agent 字符串 |
+| `apps/web/tests/{seo-meta,entity-seo}.test.ts`、`tests/{seo-curation,topic-seo.standalone}.test.ts` | 已有验证基线。扩展已有测试，不单独建 SEO 测试框架 |
+| PR [#567](https://github.com/jboone1989/EventGraph/pull/567) 合并 develop（2026-11-11） | **仅为已批准的 noindex 移除 Spec，非实现**；尚不能宣称线上 noindex 已被移除。后续 T001/T002 归属 `specs/remove-public-noindex-20261111`，本 005 不重复建任务 |
+| PR [#115](https://github.com/jboone1989/EventGraph/pull/115) 曾提供 Search Console 页面类型数据，但 `develop` 中已无 `search-console-analytics.ts`、`ExternalAnalytics.tsx`、`/admin/analytics`；PR [#448](https://github.com/jboone1989/EventGraph/pull/448)、[#486](https://github.com/jboone1989/EventGraph/pull/486) 涉及分析入口退役 | 2026-10-25 的“已有 GSC 后台”叙述 **已过期**。先确认 Google Search Console 仍有权限与可用数据；只调用官方只读 API / 已连接的分析服务，不恢复旧后台或自建统计服务 |
+| Cloudflare 2026-11-10 16:00 至 11-11 16:00（北京时间）的请求抽样 | `/explore` 3,949、`/en/explore` 2,827 次请求，Googlebot（自报 UA）总计 294；这是 **HTTP 请求，不是搜索曝光/收录/UV**。需结合 GSC URL Inspection 和 Performance 才能判断真实搜索瓶颈 |
+
+### 官方规范（已核对的原始资料）
+
+1. [Google AI features and your website](https://developers.google.com/search/docs/appearance/ai-features)：AI Overviews/AI Mode 的网页基础仍是常规索引资格、可抓取正文、内链和页面质量；**不需要**额外 AI 专属文件或伪造 schema，也不保证抓取/引用。
+2. [Google Sitemap 指南](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap)：`lastmod` 应对应真正的重要修改；Google 忽略 `changefreq`、`priority`。缺乏可靠内容时钟则不要伪造当前时间。Sitemap 是发现提示，不是索引保证。
+3. [Google News Sitemap](https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap)：如采用新闻 Sitemap，只收最近两天**真实符合条件的新闻文章**，须包含合法 News 元数据；可独立建一份或在现有 sitemap 上扩展，非所有 RSS/热点信号都可冒充新闻。
+4. [Google Article 结构化数据](https://developers.google.com/search/docs/appearance/structured-data/article)、[结构化数据规范](https://developers.google.com/search/docs/appearance/structured-data/sd-policies)：保留已有 `NewsArticle`，重点核对发布/修改日期、作者/发布者身份、图像与**可见正文**的事实一致；不要为虚假的 FAQ/评分造数据。
+5. [Google 抓取诊断](https://developers.google.com/search/docs/crawling-indexing/troubleshoot-crawling-errors)：检查真实日志、HTML 链接、移动端内链、HTTP 状态；正常网站当天发文不等于当天收录。
+6. [Google Indexing API](https://developers.google.com/search/apis/indexing-api/v3/using-api) 仅适用于 JobPosting 或特定 BroadcastEvent 视频，**不可**用来提交 EventGraph 普通新闻。
+7. [OpenAI 搜索爬虫说明](https://platform.openai.com/docs/bots)：区分 OAI-SearchBot 与 GPTBot；抓取许可与真实搜索引用是不同指标。
+8. [Google Search Console Search Analytics API](https://developers.google.com/webmaster-tools/v1/searchanalytics/query)：点击、展示、CTR、平均排名与页面/查询维度需区分，API 存在匿名化、行数和时间滞后。URL Inspection 逐条核实样本，不从样本推断全站收录比例。
+
+### 成熟组件替代方案（不自动增加依赖）
+
+| 需求 | 首选现成方案 | 是否立即引入 |
+| --- | --- | --- |
+| 公共页面 SEO/性能抽样 | [Unlighthouse](https://github.com/harlan-zw/unlighthouse)：站点爬行、抽样 Lighthouse 报告 | **可选一次性审计**；先控制页面数/请求速率，不在每次 PR 中对生产全站扫描 |
+| PR 关键路由性能回归 | [Lighthouse CI](https://github.com/GoogleChrome/lighthouse-ci) | 只有在现有 E2E 无法覆盖且发现可复现性能回归时，才加最少代表路由；不启用第二套 CI |
+| JSON-LD 类型约束 | [schema-dts](https://github.com/google/schema-dts) | 现有 `seo.ts` 已输出 schema；先修真实校验缺口，不为装包而装包 |
+| 失效链接 | [lychee](https://github.com/lycheeverse/lychee) | 优先现有页面/E2E 检查内部锚链；外站新闻源会短时 403/429，不得直接作为 PR 阻断 |
+| Sitemap、IndexNow | **现有项目实现**；若确需格式/分片能力，再评估 [sitemap.js](https://github.com/ekalinin/sitemap.js) | **不替换**已运行的库存、缓存和提交任务 |
+| 关键词、索引、排名 | Google Search Console 官方工具；OpenSEO 等可选只读接入 | 不造排名抓取器/自建 GSC dashboard；收费工具只在现有报告不足且预算同意后引入 |
+
+### 尚未验证，不能声明已解决
+
+- 现网真实 HTML 是否仍有 `noindex` / `X-Robots-Tag`、Google 选择的 canonical、索引覆盖率、Google News 资格、GSC 最近 28 天搜索词及曝光；需要生产 URL 抽样、GSC 权限和时间窗口证明。
+- IndexNow 部署密钥/开关和 Bing 成功接收；静态代码存在不代表服务启用。
+- AI 搜索是否实际引用 EventGraph：爬虫抓取或 UA 数量不是引用或商业价值证据。
+- 不得因 URL 数量、Sitemap URL 数、Cloudflare 请求数推断搜索流量、广告资格、增长效果。

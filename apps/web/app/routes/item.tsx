@@ -18,6 +18,7 @@ import { Menu, MenuItem } from "../components/ui/Menu";
 import { StarButton } from "../features/feed/parts";
 import { GroupButton, GroupSources } from "../features/feed/ReadingGroup";
 import { StoryFollowups } from "../features/item/StoryFollowups";
+import { ItemKnowledgeEntities } from "../features/item/ItemKnowledgeEntities";
 import { MediaGallery } from "../features/item/MediaGallery";
 import { QuotedPost } from "../features/item/QuotedPost";
 import { ArticleBody } from "../features/item/ArticleBody";
@@ -37,7 +38,7 @@ export { pageHeaders as headers } from "../lib/api.server";
 const PosterSheet = lazy(() => import("../features/item/PosterSheet"));
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  // The English edition reads the original-language body; the Chinese one its own or the translation.
+  // The English edition reads an English translation of Chinese sources where available, otherwise the English original.
   const variant = isEnglishPath(new URL(request.url).pathname) ? "/original" : "";
   const item = await loadOr404<SiteItemDetail>(`/api/site/items/${encodeURIComponent(params.id)}${variant}`, { signal: request.signal });
   return cachedPage(600, { item });
@@ -472,14 +473,13 @@ function ItemView({ item }: { item: SiteItemDetail }) {
   };
 
   const bodyHtml = lang === "zh" ? (item.body?.zh ?? item.body?.original) : (item.body?.original ?? item.body?.zh);
-  const bodyLabel = !item.body ? null : lang === "zh" && item.body.zhKind === "translation" ? t("正文 · AI 翻译","Body · AI translation") : lang === "original" && hasTranslation ? t("正文 · 原文","Original article") : t("正文","Article");
+  const bodyLabel = !item.body ? null : en && item.englishBodyTranslated ? "Article · AI translation" : lang === "zh" && item.body.zhKind === "translation" ? t("正文 · AI 翻译","Body · AI translation") : lang === "original" && hasTranslation ? t("正文 · 原文","Original article") : t("正文","Article");
   const isX = item.channel === "x" && !!item.x;
   // Without a reliable date from the original, the time shown is when it was collected, labelled as such.
   const shownAt = item.publishedAt ?? item.discoveredAt;
   const timeLabel = item.publishedAt ? t("发布时间", "Published") : t("收录时间", "Collected");
   const summaryOnly = item.readingMode === "summary-only";
-  // The English page never shows a Chinese body: the original text only when it reads without
-  // translation; otherwise the report stays at the publisher, with the English copy on top.
+  // Never show a partially translated body containing Chinese prose as if it were English.
   const bodyReadable = !en || (!!bodyHtml && !hasHan(bodyHtml.replace(/<[^>]*>/g, "")));
   const showOutline = item.outline.length >= 3 && bodyReadable;
   const originalLabel = isX ? t("在 X 查看原推", "View the post on X") : t("打开原文", "Read the original");
@@ -709,9 +709,8 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             <EventContext story={item.story} context={item.storyContext} currentId={item.id} en={en} />
           )}
 
-          {item.story && item.storyContext && item.storyContext.reportCount > 1 && (
-            <StoryDiscussion storyPublicId={item.story.publicId} />
-          )}
+          {/* The knowledge-graph entities this report's own episode mentions; lazy and failure-isolated. */}
+          <ItemKnowledgeEntities itemId={item.id} />
 
           {item.sameEvent && !en && (
             <p className="mt-5 text-[13px] leading-relaxed text-ink-4">
@@ -748,7 +747,7 @@ function ItemView({ item }: { item: SiteItemDetail }) {
                   />
                 )}
               </div>
-              {hasTranslation && lang === "zh" && !item.body.complete && (
+              {((hasTranslation && lang === "zh") || (en && item.englishBodyTranslated)) && !item.body.complete && (
                 <p className="mb-5 rounded-control bg-bg-sunk px-3 py-2 text-[13px] text-ink-3">{t("译文尚不完整，完整内容请切换到原文。", "The translation is incomplete — switch to the original for the full text.")}</p>
               )}
               <ArticleBody html={bodyHtml} />
@@ -798,6 +797,8 @@ function ItemView({ item }: { item: SiteItemDetail }) {
               </ul>
             </section>
           )}
+          {/* Every public item gets its own discussion, including ungrouped reports. */}
+          <StoryDiscussion key={item.id} itemId={item.id} />
         </article>
       </ArticleLayout>
 

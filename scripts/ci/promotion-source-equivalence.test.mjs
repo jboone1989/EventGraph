@@ -1,0 +1,279 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { isPromotionControlPath, runtimeDifferences, releaseInputDifferences, promotionSourceCandidates, immutableImageRef } from "./promotion-source-equivalence.mjs";
+
+function git(cwd, ...args) {
+  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+}
+
+function write(cwd, path, content) {
+  const full = join(cwd, path);
+  mkdirSync(dirname(full), { recursive: true });
+  writeFileSync(full, content);
+}
+
+function fixture(changes) {
+  const cwd = mkdtempSync(join(tmpdir(), "eventgraph-promote-"));
+  git(cwd, "init", "-q");
+  git(cwd, "config", "user.email", "ci@example.invalid");
+  git(cwd, "config", "user.name", "CI");
+  write(cwd, "apps/web/app.ts", "export const value = 1;\n");
+  write(cwd, "packages/backend/index.ts", "export const backend = 1;\n");
+  write(cwd, "Dockerfile", "FROM node:24\n");
+  write(cwd, "package.json", "{}\n");
+  write(cwd, "database/001.sql", "select 1;\n");
+  write(cwd, "docker-compose.yml", "services: {}\n");
+  write(cwd, ".github/workflows/check.yml", "name: Check\n");
+  write(cwd, "scripts/ci/base.mjs", "export {};\n");
+  write(cwd, "specs/base/spec.md", "# Base\n");
+  write(cwd, "scripts/deploy-prod.sh", "#!/bin/sh\n");
+  write(cwd, "docs/ci-cd.md", "# CI/CD\n");
+  write(cwd, "docs/production-deployment.md", "# Production\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "base");
+  const base = git(cwd, "rev-parse", "HEAD");
+  for (const [path, content] of Object.entries(changes)) write(cwd, path, content);
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "candidate");
+  return { cwd, base, head: git(cwd, "rev-parse", "HEAD") };
+}
+
+test("only explicitly reviewed control/governance paths are excluded", () => {
+  for (const path of [
+    ".github/workflows/check.yml",
+    "scripts/ci/promotion-source-equivalence.mjs",
+    "specs/014-main-promotion-runtime-equivalence/spec.md",
+    "scripts/deploy-prod.sh",
+    "docs/ci-cd.md",
+    "docs/spec-review.md",
+    "docs/production-deployment.md",
+  ]) assert.equal(isPromotionControlPath(path), true, path);
+
+  for (const path of [
+    "apps/web/app.ts",
+    "packages/backend/index.ts",
+    "Dockerfile",
+    "package.json",
+    "database/001.sql",
+    "docker-compose.yml",
+    "scripts/migrate.ts",
+    "industry/sources.json",
+    "README.md",
+  ]) assert.equal(isPromotionControlPath(path), false, path);
+});
+
+test("git comparison accepts control-plane-only drift", () => {
+  const f = fixture({
+    ".github/workflows/check.yml": "name: Changed\n",
+    "scripts/ci/new-check.mjs": "export const changed = true;\n",
+    "specs/new/spec.md": "# New governance\n",
+    "scripts/deploy-prod.sh": "#!/bin/sh\necho changed\n",
+    "docs/ci-cd.md": "# Changed CI/CD\n",
+    "docs/production-deployment.md": "# Changed production docs\n",
+  });
+  try {
+    assert.deepEqual(runtimeDifferences(f.base, f.head, f.cwd), []);
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("git comparison fails closed on representative runtime drift", () => {
+  for (const [path, content] of Object.entries({
+    "apps/web/app.ts": "export const value = 2;\n",
+    "packages/backend/index.ts": "export const backend = 2;\n",
+    "Dockerfile": "FROM node:25\n",
+    "package.json": "{\"changed\":true}\n",
+    "database/001.sql": "select 2;\n",
+    "docker-compose.yml": "services:\n  web: {}\n",
+  })) {
+    const f = fixture({ [path]: content });
+    try {
+      assert.deepEqual(runtimeDifferences(f.base, f.head, f.cwd), [path]);
+    } finally {
+      rmSync(f.cwd, { recursive: true, force: true });
+    }
+  }
+});
+
+test("malformed source SHA is rejected before git comparison", () => {
+  assert.throws(() => runtimeDifferences("HEAD"), /40-character lowercase commit SHA/);
+});
+
+test("main control-only push is not a production release", () => {
+  const f = fixture({
+    ".github/workflows/check.yml": "name: Reviewed control update\\n",
+    "docs/spec-review.md": "## Approved Spec task intake\\n",
+    "specs/new/spec.md": "# Approved control decision\\n",
+    "scripts/ci/helper.mjs": "export const control = true;\\n",
+  });
+  try {
+    assert.deepEqual(releaseInputDifferences(f.base, f.head, f.cwd), []);
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("a production image pin change is a release even though it is under .github", () => {
+  const f = fixture({
+    ".github/production-image.env": "SOURCE_SHA=updated\\nIMAGE_REF=updated\\n",
+  });
+  try {
+    assert.deepEqual(releaseInputDifferences(f.base, f.head, f.cwd), [".github/production-image.env"]);
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("runtime changes remain release candidates for all previously guarded paths", () => {
+  for (const path of ["apps/web/app.ts", "packages/backend/index.ts", "Dockerfile",
+    "package.json", "database/001.sql", "docker-compose.yml", ".gitattributes"]) {
+    const f = fixture({ [path]: "changed\\n" });
+    try {
+      assert.deepEqual(releaseInputDifferences(f.base, f.head, f.cwd), [path]);
+    } finally {
+      rmSync(f.cwd, { recursive: true, force: true });
+    }
+  }
+});
+
+test("push classification includes earlier commits even if the last commit is control-only", () => {
+  const f = fixture({ "apps/web/app.ts": "export const value = 2;\\n" });
+  try {
+    write(f.cwd, "specs/base/spec.md", "# Updated governance\\n");
+    git(f.cwd, "add", ".");
+    git(f.cwd, "commit", "-qm", "control-only last commit");
+    assert.deepEqual(releaseInputDifferences(f.base, "HEAD", f.cwd), ["apps/web/app.ts"]);
+    assert.deepEqual(releaseInputDifferences(f.head, "HEAD", f.cwd), []);
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("missing, all-zero and non-ancestor push commits fail closed", () => {
+  const f = fixture({ "specs/base/spec.md": "# Different governance\\n" });
+  try {
+    for (const sha of ["", "0".repeat(40), "z".repeat(40), "a".repeat(40)]) {
+      assert.throws(() => releaseInputDifferences(sha, f.head, f.cwd));
+    }
+    assert.throws(() => releaseInputDifferences(f.head, f.base, f.cwd));
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("production --classify-push CLI emits exact release intent for runtime, pin and control changes", () => {
+  const executable = fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url));
+  for (const [changes, expected] of [
+    [{ "apps/web/app.ts": "export const value = 2;\\n" }, "true"],
+    [{ ".github/production-image.env": "SOURCE_SHA=updated\\n" }, "true"],
+    [{ ".github/workflows/check.yml": "name: Control-only\\n" }, "false"],
+  ]) {
+    const f = fixture(changes);
+    try {
+      const result = spawnSync(process.execPath,
+        [executable, "--classify-push", f.base, f.head], { cwd: f.cwd, encoding: "utf8" });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), expected);
+    } finally {
+      rmSync(f.cwd, { recursive: true, force: true });
+    }
+  }
+});
+
+/** Two-parent merge: main keeps its own prior release metadata, develop has a
+ * code commit followed by a governance-only commit. The code commit models
+ * the successful GHCR publish; a separate GH check verifies that in Actions.
+ */
+function promotionFixture() {
+  const f = fixture({ "apps/web/app.ts": "export const value = 2;\n" });
+  const published = f.head;
+  git(f.cwd, "branch", "develop", published);
+  git(f.cwd, "checkout", "-q", "-b", "main", f.base);
+  write(f.cwd, ".github/production-image.env", "SOURCE_SHA=legacy\n");
+  git(f.cwd, "add", ".");
+  git(f.cwd, "commit", "-qm", "previous main release metadata");
+  git(f.cwd, "checkout", "-q", "develop");
+  write(f.cwd, "specs/base/spec.md", "# Approved after publish\n");
+  git(f.cwd, "add", ".");
+  git(f.cwd, "commit", "-qm", "approved spec after publish");
+  const docsTip = git(f.cwd, "rev-parse", "HEAD");
+  git(f.cwd, "checkout", "-q", "main");
+  git(f.cwd, "merge", "--no-ff", "-m", "promote develop into main", "develop");
+  return { ...f, published, docsTip, merged: git(f.cwd, "rev-parse", "HEAD") };
+}
+
+test("promotion selects spec-only develop ancestors before the last verified image", () => {
+  const f = promotionFixture();
+  try {
+    const result = promotionSourceCandidates(f.merged, f.cwd);
+    assert.equal(result.developParent, f.docsTip);
+    assert.deepEqual(result.candidates, [f.docsTip, f.published]);
+    const cli = spawnSync(process.execPath,
+      [fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url)),
+       "--promotion-candidates", f.merged], { cwd: f.cwd, encoding: "utf8" });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.equal(cli.stdout.trim(), [f.docsTip, f.published].join("\n"));
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("promotion refuses to cross a runtime change to find an older image", () => {
+  const f = promotionFixture();
+  try {
+    // The pre-publish base does not have today's app. It must never be a candidate.
+    assert.ok(!promotionSourceCandidates(f.merged, f.cwd).candidates.includes(f.base));
+    write(f.cwd, "apps/web/app.ts", "export const value = 3;\n");
+    git(f.cwd, "add", ".");
+    git(f.cwd, "commit", "-qm", "unverified runtime-only main hotfix");
+    assert.throws(() => promotionSourceCandidates("HEAD", f.cwd),
+      /two-parent develop.*main merge/);
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("promotion rejects a non-merge source and invalid commit reference", () => {
+  const f = fixture({ "specs/base/spec.md": "# Governance only\n" });
+  try {
+    assert.throws(() => promotionSourceCandidates(f.head, f.cwd), /two-parent/);
+    assert.throws(() => promotionSourceCandidates("missing-ref", f.cwd));
+  } finally {
+    rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
+test("host runtime exclusions mirror the single promotion control-path policy", () => {
+  const host = readFileSync(fileURLToPath(new URL("../deploy-prod.sh", import.meta.url)), "utf8");
+  for (const excluded of [
+    ".github/**", "scripts/ci/**", "specs/**", "scripts/deploy-prod.sh",
+    "docs/ci-cd.md", "docs/spec-review.md", "docs/production-deployment.md",
+  ]) {
+    assert.ok(host.includes(`':(exclude)${excluded}'`), `host missed policy exclusion ${excluded}`);
+  }
+  for (const required of ["apps/**", "packages/**", "Dockerfile", "database/**",
+      "package.json", "docker-compose.yml", "industry/**"]) {
+    assert.ok(!host.includes(`':(exclude)${required}'`), `host ignored runtime source ${required}`);
+  }
+});
+
+test("exact GHCR SHA-tag manifest requires one valid immutable digest", () => {
+  const sha = "a".repeat(40);
+  const digest = "sha256:" + "b".repeat(64);
+  const manifest = `Name: ghcr.io/jboone1989/eventgraph-app:sha-${sha}\nDigest: ${digest}\nMediaType: application/vnd.oci.image.index.v1+json\n`;
+  assert.equal(immutableImageRef(sha, manifest), `ghcr.io/jboone1989/eventgraph-app@${digest}`);
+  assert.throws(() => immutableImageRef("bad", manifest), /develop SHA/);
+  assert.throws(() => immutableImageRef(sha, "Digest: sha256:short"), /immutable GHCR digest/);
+  assert.throws(() => immutableImageRef(sha, manifest + `Digest: ${digest}\n`), /one valid/);
+  const cli = spawnSync(process.execPath,
+    [fileURLToPath(new URL("./promotion-source-equivalence.mjs", import.meta.url)),
+     "--immutable-image-ref", sha], { input: manifest, encoding: "utf8" });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(cli.stdout.trim(), `ghcr.io/jboone1989/eventgraph-app@${digest}`);
+});

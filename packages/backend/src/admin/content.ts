@@ -7,7 +7,8 @@ import { correctReportClassification } from "../reports/correct.ts";
 import type { AdminContentChain, AdminContentRow, AdminPublication, BeforeJson } from "@aihot/contracts/admin";
 import { ARTICLE_ID_PATTERN, CATEGORY_KEYS } from "@aihot/contracts/taxonomy";
 import { sql, type Tx } from "../db.ts";
-import { enqueue, QUEUES } from "../jobs/queue.ts";
+import { utcDayStart } from "../operations/stale-work.ts";
+import { enqueue, QUEUES, getBoss } from "../jobs/queue.ts";
 import { queueProcessing } from "../jobs/content.ts";
 import { identityKeyForUrl, normalizeUrl } from "../lib/url.ts";
 import { publishArticleTx, setSeoDecision } from "../publication/publish.ts";
@@ -288,32 +289,88 @@ export async function overrideFields(id: string, input: { fields: unknown; clear
   return published;
 }
 
+/** Queue only the requested English article or story on the existing cron queue. */
+async function enqueueEnglishCron(tx: Tx, target: ({articleId: string} | {storyId: number}) & {requestId: string}): Promise<string> {
+  const boss = await getBoss();
+  const key = "articleId" in target ? "article:" + target.articleId : "story:" + target.storyId;
+  const jobId = await boss.send("cron.content.english", target, {
+    singletonKey: "manual:english:" + key,
+    db: { executeSql: async (text: string, values?: unknown[]) => ({
+      rows: await tx.unsafe(text, (values ?? []) as never[]),
+    }) },
+  });
+  if (!jobId) throw Object.assign(new Error("该英文流程已进入队列，不能重复提交"), { statusCode: 409 });
+  return jobId;
+}
+
 /**
- * Re-runs a pipeline step for the current revision. Re-evaluation is a new paid model call bound to
- * the request id, so submitting the same request twice neither enqueues nor pays twice.
+ * Re-runs one pipeline step for the current revision. The request id is auditable
+ * and idempotent; an already queued/running step must not be enqueued twice.
  */
-export async function rerun(id: string, step: "extract" | "analyze" | "group", requestId: string, actor: string) {
-  z.enum(["extract", "analyze", "group"]).parse(step);
+
+export async function rerun(id: string, step: "extract" | "analyze" | "group" | "english", requestId: string, actor: string) {
+  z.enum(["extract", "analyze", "group", "english"]).parse(step);
   z.string().regex(/^[\w-]{8,80}$/, "a stable request id is required").parse(requestId);
   return sql.begin(async (tx) => {
-    const [a] = await tx<{ id: string; discovered_at: Date; updated_at: Date }[]>`SELECT id, discovered_at, updated_at FROM articles WHERE id = ${id} FOR UPDATE`;
+    const [a] = await tx<{ id: string; discovered_at: Date; updated_at: Date; has_publication: boolean }[]> `
+      SELECT a.id, a.discovered_at, a.updated_at,
+        EXISTS (SELECT 1 FROM publications p WHERE p.article_id = a.id) AS has_publication
+      FROM articles a WHERE a.id = ${id} FOR UPDATE OF a`;
     if (!a) return null;
     // Queue singleton keys expire when a job completes. The committed command remains in the audit.
     const [prior] = await tx<{ after: { jobId: string | null } }[]>`
       SELECT after FROM audit_log WHERE subject = ${`content:${id}`} AND action = ${`content.rerun.${step}`}
         AND actor = ${actor} AND request_id = ${requestId} ORDER BY id DESC LIMIT 1`;
     if (prior) return { jobId: prior.after.jobId };
-    if (Math.max(a.discovered_at.getTime(), a.updated_at.getTime()) < Date.now() - 24 * 60 * 60 * 1000) {
-      throw Object.assign(new Error("新闻超过 24 小时，不再重新处理"), { statusCode: 409 });
+    if (a.discovered_at.getTime() < utcDayStart().getTime() &&
+        !(a.has_publication && a.updated_at.getTime() >= utcDayStart().getTime())) {
+      throw Object.assign(new Error("不是当前 UTC 日的新闻，不再重新处理"), { statusCode: 409 });
     }
     let jobId: string | null;
     if (step === "group") jobId = await requestRegroup(id, requestId, tx);
-    else {
+    else if (step === "english") {
+      const [publication] = await tx`
+        SELECT p.article_id FROM publications p
+        WHERE p.article_id = ${id} AND p.visibility = 'public' AND p.summary IS NOT NULL`;
+      if (!publication) throw Object.assign(new Error("此新闻没有可补写的英文公开版本"), { statusCode: 409 });
+      const [copy] = await tx<{ outcome: string }[]>`
+        SELECT outcome FROM english_copies WHERE article_id=${id} FOR UPDATE`;
+      if (copy?.outcome === "written")
+        throw Object.assign(new Error("此新闻英文内容已完成，不能重复执行"), { statusCode: 409 });
+      await tx`UPDATE english_copies SET outcome='failed', attempts=0, error=NULL, updated_at=now()
+               WHERE article_id=${id}`;
+      jobId = await enqueueEnglishCron(tx, { articleId: id, requestId });
+    } else {
       await tx`UPDATE articles SET processing_state = 'new', processing_error = NULL, processing_attempts = 0, processing_retry_at = NULL,
                   body_status = CASE WHEN ${step === "extract"} THEN 'pending' ELSE body_status END WHERE id = ${id}`;
       jobId = await queueProcessing(id, { step, ...(step === "analyze" ? { attemptTag: `admin:${requestId}` } : {}), db: tx });
     }
+    if (!jobId) throw Object.assign(new Error("原流程仍在排队或执行，不能重复提交"), { statusCode: 409 });
     await audit(actor, `content.rerun.${step}`, `content:${id}`, null, null, { jobId, requestId }, { requestId, db: tx });
     return { jobId };
+  });
+}
+
+/** Retry only a story's English digest, not every article in that event. */
+export async function rerunStoryEnglish(storyId: number, requestId: string, actor: string) {
+  z.number().int().positive().parse(storyId);
+  z.string().regex(/^[\w-]{8,80}$/).parse(requestId);
+  return sql.begin(async tx => {
+    const [story] = await tx`SELECT id FROM stories WHERE id=${storyId} AND merged_into IS NULL AND digest IS NOT NULL FOR UPDATE`;
+    if (!story) return null;
+    const subject="story:" + storyId;
+    const [prior] = await tx<{after:{jobId:string|null}}[]>`
+      SELECT after FROM audit_log WHERE subject=${subject}
+      AND action='story.rerun.english' AND actor=${actor} AND request_id=${requestId} ORDER BY id DESC LIMIT 1`;
+    if (prior) return {jobId:prior.after.jobId};
+    const [copy] = await tx<{ outcome: string }[]>`
+      SELECT outcome FROM story_english WHERE story_id=${storyId} FOR UPDATE`;
+    if (copy?.outcome === "written")
+      throw Object.assign(new Error("事件英文综述已完成，不能重复执行"), { statusCode: 409 });
+    await tx`UPDATE story_english SET outcome='failed', attempts=0, error=NULL, updated_at=now()
+      WHERE story_id=${storyId}`;
+    const jobId=await enqueueEnglishCron(tx, { storyId, requestId });
+    await audit(actor,'story.rerun.english',subject,null,null,{jobId,requestId},{requestId,db:tx});
+    return {jobId};
   });
 }

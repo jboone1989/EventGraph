@@ -18,7 +18,7 @@ import { registerStatic } from "./routes/static.ts";
 import { registerMcp } from "./routes/mcp.ts";
 import { registerMarket } from "./routes/market.ts";
 import { registerKnowledge } from "./routes/knowledge.ts";
-import { registerAnalytics } from "./routes/analytics.ts";
+import { registerGraphitiModelProxy } from "./routes/graphiti-model.ts";
 import { sendProblem } from "./http/respond.ts";
 
 /** Quiet ordinary access logs, while keeping errors that happen after the route has returned. */
@@ -88,8 +88,8 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   app.get("/api/health", async (_req, reply) => {
     const started = Date.now();
-    await sql`SELECT 1`;
-    return reply.header("Cache-Control", "no-store").send({ ok: true, db: "ok", ms: Date.now() - started, release: process.env.AIHOT_RELEASE ?? "dev" });
+    const [session] = await sql<{ read_only: string }[]>`SELECT current_setting('transaction_read_only') AS read_only`;
+    return reply.header("Cache-Control", "no-store").send({ ok: true, db: "ok", dbReadOnly: session?.read_only === "on", ms: Date.now() - started, release: process.env.AIHOT_RELEASE ?? "dev" });
   });
 
   registerSite(app);
@@ -105,7 +105,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   registerMcp(app);
   registerMarket(app);
   registerKnowledge(app);
-  registerAnalytics(app);
+  registerGraphitiModelProxy(app);
   for (const m of serverModules()) m.http?.(app);
   registerV1Fallbacks(app);
 
