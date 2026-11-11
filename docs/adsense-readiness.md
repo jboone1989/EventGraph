@@ -1,6 +1,6 @@
 # EventGraph — Google AdSense deployment checklist
 
-Scope: **ownership verification only**. This change does not inject the ad-serving JavaScript, create ad placements, collect ad cookies or enable Auto Ads. It is safe to deploy with the default settings.
+Scope: **ownership verification, plus the owner-approved future ad-placement policy (§3)**. This change does not inject the ad-serving JavaScript, create ad placements, collect ad cookies or enable Auto Ads. It is safe to deploy with the default settings.
 
 ## 1. Verify ownership (when you have the real publisher ID)
 
@@ -29,7 +29,48 @@ With default `ADSENSE_VERIFICATION_ENABLED=false` (or a missing/invalid ID), the
 - **SEO:** Confirm public canonical domain, robots.txt, sitemap.xml, structured metadata, no login requirement, mobile accessibility and site ownership. The English edition is server-rendered under `/en` with its own canonical and `hreflang` pairs, and the sitemap lists its pages. English event pages are indexed only once the worker has written their English digest (`content.english`). English article pages add the event overview, other coverage, knowledge-graph relations and prices around the report, and are indexed only when they have English copy and their event has at least two public reports; a lone summary page stays `noindex` and out of the sitemap.
 - **Production:** The new knowledge site must actually be deployed on the same domain you add to AdSense. A dev-only deployment cannot verify the public production site.
 
-## 3. Operator checklist before applying for review
+## 3. Ad placement priorities — measured Cloudflare traffic (2026-11-11)
+
+Owner-approved revision ([specs/adsense-traffic-first-20261111](../specs/adsense-traffic-first-20261111/spec.md)): the earlier first-batch decision — “news detail pages carry no ads; only research/event/daily pages are first candidates” — is corrected on measured traffic: **news detail pages are the primary ad candidate**. This is future placement design only. No ad unit, script or request exists today; §2 and the zero-request acceptance in §3.4 stay in force until ads are separately approved and enabled.
+
+### 3.1 Measured traffic, and what it does not prove
+
+Cloudflare RUM (`rumPageloadEventsAdaptiveGroups`, `livingruntime.com` + `www.livingruntime.com`, 2026-11-04 07:32 – 2026-11-11 07:32 UTC; 1,775 page loads across all pages):
+
+| Page type | 7-day RUM page loads |
+| --- | ---: |
+| News detail `/items/:id` · `/en/items/:id` | **501** |
+| Knowledge entity detail | 422 |
+| `/explore` · `/en/explore` | 341 |
+| Event detail `/story/:publicId` | 110 |
+| Home `/` · `/en` | 70 |
+| `/all` | 46 |
+| Daily/weekly report detail | 12 |
+| Admin (background) | 217 |
+
+Last 24 h: 141 loads / 32 visits — news 26, home 27, `/all` 19, story 15, explore 5.
+
+These ranks order the candidates; the numbers are **not** audience counts. Entity/explore/news loads show concentrated anomalous spikes on some days — strip automated browsing before estimating readership or revenue (422 entity loads ≠ 422 human readers). `/explore`'s enormous HTTP request volume is crawler traffic: in one recent 24 h, ElevenlabsCrawler alone produced 5,582 requests across the two main US records, alongside Semrush, MJ12 and Amzn-SearchBot — against 5 RUM loads. Requests and RUM loads are not real visitors, not ad impressions and not revenue; placements are never allocated by crawler request volume.
+
+### 3.2 Candidate priority (per page, from evidence; nothing is enabled now)
+
+1. **Primary: news detail `/items/:id`, `/en/items/:id`.** A page is a candidate only with genuinely published effective content, a traceable original source, substantial independent value (background, real source comparison, impact explanation, or evidenced event relation) **and** verifiable human review/curation evidence — for example an editor's recorded action in the existing admin. `indexable`, `selected`, `seo_indexed_at`, LLM scores and summary length are automated signals and never prove human review. Not eligible: a short machine summary alone, template reason text alone, rewrites/reprints without added value, a title plus outbound link, or an English route without a complete English body. Missing evidence is **UNVERIFIED → no ad**; it never defaults to serving. Ad candidacy is independent of search indexing (PR #114): this does **not** reinstate per-item manual approval as an indexing prerequisite, and it does not open ads for the news class as a whole.
+2. **Conditional second: home `/`, `/en`** — only once the page carries substantial real editorial content with curation evidence. The homepage as currently shipped is a story hero plus news-card timeline (`apps/web/app/routes/feed-layout.tsx`, `home.tsx`) without an editorial prose block, so it is **not eligible now**; never pad it with generated text to qualify.
+3. **Second batch: event detail `/story/:publicId`** with multi-source evidence, substantial background and real curation; **research articles and complete daily issues** remain small-traffic supplements (12 loads / 7 d).
+4. **Observation only: knowledge entity detail** — 422 loads contaminated by automated browsing; reassess only after bots are separated from humans.
+5. **Banned**: `/explore` · `/en/explore` (crawler-dominated requests, ~5 human RUM loads a day), `/all`, `/hot`, `/topics`, `/knowledge`, every list and search page, report directories and archives, `/more`, policy pages (`/about`, `/privacy`, `/terms`, `/feedback`), `/admin/**`, the login page, and every non-content state — 404/500/503, API failures, loading skeletons, empty bodies, drafts, unpublished or retired content.
+
+### 3.3 Placement design (only after approval, under a switch separate from verification)
+
+- Qualified news item: **at most one** fixed manual slot per page, visibly labeled “广告 / Advertisement”, placed **after** the reader has reached real substance — the displayed AI brief (`briefText`), the independent explanation (`reasonText`, `ItemExplainer`) or substantive event background — and before any later legally showable full body or subsequent news. A page without enough body gets **zero** slots. The slot stays clear of the “阅读原始报道” outbound-source button, entity links, cards and later interactive controls — no overlap or accidental taps on desktop or at 390 px.
+- Qualified home page: at most one slot, only after a complete substantial editorial block; never interleaved between navigation and news cards.
+- Event, research and daily pages keep the limited fixed positions defined earlier (substance first, one per page).
+
+### 3.4 Pre-application acceptance is unchanged: zero ad requests
+
+Until ads are separately approved and enabled, the whole site — normal news and home pages, explore, empty and error states, SPA transitions, Chinese and English, desktop and 390 px, admin and login — must show **0 Google ad-serving JS and 0 Google ad network requests**, verified by the existing `npm run adsense:preflight`, `scripts/adsense-smoke.mjs` and browser regression checks. No ad units, Auto ads, third-party scripts or a global `adsbygoogle.js` may be added. The ownership-verification meta tag and `/ads.txt` remain the only AdSense artifacts and are not ad requests. Whether the AdSense account actually has Auto ads, a CMP or third-party injection off cannot be determined from this repository — keep those items **UNVERIFIED** until checked in the console and on the live pages.
+
+## 4. Operator checklist before applying for review
 
 Code shipped on `feature/adsense-readiness` (specs/002-adsense-readiness): policy pages filled (operator Jianbo Wang, contact login@livingruntime.com, effective 2026-10-24), the legal footer on every page, `/en/privacy` and `/en/terms`, AdSense crawlers allowed in `robots.txt`, a curated-only index (`SEO.curatedIndexOnly`) with the daily queue in 后台 → 内容诊断 → 当日待策展, thin single-source event pages out of discovery, per-day reason dedup, and `npm run adsense:preflight` (placeholders/contact, fail-closed).
 
@@ -40,11 +81,11 @@ Still needs the operator, in order:
 3. **Cloudflare normalization**: redirect `http://*` and `https://livingruntime.com` to `https://www.livingruntime.com` (301, preserve path), enable HSTS. `SITE_URL` stays `https://www.livingruntime.com`. Run `SMOKE_EXPECT_HTTPS=1 python3 scripts/production-smoke.py` afterwards — it checks the redirects too.
 4. **CMP**: Google-certified consent (AdSense → Privacy & messaging) for EEA/UK/CH visitors; expand privacy section 6 with the actual ad services, cookies and withdrawal once ads are enabled.
 5. **Deploy** this branch through `feature → develop → main` (`docs/deploy.md`; migrations are additive), then verify ownership as in section 1. `/api/health` now reports the deployed release (`AIHOT_RELEASE` is written by `deploy-prod.sh`).
-6. **Wait before requesting review**: let `content.english` fill recent reports, let curated pages accumulate, and run `node scripts/adsense-preflight.mjs` plus section 4 locally. Reviewers should find substantial original text, not mostly links.
+6. **Wait before requesting review**: let `content.english` fill recent reports, let curated pages accumulate, and run `node scripts/adsense-preflight.mjs` plus section 5 locally. Reviewers should find substantial original text, not mostly links.
 
 Editor notes and topic briefs are edited in `site/editor-notes.ts` and `site/topic-briefs.ts` (deployed with the site; no admin UI yet — see `specs/003-content-assets/spec.md` §6).
 
-## 4. Regression checks
+## 5. Regression checks
 
 ```sh
 npm run test:standalone
