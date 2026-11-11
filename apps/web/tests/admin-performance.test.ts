@@ -175,7 +175,9 @@ test("hovering private navigation does not repeat the page's reads before clicki
     const sources = page.locator('nav a[href="/admin/sources"]').filter({ visible: true });
     await sources.hover();
     await page.waitForTimeout(250); // Intent prefetch starts after the router's hover delay.
-    assert.deepEqual(reads, []);
+    // Compare a snapshot: assert.deepEqual(reads, []) narrows the mutable fixture
+    // to never[] in TypeScript, even though the async API server appends later.
+    assert.deepEqual([...reads], []);
     await sources.click();
     await expect(page.getByRole("heading", { name: "信源", exact: true })).toBeVisible();
     // The requested page/identity reads are synchronous; client-only badge reads
