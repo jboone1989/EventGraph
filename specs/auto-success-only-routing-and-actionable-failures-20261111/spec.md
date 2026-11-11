@@ -1,6 +1,6 @@
 # 自动路由成功优先 +「运行与积压」原流程恢复
 
-**Status:** Draft — 2026-11-11
+**Status:** Owner-approved (owner-delegated Spec Review of f1b406f9ff7b97ee8ad60ec933fc41a0670ed3b2)
 **Target:** develop / VM13 preview, not main. 用户明确批准本功能，包括从可用的付费模型池路由与自动重试。
 
 ## 用户规则
