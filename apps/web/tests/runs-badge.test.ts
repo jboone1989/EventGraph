@@ -52,7 +52,7 @@ test("runs badge equals the failed execution units and refreshes with the page",
     await expect(page.getByText("所有流程 · 三个实时状态")).toBeVisible();
     await expect(badge(page)).toHaveText("21");
     await expect(page.locator('[aria-label="UTC 今日失败执行单元 21"]').filter({ visible: true })).toBeVisible();
-    await expect(page.getByText("按执行单元计数，与新闻篇数不同")).toBeVisible();
+    await expect(page.getByText("按原执行流程计数，与新闻篇数不同", { exact: false })).toBeVisible();
     // The all-kind failed total, its detail row count and pagination all describe the same 21 units.
     await expect(page.getByRole("button", { name: "处理失败" })).toContainText("21");
     await expect(page.getByText("21 项 · 第 1/2 页")).toBeVisible();
