@@ -68,7 +68,9 @@ async function writeItems(deadline: number, limit: number): Promise<{ written: n
     WHERE p.visibility = 'public' AND p.summary IS NOT NULL AND p.discovered_at > now() - ${WINDOW}
       AND (ec.article_id IS NULL OR ec.inputs_hash <> ${ENGLISH_ITEM_INPUTS} OR (ec.outcome = 'failed' AND ec.attempts < ${MAX_ATTEMPTS})
         OR (p.reason IS NOT NULL AND ec.outcome = 'written' AND ec.reason IS NULL AND ec.attempts < ${MAX_ATTEMPTS}))
-    ORDER BY p.discovered_at DESC LIMIT ${limit}`;
+    -- Operator retries (attempts reset to zero) are handled before ordinary backfill.
+    ORDER BY CASE WHEN ec.outcome='failed' AND ec.attempts=0 THEN 0 ELSE 1 END,
+             p.discovered_at DESC LIMIT ${limit}`;
   let written = 0, failed = 0;
   for (const r of rows) {
     if (Date.now() > deadline || shutdownSignal.signal.aborted) return { written, failed, stopped: true };
@@ -106,7 +108,8 @@ async function writeStories(deadline: number, limit: number): Promise<{ written:
     FROM stories st LEFT JOIN story_english se ON se.story_id = st.id
     WHERE st.merged_into IS NULL AND st.digest IS NOT NULL AND st.latest_at > now() - ${WINDOW}
       AND (se.story_id IS NULL OR se.inputs_hash <> ${ENGLISH_STORY_INPUTS} OR (se.outcome = 'failed' AND se.attempts < ${MAX_ATTEMPTS}))
-    ORDER BY st.latest_at DESC LIMIT ${limit}`;
+    ORDER BY CASE WHEN se.outcome='failed' AND se.attempts=0 THEN 0 ELSE 1 END,
+             st.latest_at DESC LIMIT ${limit}`;
   let written = 0, failed = 0;
   for (const r of rows) {
     if (Date.now() > deadline || shutdownSignal.signal.aborted) break;
