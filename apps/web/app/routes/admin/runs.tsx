@@ -90,6 +90,8 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkRunning, setBulkRunning] = useState(false);
+  // A successful queue API response is authoritative even while the full runs snapshot reloads.
+  const [accepted, setAccepted] = useState<Set<string>>(() => new Set());
   const [deliveryId, setDeliveryId] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
 
@@ -103,7 +105,15 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
     return () => clearInterval(interval);
   }, [revalidator]);
 
-  const allItems = r.flowItems;
+  // Do not leave an acknowledged replay in the failed queue while expensive server
+  // diagnostics revalidate. The next loader snapshot remains authoritative.
+  useEffect(() => { setAccepted(new Set()); }, [r]);
+  const allItems: AdminFlowItem[] | undefined = r.flowItems?.map(item => {
+    const identity = replayIdentity(item);
+    return item.status === "failed" && identity && accepted.has(identity)
+      ? { ...item, status: "pending" as const, originState: "created", error: null, provider: null, model: null }
+      : item;
+  });
   const scoped = (allItems ?? []).filter(item => kind === "all" || item.kind === kind);
   const counts = Object.fromEntries(statuses.map(status => [
     status.key, scoped.filter(item => item.status === status.key).length,
@@ -149,9 +159,16 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
     } else if (item.kind === "source") {
       path = "/api/admin/sources/" + encodeURIComponent(item.key.slice("source:".length)) + "/fetch";
     } else return false;
+    const identity = replayIdentity(item);
     const result = await run<{ requeued?: number; jobId?: string | null }>("POST", path, body,
-      { label: "replay:" + (replayIdentity(item) ?? item.key), revalidate: !quiet, quietError: quiet });
-    if (result !== null && !quiet) toast("已提交原流程任务", "ok");
+      { label: "replay:" + (identity ?? item.key), revalidate: false, quietError: quiet, background: quiet });
+    if (result !== null) {
+      if (identity) setAccepted(current => new Set(current).add(identity));
+      if (!quiet) {
+        toast("已进入待处理队列，执行结果以 Worker 为准", "ok");
+        revalidator.revalidate();
+      }
+    }
     return result !== null;
   }
 
@@ -161,13 +178,23 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
     const targets = new Set<string>();
     let succeeded = 0, failed = 0;
     try {
+      const unique: AdminFlowItem[] = [];
       for (const item of items.filter(item => selected.has(item.key))) {
         const identity = replayIdentity(item);
         if (!identity || targets.has(identity)) continue;
         targets.add(identity);
-        if (await replay(item, true)) succeeded++;
-        else failed++;
+        unique.push(item);
       }
+      // A small concurrency bound avoids serial HTTP latency without flooding the worker.
+      let cursor = 0;
+      await Promise.all(Array.from({ length: Math.min(3, unique.length) }, async () => {
+        while (cursor < unique.length) {
+          const item = unique[cursor++];
+          if (!item) break;
+          if (await replay(item, true)) succeeded++;
+          else failed++;
+        }
+      }));
       toast("恢复完成：成功 " + succeeded + "，失败 " + failed, failed ? "error" : "ok");
       setSelected(new Set());
       revalidator.revalidate();
@@ -178,9 +205,10 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
     if (item.status !== "failed") {
       return item.articleId ? <Link className="text-accent" to={"/admin/content/" + encodeURIComponent(item.articleId)}>查看新闻</Link> : null;
     }
-    if (replayIdentity(item)) {
+    const identity = replayIdentity(item);
+    if (identity) {
       return <Button size="sm" disabled={pending !== null || bulkRunning}
-        onClick={() => void replay(item)}>重新执行该流程</Button>;
+        onClick={() => void replay(item)}>{pending === "replay:" + identity ? "正在提交…" : "重新执行该流程"}</Button>;
     }
     if (item.kind === "model")
       return <span className="text-[12px] text-ink-3" title={item.rawSubject ?? item.subject}>原任务无法定位，不能安全重放</span>;
