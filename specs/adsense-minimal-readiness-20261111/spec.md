@@ -1,12 +1,12 @@
 # AdSense 送审前最小整改（2026-11-11）
 
-**Status:** Owner-approved — 2026-11-11 用户明确要求“按照刚才的 AdSense 审核评估，直接检查 EventGraph 的 GitHub 仓库和部署，按 Spec-first 原则完成申请前的最小整改，沿用现有自动开发与部署流程”。本规格仅落实其已认可的空研究页治理、现有站点预检与文档纠偏，不授权发布广告或更改用户的内容策略。
+**Status:** Owner-approved — 2026-11-11 用户明确要求“按照刚才的 AdSense 审核评估，直接检查 EventGraph 的 GitHub 仓库和部署，按 Spec-first 原则完成申请前的最小整改，沿用现有自动开发与部署流程”。本规格仅落实其已认可的空研究页治理、现有站点预检、过时公开声明与文档纠偏，不授权发布广告或更改用户的内容策略。
 **Target:** feature → develop → main；开发验收仅 VM13；生产按原定 main 流程，不触碰 VM09。
 **Existing baseline:** `specs/002-adsense-readiness`、PR #88、PR #114、`specs/005-news-growth-funnel`；本规格是当前差异的收敛，不重做原功能。
 
 ## 证据 / Search Before Build
 
-- 2026-11-11 公开 https://livingruntime.com/research 仍显示“第一篇研究在准备中”，中文导航持续曝光此空栏目；英文版使用同一个研究模块。
+- 2026-11-11 公开 https://livingruntime.com/research 仍显示“第一篇研究在准备中”，中文导航持续曝光此空栏目；英文版使用同一个研究模块。\n- 公开 `/about`、`/terms` 及英文条款均声称“经人工策展后进入站内收录”；但 PR #114 已移除人工批准作为默认索引前置。需修正可核对的发布声明，不可仅修改内部文档。
 - `modules/research/web/routes/research.tsx` 已通过 `/api/research/articles` 读取已公开研究；`modules/research/web.tsx` 给侧栏与“我的”提供入口；`apps/web/app/routes/about.tsx` 有研究入口。保留后台研究管理、数据库和现有数据。
 - `scripts/adsense-preflight.mjs` 已检查合规占位符，`scripts/adsense-smoke.mjs` 已检查验证代码开关和 ads.txt，`site/public/robots.txt` 已放行广告爬虫，`site/pages/privacy*.md` 已有验证与未来广告说明。复用这些实现。
 - `docs/adsense-readiness.md` 仍把旧的人工策展索引、30 天和 150 页写成申请前置；PR #114 与 `specs/005-news-growth-funnel` 已确定有公开摘要的新闻默认可索引，不把 AdSense 内容质量审查与索引许可混为一谈。
@@ -20,10 +20,10 @@
 3. 查询出错与真正空列表严格区分：API 错误不可被“0 篇”吞掉、不可造成服务端水合不一致。不要把管理员草稿计入公开数量。
 4. 需覆盖桌面与 390px 移动端导航、中文及英文页面、0→1→0 发布态，直接访问空研究路由、公开单篇 URL 以及数据源出错。复用现有 React Router 和模块/缓存机制，不新建队列、模型调用、后台表或独立站点配置开关。若无法用现有数据低成本决定导航显示，先在实现 PR 如实说明成本与设计选择，禁止偷偷每次导航额外请求模型。
 
-### US2：送审文档与预检不再误导
+### US2：送审文档、公开声明与预检不再误导
 5. 修订 `docs/adsense-readiness.md` 中已过时的“代码尚未上线”“隐私模板未填”“每天人工策展 + 30 天 / 150 页为 Google 必需条件”“站点必须固定用 www”之类断言；与实际 `develop`/生产域名和 PR #114 策略一致。区分**已由代码实现**、**需读取运行环境验证**、**用户持真实 ca-pub ID 才能开启验证**。绝不把流量请求量等同真人 PV，不承诺 Google 批准。
 6. 复用 `npm run adsense:preflight`、`scripts/adsense-smoke.mjs` 与现有 smoke/CI，为研究空态/索引/入口补针对性回归；核查政策/条款、robots、sitemap、HTTPS 实际发布结果，缺乏证据的检查明确标记“未验证”，不伪造通过。
-7. AdSense 所有权验证仅在已有真实 publisher ID 时配置；**不**启用 Auto Ads、`adsbygoogle.js`、新广告位或追踪，不提交凭证。实际展示广告后的 Cookie 披露/CMP 另行处理。
+7. 已上线的关于页与中英文使用规则仍表述“经编辑人工策展后进入站内收录”，但 #114 已实行符合条件的公开新闻默认可索引。按实际能力改为“自动编辑/聚合、部分内容可人工审看，不保证逐篇人工核验”；中英文一致，不修改对外身份、联系方式或版权约定。更新表述时只修正事实，不将自动生成包装成真人审校。\n8. AdSense 所有权验证仅在已有真实 publisher ID 时配置；**不**启用 Auto Ads、`adsbygoogle.js`、新广告位或追踪，不提交凭证。实际展示广告后的 Cookie 披露/CMP 另行处理。
 
 ## 非目标 / 防回归
 
