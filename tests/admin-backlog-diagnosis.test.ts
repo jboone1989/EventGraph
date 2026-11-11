@@ -3,7 +3,7 @@ import { tag } from "./setup.ts";
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { closeDb, sql } from "@aihot/backend/db";
-import { getBoss, stopBoss } from "@aihot/backend/jobs/queue";
+import { enqueue, getBoss, QUEUES, stopBoss } from "@aihot/backend/jobs/queue";
 import { allFlowItemsOverview, backlogCausesOverview } from "@aihot/backend/admin/runs";
 import { utcDayStart } from "@aihot/backend/operations/stale-work";
 
@@ -132,4 +132,32 @@ test("targeted English replay moves an old failed receipt into the actual job qu
   rows = await allFlowItemsOverview([]);
   assert.equal(rows.find(row => row.key === "model:" + receipt!.id)?.status, "failed",
     "if the worker never writes a successful English copy, the failure returns");
+});
+
+
+test("queued source retry is no longer a stale source failure while the live job is pending", async () => {
+  await getBoss();
+  const id = "source-retry-" + tag();
+  const jobIdPrefix = "retry-" + id;
+  await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at,health,last_fetch_at,last_error)
+    VALUES (${id},'Failed source','rss','T1','editorial','2100-01-01','failing',now(),'previous fetch failed')`;
+  let jobId: string | null = null;
+  try {
+    let items = await allFlowItemsOverview([]);
+    assert.equal(items.find(item => item.key === "source:" + id)?.status, "failed");
+    jobId = await enqueue(QUEUES.fetchSource, { sourceId: id, force: true },
+      { singletonKey: jobIdPrefix });
+    assert.ok(jobId, "a real source fetch must enter pg-boss");
+    items = await allFlowItemsOverview([]);
+    assert.equal(items.some(item => item.key === "source:" + id), false,
+      "the old source health error is not a current failure once the new job exists");
+    assert.equal(items.find(item => item.key === "job:" + jobId)?.status, "pending");
+    await sql`UPDATE pgboss.job SET state='failed', completed_on=now() WHERE id=${jobId}::uuid`;
+    items = await allFlowItemsOverview([]);
+    assert.equal(items.find(item => item.key === "source:" + id)?.status, "failed",
+      "a genuinely failed recovery must return to the failure queue");
+  } finally {
+    if (jobId) await sql`DELETE FROM pgboss.job WHERE id=${jobId}::uuid`;
+    await sql`DELETE FROM sources WHERE id=${id}`;
+  }
 });
