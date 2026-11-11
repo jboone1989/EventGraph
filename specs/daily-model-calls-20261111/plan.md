@@ -10,14 +10,15 @@
 3. `packages/backend/src/providers/{llm,embeddings,graphiti-proxy}.ts`，`providers/registry/runtime.ts` 的 provider 模型调用与测试入口；`providers/deepseek-web.ts` 是工具调用应排除。
 4. `apps/api/src/routes/admin.ts` 的 `adminHandler`、`apps/web/app/routes/admin/layout.tsx` 导航和 `apps/web/app/features/admin/ui.tsx` 的 `AdminPage`/`Card`/`Stat`/`DataTable`/`FilterChips`/`Pager`。
 5. `docs/admin-ui-reuse.md` 产品与组件复用合同，`specs/utc-daily-runtime-diagnostics-20261106/spec.md` 中 UTC 日与历史回执保留的分离规则。
-6. 实现前再核对最新 develop 是否已有同范围 PR，检查 AIHOT 上游是否已有稳定模型调用聚合实现，沿用现有 React Router / PostgreSQL API；不要重复造图表库、定时器或工作流。
+6. `apps/web/package.json` 当前已有 React 19 / React Router 8 / Tailwind 4、站内通用 Admin UI，但**尚未安装成熟图表库**。实现日趋势应优先引入 React 19 兼容的 **Recharts**（或记录充分理由的 Apache ECharts 等成熟替代），不可因为想省依赖就手写 SVG/Canvas/图表引擎。复杂表格功能优先评估 TanStack Table；简单统计表复用项目 DataTable/Pager，严禁为此自写第二套表格。
+7. 实现前再核对最新 develop 是否已有同范围 PR，检查 AIHOT 上游是否已有稳定模型调用聚合实现、现有依赖与官方版本兼容信息，沿用现有 React Router / PostgreSQL API；不要重复造图表库、定时器或工作流。
 
 ## 最小实施
 
 - 在 backend admin 增加只读 `modelUsageOverview`，按业务可识别的模型调用 purpose/入口筛选 `receipt_attempts JOIN receipts`；受限 1/7/30 UTC 日窗口按天 `date_trunc`/generate_series 聚合，缺日填充、每种状态/模型/阶段可验证。测试外部服务与非模型调用分类。查询计划达标前不加 schema。
 - 在各模型入口现有 requestSummary 写入非敏感内部 modelInstanceId（已有 Graphiti/test modelId 则兼容读取）；对旧实例无法还原的行设明确归类。需确保同厂商多连接不合并、避免原始 prompt/key 泄露。尽量不改 receipt 核心语义，必要的模型预占/本地失败统计准确性先给证据。
 - 在 `apps/api/src/routes/admin.ts` 添加管理员 GET，参数限制为允许日期/窗口/筛选/分页；在 `packages/contracts` 添加稳定类型。
-- 在 `apps/web/app/routes/admin` 新增模型调用统计页并注册导航，复用现有 UI，展示每日总量、状态、模型/阶段、测试与业务、token 可用性、重试；不用通用第三方图表依赖，能清晰表示日趋势的现有布局即可。
+- 在 `apps/web/app/routes/admin` 新增模型调用统计页并注册导航，复用现有 UI，展示每日总量、状态、模型/阶段、测试与业务、token 可用性、重试；每日趋势采用成熟的 Recharts 图表组件（若换其他维护中且兼容 React 19 的成熟库，提供选择记录），表格使用共享 DataTable/Pager 或成熟 TanStack Table。避免手写图表、表格引擎、日期控件、二次分页框架；仅编写必要数据转换/业务适配。
 - 有索引必要性时基于真实 `EXPLAIN` 选择最小在线索引；当前 `receipt_attempts(service,origin,started_at)` 不等于支持 `origin+started_at` 全服务聚合，应核对真实计划/数据量，再决定是否新增专用时间索引。绝不为这一统计新建业务流水表。
 - 后端 SQL/单元/API 测试 + Web 390px/desktop + 开发环境真实聚合验收。每条 Spec Acceptance 附可定位测试与截图/API 证据。
 
