@@ -443,10 +443,10 @@ test("a page without a loader still answers navigation with an empty result", as
   assert.equal(result["routes/terms"]!.data, null);
 });
 
-test("browser caching preserves noindex and private sign-in responses", async () => {
+test("browser caching keeps public pages free of indexing directives and the sign-in page private", async () => {
   const feedback = await fetch(origin + "/feedback");
   assert.equal(feedback.status, 200);
-  assert.match(await feedback.text(), /name="robots" content="noindex/);
+  assert.doesNotMatch(await feedback.text(), /name="robots"/);
   assert.equal(feedback.headers.get("Cache-Control"), "public, max-age=300, s-maxage=300, must-revalidate");
   const login = await fetch(origin + "/admin/login");
   assert.equal(login.status, 200);

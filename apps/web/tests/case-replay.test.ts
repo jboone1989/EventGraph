@@ -60,7 +60,7 @@ for (const language of ["zh", "en"] as const) for (const width of [390, 1440]) {
       await page.getByRole("button", { name: language === "en" ? "Back to latest" : "回到最新", exact: true }).click();
       await expect(page.getByText("Station alpha", { exact: true })).toBeVisible();
       await expect(page.getByText(language === "en" ? "Later annotated connection" : "后来标注的联系", { exact: true })).toBeVisible();
-      await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+      await expect(page.locator('meta[name="robots"]')).toHaveCount(0);
       await page.goto(web.origin + prefix + "/explore?case=temporal-fixture&asOf=2026-10-20");
       await expect(page.getByText("Station alpha", { exact: true })).toBeVisible();
       await expect(page.getByText(language === "en" ? "Current summary with hindsight" : "当前摘要含后来的解释", { exact: true })).toBeVisible();

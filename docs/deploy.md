@@ -103,6 +103,10 @@ docker compose run --rm setup && docker compose up -d
 
 下面按时间从新到旧列出每次更新要注意的事。
 
+#### EventGraph：公开页面全面移除 noindex（2026 年 11 月 11 日）
+
+无数据库迁移、无新环境变量。全站公开页面（中英文，含筛选列表、事件/文章/主题/实体页、探索工作台深链与错误页）不再输出 `noindex`，也没有等价的索引禁令；`/admin` 与后台登录页的 `noindex, nofollow`、robots.txt 对后台和私有端点的限制、404/410/503 等状态码都保持不变。sitemap 收录与 hreflang 配对仍沿用原有 `indexable`/英文稿门槛（见 [specs/remove-public-noindex-20261111](../specs/remove-public-noindex-20261111/spec.md)）；`/items/<id>/markdown` 下载仍带 `X-Robots-Tag: noindex`（非 HTML 附件，避免与文章页争重复内容）。收录与曝光变化要在部署后数周经 Search Console 观察，部署本身不改变流量。
+
 #### EventGraph：新闻解读全量重写一批（2026 年 11 月 1 日）
 
 提示词与模型输入两处修订（中文发布时间按 +08:00 本地渲染；when/watchpoints 的事实来源收紧到原文标题、正文；watchpoint 日期口径见 [specs/news-explainer](../specs/news-explainer/spec.md)）。输入哈希加了 `explain-input-2` 版本段，**部署后所有已写解读会一次性失效**：详情页的解读板块在 worker 重写前不显示，重写走既有队列（每 15 分钟最多 10 篇、 Newest-first、逐条付费回执，约 ≤960 篇/天）；**超过 90 天未更新的长尾不会自动重排**，需要时对选中文章逐篇执行 `DATABASE_URL=… node scripts/explain-acceptance.ts --ids <articleId,...>` 补写。英文解读同样重写（英文提示词同时收紧了事件标题外溢）。当前 cn-dev 库 `item_explanations` 为 0 行，不受影响。
@@ -129,7 +133,7 @@ docker compose run --rm setup && docker compose up -d
 两个新迁移 `0095_english_copies.sql`、`0096_story_english.sql`（新表，不动已有数据）。选填的新环境变量 `ENGLISH_MODEL`，不填用 `LLM_*`。
 
 - worker 多了定时任务 `content.english`（每 5 分钟），给最近 90 天的公开报道写英文标题和摘要（精选报道另写推荐理由），给事件写英文标题和概览。和其他模型任务一样，`MODEL_CALLS_ENABLED=false` 时不调用。每篇报道、每个事件各一次模型调用，改了中文稿会重写一次；上线后从最新的开始补，旧内容要过一段时间才补齐。
-- `/en/items/<id>` 是新的英文文章页，除英文稿外还列出所在事件的概览、同一事件的其他报道、知识图谱从这篇报道抽出的关系、报道前后的币价（新接口 `GET /api/site/items/<id>/context`，读页面不调用模型；图谱关系要 knowledge_service 可用，不可用时这一块不显示）。英文文章页只有写好英文稿、并且所在事件有至少两篇公开报道时才进 sitemap、才允许索引；单独一篇的报道页仍是 `noindex`。英文事件页写好英文概览后才允许索引；之前只有原文标题的英文事件页现在是 `noindex`。
+- `/en/items/<id>` 是新的英文文章页，除英文稿外还列出所在事件的概览、同一事件的其他报道、知识图谱从这篇报道抽出的关系、报道前后的币价（新接口 `GET /api/site/items/<id>/context`，读页面不调用模型；图谱关系要 knowledge_service 可用，不可用时这一块不显示）。英文文章页只有写好英文稿、并且所在事件有至少两篇公开报道时才进 sitemap；单独一篇的报道页不进 sitemap。英文事件页写好英文概览后才进 sitemap；之前只有原文标题的英文事件页不进 sitemap。2026-11-11 起公开页面不再输出 `noindex`（specs/remove-public-noindex-20261111），上述门槛只决定 sitemap 收录和 hreflang 配对，不再决定页面本身能否索引。
 
 日报缺期告警按北京时间的具体日期跟踪，跨午夜不会自动恢复；只有对应日报存在才发恢复通知。新缺期检查最近 7 个日历日（含今天），不早于最早的日报或 reports.compose 运行记录；没有历史记录时只检查今天。已告警的日期在这 7 天里一直跟踪，关闭采集/模型或 worker 启动宽限期也不会把缺期当成恢复；超出 7 天仍没有日报的，发一条“没能补出、停止提醒”后不再提醒。旧的 report.daily 状态自动按首次告警时间迁移，保留提醒间隔。出刊后两小时告警、每小时提醒及飞书开关保持不变；无需数据库迁移。自定义 responder 若按旧 `report.daily` 精确匹配，需改为识别 `report.daily:YYYY-MM-DD` 日期键。
 

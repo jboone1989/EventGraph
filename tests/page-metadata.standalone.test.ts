@@ -1,7 +1,8 @@
 /// <reference lib="dom" />
 // Failure modes recorded before the metadata change:
 // - filtered/search feeds compete with their parent or canonicalize to different content;
-// - tracking and obsolete positioning parameters leak into canonical, or ordinary archives become noindex;
+// - tracking and obsolete positioning parameters leak into canonical, or a robots directive returns
+//   on pages that must stay indexable (specs/remove-public-noindex-20261111);
 // - a report's title omits its visible lead, or metadata promotes a withdrawn citation;
 // - an article invents a modification date from its source's publication date or omits its image;
 // - a story has no machine-readable subject, or claims its first report is its own publication date.
@@ -17,9 +18,13 @@ import { startWebServer, type WebServer } from "../apps/web/tests/web-server.ts"
 const at = "2026-10-04T08:00:00.000Z";
 const item: FeedItemSummary = { id: "metadata-fixture", title: "可核实的测试报道", summary: "报道摘要", reason: null, source: { name: "Fixture" }, links: { original: "https://example.org/report" }, publishedAt: at, timelineAt: at, category: "research", tags: [], score: 80, selected: true, channel: "news", x: null };
 const detail: SiteItemDetail = { ...item, x: null, originalTitle: null, links: { original: "https://example.org/report" }, discoveredAt: at, story: null, readingMode: "full", author: null, body: { zh: "<p>可核实的测试正文。</p>", original: null, zhKind: "original", complete: true }, outline: [], relatedStories: [], topics: [], indexable: true, englishIndexable: false, markdownAvailable: true, group: null, hasTranslation: false, bodyLanguage: "zh" };
+// Below the curation bar (indexable: false): still a full public page, and since the noindex removal
+// it must not carry an indexing directive in either language.
+const uncurated: SiteItemDetail = { ...detail, id: "metadata-uncurated", indexable: false };
 const citation = (available: boolean): ReportCitation => ({ itemId: available ? item.id : "withdrawn", title: available ? item.title : "已撤下的旧头条", summary: item.summary, sourceName: item.source.name, sourceUrl: detail.links.original, sourceIconUrl: null, firstParty: true, publishedAt: at, available });
 const report = (kind: ReportKind): ReportDetail => ({ kind, key: kind === "daily" ? "2026-10-04" : kind === "weekly" ? "2026-W40" : "2026-10", issueNumber: 1, title: `${SITE.name} 测试刊物`, generatedAt: at, lead: { title: "本期已验证的重要变化", leadParagraph: "本期的导读与依据。" }, leadItemId: item.id, overview: null, overviewEn: null, highlights: [citation(true)], sections: [], flashes: [], tail: [], cover: null, metrics: {}, readingMinutes: 1, prev: null, next: null });
 const story: StoryDetail = { publicId: "metadata-story", title: "测试事件的最新进展", indexable: true, status: "settled", reportCount: 1, sourceCount: 1, firstReportAt: at, latestAt: at, digest: "当前可核实的事件综述。", digestUpdatedAt: "2026-10-04T09:00:00.000Z", summary: null, excerpt: null, latest: null, latestReport: null, whyHot: { participants48h: 0, newParticipants6h: 0, recentReports24h: 0, observationComplete: true, rank: null }, developments: [], officialReports: [], timeline: [{ id: item.id, title: item.title, summary: item.summary, source: { name: item.source.name, firstParty: true }, publishedAt: at, selected: true }], heat: [], related: [], topics: [] };
+const plainStory: StoryDetail = { ...story, publicId: "metadata-plain", indexable: false };
 let web: WebServer;
 const api = createServer((req, res) => {
   const url = new URL(req.url!, "http://local");
@@ -30,7 +35,11 @@ const api = createServer((req, res) => {
   if (path === "/api/site/timeline") return send({ filters: readFilters(url.searchParams), cards: [{ key: item.id, anchorAt: at, item, group: null }], nextCursor: null, hot: null, dayCounts: { "2026-10-04": 1 } });
   if (path === "/api/site/pool") return send({ filters: { ...readFilters(url.searchParams), q: url.searchParams.get("q"), tab: url.searchParams.get("tab") ?? "time" }, items: [item], page: Number(url.searchParams.get("page") ?? 1), pageCount: 3, total: 100, todayCount: 1, freshness: at });
   if (path === `/api/site/items/${item.id}`) return send(detail);
+  if (path === `/api/site/items/${uncurated.id}`) return send(uncurated);
+  // The English item page reads the /original variant of the same detail.
+  if (path === `/api/site/items/${uncurated.id}/original`) return send(uncurated);
   if (path === `/api/site/stories/${story.publicId}`) return send(story);
+  if (path === `/api/site/stories/${plainStory.publicId}`) return send(plainStory);
   const match = /^\/api\/site\/reports\/(daily|weekly|monthly)\/(.+)$/.exec(path);
   if (match) {
     const r = report(match[1] as ReportKind);
@@ -54,16 +63,41 @@ function structured($: cheerio.CheerioAPI): Array<Record<string, unknown>> {
   return $("script[type='application/ld+json']").toArray().flatMap((node) => JSON.parse($(node).text()));
 }
 
-test("filtered feeds keep their exact content address but leave indexing to the public landing pages", async () => {
+test("filtered feeds keep their exact content address and no page carries an indexing directive", async () => {
   for (const base of ["/", "/all"]) for (const query of ["channel=news", "category=research", "tag=Agent", "channel=x&category=crypto&tag=Agent"]) {
-    const $ = await page(`${base}?${query}&utm_source=fixture&anchorAt=old&deep=1`);
-    assert.equal($("meta[name=robots]").attr("content"), "noindex, follow", `${base}?${query}`);
+    const response = await fetch(`${web.origin}${base}?${query}&utm_source=fixture&anchorAt=old&deep=1`);
+    assert.equal(response.status, 200, web.logs());
+    assert.equal(response.headers.get("x-robots-tag"), null, `${base}?${query}`);
+    const $ = cheerio.load(await response.text());
+    assert.equal($("meta[name=robots]").length, 0, `${base}?${query}`);
     assert.equal($("link[rel=canonical]").attr("href"), `${web.origin}${base}?${query}`);
     assert.ok($("main").text().includes(item.title));
   }
   const $ = await page("/all?q=Claude&tab=relevance&page=2&anchorAt=old");
-  assert.equal($("meta[name=robots]").attr("content"), "noindex, follow");
+  assert.equal($("meta[name=robots]").length, 0);
   assert.equal($("link[rel=canonical]").attr("href"), `${web.origin}/all?q=Claude&tab=relevance&page=2`);
+});
+
+test("pages below the curation bar render without an indexing directive, in either language", async () => {
+  const uncuratedItem = await page(`/items/${uncurated.id}`);
+  assert.equal(uncuratedItem("meta[name=robots]").length, 0);
+  assert.equal(uncuratedItem("link[rel=canonical]").attr("href"), `${web.origin}/items/${uncurated.id}`);
+  assert.ok(uncuratedItem("main").text().includes(item.title));
+  for (const route of [`/story/${plainStory.publicId}`, `/en/story/${plainStory.publicId}`, `/en/items/${uncurated.id}`]) {
+    const $ = await page(route);
+    assert.equal($("meta[name=robots]").length, 0, route);
+    assert.equal($("link[rel=canonical]").attr("href"), `${web.origin}${route}`);
+  }
+});
+
+test("missing pages answer 404 without an indexing directive", async () => {
+  for (const route of [`/items/${item.id}-gone`, "/no-such-page"]) {
+    const response = await fetch(`${web.origin}${route}`);
+    assert.equal(response.status, 404, route);
+    assert.equal(response.headers.get("x-robots-tag"), null, route);
+    const $ = cheerio.load(await response.text());
+    assert.equal($("meta[name=robots]").length, 0, route);
+  }
 });
 
 test("source links are visible directly on home, all and item pages", async () => {

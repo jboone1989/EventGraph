@@ -5,7 +5,7 @@ import type { Route } from "./+types/home";
 import type { TimelineResponse } from "@aihot/contracts/site";
 import { cachedPage, loadOr404 } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
-import { filterParams, hasFeedFilters, itemListLd, listPath, localized, pageMeta, readFilters, siteLd } from "../lib/seo";
+import { filterParams, itemListLd, listPath, localized, pageMeta, readFilters, siteLd } from "../lib/seo";
 import type { Screen } from "../components/shell/screens";
 import { Timeline } from "../features/feed/Timeline";
 import { FollowingFeed } from "../features/home/Following";
@@ -31,7 +31,7 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   return localized(pageMeta({
     title: "事件观察",
     description: "实时追踪 AI、加密与金融事件，沿报道时间线深入长期知识关系与原始证据。",
-    path, noindex: hasFeedFilters(loaderData?.filters),
+    path,
     jsonLd: path === "/" ? [...siteLd(), itemListLd("/", "事件观察", titles)] : undefined,
   }), location.pathname, {
     title: "Event intelligence for AI, crypto & global events",
