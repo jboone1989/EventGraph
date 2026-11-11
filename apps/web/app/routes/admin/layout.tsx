@@ -1,7 +1,7 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { SITE } from "@aihot/site";
-import { NavLink, Outlet, useLocation, useNavigation, type ShouldRevalidateFunction } from "react-router";
+import { NavLink, Outlet, useLocation, useNavigation, useRevalidator, type ShouldRevalidateFunction } from "react-router";
 import type { Route } from "./+types/layout";
 import { RingMark } from "@aihot/site/brand/Logo.tsx";
 import { NavigationProgress } from "../../components/shell/Chrome";
@@ -91,15 +91,18 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
   const { me } = loaderData;
   const [counts, setCounts] = useState<AdminNavCounts>({});
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const location = useLocation();
   useEffect(() => {
+    // Also refresh optional badges after an in-place page revalidation.
+    if (revalidator.state !== "idle") return;
     const controller = new AbortController();
     fetch("/api/admin/nav-counts", { credentials: "same-origin", signal: controller.signal })
       .then(response => response.ok ? response.json() as Promise<AdminNavCounts> : {})
       .then(value => { if (!controller.signal.aborted) setCounts(value); })
       .catch(() => { if (!controller.signal.aborted) setCounts({}); });
     return () => controller.abort();
-  }, [location.pathname]);
+  }, [location.pathname, revalidator.state]);
   const groups = nav();
   const flat = groups.flatMap((g) => g.items);
   const primary = new Set(["/admin", "/admin/runs", "/admin/sources"]);
