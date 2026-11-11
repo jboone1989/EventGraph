@@ -14,11 +14,11 @@
 ## 需求
 
 1. **准确关联（FR-01）：** 以当前新闻的 `article_id` 和**与当前 `articles.revision` 一致的最新已入图 revision** 为准，查询该条新闻 Graphiti episode **直接提及**的实体（Graphiti Episodic→MENTIONS→Entity），而不是猜测标题或从所属 Story 的全部文章合并实体。包括没有事实 RELATES_TO 边的独立提及实体。**修订版本规则：仅查询该 article 的最新有效已入图 revision（同一 article_id 不合并多个历史 revision）；若该最新入图 revision 落后于当前 articles.revision，则视为 `not_ingested`，不展示可能已被更正的旧实体，待当前 revision 入图后恢复。**先查明现有 Neo4j/Graphiti 的真实关系类型和结果字段；不得假设虚构关系。若真实 schema 无 MENTIONS，可在实现前记录证据并采取仅当前 article ID 证据支持的关系端点降级，明确覆盖局限。
-2. **身份准确（FR-02）：** 返回实体使用 Graphiti 自身稳定 `uuid/key` 和 `name`，按 key 去重，名称为空、原始 URL 标签等垃圾实体可过滤；**禁止**用相似名称拼接 UUID、复制名字制造“实体”、用标题里关键词冒充已入图。相同实体在多个新闻保持同一实体详情地址。不要给没有证据的实体强行贴人物/公司类型。
+2. **身份准确（FR-02）：** 返回实体使用 Graphiti 自身稳定 `uuid/key` 和 `name`，按 key 去重，必须过滤名称为空或仅空白、以及去除前后空白后整体符合 `http://`、`https://` 或 `www.` URL 形式的实体名称；这些垃圾实体不计入 `totalCount`；**禁止**用相似名称拼接 UUID、复制名字制造“实体”、用标题里关键词冒充已入图。相同实体在多个新闻保持同一实体详情地址。不要给没有证据的实体强行贴人物/公司类型。
 3. **公开性（FR-03）：** 只向已公开且允许展示的新闻返回关联；撤回/未公开、被隐藏的内容不得通过关联接口泄漏。与既有 `hasItemPage` 和公开知识图谱出版规则保持一致。摘要许可受限的新闻不得因为图谱绕开许可。
 4. **接口（FR-04）：** 复用 `knowledge_service/server.py` 和 `packages/backend/src/knowledge/graphiti.ts` 的 Graphiti 通讯，在现有 `apps/api/src/routes/knowledge.ts` 下增加单篇报道查询，例如 `GET /api/site/knowledge/items/:id/entities`。返回类型化结果 `{ status:'ok'|'empty'|'not_ingested'|'unavailable'|'disabled', entities:[{key,name}] }`（不存在的新闻仍应 404），ID 不超过 80 字符；**按实体名称 Unicode 码点升序（英文比较时大小写折叠），再按稳定实体 key 升序排序；按 key 去重；最多返回和展示前 50 个实体**。接口额外返回 `totalCount`（过滤/去重后的实际总数）和 `truncated`（`totalCount > 50`）；超限时页面明确显示“另有 N 个实体未展示 / N more entities not shown”，不可假装全量。Graphiti 读取超时上限 4 秒；Graphiti 不可用不能抛成新闻页 500。
 5. **页面（FR-05）：** 在 `apps/web/app/routes/item.tsx` 的正文解读/所属事件附近增加可读的“关联知识实体 / Related entities”，复用现有组件/样式：紧凑的名称 chip/链接按自然行换行，名称不会挤掉邻居，390px 窄屏可点击/可键盘聚焦。用路由 Link 导向 `/knowledge/entity/${encodeURIComponent(key)}`，英文版导向 `/en/knowledge/entity/${encodeURIComponent(key)}`；不跳首页或图谱检索页，也不新建实体详情页。
-6. **失败与空状态（FR-06）：** 数据读取不阻塞新闻正文或移动端 preview；客户端请求可异步按需加载且可取消。未入图显示“尚未建立知识实体关联”；Graphiti 错误显示“知识图谱暂不可用”（或轻量重试），**不得**把故障伪装成“没有关联”；空结果不做模型请求。若需要异步渲染，遵循 `StoryFollowups` 的 IntersectionObserver 模式以避免额外首屏成本。禁止重复请求/无限重试。
+6. **失败与空状态（FR-06）：** 数据读取不阻塞新闻正文或移动端 preview；客户端请求可异步按需加载且可取消。`not_ingested` 显示“尚未建立知识实体关联 / Knowledge entities not yet linked”；`empty` 显示“暂无关联知识实体 / No related knowledge entities”；`unavailable` 显示“知识图谱暂不可用 / Knowledge graph temporarily unavailable”（可提供一次手动重试）；`disabled` 时完全不渲染区块，不得冒充故障。**不得**把故障伪装成“没有关联”；空结果不做模型请求。若需要异步渲染，遵循 `StoryFollowups` 的 IntersectionObserver 模式以避免额外首屏成本。禁止重复请求/无限重试。
 7. **真实验收（FR-07）：** 以用户示例新闻为端到端样本核对实际返回的直接关联 entity、稳定 UUID 和可打开的实体详情（例如 Jensen Huang，必须由本条新闻的真实图谱返回才能出现，不能硬编码）；对普通入图报道、尚未入图、已撤回、Graphiti 500、中文/英文、390px 桌面/手机至少覆盖正反例。若样本尚未入图，记录真实缺口，不把名字猜出来塞到 UI。
 
 ## 非目标
@@ -32,7 +32,7 @@
 
 - Search Before Build：复用 `apps/web/app/components/ui`、`KnowledgeAtlas`、`itemAvailability` 等既有能力；不自写通用图引擎或组件库。
 - 小函数、显式类型、无需新增依赖；防止实体 API 泄露仍未公开的 report；有明确 cache TTL 但异常不作成功缓存。
-- 单测验证 direct episode 过滤、UUID 去重、标题/实体名特殊字符、安全公开规则、未入图/空结果/故障；Web 测试验证中英文路由、触屏换行、加载/故障不阻塞正文。
+- 单测验证 direct episode 过滤、UUID 去重、空白名称和纯 URL 实体强制过滤、50 条截断、标题/实体名特殊字符、安全公开规则、未入图/空结果/disabled/故障；Web 测试验证中英文路由、触屏换行、加载/故障不阻塞正文。
 - 真实部署以 develop 预览为准，CI 和代码审查通过后自动合并；附页面截图或 Playwright 结果、API 回包和可点击实体详情的链接。未拿到真实浏览器/真实 Graphiti 证据时不能宣告“已上线”。
 
 ## 交付任务
