@@ -1,7 +1,7 @@
 import { listConnections, listRegisteredModels } from './connections.ts';
 import { BudgetExceededError } from '../receipts.ts';
-import { sql } from '../db.ts';
-import { utcDayStart } from '../operations/stale-work.ts';
+import { sql } from '../../db.ts';
+import { utcDayStart } from '../../operations/stale-work.ts';
 import type { RegisteredModel, ProviderConnection } from '@aihot/contracts/providers';
 
 export type Complexity = 'light' | 'medium' | 'heavy';
