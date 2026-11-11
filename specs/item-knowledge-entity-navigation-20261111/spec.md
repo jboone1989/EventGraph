@@ -1,6 +1,6 @@
 # 新闻详情 → 知识图谱实体导航
 
-**Status:** Draft
+**Status:** Owner-approved (owner-delegated Spec Review of ba4a1c3972a9c942354817b0f8e97bd4de6dbb04)
 **Branch:** develop
 **Date:** 2026-11-11
 **Owner request:** 每篇新闻列出该新闻直接相关的 Graphiti entity；点击进入现有实体详情页面。验收样例：`/items/up1qpo8b0p6x82s6sltvnqzbb`。
