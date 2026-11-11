@@ -168,6 +168,8 @@ test("hovering private navigation does not repeat the page's reads before clicki
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   try {
     await page.goto(web.origin + "/admin/content");
+    // Wait for the optional client-side badge request to settle before measuring hover-only reads.
+    await expect(page.locator('nav a[href="/admin/sources"]').filter({ visible: true })).toHaveText("新闻信源7");
     reads.length = 0;
     const sources = page.locator('nav a[href="/admin/sources"]').filter({ visible: true });
     await sources.hover();
