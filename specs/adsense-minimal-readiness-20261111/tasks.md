@@ -7,7 +7,8 @@
 **Depends on:** none
 **Acceptance:**
 - 已公开研究数为 0 时中英研究列表均 noindex,follow，sitemap 不包含空页；桌面侧栏、移动“我的”和“关于”页无空栏目入口，直达 URL 可正常打开；草稿仍不公开，后台不受影响。
-- 已公开研究数由 0→1→0 后，中英文入口与 robots/sitemap 自动同步（在既有缓存 TTL 内），无需重部署；错误与空数据可区分，SSR/hydration 不出错。
+- 已公开研究数由 0→1→0 后，中英文入口与 robots/sitemap 自动同步（在既有缓存 TTL 内），无需重部署，SSR/hydration 不出错。
+- API/数据库失败无法确认发布状态时必须 fail-closed：隐藏电脑侧栏、手机“我的”、关于页的研究入口；中英研究列表直达 HTTP 503 + `noindex,follow` + 明确“暂时无法加载”而非“0 篇”；sitemap 排除无法核实的空研究索引；已有日志记录错误，不把错误当 200/空列表；恢复后入口和索引自动恢复。测试覆盖三个入口、双语、HTTP/robots/sitemap 以及真正 0 篇与 API 失败的区别。
 - 复用既有 `npm run adsense:preflight`、`scripts/adsense-smoke.mjs`；更新针对性回归，检查桌面/390px、中英导航、0/1/错误状态，列出实际执行证据。
 - 对齐 `/about`、中英文 `/terms` 中“必经人工策展”与 #114 自动索引的事实，不能假称人工逐篇审校，保留原身份与版权、下架约定。
 - `docs/adsense-readiness.md` 删除过时 30 天/150 页“Google 必需”与 curated-only、固定 www 等陈述，与 #114、当前程序行为一致；列明验证前/通过后广告展示是不同阶段。
