@@ -27,6 +27,16 @@ const topic = (slug: string, name: string) => ({
   modules: {}, items: [item], page: 1, pageCount: 1, pageSize: 30,
 });
 
+// One published piece: the research entries appear only once something is public, so every render
+// asks the section's api (the shell's entry state) and this fixture answers with a published list.
+const research = {
+  articles: [{
+    slug: 'method-check', title: '口径核对', title_en: 'Counting methods', author: 'Jianbo Wang', author_note: 'EventGraph 编辑',
+    summary: '对齐三种口径。', summary_en: 'Aligning three methods.', status: 'published',
+    published_at: at, created_at: at, updated_at: at,
+  }],
+};
+
 let web: WebServer;
 const api = createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -35,6 +45,7 @@ const api = createServer((req, res) => {
   if (url === '/api/site/track') { res.statusCode = 204; return res.end(); }
   if (url === '/api/site/meta') return res.end(JSON.stringify({ changelogVersion: '2026-01-01T00:00' }));
   if (url === '/api/site/changelog') return res.end(JSON.stringify({ releases: [], latestVersion: '2026-01-01T00:00' }));
+  if (url === '/api/research/articles') return res.end(JSON.stringify(research));
   if (url === '/api/site/reports/daily/latest-page') return res.end(JSON.stringify({ index: [], report }));
   if (url === '/api/site/reports/daily/navigation/2026-10-24') return res.end(JSON.stringify({ items: [] }));
   const daily = /^\/api\/site\/reports\/daily\/(\d{4}-\d{2}-\d{2})$/.exec(url);
@@ -98,7 +109,7 @@ test('English knowledge page links to the English daily edition', async () => {
   assert.ok($('a[href="/en/daily/2026-10-24"]').length > 0);
 });
 
-test('the phone 我的 page links the research section', async () => {
+test("the phone 我的 page links the research section once a piece is published", async () => {
   const $ = cheerio.load(await (await fetch(`${web.origin}/more`)).text());
   assert.ok($('a[href="/research"]').length > 0, 'a research entry exists on /more');
 });

@@ -26,12 +26,12 @@ const piece = {
   body_md_en: '## Conclusion\n\nThe gap comes from…',
 };
 
-test('a draft is private: no public read, no sitemap entry', async () => {
+test('a draft is private: no public read, no sitemap entry — and an empty section advertises no index', async () => {
   await saveArticle(piece, 'test-editor');
   assert.equal((await listPublished()).length, 0);
   assert.equal(await getPublished(piece.slug), null);
   const entries = await sitemapEntries();
-  assert.ok(entries.some((e) => e.loc === '/research'));
+  assert.ok(!entries.some((e) => e.loc === '/research'), 'no published piece: the list page stays out of the sitemap');
   assert.ok(!entries.some((e) => e.loc === `/research/${piece.slug}`));
   const res = await app.inject({ method: 'GET', url: `/api/research/articles/${piece.slug}` });
   assert.equal(res.statusCode, 404);

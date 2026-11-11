@@ -1,8 +1,11 @@
 // The research module's storage and public reads (specs/002-adsense-readiness US3). Writes are the
 // editor's alone and audited; only `published` pieces are public, in the site's list, detail and sitemap.
+// An empty or unreadable section stays out of the sitemap (specs/adsense-minimal-readiness-20261111 US1):
+// the index entry advertises a list with something on it, so it appears with the first published piece.
 import { z } from "zod";
 import { sql } from "@aihot/backend/db";
 import { audit } from "@aihot/backend/audit";
+import { logError } from "@aihot/backend/lib/log-error";
 
 export interface ResearchArticleRow {
   slug: string;
@@ -100,10 +103,21 @@ export async function setStatus(slug: string, status: "draft" | "published" | "r
   return row ?? null;
 }
 
-/** The module's sitemap entries: the index and every published piece, with real modification times. */
+/**
+ * The module's sitemap entries: with at least one published piece, the index and every piece, with real
+ * modification times. With none, nothing — not the empty index. A failed read also contributes nothing:
+ * the site's sitemap stays healthy without research entries it cannot stand behind, and the error is logged.
+ */
 export async function sitemapEntries(): Promise<Array<{ loc: string; lastmod: Date; revision: string }>> {
-  const rows = await sql<{ slug: string; published_at: Date | null; updated_at: Date }[]>`
-    SELECT slug, published_at, updated_at FROM research_articles WHERE status = 'published' ORDER BY published_at DESC NULLS LAST`;
+  let rows: Array<{ slug: string; published_at: Date | null; updated_at: Date }>;
+  try {
+    rows = await sql<{ slug: string; published_at: Date | null; updated_at: Date }[]>`
+      SELECT slug, published_at, updated_at FROM research_articles WHERE status = 'published' ORDER BY published_at DESC NULLS LAST`;
+  } catch (error) {
+    console.warn(JSON.stringify({ level: "warn", msg: "research sitemap entries unavailable", err: logError(error) }));
+    return [];
+  }
+  if (rows.length === 0) return [];
   const at = rows[0]?.updated_at ?? new Date();
   return [
     { loc: "/research", lastmod: at, revision: `index:${at.toISOString()}` },

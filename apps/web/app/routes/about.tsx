@@ -1,11 +1,13 @@
 import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { IntentLink } from "../components/ui/IntentLink";
-import { Link, useLoaderData } from "react-router";
+import { Link, useLoaderData, useRouteLoaderData } from "react-router";
 import type { SiteContact, SiteStats } from "@aihot/contracts/site";
 import { ABOUT, ABOUT_EN, POLICY, REPORTS, REPORTS_EN, SITE, subjectAfter } from "@aihot/site";
 import { apiGet, cachedPage } from "../lib/api.server";
 import { pageReuse } from "../lib/page-reuse";
+import { moduleEntryShows } from "../site-modules";
 import { organizationLd, pageMeta } from "../lib/seo";
+import type { loader as rootLoader } from "../root";
 import { Kicker } from "../components/ui/Kicker";
 import { buttonClass } from "../components/ui/Controls";
 import { IconArrowRight } from "../components/icons";
@@ -213,6 +215,9 @@ export default function AboutPage() {
   const en = language === "en";
   const t = useText();
   const { contact, stats } = useLoaderData<typeof loader>();
+  // The research button advertises a module entry; it stays off while that entry is hidden (no published piece, or an unreadable state).
+  const site = useRouteLoaderData<typeof rootLoader>("root");
+  const researchShows = moduleEntryShows("/research", site?.modules);
   const [focus, setFocus] = useState<number | null>(null);
   const [at, setAt] = useState(0);
   const shown = useRef(0);
@@ -299,8 +304,8 @@ export default function AboutPage() {
         <h2 id="contributors" className="mt-3 text-[23px] font-bold leading-snug text-ink">{t("研究看证据，不看作者是不是 AI", "Research is judged by its evidence, not by who — or what — wrote it")}</h2>
         <p className="mt-3 max-w-[52em] text-[14px] leading-[1.85] text-ink-3">
           {t(
-            "本站由 Jianbo Wang 独立运行，不依赖外部作者持续供稿。新闻页面的标题、摘要与推荐理由由模型根据公开来源生成、经编辑人工策展后进入站内收录，每页都保留原文链接；原创分析、实测和工具研究栏目刊登署名作品，每篇标明作者、使用的数据和原始来源。AI 参与写作不代表结论经过独立核验，外部投稿不会自动发布。",
-            "This site is run independently by Jianbo Wang and does not rely on outside authors for a steady supply. News pages carry model-written titles, summaries and recommendation notes generated from public sources, curated by an editor before they enter the site's index, with the original report linked from every page; the research section carries signed pieces that state their author, the data used and the original sources. AI help with the writing does not mean the conclusions were independently verified, and outside submissions never publish automatically.",
+            "本站由 Jianbo Wang 独立运行，不依赖外部作者持续供稿。新闻页面的标题、摘要与推荐理由由模型根据公开来源生成，经自动化编辑流程聚合收录，部分内容经编辑人工审看，不保证逐篇人工核验，每页都保留原文链接；原创分析、实测和工具研究栏目刊登署名作品，每篇标明作者、使用的数据和原始来源。AI 参与写作不代表结论经过独立核验，外部投稿不会自动发布。",
+            "This site is run independently by Jianbo Wang and does not rely on outside authors for a steady supply. News pages carry model-written titles, summaries and recommendation notes generated from public sources, aggregated into the site's index by an automated editorial pipeline; some pieces are reviewed by a human editor, and page-by-page human review is not guaranteed. The original report is linked from every page; the research section carries signed pieces that state their author, the data used and the original sources. AI help with the writing does not mean the conclusions were independently verified, and outside submissions never publish automatically.",
           )}
         </p>
         <p className="mt-3 text-[13px] leading-relaxed text-ink-4">
@@ -311,9 +316,11 @@ export default function AboutPage() {
           {t("提出；研究合作意向同样欢迎。", "; research collaborations are welcome too.")}
         </p>
         <p className="mt-3">
-          <IntentLink to="/research" className={buttonClass("secondary")}>
-            {t("浏览研究栏目", "Browse the research section")} <IconArrowRight size={14} />
-          </IntentLink>
+          {researchShows && (
+            <IntentLink to="/research" className={buttonClass("secondary")}>
+              {t("浏览研究栏目", "Browse the research section")} <IconArrowRight size={14} />
+            </IntentLink>
+          )}
         </p>
       </section>
 

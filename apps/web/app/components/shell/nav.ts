@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { NAV } from "@aihot/site";
 import { webModules } from "../../site-modules";
+import { moduleShowsEntries } from "../../modules";
 import { IconNetwork, IconBolt, IconClock, IconDoc, IconFlame, IconUser } from "../icons";
 
 export interface NavItem {
@@ -43,9 +44,11 @@ export const inNav = (to: string) => !(NAV.hidden as readonly string[]).includes
 
 /**
  * The sidebar: the engine's sections with the modules' between 内容 and 更多; a module naming a section
- * that is already there adds to it.
+ * that is already there adds to it. `states` is the document's module states (root.tsx): a module whose
+ * `showsEntries` answers no for its own state adds nothing, so an empty or unreadable section leaves no
+ * entry to an empty page.
  */
-export function sidebar(): Array<{ title: string; items: NavItem[] }> {
+export function sidebar(states?: Record<string, unknown>): Array<{ title: string; items: NavItem[] }> {
   const [content, ...rest] = SECTIONS;
   const more = rest.pop();
   // Every call builds fresh objects: the shared SECTIONS are never mutated, or the next render
@@ -53,7 +56,7 @@ export function sidebar(): Array<{ title: string; items: NavItem[] }> {
   const sections = [content!, ...rest].map((s) => ({ ...s, items: s.items.filter((i) => inNav(i.to)) }));
   const tail = more ? { ...more, items: more.items.filter((i) => inNav(i.to)) } : null;
   for (const m of webModules()) {
-    if (!m.sidebar) continue;
+    if (!m.sidebar || !moduleShowsEntries(m, states)) continue;
     // The last engine section (更多) stays last: a module naming it joins in place instead of adding its own.
     const section = [...sections, ...(tail ? [tail] : [])].find((s) => s.title === m.sidebar!.section);
     if (section) section.items.push(...m.sidebar.items);

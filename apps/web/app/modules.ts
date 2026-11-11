@@ -122,6 +122,12 @@ export interface WebModule {
   tabs?: Tab[];
   /** The 我的 page: rows ahead of the engine's tools. */
   tools?: Array<{ to: string; label: string; icon: ReactNode }>;
+  /**
+   * Whether the sidebar and tools entries show in the document being rendered, asked with the module's
+   * `root.state` result (null when that could not be read — a module that has one hides its entries then).
+   * A module without `showsEntries` always shows its entries.
+   */
+  showsEntries?: (state: unknown) => boolean;
   admin?: {
     /** Navigation groups of its own, ahead of the engine's. */
     groups?: Array<{ group: string; items: AdminNavEntry[] }>;
@@ -144,6 +150,12 @@ export interface WebModule {
     Bottom?: ComponentType;
     /** Headers the document's own request to the api carries (the root loader). */
     documentHeaders?: (request: Request) => Record<string, string>;
+    /**
+     * State the shell itself needs for this document — whether a section's entries show — read with the
+     * engine's api client beside `/api/site/meta` (root.tsx). A failure reads as null, and the whole
+     * document (server render and hydration) shares one answer, so entries never flash.
+     */
+    state?: (api: <T>(path: string) => Promise<T>) => Promise<unknown>;
   };
   agent?: Part<AgentPart>;
   topicPage?: Part<TopicPagePart>;
@@ -164,4 +176,12 @@ export interface WebModule {
 
 export function defineWebModule(module: WebModule): WebModule {
   return module;
+}
+
+/**
+ * A module's sidebar and tools entries show unless its own `showsEntries` says otherwise, asked with its
+ * `root.state` result from the document (`states`, the root loader's read): null when it could not be read.
+ */
+export function moduleShowsEntries(m: WebModule, states: Record<string, unknown> | undefined): boolean {
+  return m.showsEntries ? m.showsEntries(states?.[m.name] ?? null) : true;
 }

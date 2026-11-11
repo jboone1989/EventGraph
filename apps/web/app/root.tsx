@@ -23,7 +23,7 @@ import { rememberPage, APPEARANCE_BOOT_SCRIPT, useAppearanceSync } from "./lib/l
 import { apiGet } from "./lib/api.server";
 import { useHydratedFlag } from "./lib/hydration";
 import { titled } from "./lib/seo";
-import { webModules } from "./site-modules";
+import { moduleStates, webModules } from "./site-modules";
 
 export const links: Route.LinksFunction = () => [
   { rel: "icon", href: "/favicon.ico?v=lr-night-1", sizes: "any" },
@@ -44,15 +44,16 @@ export async function loader({ request }: Route.LoaderArgs) {
   };
   const release = process.env.AIHOT_RELEASE ?? null;
   const adsenseAccount = adsenseVerificationId(process.env);
-  try {
-    const meta = await apiGet<SiteMeta>("/api/site/meta", {
+  // The modules' shell state is read whatever the site meta does: a section's entries hide (its
+  // showsEntries answers for null) rather than follow a failed meta read.
+  const [meta, modules] = await Promise.all([
+    apiGet<SiteMeta>("/api/site/meta", {
       headers: Object.assign({}, ...webModules().map((m) => m.root?.documentHeaders?.(request) ?? {})),
       signal: request.signal,
-    });
-    return { ...meta, release, adsenseAccount, analytics };
-  } catch {
-    return { changelogVersion: null, release, adsenseAccount, analytics };
-  }
+    }).catch(() => null),
+    moduleStates(apiGet),
+  ]);
+  return { ...(meta ?? { changelogVersion: null }), release, adsenseAccount, analytics, modules };
 }
 
 export const shouldRevalidate: ShouldRevalidateFunction = () => false;

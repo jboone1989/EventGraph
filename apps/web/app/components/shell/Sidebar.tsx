@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useRouteLoaderData } from "react-router";
 import { SITE } from "@aihot/site";
 import { Wordmark } from "@aihot/site/brand/Logo.tsx";
+import type { loader as rootLoader } from "../../root";
 import { useChangelogSeen } from "../../lib/local-state";
 import { sidebar, sidebarIsActive, type NavItem } from "./nav";
 import { ThemeSwitch } from "./ThemeSwitch";
@@ -43,6 +44,8 @@ function SideLink({ item, dot }: { item: NavItem; dot: boolean }) {
 export function Sidebar({ changelogVersion }: { changelogVersion: string | null }) {
   const dot = useChangelogDot(changelogVersion);
   const language = useUiLanguage();
+  // The modules' states for this document: their entries render (or not) the same on the server and the browser.
+  const site = useRouteLoaderData<typeof rootLoader>("root");
   return (
     <aside className="sticky top-0 hidden h-dvh w-[212px] shrink-0 flex-col border-r border-line bg-sidebar px-3 pb-3.5 pt-6 lg:flex">
       <Link to="/" className="mb-5 flex min-h-[74px] flex-col items-start justify-center gap-1 border-b border-line pb-4 pl-2 text-ink" aria-label={language==="en"?`${SITE.name} home`:`${SITE.name} 首页`}>
@@ -50,7 +53,7 @@ export function Sidebar({ changelogVersion }: { changelogVersion: string | null 
         <span className="mono text-[9px] tracking-[0.17em] text-ink-4">EVENTS → KNOWLEDGE</span>
       </Link>
       <nav className="scrollbar-thin -mx-1 flex-1 overflow-y-auto px-1" aria-label={language==="en"?"Main navigation":"主导航"}>
-        {sidebar().map((section) => (
+        {sidebar(site?.modules).map((section) => (
           <div key={section.title}>
             <div className="px-2.5 pb-1 pt-3.5 text-[11px] text-ink-4">{language==="en"?(section.title.includes("探索")?"EXPLORE":"MORE"):section.title}</div>
             <div className="flex flex-col gap-1">

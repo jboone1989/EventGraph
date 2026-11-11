@@ -1,8 +1,13 @@
 // /research: the site's own signed analysis (specs/002-adsense-readiness US3) — the list. The /en
 // address reads the same data and shows English titles where the piece has them.
 //
+// Three states (specs/adsense-minimal-readiness-20261111 US1): published pieces listed and indexable;
+// none published — the page opens but answers noindex,follow and says so plainly; the api unreadable —
+// HTTP 503, noindex,follow and "temporarily unavailable", never an empty list standing in for an error.
+//
 // Module route files live outside apps/web/app, so react-router's typegen writes no `+types` for them:
 // the loader and meta are typed structurally here, as the runtime calls them.
+import { data } from "react-router";
 import { apiGet, cachedPage } from "@aihot/web/lib/api.server";
 import { pageReuse } from "@aihot/web/lib/page-reuse";
 import { pageMeta } from "@aihot/web/lib/seo";
@@ -16,29 +21,38 @@ export const handle: Screen = { tab: "me" };
 export { pageHeaders as headers } from "@aihot/web/lib/api.server";
 
 /** What the page renders: cachedPage's wrapper is unwrapped by the router before it reaches props. */
-type LoaderData = ResearchArticlesResponse & { expiresAt: number };
+type LoaderData = ({ state: "ok"; articles: ResearchArticlesResponse["articles"] } & { expiresAt: number }) | { state: "unavailable" };
 
 export async function loader({ request }: { request: Request }) {
-  return cachedPage(120, await apiGet<ResearchArticlesResponse>("/api/research/articles", { signal: request.signal }));
+  try {
+    const { articles } = await apiGet<ResearchArticlesResponse>("/api/research/articles", { signal: request.signal });
+    return cachedPage(120, { state: "ok" as const, articles });
+  } catch (error) {
+    // A dropped request is not a state of the page; anything else fails closed: 503, noindex, uncached.
+    if (request.signal.aborted) throw error;
+    return data({ state: "unavailable" as const }, { status: 503, headers: { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, follow" } });
+  }
 }
 
 export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 
-export function meta({ location }: { location: { pathname: string } }) {
+export function meta({ loaderData, location }: { loaderData?: LoaderData; location: { pathname: string } }) {
   const en = location.pathname.startsWith("/en/");
+  // An empty section and an unreadable one stay out of the index; only a list with a published piece is a page to find.
+  const listed = loaderData?.state === "ok" ? loaderData.articles.length > 0 : false;
   return pageMeta({
     title: en ? "Original research" : "原创研究",
     description: en
       ? "Signed analysis from EventGraph: method, data and sources stated on every piece, kept apart from the aggregated news."
       : "EventGraph 的署名研究：每篇写明方法、数据与来源，与聚合的新闻报道分开呈现。",
     path: en ? "/en/research" : "/research",
+    noindex: !listed,
   });
 }
 
 export default function ResearchIndex({ loaderData }: { loaderData?: LoaderData }) {
   const t = useText();
   const en = useUiLanguage() === "en";
-  const articles = loaderData?.articles ?? [];
   return (
     <div className="mx-auto max-w-[var(--page-max-reading)] pb-14 lg:pt-3">
       <PhoneBar back={{ to: "/more", label: t("我的", "More") }} title={t("原创研究", "Original research")} />
@@ -54,11 +68,15 @@ export default function ResearchIndex({ loaderData }: { loaderData?: LoaderData 
           )}
         </p>
       </header>
-      {articles.length === 0 ? (
-        <p className="mt-10 text-[14px] leading-relaxed text-ink-4">{t("第一篇研究在准备中。", "The first piece is being prepared.")}</p>
+      {loaderData?.state !== "ok" ? (
+        <p className="mt-10 text-[14px] leading-relaxed text-ink-4">
+          {t("研究暂时无法加载，请稍后再试。", "Research is temporarily unavailable. Please try again later.")}
+        </p>
+      ) : loaderData.articles.length === 0 ? (
+        <p className="mt-10 text-[14px] leading-relaxed text-ink-4">{t("还没有公开发表的研究。", "No research has been published yet.")}</p>
       ) : (
         <ol className="mt-8 divide-y divide-line border-t border-line">
-          {articles.map((a) => {
+          {loaderData.articles.map((a) => {
             const title = en ? (englishText(a.title_en) ?? a.title) : a.title;
             const summary = en ? (englishText(a.summary_en) ?? a.summary) : a.summary;
             const href = `${en ? "/en" : ""}/research/${a.slug}`;

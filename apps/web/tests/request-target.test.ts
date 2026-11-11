@@ -14,6 +14,8 @@ const api = createServer((req, res) => {
   if (req.url?.startsWith("/api/site/timeline")) return res.end(JSON.stringify({
     cards: [], nextCursor: null, dayCounts: {}, hot: [], filters: { category: null, channel: null, tag: null },
   }));
+  // The shell reads each module's entry state beside the site's pages (the research section's count).
+  if (req.url === "/api/research/articles") return res.end(JSON.stringify({ articles: [] }));
   res.writeHead(404);
   res.end("{}");
 });
@@ -54,5 +56,6 @@ test("origin-form slashes keep the router's homepage and unknown-route semantics
     }
   }
   assert.equal(web.logs(), "");
-  assert.ok(upstreamPaths.every((path) => path.startsWith("/api/site/")));
+  // Site reads stay under /api/site/; the shell's module-state reads name their own sections' apis.
+  assert.ok(upstreamPaths.every((path) => path.startsWith("/api/site/") || path === "/api/research/articles"));
 });
