@@ -78,7 +78,18 @@ export async function registerSchedules(boss: PgBoss) {
     await ensureQueue(queue, { policy: "singleton", retryLimit: 1, expireInSeconds: 3600 });
     await boss.schedule(queue, s.cron, {}, { tz: s.timezone ?? "Asia/Shanghai", missed: s.missed ?? "skip" });
     // Schedules fire at minute boundaries; a 15 s pickup keeps them on time with a third of the polling.
-    await boss.work(queue, { pollingIntervalSeconds: 15 }, async () => recordRun(s.name, s.run));
+    await boss.work(queue, { pollingIntervalSeconds: 15 }, async ([job]) => {
+      // The existing English cron queue also accepts a single manual replay.
+      // Never turn one failed English row into a sweep of unrelated articles.
+      const data = job?.data as { articleId?: unknown; storyId?: unknown } | undefined;
+      if (s.name === "content.english" && data &&
+          (typeof data.articleId === "string" || Number.isSafeInteger(data.storyId))) {
+        const articleId = typeof data.articleId === "string" ? data.articleId : undefined;
+        const storyId = Number.isSafeInteger(data.storyId) ? Number(data.storyId) : undefined;
+        return recordRun(s.name, () => writeEnglishPending({ articleId, storyId }));
+      }
+      return recordRun(s.name, s.run);
+    });
   }
   // Retired or disabled timers must leave no queued work behind, including queues an earlier release
   // already unscheduled. pg-boss deletes the queue's jobs and schedules; job_runs retains its audit.
