@@ -1,4 +1,5 @@
 import {capabilities,modelSources,invalidateModelCache} from '@aihot/backend/editorial/models';
+import {clearFailedAutoRoutes} from '@aihot/backend/providers/registry/selection';
 import type {FastifyInstance} from 'fastify';
 import {PROTOCOLS} from '@aihot/contracts/providers';
 import {actorOf} from '@aihot/backend/admin/auth';
@@ -21,7 +22,8 @@ export function registerProviderConnections(app:FastifyInstance) {
  // Explicit operator refresh: no polling, notifications or automatic sync.
  app.post('/api/admin/provider-models/cache/refresh',adminHandler(async()=>{
   clearRegisteredModelCache();invalidateModelCache();
-  return {refreshed:true};
+  const recoveredModels=await clearFailedAutoRoutes();
+  return {refreshed:true,recoveredModels};
  }));
  app.get('/api/admin/providers',adminHandler(async()=>{
   const sources=await modelSources();return {providers:await listConnections(),models:await listRegisteredModels(),protocols:[...PROTOCOLS],

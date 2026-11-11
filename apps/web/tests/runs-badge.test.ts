@@ -16,6 +16,8 @@ test("runs badge equals the failed execution units and refreshes with the page",
     provider: kind === "model" ? "Groq" : null, model: kind === "model" ? "test-model" : null,
     error: status === "failed" ? "Model cannot route text: Model is disabled" : null,
     at: now, retryAt: null, jobId: null, receiptId: null,
+    originState: status, replayStep: kind === "article" ? "analyze" : null,
+    replayTargetId: kind === "article" ? `news-${n}` : null,
   });
   const rows = [
     ...Array.from({ length: 18 }, (_, i) => item(i + 1, "article", "failed")),
@@ -50,7 +52,7 @@ test("runs badge equals the failed execution units and refreshes with the page",
     await expect(page.getByText("所有流程 · 三个实时状态")).toBeVisible();
     await expect(badge(page)).toHaveText("21");
     await expect(page.locator('[aria-label="UTC 今日失败执行单元 21"]').filter({ visible: true })).toBeVisible();
-    await expect(page.getByText("按执行单元计数，与新闻篇数不同")).toBeVisible();
+    await expect(page.getByText("按原执行流程计数，与新闻篇数不同", { exact: false })).toBeVisible();
     // The all-kind failed total, its detail row count and pagination all describe the same 21 units.
     await expect(page.getByRole("button", { name: "处理失败" })).toContainText("21");
     await expect(page.getByText("21 项 · 第 1/2 页")).toBeVisible();
@@ -70,7 +72,7 @@ test("runs badge equals the failed execution units and refreshes with the page",
     const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
     assert.equal((await mobile.goto(web.origin + "/admin/runs"))?.status(), 200);
     await expect(badge(mobile)).toHaveText("21");
-    await expect(mobile.getByRole("button", { name: "重新入队" }).first()).toBeVisible();
+    await expect(mobile.getByRole("button", { name: "重新执行该流程" }).first()).toBeVisible();
     await mobile.close();
 
     // One refresh updates the badge and the page from the same pass: a recovered unit drops

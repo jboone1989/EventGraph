@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ProviderConnection, RegisteredModel } from '@aihot/contracts/providers';
-import { rankFreeModels, stageComplexity, coolDownModel, rememberSuccessfulRoute } from '@aihot/backend/providers/registry/selection';
+import { rankAutomaticModels, stageComplexity, coolDownModel, rememberSuccessfulRoute } from '@aihot/backend/providers/registry/selection';
 import { requestExtrasForTask } from '@aihot/backend/providers/llm';
 import { complexityFromModelId } from '@aihot/contracts/providers';
 
@@ -23,10 +23,11 @@ const candidates=[
  model('nv-light','nv','openai/gpt-oss-20b','light'),
  model('paid','or','anthropic/claude-sonnet','heavy'),
 ];
-test('free-first routing never silently selects paid models',()=>{
- const ranked=rankFreeModels(candidates,connections,'prefilter');
- assert.deepEqual(ranked.map(m=>m.id),['nv-light','or-light','or-heavy']);
- assert.ok(!ranked.some(m=>m.id==='paid'));
+test('automatic routing includes paid and free registered models without tier downgrade',()=>{
+ const ranked=rankAutomaticModels(candidates,connections,'prefilter');
+ assert.deepEqual(ranked.map(m=>m.id),['nv-light','or-light','paid','or-heavy']);
+ assert.ok(ranked.some(m=>m.id==='paid'));
+ assert.ok(ranked.every(m=>m.enabled&&m.routeEnabled));
 });
 test('task complexity keeps light work on light models and deep work on deep models',()=>{
  assert.equal(stageComplexity('prefilter'),'light');
@@ -37,15 +38,15 @@ test('task complexity keeps light work on light models and deep work on deep mod
   assert.equal(stageComplexity(stage),'medium',stage+' must not route every call to advanced tier');
  assert.equal(stageComplexity('unrecognized-future-stage'),'medium');
  assert.equal(stageComplexity('light'),'light');
- assert.deepEqual(rankFreeModels(candidates,connections,'groupReview').map(m=>m.id),['or-heavy']);
+ assert.deepEqual(rankAutomaticModels(candidates,connections,'groupReview').map(m=>m.id),['paid','or-heavy']);
 });
 test('failure cools only its model UUID, not other models on the same connection',()=>{
  coolDownModel('or-light',60);
- assert.deepEqual(rankFreeModels(candidates,connections,'prefilter').map(m=>m.id),['nv-light','or-heavy']);
+ assert.deepEqual(rankAutomaticModels(candidates,connections,'prefilter').map(m=>m.id),['nv-light','paid','or-heavy']);
 });
 test('only enabled and explicitly routed chat models are eligible, without a probe prerequisite',()=>{
  const blocked={...candidates[0]!,routeEnabled:false};
- assert.deepEqual(rankFreeModels([blocked,candidates[2]!],connections,'prefilter').map(m=>m.id),['nv-light']);
+ assert.deepEqual(rankAutomaticModels([blocked,candidates[2]!],connections,'prefilter').map(m=>m.id),['nv-light']);
 });
 
 test('the last successful free model is reused until it fails',()=>{
@@ -53,18 +54,18 @@ test('the last successful free model is reused until it fails',()=>{
  const selected=model('cached','alt','another/model-20b','light');
  const second=model('second','alt','another/model-21b','light');
  rememberSuccessfulRoute('model:cached','light');
- assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'cached');
+ assert.equal(rankAutomaticModels([second,selected],[alt],'light')[0]?.id,'cached');
  coolDownModel('cached',60);
- assert.equal(rankFreeModels([second,selected],[alt],'light')[0]?.id,'second');
+ assert.equal(rankAutomaticModels([second,selected],[alt],'light')[0]?.id,'second');
 });
 test('a remembered higher-tier fallback never preempts an available exact-tier free model',()=>{
  const elevated=model('elevated-tier-cache','or','zz-advanced','heavy');
  const exact=model('exact-tier-free','nv','aa-light','light');
  rememberSuccessfulRoute('model:elevated-tier-cache','prefilter');
- const preferred=rankFreeModels([elevated,exact],connections,'prefilter');
+ const preferred=rankAutomaticModels([elevated,exact],connections,'prefilter');
  assert.deepEqual(preferred.map(m=>m.id),['exact-tier-free','elevated-tier-cache']);
  // An advanced task may not downgrade to an available light model.
- assert.deepEqual(rankFreeModels([elevated,exact],connections,'groupReview').map(m=>m.id),['elevated-tier-cache']);
+ assert.deepEqual(rankAutomaticModels([elevated,exact],connections,'groupReview').map(m=>m.id),['elevated-tier-cache']);
 });
 
 test('standard task prefers standard free model and keeps higher-tier fallback',()=>{
@@ -72,10 +73,10 @@ test('standard task prefers standard free model and keeps higher-tier fallback',
  const heavy=model('stage-heavy-lastgood','nv','zz-advanced','heavy');
  const paid=model('paid','or','paid-model','medium');
  rememberSuccessfulRoute('model:stage-heavy-lastgood','understand');
- assert.deepEqual(rankFreeModels([heavy,medium,paid],connections,'understand').map(m=>m.id),
-  ['stage-medium-exact','stage-heavy-lastgood']);
- assert.deepEqual(rankFreeModels([heavy,paid],connections,'understand').map(m=>m.id),
-  ['stage-heavy-lastgood']);
+ assert.deepEqual(rankAutomaticModels([heavy,medium,paid],connections,'understand').map(m=>m.id),
+  ['stage-medium-exact','paid','stage-heavy-lastgood']);
+ assert.deepEqual(rankAutomaticModels([heavy,paid],connections,'understand').map(m=>m.id),
+  ['paid','stage-heavy-lastgood']);
 });
 
 test('parameter count supplies only an initial, overridable tier',()=>{
@@ -89,16 +90,16 @@ test('same vendor and same upstream name remain independent by internal model UU
  const a=provider('groq-a','groq'),b=provider('groq-b','groq');
  const first=model('groq-uuid-a',a.id,'openai/gpt-oss-120b','medium');
  const second=model('groq-uuid-b',b.id,'openai/gpt-oss-120b','medium');
- assert.deepEqual(rankFreeModels([first,second],[a,b],'medium').map(m=>m.id),['groq-uuid-a','groq-uuid-b']);
+ assert.deepEqual(rankAutomaticModels([first,second],[a,b],'medium').map(m=>m.id),['groq-uuid-a','groq-uuid-b']);
  coolDownModel(first.id,60);
- assert.deepEqual(rankFreeModels([first,second],[a,b],'medium').map(m=>m.id),['groq-uuid-b']);
+ assert.deepEqual(rankAutomaticModels([first,second],[a,b],'medium').map(m=>m.id),['groq-uuid-b']);
 });
 
 test('the ninth and tenth eligible same-name instances remain available after earlier rejections',()=>{
  const accounts=Array.from({length:10},(_,i)=>provider('groq-account-'+i,'groq'));
  const entries=accounts.map((connection,i)=>model('instance-'+String(i).padStart(2,'0'),connection.id,'openai/gpt-oss-120b','medium'));
  const rejected=new Set(entries.slice(0,9).map(m=>m.id));
- assert.deepEqual(rankFreeModels(entries,accounts,'medium',Date.now(),false,rejected).map(m=>m.id),['instance-09']);
+ assert.deepEqual(rankAutomaticModels(entries,accounts,'medium',Date.now(),false,rejected).map(m=>m.id),['instance-09']);
 });
 
 test('NVIDIA Ultra uses non-reasoning mode only for schema-constrained grouping', () => {
@@ -114,16 +115,17 @@ test('NVIDIA Ultra uses non-reasoning mode only for schema-constrained grouping'
  assert.equal(requestExtrasForTask({ ...spec, extra: undefined }, 'score_article'), undefined);
 });
 
-test('automatic free routing can fail over across six providers without selecting a paid model',()=>{
+test('automatic routing can fail over across six providers and a paid instance',()=>{
  const owners=[provider('pool-or','openrouter'),provider('pool-nv','nvidia','nvidia-free-trial'),
   provider('pool-groq','groq'),provider('pool-gemini','gemini'),
   provider('pool-zai','zai'),provider('pool-cf','cloudflare')];
  const choices=owners.map((p,i)=>model('candidate-'+i,p.id,'test/free-20b','light'));
  const paid={...model('candidate-paid','pool-groq','paid-20b','light'),billing:'paid' as const};
- const first=rankFreeModels([...choices,paid],owners,'light');
- assert.equal(first.length,6);
- for(const entry of first.slice(0,5))coolDownModel(entry.id,60);
- const last=rankFreeModels([...choices,paid],owners,'light');
- assert.deepEqual(last.map(m=>m.id),[first[5]!.id]);
- assert.equal(last.some(m=>m.id==='candidate-paid'),false);
+ const first=rankAutomaticModels([...choices,paid],owners,'light');
+ assert.equal(first.length,7);
+ assert.ok(first.some(m=>m.id==='candidate-paid'));
+ for(const entry of first.slice(0,6))coolDownModel(entry.id,60);
+ const last=rankAutomaticModels([...choices,paid],owners,'light');
+ assert.deepEqual(last.map(m=>m.id),[first[6]!.id]);
+ assert.equal(last.length,1);
 });

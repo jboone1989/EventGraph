@@ -40,6 +40,8 @@ const names: Record<string, string> = {
   "cron.stories.links": "关联事件",
   "cron.ops.recover": "任务恢复",
   "cron.sources.schedule": "信源调度",
+  "english_copy": "新闻英文标题与摘要",
+  "english_digest": "事件英文综述",
   "group_article": "事件归组 · 模型请求",
   "group_review": "事件归组复核 · 模型请求",
   "analyze_article": "新闻统一分析 · 模型请求",
@@ -57,6 +59,28 @@ const kindNames: Record<AdminFlowItem["kind"], string> = {
   model: "模型调用", source: "采集信源", delivery: "消息投递",
 };
 
+
+const concise = (value: string, limit = 78) => value.length > limit ? value.slice(0, limit - 1) + "…" : value;
+const originalState = (item: AdminFlowItem) => {
+  const raw = item.originState ?? (item.kind === "model" ? null : item.status);
+  if (raw === null) return "原任务未关联";
+  return ({
+    new: "待处理", pending: "待处理", created: "待处理", retry: "等待重试",
+    active: "处理中", processing: "处理中", failed: "失败",
+    analyzed: "新闻分析已完成", complete: "已完成", completed: "已完成", written: "已完成",
+    unknown: "失败（结果未知）", blocked: "预筛已拦截", failing: "失败",
+  } as Record<string, string>)[raw] ?? raw;
+};
+const replayIdentity = (item: AdminFlowItem): string | null => {
+  if (["completed", "complete", "written", "analyzed", "active", "processing"].includes(item.originState ?? "")) return null;
+  if ((item.kind === "article" || item.kind === "model") && item.replayStep && item.replayTargetId)
+    return item.replayStep + ":" + item.replayTargetId;
+  if (item.kind === "job" && item.jobId) return "job:" + item.jobId;
+  if (item.kind === "schedule") return "schedule:" + item.process;
+  if (item.kind === "source") return "source:" + item.key;
+  return null;
+};
+
 export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const revalidator = useRevalidator();
   const r = loaderData;
@@ -64,10 +88,11 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const [state, setState] = useState<QueueState>("failed");
   const [kind, setKind] = useState("all");
   const [page, setPage] = useState(0);
-  const [receiptId, setReceiptId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkRunning, setBulkRunning] = useState(false);
   const [deliveryId, setDeliveryId] = useState<number | null>(null);
   const [outcome, setOutcome] = useState<"sent" | "drop" | "resend">("sent");
-  const [billed, setBilled] = useState("false");
+
 
   // One revalidation refreshes this page and the navigation badges together, so the 处理失败
   // total and the 运行与积压 badge never drift apart after a refresh.
@@ -89,55 +114,91 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const activePage = Math.min(page, pageCount - 1);
   const shown = items.slice(activePage * pageSize, (activePage + 1) * pageSize);
   const worker = r.processes.find(p => p.role === "worker");
+  const replayableShown = state === "failed" ? shown.filter(item => replayIdentity(item) !== null) : [];
+  const selectedVisible = items.filter(item => selected.has(item.key) && replayIdentity(item) !== null);
+  const pageAllSelected = replayableShown.length > 0 && replayableShown.every(item => selected.has(item.key));
 
-  async function requeue(item: AdminFlowItem) {
+  function selectPage() {
+    setSelected(current => {
+      const next = new Set(current);
+      replayableShown.forEach(item => pageAllSelected ? next.delete(item.key) : next.add(item.key));
+      return next;
+    });
+  }
+
+  function toggleSelected(key: string, checked: boolean) {
+    setSelected(current => {
+      const next = new Set(current);
+      if (checked) next.add(key); else next.delete(key);
+      return next;
+    });
+  }
+
+  async function replay(item: AdminFlowItem, quiet = false): Promise<boolean> {
     let path: string;
     let body: unknown = {};
-    if (item.kind === "article" && item.process === "事件归组") {
-      path = "/api/admin/content/" + encodeURIComponent(item.articleId!) + "/rerun";
-      body = { step: "group" };
-    } else if (item.kind === "article") {
-      path = "/api/admin/processing/requeue";
-      body = { articleId: item.articleId, reason: "运行与积压页面单条重试" };
+    if ((item.kind === "article" || item.kind === "model") && item.replayStep && item.replayTargetId) {
+      path = item.replayStep === "storyEnglish"
+        ? "/api/admin/stories/" + encodeURIComponent(item.replayTargetId) + "/rerun-english"
+        : "/api/admin/content/" + encodeURIComponent(item.replayTargetId) + "/rerun";
+      if (item.replayStep !== "storyEnglish") body = { step: item.replayStep };
     } else if (item.kind === "job" && item.jobId) {
       path = "/api/admin/jobs/" + encodeURIComponent(item.jobId) + "/retry";
     } else if (item.kind === "schedule") {
       path = "/api/admin/schedules/" + encodeURIComponent(item.process.replace(/^cron\./, "")) + "/retry";
     } else if (item.kind === "source") {
       path = "/api/admin/sources/" + encodeURIComponent(item.key.slice("source:".length)) + "/fetch";
-    } else return;
+    } else return false;
     const result = await run<{ requeued?: number; jobId?: string | null }>("POST", path, body,
-      { label: "requeue:" + item.key });
-    if (result !== null) toast("已提交重新入队", "ok");
+      { label: "replay:" + (replayIdentity(item) ?? item.key), revalidate: !quiet, quietError: quiet });
+    if (result !== null && !quiet) toast("已提交原流程任务", "ok");
+    return result !== null;
+  }
+
+  async function replaySelected() {
+    if (bulkRunning || pending !== null) return;
+    setBulkRunning(true);
+    const targets = new Set<string>();
+    let succeeded = 0, failed = 0;
+    try {
+      for (const item of items.filter(item => selected.has(item.key))) {
+        const identity = replayIdentity(item);
+        if (!identity || targets.has(identity)) continue;
+        targets.add(identity);
+        if (await replay(item, true)) succeeded++;
+        else failed++;
+      }
+      toast("恢复完成：成功 " + succeeded + "，失败 " + failed, failed ? "error" : "ok");
+      setSelected(new Set());
+      revalidator.revalidate();
+    } finally { setBulkRunning(false); }
   }
 
   const action = (item: AdminFlowItem) => {
     if (item.status !== "failed") {
       return item.articleId ? <Link className="text-accent" to={"/admin/content/" + encodeURIComponent(item.articleId)}>查看新闻</Link> : null;
     }
-    if (item.receiptStatus === "unknown" && item.receiptId !== null) {
-      return <Button size="sm" disabled={pending !== null} onClick={() => setReceiptId(item.receiptId)}>核对回执</Button>;
+    if (replayIdentity(item)) {
+      return <Button size="sm" disabled={pending !== null || bulkRunning}
+        onClick={() => void replay(item)}>重新执行该流程</Button>;
     }
-    if (item.receiptStatus === "pending") return <span className="text-[12px] text-ink-3">等待回执确认</span>;
-    if (["article", "job", "schedule", "source"].includes(item.kind)) {
-      return <Button size="sm" disabled={pending !== null} onClick={() => void requeue(item)}>重新入队</Button>;
-    }
-    if (item.kind === "model") return <span className="text-[12px] text-ink-3">由原任务恢复</span>;
+    if (item.kind === "model")
+      return <span className="text-[12px] text-ink-3" title={item.rawSubject ?? item.subject}>原任务无法定位，不能安全重放</span>;
     if (item.kind === "delivery") {
       const id = Number(item.key.slice("delivery:".length));
       return Number.isSafeInteger(id) && id > 0
         ? <Button size="sm" disabled={pending !== null} onClick={() => setDeliveryId(id)}>处理投递</Button>
         : <span className="text-[12px] text-ink-3">投递 ID 无效</span>;
     }
-    return null;
+    return <span className="text-[12px] text-ink-3">无可重放任务</span>;
   };
 
   return (
     <AdminPage title="运行与积压" subtitle={<>UTC 今日实时执行记录 · 每 20 秒刷新 · {bj(r.checkedAt)} · <Badge tone={worker?.alive ? "ok" : "bad"}>{worker?.alive ? "Worker 在线" : "Worker 未确认在线"}</Badge></>}>
       <Card title="所有流程 · 三个实时状态" right={<Button size="sm" onClick={() => revalidator.revalidate()}>刷新</Button>}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[12px] text-ink-3">按执行单元计数，与新闻篇数不同；一次新闻的任务和模型请求分别记录</span>
-          <Select value={kind} aria-label="流程类型" onChange={e => { setKind(e.target.value); setPage(0); }}>
+          <span className="text-[12px] text-ink-3">按原执行流程计数，与新闻篇数不同；同一任务的模型失败只展示一次</span>
+          <Select value={kind} aria-label="流程类型" onChange={e => { setKind(e.target.value); setPage(0); setSelected(new Set()); }}>
             <option value="all">全部流程</option>
             <option value="article">新闻处理</option>
             <option value="model">模型调用</option>
@@ -149,7 +210,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         </div>
         <div className="grid grid-cols-3 gap-2">
           {statuses.map(item => <button key={item.key} type="button" aria-pressed={state === item.key}
-            onClick={() => { setState(item.key); setPage(0); }}
+            onClick={() => { setState(item.key); setPage(0); setSelected(new Set()); }}
             className={"rounded-control border p-3 text-left transition-colors " + (state === item.key ? "border-accent bg-accent-soft" : "border-line bg-bg-sunk")}>
             <span className="block text-[12px] text-ink-3">{item.label}</span>
             <strong className="mt-1 block text-2xl tabular-nums text-ink">{allItems ? num(counts[item.key]) : "—"}</strong>
@@ -162,35 +223,58 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         pad={false} scrollable>
         {allItems === undefined
           ? <p className="p-4 text-sm text-ink-3">当前 API 未提供全流程数据，请确认 API 与 Web 已部署同一版本。</p>
-          : <DataTable dense scrollable rows={shown} rowKey={item => item.key} empty="当前没有对应执行项" columns={[
+          : <>
+            {state === "failed" && <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+              <Button size="sm" disabled={replayableShown.length === 0 || bulkRunning || pending !== null}
+                onClick={selectPage}>{pageAllSelected ? "取消本页选择" : "选择本页可重试项"}</Button>
+              <Button size="sm" tone="primary" disabled={selectedVisible.length === 0 || bulkRunning || pending !== null}
+                busy={bulkRunning} onClick={() => void replaySelected()}>
+                重新执行选中流程（{selectedVisible.length}）
+              </Button>
+              <span className="text-[11px] text-ink-4">每页最多 20 项；按原任务去重，逐条反馈结果</span>
+            </div>}
+            <DataTable dense scrollable rows={shown} rowKey={item => item.key} empty="当前没有对应执行项" columns={[
+              { key: "select", label: "选择", className: "w-10", render: item =>
+                item.status === "failed" && replayIdentity(item)
+                  ? <input type="checkbox" className="size-4 accent-accent" aria-label={"选择 " + labelOf(item.process) + " " + item.subject}
+                      checked={selected.has(item.key)} disabled={bulkRunning || pending !== null}
+                      onChange={e => toggleSelected(item.key, e.target.checked)} />
+                  : null },
+              { key: "action", label: "操作", className: "min-w-[125px]", render: action },
               { key: "subject", label: "新闻 / 任务", render: item =>
                 <div>
                   {item.articleId
-                    ? <Link className="text-accent" to={"/admin/content/" + encodeURIComponent(item.articleId)}>{item.subject}</Link>
+                    ? <Link className="text-accent" to={"/admin/content/" + encodeURIComponent(item.articleId)}>{concise(item.subject, 70)}</Link>
                     : item.kind === "source" ? <Link className="text-accent" to={"/admin/sources/" + encodeURIComponent(item.key.slice(7))}>{item.subject}</Link>
-                      : <span className="text-ink">{item.subject}</span>}
+                      : <span className="text-ink" title={item.subject}>{concise(item.subject, 70)}</span>}
                   <div className="text-[11px] text-ink-4">{kindNames[item.kind]}</div>
                 </div> },
+              { key: "origin", label: "原任务当前状态", render: item =>
+                <span className="whitespace-nowrap text-[12px]" title={item.originState ?? ""}>{originalState(item)}</span> },
               { key: "process", label: "出错 / 当前流程", render: item =>
                 <div className="min-w-[120px]"><span>{labelOf(item.process)}</span>
                   <div className="font-mono text-[11px] text-ink-4">{item.process}</div>
                 </div> },
               { key: "model", label: "模型 / 服务", render: item =>
-                <span className="break-words text-[12px] text-ink-3">{[item.provider, item.model].filter(Boolean).join(" / ") || "—"}</span> },
+                <span className="block max-w-[180px] break-all text-[12px] text-ink-3" title={[item.provider, item.model].filter(Boolean).join(" / ")}>{concise([item.provider, item.model].filter(Boolean).join(" / ") || "—", 68)}</span> },
               { key: "error", label: state === "failed" ? "具体错误" : "任务 / 上次错误", render: item =>
-                <div className="min-w-[170px] text-[12px] text-ink-3">
-                  <span className="break-words" title={item.error ?? ""}>
+                <div className="max-w-[260px] min-w-[140px] break-all text-[12px] text-ink-3">
+                  <span className="line-clamp-2" title={item.error ?? ""}>
                     {item.error || (state === "failed" ? "该流程未记录错误内容" : "等待执行或模型响应")}
                   </span>
+                  {(item.error?.length ?? 0) > 120 && <details className="mt-1">
+                    <summary className="cursor-pointer text-accent">查看完整错误</summary>
+                    <p className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all">{item.error}</p>
+                  </details>}
                   {item.retryAt && state === "pending" && <div>重试时间 <Time at={item.retryAt} /></div>}
                 </div> },
               { key: "at", label: "时间", render: item => <Time at={item.at} /> },
-              { key: "action", label: "操作", align: "right", render: action },
-            ]} />}
+            ]} />
+          </>}
         {pageCount > 1 && <div className="flex items-center justify-end gap-3 border-t border-line px-4 py-3">
-          <Button size="sm" disabled={activePage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</Button>
+          <Button size="sm" disabled={activePage === 0} onClick={() => { setPage(p => Math.max(0, p - 1)); setSelected(new Set()); }}>上一页</Button>
           <span className="text-[12px] text-ink-3">{activePage + 1} / {pageCount}</span>
-          <Button size="sm" disabled={activePage >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</Button>
+          <Button size="sm" disabled={activePage >= pageCount - 1} onClick={() => { setPage(p => p + 1); setSelected(new Set()); }}>下一页</Button>
         </div>}
       </Card>
       <p className="mt-3 text-[12px] text-ink-3">
@@ -198,22 +282,6 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         已成功恢复的任务与模型请求不会继续留在失败列表；尚无错误日志的条目明确显示缺失记录。
       </p>
 
-      <ReasonDialog open={receiptId !== null} title={"核对模型回执 #" + (receiptId ?? "")}
-        description="模型调用结果未知，先核对是否计费；不得盲目重发。"
-        confirmLabel="记录并放行" busy={pending === "receipt"} onClose={() => setReceiptId(null)}
-        onSubmit={async note => {
-          const result = await run("POST", "/api/admin/receipts/" + receiptId + "/release",
-            { billed: billed === "true", note }, { label: "receipt" });
-          if (result !== null) setReceiptId(null);
-          return result !== null;
-        }}>
-        <Field label="供应商是否计费">
-          <Select value={billed} onChange={e => setBilled(e.target.value)}>
-            <option value="false">未计费</option>
-            <option value="true">已计费（未取回结果）</option>
-          </Select>
-        </Field>
-      </ReasonDialog>
       <ReasonDialog open={deliveryId !== null} title={"处理消息投递 #" + (deliveryId ?? "")}
         description="先核实消息是否送达；确认未送达后才选择重新发送。"
         confirmLabel="确认处理" danger={outcome === "resend"} busy={pending === "delivery"}

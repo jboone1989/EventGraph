@@ -54,6 +54,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await page.goto(web.origin+"/admin/model-bindings");
   await page.getByText(/高级设置 · 为各工作流单独指定模型/).click();
   const picker=page.getByRole("combobox",{name:"为精选预筛选择模型"});
+  const prefilterRow=page.locator("tbody tr").filter({has:page.getByText("精选预筛",{exact:true})});
   await expect(page.getByText("工作流模型绑定",{exact:true}).first()).toBeVisible();
   await expect(picker).toHaveValue("");
   const defaultPicker=page.getByRole("combobox",{name:"为默认模型选择模型"});
@@ -83,7 +84,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   assert.equal(writes.at(-1)?.path,"/api/admin/models/apply-default");
   assert.match(writes.at(-1)!.body.reason,/默认模型/);
   assert.equal(writes.at(-1)?.body.model,modelKey);
-  await expect(page.getByText("继承默认",{exact:true}).first()).toBeVisible();
+  await expect(prefilterRow.getByText("继承默认",{exact:true})).toBeVisible();
   await expect(page.getByRole("combobox",{name:"为Graphiti 向量生成选择模型"})).toHaveValue(embeddingKey);
   // Bulk update revalidates the page loader and remounts keyed selector controls.
   // Do not race that revalidation with a per-stage override.
@@ -92,22 +93,23 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(picker).toHaveValue(modelKey);
   await expect(page.getByRole("button",{name:"保存"}).first()).toBeEnabled();
   await page.getByRole("button",{name:"保存"}).first().click();
-  await expect(page.getByText("单独指定",{exact:true}).first()).toBeVisible();
+  await expect(prefilterRow.getByText("单独指定",{exact:true})).toBeVisible();
   // Reapplying an unchanged default still resets a previously saved stage override.
   await page.getByRole("button",{name:"一键应用到全部流程"}).click();
   assert.equal(writes.at(-1)?.path,"/api/admin/models/apply-default");
-  await expect(page.getByText("继承默认",{exact:true}).first()).toBeVisible();
+  await expect(prefilterRow.getByText("继承默认",{exact:true})).toBeVisible();
   await expect(page.getByRole("combobox",{name:"为Graphiti 向量生成选择模型"})).toHaveValue(embeddingKey);
   // Advanced stage editing remains supported after a bulk default apply.
   await picker.selectOption(modelKey);
   await page.getByRole("button",{name:"保存"}).first().click();
-  await expect(page.getByText("单独指定",{exact:true}).first()).toBeVisible();
+  await expect(prefilterRow.getByText("单独指定",{exact:true})).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,modelKey);
   assert.match(writes.at(-1)!.body.reason,/prefilter/);
   // The successful save revalidates the loader and remounts the keyed selector.
-  // Wait for that refresh before choosing the next value, or the in-flight refresh
-  // can overwrite the user's selection and leave a disabled Save button.
-  await page.waitForLoadState("networkidle");
+  // Wait for the *prefilter row* to reflect the committed binding, not the
+  // always-admin Graphiti embedding row. Network idle alone is not a React
+  // Router loader revalidation guarantee.
+  await expect(prefilterRow.getByText("单独指定",{exact:true})).toBeVisible();
   await expect(picker).toHaveValue(modelKey);
   await picker.selectOption("");
   await expect(picker).toHaveValue("");
@@ -117,7 +119,7 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   await expect(page.getByRole("alert")).toContainText("模型暂不可用");
   failure=false;
   await page.getByRole("button",{name:"保存"}).first().click();
-  await expect(page.getByText("继承默认",{exact:true}).first()).toHaveText("继承默认");
+  await expect(prefilterRow.getByText("继承默认",{exact:true})).toBeVisible();
   assert.equal(writes.at(-1)?.body.model,null);
   // The default apply is also a valid "restore deployment default" action.
   await defaultPicker.selectOption("");
