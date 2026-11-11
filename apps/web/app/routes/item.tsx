@@ -18,6 +18,7 @@ import { Menu, MenuItem } from "../components/ui/Menu";
 import { StarButton } from "../features/feed/parts";
 import { GroupButton, GroupSources } from "../features/feed/ReadingGroup";
 import { StoryFollowups } from "../features/item/StoryFollowups";
+import { ItemKnowledgeEntities } from "../features/item/ItemKnowledgeEntities";
 import { MediaGallery } from "../features/item/MediaGallery";
 import { QuotedPost } from "../features/item/QuotedPost";
 import { ArticleBody } from "../features/item/ArticleBody";
@@ -707,6 +708,9 @@ function ItemView({ item }: { item: SiteItemDetail }) {
           {item.story && item.storyContext && item.storyContext.reportCount > 1 && (
             <EventContext story={item.story} context={item.storyContext} currentId={item.id} en={en} />
           )}
+
+          {/* The knowledge-graph entities this report's own episode mentions; lazy and failure-isolated. */}
+          <ItemKnowledgeEntities itemId={item.id} />
 
           {item.sameEvent && !en && (
             <p className="mt-5 text-[13px] leading-relaxed text-ink-4">

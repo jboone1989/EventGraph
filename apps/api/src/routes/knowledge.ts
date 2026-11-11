@@ -1,6 +1,6 @@
 import type {FastifyInstance} from "fastify";
 
-import {dailyGraphChanges,entityProfile,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,publicEvidenceBundle,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
+import {dailyGraphChanges,entityProfile,itemKnowledgeEntities,publicGraphOverview,publicGraphNetwork,publicGraphRelation,publicStoryGraph,publicAtlasNeighborhood,publicAtlasCenters,publicEvidenceBundle,graphStats,graphSearch} from "@aihot/backend/publication/knowledge";
 import {matchesBearerToken} from "@aihot/backend/lib/bearer-auth";
 import {parseGraphTime} from "@aihot/backend/publication/knowledge";
 
@@ -48,6 +48,16 @@ export function registerKnowledge(app:FastifyInstance){
   });
   app.get("/api/site/knowledge/stats",async(_req,reply)=>
     reply.header("Cache-Control","public, max-age=60").send(await graphStats()));
+  app.get<{Params:{id:string}}>("/api/site/knowledge/items/:id/entities",async(req,reply)=>{
+    const id=req.params.id;
+    // A missing, withdrawn, unreleased or licence-limited report is indistinguishable here on purpose.
+    if(!/^[a-zA-Z0-9_-]{1,80}$/.test(id))return reply.code(404).header("Cache-Control","no-store").send({error:"not_found"});
+    const result=await itemKnowledgeEntities(id);
+    if(result.kind==="not_found")return reply.code(404).header("Cache-Control","no-store").send({error:"not_found"});
+    // Settled answers (entities, or none to have) are cacheable; the transient states are not.
+    const cache=result.value.status==="ok"||result.value.status==="empty"?"public, max-age=60":"no-store";
+    return reply.header("Cache-Control",cache).send(result.value);
+  });
   app.get<{Params:{publicId:string};Querystring:{asOf?:string;clock?:string}}>("/api/site/knowledge/stories/:publicId",async(req,reply)=>{
     const {publicId}=req.params;
     if(!/^[a-f0-9-]{36}$/i.test(publicId))return reply.code(400).send({error:"invalid_story"});

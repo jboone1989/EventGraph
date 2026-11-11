@@ -1,8 +1,9 @@
 // An entity's public profile: its Graphiti relations, plus the public reports those relations cite and the
 // events (stories) those reports belong to. Graphiti owns the relations; this database owns what is
 // public, so a cited report that was withdrawn, held back or never published is left out here.
+import type { ItemKnowledgeEntitiesResponse } from "@aihot/contracts/site";
 import { sql } from "../db.ts";
-import { graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges, type GraphTime } from "../knowledge/graphiti.ts";
+import { graphArticleEntities, graphChanges, graphForEntity, graphForStory, graphOverview, graphNetwork, graphRelation, graphAtlasCenters, type GraphChanges, type GraphTime } from "../knowledge/graphiti.ts";
 export { graphStats, graphSearch } from "../knowledge/graphiti.ts";
 export { parseGraphTime } from "../knowledge/temporal.ts";
 import { cached, cachedByKey } from "../lib/cache.ts";
@@ -94,6 +95,82 @@ export async function entityProfile(key: string, now = new Date(), time?: GraphT
   const { reports, stories } = await citedReports(citedArticleIds(graph), now, time);
   const edges = withPublicEvidence(graph.edges, new Set(reports.map((r) => r.id)));
   return { ...graph, edges, reports: reports.slice(0, 30), stories: stories.slice(0, 12) };
+}
+
+export type KnowledgeEntityRef = { key: string; name: string };
+
+/** Graphiti sometimes labels a node by its source URL; a report's entity block lists real-world names only. */
+const urlEntityName = (name: string) => /^(?:https?:\/\/|www\.)/i.test(name);
+
+/** Spec order: names ascend by Unicode code point (case folded for English), then by the stable key. */
+function byNameThenKey(a: KnowledgeEntityRef, b: KnowledgeEntityRef): number {
+  const left = [...a.name.toLowerCase()], right = [...b.name.toLowerCase()];
+  for (let i = 0; i < Math.min(left.length, right.length); i++) {
+    const d = left[i]!.codePointAt(0)! - right[i]!.codePointAt(0)!;
+    if (d) return d;
+  }
+  return left.length - right.length || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+}
+
+/** One episode's direct mentions as the item page shows them: real names only, deduped by key, in the fixed order. */
+export function normalizeEpisodeEntities(entities: Array<{ key?: unknown; name?: unknown }>): KnowledgeEntityRef[] {
+  const byKey = new Map<string, KnowledgeEntityRef>();
+  for (const entity of entities) {
+    const key = typeof entity.key === "string" ? entity.key : "";
+    const name = typeof entity.name === "string" ? entity.name.trim() : "";
+    // No name, a blank name or a URL for a name is extraction debris, never a knowledge entity.
+    if (!key || !name || urlEntityName(name)) continue;
+    if (!byKey.has(key)) byKey.set(key, { key, name });
+  }
+  return [...byKey.values()].sort(byNameThenKey);
+}
+
+/** One episode's entities, kept a minute behind the page; an unavailable Graphiti never becomes a cached result. */
+const episodeEntities = cachedByKey(
+  (k: { articleId: string; revision: number }) => `${k.articleId}:r${k.revision}`,
+  async (k) => {
+    const result = await graphArticleEntities(k.articleId, k.revision);
+    if (result.status === "unavailable") throw new Error("Graphiti unavailable");
+    return result;
+  },
+  { freshMs: 60_000, maxStaleMs: 60_000, maxKeys: 1000 });
+
+export type ItemKnowledgeEntities =
+  | { kind: "not_found" }
+  | { kind: "found"; value: ItemKnowledgeEntitiesResponse };
+
+/**
+ * The entities one public report's current revision directly mentions (its own Graphiti episode, never
+ * its story's other reports or an older corrected revision). The same public rule as the knowledge
+ * graph's citations: withdrawn, unreleased and licence-limited reports answer nothing at all.
+ */
+export async function itemKnowledgeEntities(id: string, now = new Date()): Promise<ItemKnowledgeEntities> {
+  const [row] = await sql<{ revision: number; ingestedCurrent: boolean }[]>`
+    SELECT a.revision,
+      EXISTS(SELECT 1 FROM graphiti_ingestions g WHERE g.article_id = a.id AND g.revision = a.revision) AS "ingestedCurrent"
+    FROM articles a
+    JOIN publications p ON p.article_id = a.id
+    JOIN sources s ON s.id = a.source_id
+    WHERE a.id = ${id} AND ${storyReportCondition(now)}`;
+  if (!row) return { kind: "not_found" };
+  const empty = (status: ItemKnowledgeEntitiesResponse["status"]): ItemKnowledgeEntitiesResponse =>
+    ({ status, entities: [], totalCount: 0, truncated: false });
+  // The current revision's episode is the only valid one: an older revision's entities may name
+  // what a correction removed, so they stay away until the new revision is ingested.
+  if (!row.ingestedCurrent) return { kind: "found", value: empty("not_ingested") };
+  try {
+    const episode = await episodeEntities({ articleId: id, revision: row.revision });
+    if (episode.status === "disabled") return { kind: "found", value: empty("disabled") };
+    const entities = normalizeEpisodeEntities(episode.entities);
+    return { kind: "found", value: {
+      status: entities.length ? "ok" : "empty",
+      entities: entities.slice(0, 50),
+      totalCount: entities.length,
+      truncated: entities.length > 50,
+    } };
+  } catch {
+    return { kind: "found", value: empty("unavailable") };
+  }
 }
 
 /** What changed in the graph during a daily issue's window, or null when there is no such issue. */
