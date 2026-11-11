@@ -9,7 +9,7 @@ import { navCounts } from "@aihot/backend/admin/navigation";
 import { listAudit } from "@aihot/backend/audit";
 import { importSelectBenchRun, listSelectBenchRuns, selectBenchRun } from "@aihot/backend/admin/selectbench";
 import { applyDefaultModelToAll, modelBindingsOverview, switchModel } from "@aihot/backend/admin/models";
-import { contentChain, curatePending, overrideFields, rerun, searchContent, setSeoIndexed, setSeoIndexedBatch, setVisibility } from "@aihot/backend/admin/content";
+import { contentChain, curatePending, overrideFields, rerun, rerunStoryEnglish, searchContent, setSeoIndexed, setSeoIndexedBatch, setVisibility } from "@aihot/backend/admin/content";
 import { listNotes, saveNote } from "@aihot/backend/admin/notes";
 import { detachFromFact, mergeStories } from "@aihot/backend/events/corrections";
 import { banSource, eraseFeedback, feedbackScreenshot, listFeedback, unbanSource, updateFeedback } from "@aihot/backend/admin/feedback";
@@ -73,9 +73,13 @@ export function registerAdmin(app: FastifyInstance) {
   app.post("/api/admin/content/:id/seo", adminHandler(async (req, reply, admin) => orNotFound(req, reply, await setSeoIndexed(param(req, "id"), body(req) as never, actorOf(admin)))));
   app.post("/api/admin/content/:id/override", adminHandler(async (req, _reply, admin) => overrideFields(param(req, "id"), body(req) as never, actorOf(admin))));
   app.post("/api/admin/content/:id/rerun", adminHandler(async (req, reply, admin) => {
-    const b = body<{ step: "extract" | "analyze" | "group" }>(req);
+    const b = body<{ step: "extract" | "analyze" | "group" | "english" }>(req);
     const requestId = String(req.headers["idempotency-key"] ?? "");
     return orNotFound(req, reply, await rerun(param(req, "id"), b.step, requestId, actorOf(admin)));
+  }));
+  app.post("/api/admin/stories/:id/rerun-english", adminHandler(async (req, reply, admin) => {
+    const requestId = String(req.headers["idempotency-key"] ?? "");
+    return orNotFound(req, reply, await rerunStoryEnglish(Number(param(req,"id")),requestId,actorOf(admin)));
   }));
   app.post("/api/admin/content/:id/detach", adminHandler(async (req, _reply, admin) => detachFromFact(param(req, "id"), String(body(req).reason ?? ""), actorOf(admin))));
   app.post("/api/admin/stories/merge", adminHandler(async (req, _reply, admin) => {
