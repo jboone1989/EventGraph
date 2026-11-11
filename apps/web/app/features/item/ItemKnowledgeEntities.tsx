@@ -8,7 +8,7 @@ import { englishPath } from "../../lib/edition";
  * "关联知识实体": the knowledge-graph entities this report's own Graphiti episode mentions, each chip
  * leading to the existing entity profile. Loaded after the page (StoryFollowups' IntersectionObserver
  * pattern), so the article never waits on the knowledge graph. While loading — and when the graph is
- * disabled — not even the heading shows, so a block that ends up empty never flashes in and out.
+ * disabled or the current revision has not been ingested — no heading or placeholder appears.
  */
 export function ItemKnowledgeEntities({ itemId }: { itemId: string }) {
   const [result, setResult] = useState<ItemKnowledgeEntitiesResponse | null>(null);
