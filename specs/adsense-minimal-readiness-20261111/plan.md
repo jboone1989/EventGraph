@@ -12,7 +12,8 @@
 
 1. 在研究模块的公开查询/缓存与 React Router SSR metadata 中区分 empty / published / error；使用现成结果，不额外建定时器或后台标志。研究单篇与后台不动。
 2. 同一状态驱动公共研究链接：模块侧栏、移动“我的”、关于页；避免独立的互不一致 hard-code。不得把“无数据”当作“调用失败”。
-3. 根据 #114 真实发布路径，仅修正 `apps/web/app/routes/about.tsx` 与 `site/pages/terms*.md` 中不准确的“逐篇人工策展”公开声明，保持中英文一致和现有合规身份/版权条款；不得假称人工逐篇核验。\n4. 只改现有回归测试/烟测与部署清单；必要时新增最小测试夹具证明 0/1/错误状态和中英文。
+3. 根据 #114 真实发布路径，仅修正 `apps/web/app/routes/about.tsx` 与 `site/pages/terms*.md` 中不准确的“逐篇人工策展”公开声明，保持中英文一致和现有合规身份/版权条款；不得假称人工逐篇核验。
+4. 只改现有回归测试/烟测与部署清单；必要时新增最小测试夹具证明 0/1/错误状态和中英文。
 5. 审核需核对 `specs/005-news-growth-funnel` 第 2/5 条与 PR #114，防止错误重启 curated-only 索引。
 6. CI 合格后沿用 `.github/workflows/check.yml`、`release-develop.yml`，只观测 VM13 预览，不操作 main/VM09。
 
