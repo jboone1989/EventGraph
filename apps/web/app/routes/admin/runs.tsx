@@ -42,7 +42,6 @@ const names: Record<string, string> = {
   "cron.sources.schedule": "信源调度",
   "english_copy": "新闻英文标题与摘要",
   "english_digest": "事件英文综述",
-  "graphiti_chat": "Graphiti 知识抽取",
   "group_article": "事件归组 · 模型请求",
   "group_review": "事件归组复核 · 模型请求",
   "analyze_article": "新闻统一分析 · 模型请求",
@@ -73,6 +72,7 @@ const originalState = (item: AdminFlowItem) => {
   } as Record<string, string>)[raw] ?? raw;
 };
 const replayIdentity = (item: AdminFlowItem): string | null => {
+  if (["completed", "complete", "written", "analyzed", "active", "processing"].includes(item.originState ?? "")) return null;
   if ((item.kind === "article" || item.kind === "model") && item.replayStep && item.replayTargetId)
     return item.replayStep + ":" + item.replayTargetId;
   if (item.kind === "job" && item.jobId) return "job:" + item.jobId;
@@ -114,6 +114,25 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   const activePage = Math.min(page, pageCount - 1);
   const shown = items.slice(activePage * pageSize, (activePage + 1) * pageSize);
   const worker = r.processes.find(p => p.role === "worker");
+  const replayableShown = state === "failed" ? shown.filter(item => replayIdentity(item) !== null) : [];
+  const selectedVisible = items.filter(item => selected.has(item.key) && replayIdentity(item) !== null);
+  const pageAllSelected = replayableShown.length > 0 && replayableShown.every(item => selected.has(item.key));
+
+  function selectPage() {
+    setSelected(current => {
+      const next = new Set(current);
+      replayableShown.forEach(item => pageAllSelected ? next.delete(item.key) : next.add(item.key));
+      return next;
+    });
+  }
+
+  function toggleSelected(key: string, checked: boolean) {
+    setSelected(current => {
+      const next = new Set(current);
+      if (checked) next.add(key); else next.delete(key);
+      return next;
+    });
+  }
 
   async function replay(item: AdminFlowItem, quiet = false): Promise<boolean> {
     let path: string;
@@ -137,7 +156,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
   }
 
   async function replaySelected() {
-    if (bulkRunning) return;
+    if (bulkRunning || pending !== null) return;
     setBulkRunning(true);
     const targets = new Set<string>();
     let succeeded = 0, failed = 0;
@@ -179,7 +198,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
       <Card title="所有流程 · 三个实时状态" right={<Button size="sm" onClick={() => revalidator.revalidate()}>刷新</Button>}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <span className="text-[12px] text-ink-3">按执行单元计数，与新闻篇数不同；一次新闻的任务和模型请求分别记录</span>
-          <Select value={kind} aria-label="流程类型" onChange={e => { setKind(e.target.value); setPage(0); }}>
+          <Select value={kind} aria-label="流程类型" onChange={e => { setKind(e.target.value); setPage(0); setSelected(new Set()); }}>
             <option value="all">全部流程</option>
             <option value="article">新闻处理</option>
             <option value="model">模型调用</option>
@@ -191,7 +210,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         </div>
         <div className="grid grid-cols-3 gap-2">
           {statuses.map(item => <button key={item.key} type="button" aria-pressed={state === item.key}
-            onClick={() => { setState(item.key); setPage(0); }}
+            onClick={() => { setState(item.key); setPage(0); setSelected(new Set()); }}
             className={"rounded-control border p-3 text-left transition-colors " + (state === item.key ? "border-accent bg-accent-soft" : "border-line bg-bg-sunk")}>
             <span className="block text-[12px] text-ink-3">{item.label}</span>
             <strong className="mt-1 block text-2xl tabular-nums text-ink">{allItems ? num(counts[item.key]) : "—"}</strong>
@@ -204,35 +223,58 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
         pad={false} scrollable>
         {allItems === undefined
           ? <p className="p-4 text-sm text-ink-3">当前 API 未提供全流程数据，请确认 API 与 Web 已部署同一版本。</p>
-          : <DataTable dense scrollable rows={shown} rowKey={item => item.key} empty="当前没有对应执行项" columns={[
+          : <>
+            {state === "failed" && <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+              <Button size="sm" disabled={replayableShown.length === 0 || bulkRunning || pending !== null}
+                onClick={selectPage}>{pageAllSelected ? "取消本页选择" : "选择本页可重试项"}</Button>
+              <Button size="sm" tone="primary" disabled={selectedVisible.length === 0 || bulkRunning || pending !== null}
+                busy={bulkRunning} onClick={() => void replaySelected()}>
+                重新执行选中流程（{selectedVisible.length}）
+              </Button>
+              <span className="text-[11px] text-ink-4">每页最多 20 项；按原任务去重，逐条反馈结果</span>
+            </div>}
+            <DataTable dense scrollable rows={shown} rowKey={item => item.key} empty="当前没有对应执行项" columns={[
+              { key: "select", label: "选择", className: "w-10", render: item =>
+                item.status === "failed" && replayIdentity(item)
+                  ? <input type="checkbox" className="size-4 accent-accent" aria-label={"选择 " + labelOf(item.process) + " " + item.subject}
+                      checked={selected.has(item.key)} disabled={bulkRunning || pending !== null}
+                      onChange={e => toggleSelected(item.key, e.target.checked)} />
+                  : null },
+              { key: "action", label: "操作", className: "min-w-[125px]", render: action },
               { key: "subject", label: "新闻 / 任务", render: item =>
                 <div>
                   {item.articleId
-                    ? <Link className="text-accent" to={"/admin/content/" + encodeURIComponent(item.articleId)}>{item.subject}</Link>
+                    ? <Link className="text-accent" to={"/admin/content/" + encodeURIComponent(item.articleId)}>{concise(item.subject, 70)}</Link>
                     : item.kind === "source" ? <Link className="text-accent" to={"/admin/sources/" + encodeURIComponent(item.key.slice(7))}>{item.subject}</Link>
-                      : <span className="text-ink">{item.subject}</span>}
+                      : <span className="text-ink" title={item.subject}>{concise(item.subject, 70)}</span>}
                   <div className="text-[11px] text-ink-4">{kindNames[item.kind]}</div>
                 </div> },
+              { key: "origin", label: "原任务当前状态", render: item =>
+                <span className="whitespace-nowrap text-[12px]" title={item.originState ?? ""}>{originalState(item)}</span> },
               { key: "process", label: "出错 / 当前流程", render: item =>
                 <div className="min-w-[120px]"><span>{labelOf(item.process)}</span>
                   <div className="font-mono text-[11px] text-ink-4">{item.process}</div>
                 </div> },
               { key: "model", label: "模型 / 服务", render: item =>
-                <span className="break-words text-[12px] text-ink-3">{[item.provider, item.model].filter(Boolean).join(" / ") || "—"}</span> },
+                <span className="block max-w-[180px] break-all text-[12px] text-ink-3" title={[item.provider, item.model].filter(Boolean).join(" / ")}>{concise([item.provider, item.model].filter(Boolean).join(" / ") || "—", 68)}</span> },
               { key: "error", label: state === "failed" ? "具体错误" : "任务 / 上次错误", render: item =>
-                <div className="min-w-[170px] text-[12px] text-ink-3">
-                  <span className="break-words" title={item.error ?? ""}>
+                <div className="max-w-[260px] min-w-[140px] break-all text-[12px] text-ink-3">
+                  <span className="line-clamp-2" title={item.error ?? ""}>
                     {item.error || (state === "failed" ? "该流程未记录错误内容" : "等待执行或模型响应")}
                   </span>
+                  {(item.error?.length ?? 0) > 120 && <details className="mt-1">
+                    <summary className="cursor-pointer text-accent">查看完整错误</summary>
+                    <p className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-all">{item.error}</p>
+                  </details>}
                   {item.retryAt && state === "pending" && <div>重试时间 <Time at={item.retryAt} /></div>}
                 </div> },
               { key: "at", label: "时间", render: item => <Time at={item.at} /> },
-              { key: "action", label: "操作", align: "right", render: action },
-            ]} />}
+            ]} />
+          </>}
         {pageCount > 1 && <div className="flex items-center justify-end gap-3 border-t border-line px-4 py-3">
-          <Button size="sm" disabled={activePage === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>上一页</Button>
+          <Button size="sm" disabled={activePage === 0} onClick={() => { setPage(p => Math.max(0, p - 1)); setSelected(new Set()); }}>上一页</Button>
           <span className="text-[12px] text-ink-3">{activePage + 1} / {pageCount}</span>
-          <Button size="sm" disabled={activePage >= pageCount - 1} onClick={() => setPage(p => p + 1)}>下一页</Button>
+          <Button size="sm" disabled={activePage >= pageCount - 1} onClick={() => { setPage(p => p + 1); setSelected(new Set()); }}>下一页</Button>
         </div>}
       </Card>
       <p className="mt-3 text-[12px] text-ink-3">
