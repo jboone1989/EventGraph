@@ -156,6 +156,8 @@ test("queued source retry is no longer a stale source failure while the live job
     items = await allFlowItemsOverview([]);
     assert.equal(items.find(item => item.key === "source:" + id)?.status, "failed",
       "a genuinely failed recovery must return to the failure queue");
+    assert.equal(items.filter(item => item.key === "source:" + id || item.key === "job:" + jobId).length, 1,
+      "one failed source fetch is not counted twice as source and worker");
   } finally {
     if (jobId) await sql`DELETE FROM pgboss.job WHERE id=${jobId}::uuid`;
     await sql`DELETE FROM sources WHERE id=${id}`;
