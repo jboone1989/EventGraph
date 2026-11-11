@@ -100,6 +100,14 @@ test("an unselected report gets English copy too, without a reason", async () =>
   assert.equal(copy?.reason, null, "an unselected report shows no recommendation reason");
 });
 
+test("manual English replay targets exactly one news item with a new request identity", async () => {
+  const first = await selected("manual-target", 2500);
+  const other = await selected("manual-unrelated", 2600);
+  await writeEnglishPending({ articleId: first, manualAttemptTag: "admin:" + tag() });
+  assert.ok((await english(first))?.title.includes("English copy"));
+  assert.equal(await english(other), null, "a one-article replay never processes another publication");
+});
+
 test("an answer in Chinese is rejected and retried at most three times", async () => {
   const id = await selected("chinese-answer", 1200);
   for (let i = 0; i < 4; i++) await writeEnglishPending({ limit: 1 });

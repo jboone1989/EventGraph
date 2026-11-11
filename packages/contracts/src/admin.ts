@@ -306,6 +306,13 @@ export interface AdminFlowItem {
   jobId: string | null;
   receiptId: number | null;
   receiptStatus?: string | null;
+  /** Actual parent job/article stage state; distinct from this failure record. */
+  originState?: string | null;
+  /** Only a grounded, executable original-stage replay may populate these. */
+  replayStep?: "extract" | "analyze" | "group" | "english" | "storyEnglish" | null;
+  replayTargetId?: string | null;
+  /** Raw receipt subject can be inspected without crowding the subject column. */
+  rawSubject?: string | null;
 }
 
 export interface AdminReceiptIssue {
