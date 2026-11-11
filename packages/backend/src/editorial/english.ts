@@ -59,16 +59,20 @@ export function buildEnglishCopyInput(r: { source_name: string; original_title: 
   });
 }
 
-async function writeItems(deadline: number, limit: number): Promise<{ written: number; failed: number; stopped: boolean }> {
+async function writeItems(deadline: number, limit: number, articleId?: string, manualAttemptTag?: string): Promise<{ written: number; failed: number; stopped: boolean }> {
   const rows = await sql<{ article_id: string; hash: string; attempts: number | null; source_name: string; original_title: string | null; title: string; summary: string | null; reason: string | null; text: string | null }[]>`
     SELECT p.article_id, ${ENGLISH_ITEM_INPUTS} AS hash, ec.attempts, s.name AS source_name, p.original_title, p.title, p.summary, p.reason,
            coalesce(a.body_text, a.excerpt) AS text
     FROM publications p JOIN sources s ON s.id = p.source_id JOIN articles a ON a.id = p.article_id
     LEFT JOIN english_copies ec ON ec.article_id = p.article_id
-    WHERE p.visibility = 'public' AND p.summary IS NOT NULL AND p.discovered_at > now() - ${WINDOW}
+    WHERE p.visibility = 'public' AND p.summary IS NOT NULL
+      AND (p.discovered_at > now() - ${WINDOW} OR ${articleId !== undefined})
+      AND (${articleId === undefined} OR p.article_id = ${articleId ?? ''})
       AND (ec.article_id IS NULL OR ec.inputs_hash <> ${ENGLISH_ITEM_INPUTS} OR (ec.outcome = 'failed' AND ec.attempts < ${MAX_ATTEMPTS})
         OR (p.reason IS NOT NULL AND ec.outcome = 'written' AND ec.reason IS NULL AND ec.attempts < ${MAX_ATTEMPTS}))
-    ORDER BY p.discovered_at DESC LIMIT ${limit}`;
+    -- Operator retries (attempts reset to zero) are handled before ordinary backfill.
+    ORDER BY CASE WHEN ec.outcome='failed' AND ec.attempts=0 THEN 0 ELSE 1 END,
+             p.discovered_at DESC LIMIT ${limit}`;
   let written = 0, failed = 0;
   for (const r of rows) {
     if (Date.now() > deadline || shutdownSignal.signal.aborted) return { written, failed, stopped: true };
@@ -77,7 +81,7 @@ async function writeItems(deadline: number, limit: number): Promise<{ written: n
       const res = await chatJson({
         model: await modelFor("english"), purpose: "english_copy", subject: `article:${r.article_id}#${r.hash.slice(0, 8)}`,
         promptVersion: ENGLISH_COPY_PROMPT_VERSION, system: COPY_SYSTEM, user: buildEnglishCopyInput(r), schema: EnglishCopySchema,
-        temperature: 0.3, maxTokens: 4096, attemptTag: retry ? `retry-${retry}` : undefined,
+        temperature: 0.3, maxTokens: 4096, attemptTag: manualAttemptTag ?? (retry ? `retry-${retry}` : undefined),
       });
       await sql.begin(async (tx) => {
         await tx`
@@ -98,15 +102,18 @@ async function writeItems(deadline: number, limit: number): Promise<{ written: n
   return { written, failed, stopped: false };
 }
 
-async function writeStories(deadline: number, limit: number): Promise<{ written: number; failed: number }> {
+async function writeStories(deadline: number, limit: number, storyId?: number, manualAttemptTag?: string): Promise<{ written: number; failed: number }> {
   const rows = await sql<{ id: number; hash: string; attempts: number | null; title: string; digest: string; titles: string[] | null }[]>`
     SELECT st.id, ${ENGLISH_STORY_INPUTS} AS hash, se.attempts, st.title, st.digest,
            (SELECT array_agg(DISTINCT concat_ws(' | ', s.name, p.original_title)) FROM publications p JOIN sources s ON s.id = p.source_id
             WHERE p.story_id = st.id AND p.visibility = 'public' AND p.original_title IS NOT NULL) AS titles
     FROM stories st LEFT JOIN story_english se ON se.story_id = st.id
-    WHERE st.merged_into IS NULL AND st.digest IS NOT NULL AND st.latest_at > now() - ${WINDOW}
+    WHERE st.merged_into IS NULL AND st.digest IS NOT NULL
+      AND (st.latest_at > now() - ${WINDOW} OR ${storyId !== undefined})
+      AND (${storyId === undefined} OR st.id = ${storyId ?? 0})
       AND (se.story_id IS NULL OR se.inputs_hash <> ${ENGLISH_STORY_INPUTS} OR (se.outcome = 'failed' AND se.attempts < ${MAX_ATTEMPTS}))
-    ORDER BY st.latest_at DESC LIMIT ${limit}`;
+    ORDER BY CASE WHEN se.outcome='failed' AND se.attempts=0 THEN 0 ELSE 1 END,
+             st.latest_at DESC LIMIT ${limit}`;
   let written = 0, failed = 0;
   for (const r of rows) {
     if (Date.now() > deadline || shutdownSignal.signal.aborted) break;
@@ -116,7 +123,8 @@ async function writeStories(deadline: number, limit: number): Promise<{ written:
         model: await modelFor("english"), purpose: "english_digest", subject: `story:${r.id}#${r.hash.slice(0, 8)}`,
         promptVersion: ENGLISH_DIGEST_PROMPT_VERSION, system: DIGEST_SYSTEM,
         user: JSON.stringify({ chineseTitle: r.title, chineseDigest: r.digest, reports: (r.titles ?? []).slice(0, 30) }),
-        schema: EnglishDigestSchema, temperature: 0.3, maxTokens: 8192, attemptTag: retry ? `retry-${retry}` : undefined,
+        schema: EnglishDigestSchema, temperature: 0.3, maxTokens: 8192,
+        attemptTag: manualAttemptTag ?? (retry ? `retry-${retry}` : undefined),
       });
       await sql.begin(async (tx) => {
         await tx`
@@ -148,9 +156,16 @@ async function recordFailure(tableName: "english_copies" | "story_english", keyN
 }
 
 /** Every few minutes: English copy for public reports, then English digests for stories, newest first, within a time budget. */
-export async function writeEnglishPending(opts: { limit?: number; budgetMs?: number } = {}) {
+export async function writeEnglishPending(opts: { limit?: number; budgetMs?: number; articleId?: string; storyId?: number; manualAttemptTag?: string } = {}) {
+  // Manual replays run only the identified article OR story through the same
+  // existing English writer. Scheduled runs preserve their original broad sweep.
+  if (opts.articleId && opts.storyId) throw new Error("Choose one English replay target");
   const deadline = Date.now() + (opts.budgetMs ?? 4 * 60_000);
-  const items = await writeItems(deadline, opts.limit ?? 30);
-  const stories = items.stopped ? { written: 0, failed: 0 } : await writeStories(deadline, opts.limit ?? 30);
+  const items = opts.storyId
+    ? { written: 0, failed: 0, stopped: false }
+    : await writeItems(deadline, opts.articleId ? 1 : (opts.limit ?? 30), opts.articleId, opts.manualAttemptTag);
+  const stories = opts.articleId || items.stopped
+    ? { written: 0, failed: 0 }
+    : await writeStories(deadline, opts.storyId ? 1 : (opts.limit ?? 30), opts.storyId, opts.manualAttemptTag);
   return { items: { written: items.written, failed: items.failed }, stories };
 }

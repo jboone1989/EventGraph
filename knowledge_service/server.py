@@ -204,6 +204,20 @@ async def relations_by_articles(request: ArticleRelations):
     return result
 
 
+@app.get("/articles/{article_id}/entities")
+async def entities_by_article(article_id: str, revision: int):
+    """Entities one ingested episode directly mentions (Episodic-MENTIONS->Entity), before any
+    public filtering: raw key/name pairs, the report page dedupes, orders and truncates them."""
+    if len(article_id) > 80 or revision < 1:
+        raise HTTPException(status_code=400, detail="invalid article")
+    rows, _, _ = await app.state.graph.driver.execute_query(
+        "MATCH (ep:Episodic {group_id:'aihot', name: $name})-[:MENTIONS]->(n:Entity {group_id:'aihot'}) "
+        "RETURN n.uuid AS key, n.name AS name ORDER BY n.uuid",
+        name=f"aihot:{article_id}:r{revision}", routing_="r",
+    )
+    return {"entities": [{"key": row["key"], "name": row["name"]} for row in rows]}
+
+
 @app.get("/entities/{uuid}")
 async def relations_by_entity(uuid: str, as_of: datetime | None = None, clock: str = "known"):
     if len(uuid) > 80:

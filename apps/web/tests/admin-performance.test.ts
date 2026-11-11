@@ -34,6 +34,12 @@ const api = createServer(async (req, res) => {
     res.statusCode = badgeFailure ? 503 : 200;
     return res.end(JSON.stringify(badgeFailure ? { detail: "busy" } : { sources: badge }));
   }
+  if (url.pathname === "/api/admin/providers") return res.end(JSON.stringify({ providers: [], models: [], workflows: [], protocols: [] }));
+  if (url.pathname === "/api/admin/model-bindings") return res.end(JSON.stringify({
+    defaultModel: { model: "auto", source: "admin" }, choices: [],
+    steps: [{ key: "understand", label: "新闻统一分析", vision: false, embedding: false,
+      autoTier: "medium", current: { model: "", source: "default" }, effective: { model: "auto", source: "admin" } }],
+  }));
   if (url.pathname === "/api/admin/sources") return res.end(JSON.stringify({ rows: [], totals: { total: 0, enabled: 0, failing: 0, degraded: 0 }, page: 1 }));
   res.statusCode = 404;
   res.end(JSON.stringify({ detail: "not_found" }));
@@ -80,13 +86,52 @@ test("admin HTML and navigation begin before delayed badges while remaining priv
   }
 });
 
-test("admin streaming still verifies identity before returning the page", async () => {
+test("bot-like authenticated admin requests stream model pages without waiting for the optional badge", async () => {
+  const agent = "Googlebot/2.1";
+  for (const [path, expected] of [
+    ["/admin/models", /模型管理/],
+    ["/admin/model-bindings", /工作流模型绑定/],
+  ] as const) {
+    holdBadges();
+    const response = fetch(web.origin + path, { headers: { "user-agent": agent }, redirect: "manual" });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const early = await Promise.race([response, new Promise<null>(resolve => {
+        timer = setTimeout(() => resolve(null), 1200);
+      })]);
+      assert.ok(early, path + " blocked on badge despite valid admin session");
+      assert.equal(early.status, 200);
+      assert.equal(early.headers.get("Cache-Control"), "private, no-store");
+      assert.equal(early.headers.get("X-Accel-Buffering"), "no");
+      const first = await early.body!.getReader().read();
+      assert.match(new TextDecoder().decode(first.value), expected);
+    } finally {
+      clearTimeout(timer);
+      resumeBadges();
+      await response;
+    }
+  }
+  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  try {
+    const response = await mobile.goto(web.origin + "/admin/models");
+    assert.equal(response?.status(), 200);
+    await expect(mobile.getByRole("heading", { name: "模型管理", exact: true })).toBeVisible();
+  } finally { await mobile.close(); }
+});
+
+test("admin streaming verifies identity for both human and bot-like model clients", async () => {
   signedIn = false;
   try {
-    const res = await fetch(web.origin + "/admin/content", { redirect: "manual" });
-    assert.equal(res.status, 302);
-    assert.match(res.headers.get("Location")!, /\/api\/auth\/login/);
-    assert.equal(res.headers.get("Cache-Control"), "private, no-store");
+    for (const [path, userAgent] of [
+      ["/admin/content", "Mozilla/5.0 Safari/537.36"],
+      ["/admin/models", "Googlebot/2.1"],
+      ["/admin/model-bindings", "Googlebot/2.1"],
+    ]) {
+      const res = await fetch(web.origin + path, { redirect: "manual", headers: { "user-agent": userAgent } });
+      assert.equal(res.status, 302, "unverified identity at " + path);
+      assert.match(res.headers.get("Location")!, /\/api\/auth\/login/);
+      assert.equal(res.headers.get("Cache-Control"), "private, no-store");
+    }
   } finally { signedIn = true; }
 });
 
@@ -120,17 +165,26 @@ test("both admin navigations render before badges and update them after arriving
 });
 
 test("hovering private navigation does not repeat the page's reads before clicking", async () => {
+  badge = 7; // Previous test leaves badge at 19; establish this test's own fixture.
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   try {
     await page.goto(web.origin + "/admin/content");
+    // Wait for the optional client-side badge request to settle before measuring hover-only reads.
+    await expect(page.locator('nav a[href="/admin/sources"]').filter({ visible: true })).toHaveText("新闻信源7");
     reads.length = 0;
     const sources = page.locator('nav a[href="/admin/sources"]').filter({ visible: true });
     await sources.hover();
     await page.waitForTimeout(250); // Intent prefetch starts after the router's hover delay.
-    assert.deepEqual(reads, []);
+    // Compare a snapshot: assert.deepEqual(reads, []) narrows the mutable fixture
+    // to never[] in TypeScript, even though the async API server appends later.
+    assert.deepEqual([...reads], []);
     await sources.click();
     await expect(page.getByRole("heading", { name: "信源", exact: true })).toBeVisible();
-    assert.deepEqual([...reads].sort(), ["/api/admin/me", "/api/admin/nav-counts", "/api/admin/sources"].sort());
+    // The requested page/identity reads are synchronous; client-only badge reads
+    // can finish later (or be aborted by navigation) and must not gate this assertion.
+    assert.ok(reads.includes("/api/admin/me"), "destination must verify identity");
+    assert.ok(reads.includes("/api/admin/sources"), "destination must load its own data");
+    assert.ok(reads.every(path => ["/api/admin/me", "/api/admin/nav-counts", "/api/admin/sources"].includes(path)), "hover must not prefetch unrelated private pages");
   } finally { await page.close(); }
 });
 

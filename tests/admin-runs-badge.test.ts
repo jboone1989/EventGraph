@@ -68,7 +68,7 @@ test("runs badge counts failed execution units, not unfinished articles, and dro
   assert.equal(withCompletedJob.filter(item => item.articleId === key + "-group-failed").length, 1);
 });
 
-test("badge keeps the receipt rules: unknown stays pending, superseded and yesterday drop out", async () => {
+test("badge includes terminal unknown failures but excludes superseded and yesterday", async () => {
   await getBoss();
   const key = `runs-receipts-${tag()}`;
   const yesterday = new Date(utcDayStart().getTime() - 60_000);
@@ -82,11 +82,12 @@ test("badge keeps the receipt rules: unknown stays pending, superseded and yeste
   try {
     const units = await allFlowItemsOverview(await currentNewsQueueItems());
     assert.equal(units.some(item => item.key === "model:" + oldFailed!.id), false, "yesterday's failure is not today's badge");
-    assert.equal(units.find(item => item.key === "model:" + unknown!.id)?.status, "pending", "unknown receipts stay unconfirmed, not failed");
+    assert.equal(units.find(item => item.key === "model:" + unknown!.id)?.status, "failed", "unknown completed calls are failures");
     assert.equal(units.find(item => item.key === "model:" + failed!.id)?.status, "failed");
     const failedRows = await badgeMatchesDetail();
     assert.ok(failedRows.some(item => item.key === "model:" + failed!.id));
-    assert.ok(!failedRows.some(item => item.key === "model:" + oldFailed!.id || item.key === "model:" + unknown!.id));
+    assert.ok(!failedRows.some(item => item.key === "model:" + oldFailed!.id));
+    assert.ok(failedRows.some(item => item.key === "model:" + unknown!.id));
 
     // A newer successful receipt for the same subject and purpose retires the failed unit.
     await sql`INSERT INTO receipts (logical_key,service,model,purpose,subject,status,created_at,updated_at)

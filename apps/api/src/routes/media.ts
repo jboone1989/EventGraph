@@ -54,6 +54,16 @@ export function registerMedia(app: FastifyInstance) {
         return reply.code(503).header("Retry-After", "60").header("Cache-Control", "no-store").type("text/plain; charset=utf-8").send("Image proxy is busy; try again later");
       }
       req.log.warn({ err: error, host: new URL(verdict.url).hostname, imageKey: createHash("sha256").update(verdict.url).digest("hex"), mode: verdict.mode }, "img-proxy upstream failed");
+      // Source avatars are decoration, not article evidence. An unavailable remote
+      // icon is genuinely empty: 204 lets SourceAvatar.onError show its source initial.
+      // Keep all other media failures explicit; never mask quota/budget exhaustion.
+      if (verdict.mode === "avatar" || /^avatar-\d+$/.test(verdict.mode)) {
+        return reply.code(204)
+          .header("Cache-Control", imageCacheControl(q.exp!, 60))
+          .header("X-Img-Proxy-Fallback", "unavailable")
+          .header("X-Content-Type-Options", "nosniff")
+          .send();
+      }
       return reply.code(502).header("Cache-Control", imageCacheControl(q.exp!, 60)).type("text/plain; charset=utf-8").send("Upstream image unavailable");
     }
   });

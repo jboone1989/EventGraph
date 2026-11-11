@@ -150,6 +150,21 @@ export async function graphForEntity(uuid: string, time?: GraphTime) {
   }
 }
 
+/** Entities one article's ingested episode directly mentions, before public filtering. */
+export type EpisodeEntities = { entities: Array<{ key: string; name: string }>; status?: string };
+
+/** One report page's entity block: only the episode of that article's current revision, 4s budget. */
+export async function graphArticleEntities(articleId: string, revision: number): Promise<EpisodeEntities> {
+  if (!process.env.GRAPHITI_API_URL) return { entities: [], status: "disabled" };
+  try {
+    return await graphiti<EpisodeEntities>(
+      `/articles/${encodeURIComponent(articleId)}/entities?revision=${revision}`, { timeoutMs: 4000 });
+  } catch (error) {
+    console.error("graphiti_article_entities_failed", error);
+    return { entities: [], status: "unavailable" };
+  }
+}
+
 export type GraphChanges = {
   added: Graph & { count: number };
   ended: Graph & { count: number };

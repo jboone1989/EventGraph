@@ -306,6 +306,13 @@ export interface AdminFlowItem {
   jobId: string | null;
   receiptId: number | null;
   receiptStatus?: string | null;
+  /** Actual parent job/article stage state; distinct from this failure record. */
+  originState?: string | null;
+  /** Only a grounded, executable original-stage replay may populate these. */
+  replayStep?: "extract" | "analyze" | "group" | "english" | "storyEnglish" | null;
+  replayTargetId?: string | null;
+  /** Raw receipt subject can be inspected without crowding the subject column. */
+  rawSubject?: string | null;
 }
 
 export interface AdminReceiptIssue {
@@ -348,6 +355,8 @@ export interface AdminRoutingEffect {
 }
 
 export interface AdminRuns {
+  /** Preview API and the separately deployed worker may run different revisions. */
+  previewRuntime?: { apiRelease: string; workerRelease: string | null };
   /** Old API fixtures may omit this; production always includes it. */
   routingEffect?: AdminRoutingEffect;
   checkedAt: Timestamp;
@@ -454,7 +463,10 @@ export interface AdminModelUsage {
 /** Lightweight model choices for per-stage binding, refreshed from the registry on each request. */
 export interface AdminModelBindings {
   defaultModel: {model:string;source:'admin'|'default'};
-  steps: Array<{key:string;label:string;vision:boolean;embedding?:boolean;current:{model:string;source:'admin'|'default'};effective:{model:string;source:'admin'|'env'|'default'}}>;
+  steps: Array<{key:string;label:string;vision:boolean;embedding?:boolean;
+    /** Actual task tier assigned by the shared auto router; null for embedding-only stages. */
+    autoTier?:'light'|'medium'|'heavy'|null;
+    current:{model:string;source:'admin'|'default'};effective:{model:string;source:'admin'|'env'|'default'}}>;
   choices: Array<{key:string;modelId:string;provider:string;adapter:string;vision:boolean}>;
 }
 

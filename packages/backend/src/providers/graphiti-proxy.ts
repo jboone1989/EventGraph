@@ -6,8 +6,9 @@ import {storedCredential} from './registry/connection-secrets.ts';
 import {ProviderConfigError} from './registry/connection-types.ts';
 import {clearRegisteredModelCache} from './registry/connections.ts';
 import {registeredRuntime,requestRegisteredModel} from './registry/runtime.ts';
-import {selectConfiguredProviderForStage,coolDownReference} from './registry/selection.ts';
-import {paidRequest,ProviderRejectedError,BudgetExceededError,rejectReceivedResponse} from './receipts.ts';
+import {selectConfiguredProviderForStage,markFailedAutoRoute} from './registry/selection.ts';
+import {paidRequest,ReceiptBusyError,rejectReceivedResponse} from './receipts.ts';
+import {shutdownSignal} from '../lib/shutdown.ts';
 import {stableJson} from '../lib/ids.ts';
 
 type Kind='chat'|'embedding';
@@ -64,7 +65,7 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
  const automatic=kind==='chat'&&configured.startsWith('auto:');
  const autoTier=automatic?(configured.split(':')[2]??stage):stage;
  const excluded=new Set<string>();
- for(let attempt=0;attempt<(automatic?8:1);attempt++){
+ while(true){
   const ref=automatic?await selectConfiguredProviderForStage(autoTier,false,excluded):configured;
   if(!ref.startsWith('model:'))throw new Error('Graphiti requires a registered model; configure its workflow binding');
   const id=ref.slice(6),capability=kind==='chat'?'text':'embedding';
@@ -90,15 +91,27 @@ export async function graphitiModelRequest(kind:Kind,value:unknown):Promise<Reco
    if(kind==='embedding'){
     try{vectorDimensions(response,Number(process.env.GRAPHITI_EMBEDDING_DIM||2048),Array.isArray(body.input)?body.input.length:1);}
     catch(error){await rejectReceivedResponse(receipt.receiptId,'Graphiti embedding dimension mismatch');throw error;}
+   } else {
+    // A received HTTP response without a usable message is not a successful
+    // Graphiti model call. Function calls and text responses are both valid.
+    const choices=response.choices;
+    const valid=Array.isArray(choices)&&choices.some(choice=>{
+      const message=choice?.message;
+      return message&&((typeof message.content==='string'&&message.content.trim().length>0)||
+        (Array.isArray(message.tool_calls)&&message.tool_calls.length>0));
+    });
+    if(!valid){
+      await rejectReceivedResponse(receipt.receiptId,'Graphiti chat returned no usable message');
+      throw new Error('Graphiti chat returned no usable message');
+    }
    }
    return response;
   }catch(error){
-   // Only a confirmed HTTP refusal is safe to retry with a different free model.
-   if(!automatic||!(error instanceof ProviderRejectedError)||
-      ![403,429,502,503,504].includes(error.status??0))throw error;
+   if(!automatic||shutdownSignal.signal.aborted||error instanceof ReceiptBusyError)throw error;
+   // Failed and unknown receipts remain auditable. The next attempt uses a
+   // different model ID, not a resend of the unverified original receipt.
    excluded.add(id);
-   coolDownReference(ref,error.status===429?60:30);
+   await markFailedAutoRoute(ref,error);
   }
  }
- throw new BudgetExceededError('free-models','graphiti_no_eligible_provider',300);
 }

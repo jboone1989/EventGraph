@@ -313,33 +313,73 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
         SELECT 1 FROM pgboss.schedule sch WHERE sch.name = 'cron.' || last.job)
     `,
     sql<Rows>`
+      WITH latest AS (
+        SELECT DISTINCT ON (r.subject,r.purpose) r.*
+        FROM receipts r WHERE r.updated_at >= ${utcDayStart()}
+          AND r.model IS NOT NULL AND r.purpose <> 'model_provider_probe'
+          AND r.status IN ('failed', 'unknown', 'pending')
+        ORDER BY r.subject,r.purpose,r.updated_at DESC,r.id DESC
+      )
       SELECT 'model:' || r.id::text AS key, 'model' AS kind,
-        CASE WHEN r.status = 'pending' THEN 'processing'
-              WHEN r.status = 'unknown' THEN 'pending' ELSE 'failed' END AS status,
+        CASE WHEN english_job.state = 'active' THEN 'processing'
+             WHEN english_job.state IN ('created','retry') THEN 'pending'
+             WHEN r.status='pending' THEN 'processing' ELSE 'failed' END AS status,
         r.purpose AS process,
-        coalesce(a.title, r.subject, r.purpose) AS subject,
-        substring(r.subject from '^article:([^@:#]+)') AS "articleId",
-        r.service AS provider, r.model,
-        left(coalesce(r.error, last_attempt.error), 2000) AS error,
-        r.updated_at AS at, NULL::timestamptz AS "retryAt",
-        NULL::text AS "jobId", r.id AS "receiptId", r.status AS "receiptStatus"
-      FROM receipts r
+        coalesce(a.title, st.title, r.subject, r.purpose) AS subject,
+        a.id AS "articleId",
+        CASE WHEN english_job.id IS NOT NULL THEN NULL::text ELSE r.service END AS provider,
+        CASE WHEN english_job.id IS NOT NULL THEN NULL::text ELSE r.model END AS model,
+        CASE WHEN english_job.id IS NOT NULL THEN NULL::text ELSE left(coalesce(r.error, last_attempt.error), 2000) END AS error,
+        coalesce(english_job.started_on, english_job.created_on, r.updated_at) AS at,
+        NULL::timestamptz AS "retryAt",
+        NULL::text AS "jobId", r.id AS "receiptId", r.status AS "receiptStatus",
+        CASE WHEN english_job.id IS NOT NULL THEN english_job.state::text
+             WHEN r.purpose='english_copy' THEN ec.outcome
+             WHEN r.purpose='english_digest' THEN se.outcome
+             WHEN r.purpose IN ('group_article','group_review','group_signal') THEN a.grouping_status
+             WHEN a.id IS NOT NULL THEN a.processing_state
+             ELSE NULL END AS "originState",
+        CASE WHEN r.purpose IN ('analyze_article','understand_article','summarize_article','prefilter_article',
+                  'score_article','structure_article','mend_wording') AND a.id IS NOT NULL THEN 'analyze'
+             WHEN r.purpose IN ('group_article','group_review','group_signal') AND a.id IS NOT NULL THEN 'group'
+             WHEN r.purpose='english_copy' AND a.id IS NOT NULL THEN 'english'
+             WHEN r.purpose='english_digest' AND st.id IS NOT NULL THEN 'storyEnglish'
+             ELSE NULL END AS "replayStep",
+        coalesce(a.id,st.id::text) AS "replayTargetId", r.subject AS "rawSubject"
+      FROM latest r
       LEFT JOIN articles a ON a.id = substring(r.subject from '^article:([^@:#]+)')
+      LEFT JOIN stories st ON st.id::text = substring(r.subject from '^story:([0-9]+)')
+      LEFT JOIN english_copies ec ON ec.article_id=a.id AND r.purpose='english_copy'
+      LEFT JOIN story_english se ON se.story_id=st.id AND r.purpose='english_digest'
+      -- The old model receipt is historical evidence while a targeted replay is queued.
+      -- The queue's actual job state, not the old receipt status, owns the live row.
+      LEFT JOIN LATERAL (
+        SELECT job.id, job.state, job.created_on, job.started_on
+        FROM pgboss.job job
+        WHERE job.name='cron.content.english' AND job.state IN ('created','retry','active')
+          AND ((r.purpose='english_copy' AND job.data->>'articleId'=a.id)
+            OR (r.purpose='english_digest' AND job.data->>'storyId'=st.id::text))
+        ORDER BY job.created_on DESC, job.id DESC LIMIT 1
+      ) english_job ON true
       LEFT JOIN LATERAL (
         SELECT attempt.error FROM receipt_attempts attempt
         WHERE attempt.receipt_id = r.id ORDER BY attempt.id DESC LIMIT 1
       ) last_attempt ON true
-      -- The lifetime of an unresolved receipt does not make it today's failed call.
-      -- Keep cross-day unknowns in receipts.issues for manual verification instead.
-      WHERE r.updated_at >= ${utcDayStart()}
-        AND r.model IS NOT NULL AND r.purpose <> 'model_provider_probe'
-        AND r.status IN ('failed', 'unknown', 'pending')
-        AND NOT EXISTS (
-          SELECT 1 FROM receipts newer
-          WHERE newer.subject IS NOT DISTINCT FROM r.subject
-            AND newer.purpose = r.purpose
-            AND newer.status IN ('received', 'completed') AND newer.updated_at > r.updated_at
-        )
+      WHERE NOT EXISTS (
+        SELECT 1 FROM receipts newer
+        WHERE newer.subject IS NOT DISTINCT FROM r.subject
+          AND newer.purpose = r.purpose AND newer.status IN ('received','completed')
+          AND newer.updated_at > r.updated_at
+      )
+      -- Nullable parent state must never silently remove a model failure from the queue.
+      -- A stale model error does not keep a completed/requeued parent in the active failure queue.
+      AND (r.purpose<>'english_copy' OR ec.outcome IS DISTINCT FROM 'written')
+      AND (r.purpose<>'english_digest' OR se.outcome IS DISTINCT FROM 'written')
+      AND (r.purpose IN ('analyze_article','understand_article','summarize_article','prefilter_article',
+                    'score_article','structure_article','mend_wording')
+        AND a.processing_state IN ('new','analyzed','blocked')) IS NOT TRUE
+      AND (r.purpose IN ('group_article','group_review','group_signal')
+        AND a.grouping_status='complete') IS NOT TRUE
     `,
     sql<Rows>`
       SELECT 'source:' || s.id AS key, 'source' AS kind, 'failed' AS status,
@@ -368,9 +408,19 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
     at: article.startedAt ?? article.queuedAt ?? article.discoveredAt,
     retryAt: article.retryAt, jobId: null, receiptId: article.unverifiedReceiptId,
     receiptStatus: article.receiptStatus,
+    originState: article.jobState ?? article.status,
+    replayStep: article.stage === '事件归组' ? 'group' : article.stage === '正文提取' ? 'extract' : 'analyze',
+    replayTargetId: article.id,
   }));
   const newsIds = new Set(news.map(article => article.id));
   for (const job of jobs) {
+    // The corresponding model-flow row already represents this exact targeted English replay.
+    // Do not count the same pg-boss job twice or show it as a separate schedule failure.
+    if (job.process === 'cron.content.english' && models.some(model =>
+      model.status !== 'failed' && (
+        (job.articleId && model.replayStep === 'english' && model.articleId === job.articleId) ||
+        (model.replayStep === 'storyEnglish' && model.replayTargetId === job.subject)
+      ))) continue;
     // The article row already represents its live extraction/analysis/grouping job.
     if (job.articleId && newsIds.has(job.articleId) &&
         ['content.analyze', 'content.extract-body', 'events.group'].includes(job.process)) continue;
@@ -384,7 +434,24 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
     if (old >= 0) rows.splice(old, 1);
     rows.push(schedule);
   }
-  rows.push(...models, ...sources, ...deliveries);
+  // An article in the failed news queue already represents that same pipeline
+  // failure. Keep one actionable row, but attach the more concrete model error.
+  for(const model of models){
+    const owner=model.articleId ? news.find(n=>n.id===model.articleId) : undefined;
+    const sameStage=owner?.status==='failed' && (
+      (owner.stage==='新闻统一分析' && model.replayStep==='analyze') ||
+      (owner.stage==='事件归组' && model.replayStep==='group'));
+    if(sameStage){
+      const row=rows.find(item=>item.key==='article:'+owner!.id);
+      if(row){
+        if(!row.error || /receipt.*outcome unknown/i.test(row.error))row.error=model.error??row.error;
+        row.provider=model.provider??row.provider;
+        row.model=model.model??row.model;
+        row.receiptId=model.receiptId??row.receiptId;
+      }
+    } else rows.push(model);
+  }
+  rows.push(...sources, ...deliveries);
   const asMillis = (time: Date | string) => typeof time === "string" ? Date.parse(time) : time.getTime();
   return rows.sort((a,b) => asMillis(b.at) - asMillis(a.at) || a.key.localeCompare(b.key));
 }
@@ -505,14 +572,20 @@ export async function runsOverview(): Promise<Runs> {
   const currentNews = queueCounts(currentNewsItems);
   const flowItems = await allFlowItemsOverview(currentNewsItems);
   const now = Date.now();
+  const processes = heartbeats.map((h) => ({
+    role: h.key.slice("heartbeat.".length),
+    ...h.value,
+    at: h.updated_at,
+    alive: now - h.updated_at.getTime() < STALE_HEARTBEAT_MS,
+  }));
+  const worker = processes.find(p => p.role === 'worker');
   return {
     checkedAt: new Date(now).toISOString(),
-    processes: heartbeats.map((h) => ({
-      role: h.key.slice("heartbeat.".length),
-      ...h.value,
-      at: h.updated_at,
-      alive: now - h.updated_at.getTime() < STALE_HEARTBEAT_MS,
-    })),
+    processes,
+    ...(process.env.EVENTGRAPH_PREVIEW_MODE === 'true' ? { previewRuntime: {
+      apiRelease: process.env.AIHOT_RELEASE ?? 'unknown',
+      workerRelease: worker?.release ?? null,
+    } } : {}),
     jobs: latest,
     timeline,
     queues,
