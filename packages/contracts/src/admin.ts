@@ -355,6 +355,8 @@ export interface AdminRoutingEffect {
 }
 
 export interface AdminRuns {
+  /** Preview API and the separately deployed worker may run different revisions. */
+  previewRuntime?: { apiRelease: string; workerRelease: string | null };
   /** Old API fixtures may omit this; production always includes it. */
   routingEffect?: AdminRoutingEffect;
   checkedAt: Timestamp;

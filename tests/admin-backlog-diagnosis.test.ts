@@ -91,3 +91,45 @@ test("UTC failure queue excludes yesterday and counts terminal unknown receipts 
     await sql`DELETE FROM receipts WHERE id IN (${oldFailure!.id}, ${unknown!.id}, ${currentFailure!.id})`;
   }
 });
+
+
+test("targeted English replay moves an old failed receipt into the actual job queue", async () => {
+  const boss = await getBoss();
+  const prefix = `english-replay-${tag()}`;
+  const articleId = prefix + "-item";
+  const now = new Date();
+  await sql`INSERT INTO sources (id,name,kind,tier,participation_mode,next_fetch_at)
+    VALUES (${prefix},'English replay','rss','T1','editorial','2100-01-01')`;
+  await sql`INSERT INTO articles
+    (id,source_id,identity_key,url,title,discovered_at,timeline_at,updated_at,processing_state)
+    VALUES (${articleId},${prefix},${articleId},${"https://example.org/" + articleId},
+      'English replay item',${now},${now},${now},'analyzed')`;
+  const [receipt] = await sql<{ id: number }[]>`
+    INSERT INTO receipts (logical_key,service,model,purpose,subject,status,error)
+    VALUES (${prefix},'OpenRouter','broken-model','english_copy',${"article:" + articleId + "#test1234"},
+      'failed','unusable output: token limit')
+    RETURNING id`;
+  let rows = await allFlowItemsOverview([]);
+  assert.equal(rows.find(row => row.key === "model:" + receipt!.id)?.status, "failed");
+
+  await boss.createQueue("cron.content.english");
+  const jobId = await boss.send("cron.content.english",
+    { articleId, requestId: prefix }, { singletonKey: "manual:english:article:" + articleId });
+  assert.ok(jobId);
+  rows = await allFlowItemsOverview([]);
+  const pending = rows.find(row => row.key === "model:" + receipt!.id);
+  assert.equal(pending?.status, "pending", "queued replay must not count as a live failure");
+  assert.equal(pending?.originState, "created");
+  assert.equal(pending?.error, null, "old model failure stays historical, not the pending-job error");
+  assert.equal(rows.filter(row => row.process === "cron.content.english" && row.articleId === articleId).length, 0,
+    "the pending replay and model-flow row are one execution unit");
+
+  await sql`UPDATE pgboss.job SET state='active', started_on=now() WHERE id=${jobId}::uuid`;
+  rows = await allFlowItemsOverview([]);
+  assert.equal(rows.find(row => row.key === "model:" + receipt!.id)?.status, "processing");
+
+  await sql`UPDATE pgboss.job SET state='completed', completed_on=now() WHERE id=${jobId}::uuid`;
+  rows = await allFlowItemsOverview([]);
+  assert.equal(rows.find(row => row.key === "model:" + receipt!.id)?.status, "failed",
+    "if the worker never writes a successful English copy, the failure returns");
+});
