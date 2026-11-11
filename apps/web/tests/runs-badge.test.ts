@@ -16,6 +16,8 @@ test("runs badge equals the failed execution units and refreshes with the page",
     provider: kind === "model" ? "Groq" : null, model: kind === "model" ? "test-model" : null,
     error: status === "failed" ? "Model cannot route text: Model is disabled" : null,
     at: now, retryAt: null, jobId: null, receiptId: null,
+    originState: status, replayStep: kind === "article" ? "analyze" : null,
+    replayTargetId: kind === "article" ? `news-${n}` : null,
   });
   const rows = [
     ...Array.from({ length: 18 }, (_, i) => item(i + 1, "article", "failed")),
@@ -70,7 +72,7 @@ test("runs badge equals the failed execution units and refreshes with the page",
     const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
     assert.equal((await mobile.goto(web.origin + "/admin/runs"))?.status(), 200);
     await expect(badge(mobile)).toHaveText("21");
-    await expect(mobile.getByRole("button", { name: "重新入队" }).first()).toBeVisible();
+    await expect(mobile.getByRole("button", { name: "重新执行该流程" }).first()).toBeVisible();
     await mobile.close();
 
     // One refresh updates the badge and the page from the same pass: a recovered unit drops
