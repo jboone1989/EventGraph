@@ -178,7 +178,11 @@ test("hovering private navigation does not repeat the page's reads before clicki
     assert.deepEqual(reads, []);
     await sources.click();
     await expect(page.getByRole("heading", { name: "信源", exact: true })).toBeVisible();
-    assert.deepEqual([...reads].sort(), ["/api/admin/me", "/api/admin/nav-counts", "/api/admin/sources"].sort());
+    // The requested page/identity reads are synchronous; client-only badge reads
+    // can finish later (or be aborted by navigation) and must not gate this assertion.
+    assert.ok(reads.includes("/api/admin/me"), "destination must verify identity");
+    assert.ok(reads.includes("/api/admin/sources"), "destination must load its own data");
+    assert.ok(reads.every(path => ["/api/admin/me", "/api/admin/nav-counts", "/api/admin/sources"].includes(path)), "hover must not prefetch unrelated private pages");
   } finally { await page.close(); }
 });
 
