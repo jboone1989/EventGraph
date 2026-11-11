@@ -321,15 +321,20 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
         ORDER BY r.subject,r.purpose,r.updated_at DESC,r.id DESC
       )
       SELECT 'model:' || r.id::text AS key, 'model' AS kind,
-        CASE WHEN r.status='pending' THEN 'processing' ELSE 'failed' END AS status,
+        CASE WHEN english_job.state = 'active' THEN 'processing'
+             WHEN english_job.state IN ('created','retry') THEN 'pending'
+             WHEN r.status='pending' THEN 'processing' ELSE 'failed' END AS status,
         r.purpose AS process,
         coalesce(a.title, st.title, r.subject, r.purpose) AS subject,
         a.id AS "articleId",
-        r.service AS provider, r.model,
-        left(coalesce(r.error, last_attempt.error), 2000) AS error,
-        r.updated_at AS at, NULL::timestamptz AS "retryAt",
+        CASE WHEN english_job.id IS NOT NULL THEN NULL::text ELSE r.service END AS provider,
+        CASE WHEN english_job.id IS NOT NULL THEN NULL::text ELSE r.model END AS model,
+        CASE WHEN english_job.id IS NOT NULL THEN NULL::text ELSE left(coalesce(r.error, last_attempt.error), 2000) END AS error,
+        coalesce(english_job.started_on, english_job.created_on, r.updated_at) AS at,
+        NULL::timestamptz AS "retryAt",
         NULL::text AS "jobId", r.id AS "receiptId", r.status AS "receiptStatus",
-        CASE WHEN r.purpose='english_copy' THEN ec.outcome
+        CASE WHEN english_job.id IS NOT NULL THEN english_job.state
+             WHEN r.purpose='english_copy' THEN ec.outcome
              WHEN r.purpose='english_digest' THEN se.outcome
              WHEN r.purpose IN ('group_article','group_review','group_signal') THEN a.grouping_status
              WHEN a.id IS NOT NULL THEN a.processing_state
@@ -346,6 +351,16 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
       LEFT JOIN stories st ON st.id::text = substring(r.subject from '^story:([0-9]+)')
       LEFT JOIN english_copies ec ON ec.article_id=a.id AND r.purpose='english_copy'
       LEFT JOIN story_english se ON se.story_id=st.id AND r.purpose='english_digest'
+      -- The old model receipt is historical evidence while a targeted replay is queued.
+      -- The queue's actual job state, not the old receipt status, owns the live row.
+      LEFT JOIN LATERAL (
+        SELECT job.id, job.state, job.created_on, job.started_on
+        FROM pgboss.job job
+        WHERE job.name='cron.content.english' AND job.state IN ('created','retry','active')
+          AND ((r.purpose='english_copy' AND job.data->>'articleId'=a.id)
+            OR (r.purpose='english_digest' AND job.data->>'storyId'=st.id::text))
+        ORDER BY job.created_on DESC, job.id DESC LIMIT 1
+      ) english_job ON true
       LEFT JOIN LATERAL (
         SELECT attempt.error FROM receipt_attempts attempt
         WHERE attempt.receipt_id = r.id ORDER BY attempt.id DESC LIMIT 1
@@ -399,6 +414,13 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
   }));
   const newsIds = new Set(news.map(article => article.id));
   for (const job of jobs) {
+    // The corresponding model-flow row already represents this exact targeted English replay.
+    // Do not count the same pg-boss job twice or show it as a separate schedule failure.
+    if (job.process === 'cron.content.english' && models.some(model =>
+      model.status !== 'failed' && (
+        (job.articleId && model.replayStep === 'english' && model.articleId === job.articleId) ||
+        (model.replayStep === 'storyEnglish' && model.replayTargetId === job.subject)
+      ))) continue;
     // The article row already represents its live extraction/analysis/grouping job.
     if (job.articleId && newsIds.has(job.articleId) &&
         ['content.analyze', 'content.extract-body', 'events.group'].includes(job.process)) continue;
@@ -550,14 +572,20 @@ export async function runsOverview(): Promise<Runs> {
   const currentNews = queueCounts(currentNewsItems);
   const flowItems = await allFlowItemsOverview(currentNewsItems);
   const now = Date.now();
+  const processes = heartbeats.map((h) => ({
+    role: h.key.slice("heartbeat.".length),
+    ...h.value,
+    at: h.updated_at,
+    alive: now - h.updated_at.getTime() < STALE_HEARTBEAT_MS,
+  }));
+  const worker = processes.find(p => p.role === 'worker');
   return {
     checkedAt: new Date(now).toISOString(),
-    processes: heartbeats.map((h) => ({
-      role: h.key.slice("heartbeat.".length),
-      ...h.value,
-      at: h.updated_at,
-      alive: now - h.updated_at.getTime() < STALE_HEARTBEAT_MS,
-    })),
+    processes,
+    ...(process.env.EVENTGRAPH_PREVIEW_MODE === 'true' ? { previewRuntime: {
+      apiRelease: process.env.AIHOT_RELEASE ?? 'unknown',
+      workerRelease: worker?.release ?? null,
+    } } : {}),
     jobs: latest,
     timeline,
     queues,
