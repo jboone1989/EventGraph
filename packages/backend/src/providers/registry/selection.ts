@@ -64,7 +64,9 @@ const failureKey = (id:string) => 'routing.failed:' + id;
 export async function markFailedAutoRoute(reference:string,error:unknown):Promise<void> {
   if(!reference.startsWith('model:'))return;
   const id=reference.slice(6);
-  coolDownModel(id,24*60*60);
+  // The database is the sole cross-worker failure gate. Do not apply a process-local
+  // 24-hour cooldown: it would outlive UTC midnight and an explicit model refresh.
+  for (const [key, cachedId] of lastGood) if (cachedId === id) lastGood.delete(key);
   await sql`
     INSERT INTO settings(key,value,updated_by)
     VALUES (${failureKey(id)},${sql.json({ reason:String(error).slice(0,200),at:new Date().toISOString() })},'auto-routing')

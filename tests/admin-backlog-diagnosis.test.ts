@@ -71,7 +71,7 @@ test("full operations table includes failing model calls with exact provider, mo
 });
 
 
-test("UTC failure queue excludes yesterday's model failures and does not classify unknown receipts as failures", async () => {
+test("UTC failure queue excludes yesterday and counts terminal unknown receipts as failed", async () => {
   await getBoss();
   const key = "flow-utc-" + tag();
   const yesterday = new Date(utcDayStart().getTime() - 60_000);
@@ -85,7 +85,7 @@ test("UTC failure queue excludes yesterday's model failures and does not classif
   try {
     const items = await allFlowItemsOverview([]);
     assert.equal(items.some(item => item.key === "model:" + oldFailure!.id), false);
-    assert.equal(items.find(item => item.key === "model:" + unknown!.id)?.status, "pending");
+    assert.equal(items.find(item => item.key === "model:" + unknown!.id)?.status, "failed");
     assert.equal(items.find(item => item.key === "model:" + currentFailure!.id)?.status, "failed");
   } finally {
     await sql`DELETE FROM receipts WHERE id IN (${oldFailure!.id}, ${unknown!.id}, ${currentFailure!.id})`;

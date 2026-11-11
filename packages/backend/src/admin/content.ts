@@ -290,7 +290,7 @@ export async function overrideFields(id: string, input: { fields: unknown; clear
 }
 
 /** Queue only the requested English article or story on the existing cron queue. */
-async function enqueueEnglishCron(tx: Tx, target: {articleId: string} | {storyId: number}): Promise<string> {
+async function enqueueEnglishCron(tx: Tx, target: ({articleId: string} | {storyId: number}) & {requestId: string}): Promise<string> {
   const boss = await getBoss();
   const key = "articleId" in target ? "article:" + target.articleId : "story:" + target.storyId;
   const jobId = await boss.send("cron.content.english", target, {
@@ -339,7 +339,7 @@ export async function rerun(id: string, step: "extract" | "analyze" | "group" | 
         throw Object.assign(new Error("此新闻英文内容已完成，不能重复执行"), { statusCode: 409 });
       await tx`UPDATE english_copies SET outcome='failed', attempts=0, error=NULL, updated_at=now()
                WHERE article_id=${id}`;
-      jobId = await enqueueEnglishCron(tx, { articleId: id });
+      jobId = await enqueueEnglishCron(tx, { articleId: id, requestId });
     } else {
       await tx`UPDATE articles SET processing_state = 'new', processing_error = NULL, processing_attempts = 0, processing_retry_at = NULL,
                   body_status = CASE WHEN ${step === "extract"} THEN 'pending' ELSE body_status END WHERE id = ${id}`;
@@ -369,7 +369,7 @@ export async function rerunStoryEnglish(storyId: number, requestId: string, acto
       throw Object.assign(new Error("事件英文综述已完成，不能重复执行"), { statusCode: 409 });
     await tx`UPDATE story_english SET outcome='failed', attempts=0, error=NULL, updated_at=now()
       WHERE story_id=${storyId}`;
-    const jobId=await enqueueEnglishCron(tx, { storyId });
+    const jobId=await enqueueEnglishCron(tx, { storyId, requestId });
     await audit(actor,'story.rerun.english',subject,null,null,{jobId,requestId},{requestId,db:tx});
     return {jobId};
   });

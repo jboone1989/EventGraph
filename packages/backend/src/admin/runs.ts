@@ -356,14 +356,15 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
           AND newer.purpose = r.purpose AND newer.status IN ('received','completed')
           AND newer.updated_at > r.updated_at
       )
-      -- A stale model error does not keep a completed parent in the active failure queue.
-      AND NOT (r.purpose='english_copy' AND ec.outcome='written')
-      AND NOT (r.purpose='english_digest' AND se.outcome='written')
+      -- Nullable parent state must never silently remove a model failure from the queue.
+      -- A stale model error does not keep a completed/requeued parent in the active failure queue.
+      AND (r.purpose<>'english_copy' OR ec.outcome IS DISTINCT FROM 'written')
+      AND (r.purpose<>'english_digest' OR se.outcome IS DISTINCT FROM 'written')
       AND NOT (r.purpose IN ('analyze_article','understand_article','summarize_article','prefilter_article',
                     'score_article','structure_article','mend_wording')
-        AND a.processing_state IN ('analyzed','blocked'))
+        AND a.processing_state IN ('new','analyzed','blocked')) IS NOT TRUE
       AND NOT (r.purpose IN ('group_article','group_review','group_signal')
-        AND a.grouping_status='complete')
+        AND a.grouping_status='complete') IS NOT TRUE
     `,
     sql<Rows>`
       SELECT 'source:' || s.id AS key, 'source' AS kind, 'failed' AS status,

@@ -81,12 +81,13 @@ export async function registerSchedules(boss: PgBoss) {
     await boss.work(queue, { pollingIntervalSeconds: 15 }, async ([job]) => {
       // The existing English cron queue also accepts a single manual replay.
       // Never turn one failed English row into a sweep of unrelated articles.
-      const data = job?.data as { articleId?: unknown; storyId?: unknown } | undefined;
+      const data = job?.data as { articleId?: unknown; storyId?: unknown; requestId?: unknown } | undefined;
       if (s.name === "content.english" && data &&
           (typeof data.articleId === "string" || Number.isSafeInteger(data.storyId))) {
         const articleId = typeof data.articleId === "string" ? data.articleId : undefined;
         const storyId = Number.isSafeInteger(data.storyId) ? Number(data.storyId) : undefined;
-        return recordRun(s.name, () => writeEnglishPending({ articleId, storyId }));
+        const manualAttemptTag = typeof data.requestId === "string" ? "admin:" + data.requestId : undefined;
+        return recordRun(s.name, () => writeEnglishPending({ articleId, storyId, manualAttemptTag }));
       }
       return recordRun(s.name, s.run);
     });

@@ -197,7 +197,7 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
     <AdminPage title="运行与积压" subtitle={<>UTC 今日实时执行记录 · 每 20 秒刷新 · {bj(r.checkedAt)} · <Badge tone={worker?.alive ? "ok" : "bad"}>{worker?.alive ? "Worker 在线" : "Worker 未确认在线"}</Badge></>}>
       <Card title="所有流程 · 三个实时状态" right={<Button size="sm" onClick={() => revalidator.revalidate()}>刷新</Button>}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[12px] text-ink-3">按执行单元计数，与新闻篇数不同；一次新闻的任务和模型请求分别记录</span>
+          <span className="text-[12px] text-ink-3">按原执行流程计数，与新闻篇数不同；同一任务的模型失败只展示一次</span>
           <Select value={kind} aria-label="流程类型" onChange={e => { setKind(e.target.value); setPage(0); setSelected(new Set()); }}>
             <option value="all">全部流程</option>
             <option value="article">新闻处理</option>
