@@ -289,20 +289,24 @@ export async function overrideFields(id: string, input: { fields: unknown; clear
   return published;
 }
 
-/**
- * Re-runs a pipeline step for the current revision. Re-evaluation is a new paid model call bound to
- * the request id, so submitting the same request twice neither enqueues nor pays twice.
- */
-/** Queue the existing English backfill cron immediately, preserving its normal worker. */
-async function enqueueEnglishCron(tx: Tx, key: string): Promise<string | null> {
-  const boss=await getBoss();
-  return boss.send("cron.content.english", {}, {
+/** Queue only the requested English article or story on the existing cron queue. */
+async function enqueueEnglishCron(tx: Tx, target: {articleId: string} | {storyId: number}): Promise<string> {
+  const boss = await getBoss();
+  const key = "articleId" in target ? "article:" + target.articleId : "story:" + target.storyId;
+  const jobId = await boss.send("cron.content.english", target, {
     singletonKey: "manual:english:" + key,
     db: { executeSql: async (text: string, values?: unknown[]) => ({
       rows: await tx.unsafe(text, (values ?? []) as never[]),
     }) },
   });
+  if (!jobId) throw Object.assign(new Error("该英文流程已进入队列，不能重复提交"), { statusCode: 409 });
+  return jobId;
 }
+
+/**
+ * Re-runs one pipeline step for the current revision. The request id is auditable
+ * and idempotent; an already queued/running step must not be enqueued twice.
+ */
 
 export async function rerun(id: string, step: "extract" | "analyze" | "group" | "english", requestId: string, actor: string) {
   z.enum(["extract", "analyze", "group", "english"]).parse(step);
@@ -329,16 +333,19 @@ export async function rerun(id: string, step: "extract" | "analyze" | "group" | 
         SELECT p.article_id FROM publications p
         WHERE p.article_id = ${id} AND p.visibility = 'public' AND p.summary IS NOT NULL`;
       if (!publication) throw Object.assign(new Error("此新闻没有可补写的英文公开版本"), { statusCode: 409 });
-      // The existing 5-minute English worker handles this one *English* step;
-      // do not reset or reanalyze the Chinese article.
+      const [copy] = await tx<{ outcome: string }[]>`
+        SELECT outcome FROM english_copies WHERE article_id=${id} FOR UPDATE`;
+      if (copy?.outcome === "written")
+        throw Object.assign(new Error("此新闻英文内容已完成，不能重复执行"), { statusCode: 409 });
       await tx`UPDATE english_copies SET outcome='failed', attempts=0, error=NULL, updated_at=now()
                WHERE article_id=${id}`;
-      jobId = await enqueueEnglishCron(tx, id + ":" + requestId);
+      jobId = await enqueueEnglishCron(tx, { articleId: id });
     } else {
       await tx`UPDATE articles SET processing_state = 'new', processing_error = NULL, processing_attempts = 0, processing_retry_at = NULL,
                   body_status = CASE WHEN ${step === "extract"} THEN 'pending' ELSE body_status END WHERE id = ${id}`;
       jobId = await queueProcessing(id, { step, ...(step === "analyze" ? { attemptTag: `admin:${requestId}` } : {}), db: tx });
     }
+    if (!jobId) throw Object.assign(new Error("原流程仍在排队或执行，不能重复提交"), { statusCode: 409 });
     await audit(actor, `content.rerun.${step}`, `content:${id}`, null, null, { jobId, requestId }, { requestId, db: tx });
     return { jobId };
   });
@@ -356,9 +363,13 @@ export async function rerunStoryEnglish(storyId: number, requestId: string, acto
       SELECT after FROM audit_log WHERE subject=${subject}
       AND action='story.rerun.english' AND actor=${actor} AND request_id=${requestId} ORDER BY id DESC LIMIT 1`;
     if (prior) return {jobId:prior.after.jobId};
+    const [copy] = await tx<{ outcome: string }[]>`
+      SELECT outcome FROM story_english WHERE story_id=${storyId} FOR UPDATE`;
+    if (copy?.outcome === "written")
+      throw Object.assign(new Error("事件英文综述已完成，不能重复执行"), { statusCode: 409 });
     await tx`UPDATE story_english SET outcome='failed', attempts=0, error=NULL, updated_at=now()
       WHERE story_id=${storyId}`;
-    const jobId=await enqueueEnglishCron(tx, subject + ":" + requestId);
+    const jobId=await enqueueEnglishCron(tx, { storyId });
     await audit(actor,'story.rerun.english',subject,null,null,{jobId,requestId},{requestId,db:tx});
     return {jobId};
   });
