@@ -10,3 +10,11 @@ Adopt exactly five task-focused engineering skills from [jboone1989/agent-skills
 - Imported in two focused PRs (constraint + source; context + debug + simplify) to stay within the **existing 80KB reviewer diff limit** without weakening it. Both are needed for the complete five-skill catalog.
 
 MIT License: Copyright (c) 2025 Addy Osmani. Full license: [agent-skills-MIT-LICENSE.md](third-party/agent-skills-MIT-LICENSE.md).
+
+## modern-web-guidance (2026-11-11)
+
+Adopted separately from the five-skill fork above, at the owner's request, from the Chrome/Edge/Firefox/MDN-stewarded project [GoogleChrome/modern-web-guidance-src](https://github.com/GoogleChrome/modern-web-guidance-src) (npm: [`modern-web-guidance`](https://www.npmjs.com/package/modern-web-guidance)), installed via `npx modern-web-guidance@latest install` (Project scope). Source pin and content hash live in `skills-lock.json`.
+
+- Canonical body: `.agents/skills/modern-web-guidance/SKILL.md`; Claude Code uses a lightweight discovery adapter at `.claude/skills/modern-web-guidance/SKILL.md` (same one-canonical-body rule as above). The upstream installer links `.claude/skills/modern-web-guidance` as a Windows junction; the committed tree replaces it with the adapter file because `core.symlinks=false` would duplicate the corpus in Git.
+- The ~2 MB `guides/` corpus written next to the canonical body is intentionally untracked (see `.gitignore`): it exceeds the 80KB reviewer diff limit, and the skill's runtime workflow is entirely `npx`-based `search`/`retrieve`, which ships its own corpus. `npx modern-web-guidance update` refreshes it locally.
+- Runtime: `npx -y modern-web-guidance@latest search|retrieve|legacy-scan`. Google anonymous usage telemetry can be disabled with `DISABLE_TELEMETRY=1`.
