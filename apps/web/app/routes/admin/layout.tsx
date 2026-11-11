@@ -1,7 +1,7 @@
 import { motion } from "motion/react";
-import { Suspense } from "react";
+import { useEffect, useState } from "react";
 import { SITE } from "@aihot/site";
-import { Await, NavLink, Outlet, useLocation, useNavigation, type ShouldRevalidateFunction } from "react-router";
+import { NavLink, Outlet, useLocation, useNavigation, useRevalidator, type ShouldRevalidateFunction } from "react-router";
 import type { Route } from "./+types/layout";
 import { RingMark } from "@aihot/site/brand/Logo.tsx";
 import { NavigationProgress } from "../../components/shell/Chrome";
@@ -12,10 +12,9 @@ import type { AdminNavEntry } from "../../modules";
 import { webModules } from "../../site-modules";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const counts = adminGet<AdminNavCounts>(request, "/api/admin/nav-counts").catch((): AdminNavCounts => ({}));
   const me = await adminGet<AdminMe>(request, "/api/admin/me");
-  // Reset the badge boundaries so a navigation transition never keeps the old page waiting on them.
-  return { me, counts, countsKey: crypto.randomUUID() };
+  // Badges are optional and must never participate in server rendering.
+  return { me };
 }
 
 // Verify identity and update badges on every navigation/command; badges do not hold up the page.
@@ -55,31 +54,20 @@ const nav = (): Array<{ group: string; items: AdminNavEntry[] }> => [
     ] },
 ];
 
-type Counts = Pick<Route.ComponentProps["loaderData"], "counts" | "countsKey">;
+type Counts = { counts: AdminNavCounts };
 
-function NavCount({ counts, countsKey, name, className }: Counts & { name: string | undefined; className: string }) {
+function NavCount({ counts, name, className }: Counts & { name: string | undefined; className: string }) {
   if (!name) return null;
-  return (
-    <Suspense key={countsKey} fallback={null}>
-      <Await resolve={counts} errorElement={null}>
-        {(resolved: AdminNavCounts) => {
-          const value = resolved[name];
-          if (!value) return null;
-          // The runs badge is today's failed flow execution units — the same count as the runs
-          // page's 处理失败 detail, not unfinished articles. Keep it readable without the
-          // high-alert style used for actionable source failures.
-          return name === "runs"
-            ? <span className="relative ml-1 rounded-full bg-bg-sunk px-1.5 py-0.5 text-[11px] font-medium text-ink-3 ring-1 ring-line"
-                title="UTC 今日失败执行单元（按执行单元计数，非新闻篇数）"
-                aria-label={`UTC 今日失败执行单元 ${value}`}>{value}</span>
-            : <span className={className}>{value}</span>;
-        }}
-      </Await>
-    </Suspense>
-  );
+  const value = counts[name];
+  if (!value) return null;
+  return name === "runs"
+    ? <span className="relative ml-1 rounded-full bg-bg-sunk px-1.5 py-0.5 text-[11px] font-medium text-ink-3 ring-1 ring-line"
+        title="UTC 今日失败执行单元（按执行单元计数，非新闻篇数）"
+        aria-label={`UTC 今日失败执行单元 ${value}`}>{value}</span>
+    : <span className={className}>{value}</span>;
 }
 
-function NavItem({ to, label, count, counts, countsKey, tone }: AdminNavEntry & Counts) {
+function NavItem({ to, label, count, counts, tone }: AdminNavEntry & Counts) {
   if (to.startsWith("https://")) return (
     <a href={to} target="_blank" rel="noopener noreferrer"
       className="group block rounded-control px-3 py-[7px] text-[13.5px] text-ink-3 transition-colors hover:text-ink">
@@ -92,7 +80,7 @@ function NavItem({ to, label, count, counts, countsKey, tone }: AdminNavEntry & 
         <span className={`relative flex items-center justify-between rounded-control px-3 py-[7px] text-[13.5px] transition-colors ${isActive ? "font-medium text-ink" : "text-ink-3 hover:text-ink"}`}>
           {isActive && <motion.span layoutId="admin-nav" className="absolute inset-0 rounded-control bg-surface shadow-sm ring-1 ring-line" transition={{ type: "spring", stiffness: 520, damping: 38 }} />}
           <span className="relative">{label}</span>
-          <NavCount counts={counts} countsKey={countsKey} name={count} className={`num relative min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-5 ${tone === "bad" ? "bg-hot text-white" : "bg-accent-soft text-accent"}`} />
+          <NavCount counts={counts} name={count} className={`num relative min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold leading-5 ${tone === "bad" ? "bg-hot text-white" : "bg-accent-soft text-accent"}`} />
         </span>
       )}
     </NavLink>
@@ -100,9 +88,21 @@ function NavItem({ to, label, count, counts, countsKey, tone }: AdminNavEntry & 
 }
 
 export default function AdminLayout({ loaderData }: Route.ComponentProps) {
-  const { me, counts, countsKey } = loaderData;
+  const { me } = loaderData;
+  const [counts, setCounts] = useState<AdminNavCounts>({});
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const location = useLocation();
+  useEffect(() => {
+    // Also refresh optional badges after an in-place page revalidation.
+    if (revalidator.state !== "idle") return;
+    const controller = new AbortController();
+    fetch("/api/admin/nav-counts", { credentials: "same-origin", signal: controller.signal })
+      .then(response => response.ok ? response.json() as Promise<AdminNavCounts> : {})
+      .then(value => { if (!controller.signal.aborted) setCounts(value); })
+      .catch(() => { if (!controller.signal.aborted) setCounts({}); });
+    return () => controller.abort();
+  }, [location.pathname, revalidator.state]);
   const groups = nav();
   const flat = groups.flatMap((g) => g.items);
   const primary = new Set(["/admin", "/admin/runs", "/admin/sources"]);
@@ -122,7 +122,7 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
               <div className="mb-1 px-3 text-[11.5px] font-medium tracking-wide text-ink-4">{g.group}</div>
               <div className="space-y-0.5">
                 {g.items.map((i) => (
-                  <NavItem key={i.to} {...i} counts={counts} countsKey={countsKey} />
+                  <NavItem key={i.to} {...i} counts={counts} />
                 ))}
               </div>
             </div>
@@ -152,7 +152,7 @@ export default function AdminLayout({ loaderData }: Route.ComponentProps) {
                 return (
                   <NavLink key={i.to} to={i.to} end={i.to === "/admin"} className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] transition-colors ${active ? "bg-ink text-bg" : "bg-surface text-ink-3 ring-1 ring-line"}`}>
                     {i.label}
-                    <NavCount counts={counts} countsKey={countsKey} name={i.count} className="num ml-1 text-[11px] opacity-70" />
+                    <NavCount counts={counts} name={i.count} className="num ml-1 text-[11px] opacity-70" />
                   </NavLink>
                 );
               })}
