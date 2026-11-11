@@ -195,6 +195,14 @@ export default function RunsAdmin({ loaderData }: Route.ComponentProps) {
 
   return (
     <AdminPage title="运行与积压" subtitle={<>UTC 今日实时执行记录 · 每 20 秒刷新 · {bj(r.checkedAt)} · <Badge tone={worker?.alive ? "ok" : "bad"}>{worker?.alive ? "Worker 在线" : "Worker 未确认在线"}</Badge></>}>
+      {r.previewRuntime && <p role="status" className="mb-3 rounded-control border border-line bg-bg-sunk p-3 text-xs leading-relaxed text-ink-3">
+        开发预览仅更新 Web/API（{concise(r.previewRuntime.apiRelease, 12)}），任务由共享数据库上的 Worker
+        （{r.previewRuntime.workerRelease ? concise(r.previewRuntime.workerRelease, 12) : "版本未知"}）执行。
+        {r.previewRuntime.workerRelease !== r.previewRuntime.apiRelease
+          ? " 当前版本不一致：点击重试只会入队，不能保证执行端使用新版自动路由与定向英文重试。"
+          : " 任务能否恢复以实际 Worker 回执为准。"}
+        <Link className="ml-2 text-accent" to="/admin/model-bindings">查看工作流模型绑定</Link>
+      </p>}
       <Card title="所有流程 · 三个实时状态" right={<Button size="sm" onClick={() => revalidator.revalidate()}>刷新</Button>}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <span className="text-[12px] text-ink-3">按原执行流程计数，与新闻篇数不同；同一任务的模型失败只展示一次</span>
