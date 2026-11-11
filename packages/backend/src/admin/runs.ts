@@ -389,6 +389,14 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
         NULL::timestamptz AS "retryAt", NULL::text AS "jobId", NULL::integer AS "receiptId"
       FROM sources s WHERE s.enabled AND s.health = 'failing'
         AND s.last_fetch_at >= ${utcDayStart()}
+        -- The source's old health error is history once a new fetch is in flight.
+        -- Its live pg-boss job is already shown by the job query as pending/processing.
+        AND NOT EXISTS (
+          SELECT 1 FROM pgboss.job j WHERE j.data->>'sourceId' = s.id
+            AND j.name IN ('sources.fetch', 'sources.mp')
+            AND j.state IN ('created', 'retry', 'active')
+            AND j.created_on >= ${utcDayStart()}
+        )
     `,
     sql<Rows>`
       SELECT 'delivery:' || d.id::text AS key, 'delivery' AS kind, 'failed' AS status,
