@@ -333,7 +333,7 @@ export async function allFlowItemsOverview(news: NonNullable<Runs["currentNewsIt
         coalesce(english_job.started_on, english_job.created_on, r.updated_at) AS at,
         NULL::timestamptz AS "retryAt",
         NULL::text AS "jobId", r.id AS "receiptId", r.status AS "receiptStatus",
-        CASE WHEN english_job.id IS NOT NULL THEN english_job.state
+        CASE WHEN english_job.id IS NOT NULL THEN english_job.state::text
              WHEN r.purpose='english_copy' THEN ec.outcome
              WHEN r.purpose='english_digest' THEN se.outcome
              WHEN r.purpose IN ('group_article','group_review','group_signal') THEN a.grouping_status
