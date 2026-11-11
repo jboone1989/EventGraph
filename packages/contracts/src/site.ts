@@ -624,6 +624,19 @@ export interface StoryFollowup {
 export interface StoryFollowupsResponse { items: StoryFollowup[]; more: boolean }
 
 /**
+ * The knowledge-graph entities one report's own Graphiti episode directly mentions
+ * (/api/site/knowledge/items/:id/entities). `not_ingested`: the current revision has no episode yet;
+ * `unavailable`/`disabled`: the graph could not or may not be read — never mixed up with "no entities".
+ */
+export interface ItemKnowledgeEntitiesResponse {
+  status: "ok" | "empty" | "not_ingested" | "unavailable" | "disabled";
+  entities: Array<{ key: string; name: string }>;
+  /** After filtering and dedup, so it can exceed `entities.length` when `truncated`. */
+  totalCount: number;
+  truncated: boolean;
+}
+
+/**
  * A starred item as the site can show it now (/api/site/items/availability, keyed by id). Stars keep the
  * source name of the day they were saved; a public item also brings the name shown today.
  */
