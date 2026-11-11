@@ -85,7 +85,12 @@ test("workflow bindings list new models, gate unverified choices, and save per-s
   assert.equal(writes.at(-1)?.body.model,modelKey);
   await expect(page.getByText("继承默认",{exact:true}).first()).toBeVisible();
   await expect(page.getByRole("combobox",{name:"为Graphiti 向量生成选择模型"})).toHaveValue(embeddingKey);
+  // Bulk update revalidates the page loader and remounts keyed selector controls.
+  // Do not race that revalidation with a per-stage override.
+  await page.waitForLoadState("networkidle");
   await picker.selectOption(modelKey);
+  await expect(picker).toHaveValue(modelKey);
+  await expect(page.getByRole("button",{name:"保存"}).first()).toBeEnabled();
   await page.getByRole("button",{name:"保存"}).first().click();
   await expect(page.getByText("单独指定",{exact:true}).first()).toBeVisible();
   // Reapplying an unchanged default still resets a previously saved stage override.
