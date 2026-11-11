@@ -7,6 +7,7 @@ import { PhoneBar } from "../components/shell/PhoneBar";
 import { inNav } from "../components/shell/nav";
 import type { Screen } from "../components/shell/screens";
 import { edgeTtl } from "../lib/api.server";
+import { moduleShowsEntries } from "../modules";
 import { webModules } from "../site-modules";
 import { pageMeta } from "../lib/seo";
 import { setFontPreference, useFontPreference, useStarred } from "../lib/local-state";
@@ -34,9 +35,9 @@ type Row = { to: string; label: string; icon: ReactNode; detail?: ReactNode };
 /** The ways in that the agent page offers, the modules' first; its row names the first three. */
 const agentWays = () => [...webModules().flatMap((m) => m.agentWays ?? []), "MCP", "RSS", "API"];
 
-/** The modules' tools first, then the engine's. */
-const tools = (): Row[] => [
-  ...webModules().flatMap((m) => m.tools ?? []),
+/** The modules' tools first, then the engine's; a module whose entries do not show adds none (root.tsx states). */
+const tools = (states: Record<string, unknown> | undefined): Row[] => [
+  ...webModules().filter((m) => moduleShowsEntries(m, states)).flatMap((m) => m.tools ?? []),
   { to: "/knowledge", label: "知识网络", icon: <IconNetwork size={20} />, detail: "实体 · 关系 · 来源" },
   { to: "/calendar", label: "政策与数据日历", icon: <IconClock size={20} />, detail: "发布日程 · 可订阅" },
   ...(inNav("/explore") ? [{ to: "/explore", label: "探索工作台", icon: <IconHistory size={20} />, detail: "时点回放 · 关系证据" }] : []),
@@ -139,7 +140,7 @@ export default function MorePage() {
           </li>
         </Group>
         <Group title={"工具与入口"}>
-          {tools().map((r) => (
+          {tools(root?.modules).map((r) => (
             <RowLink key={r.to} row={r} />
           ))}
         </Group>

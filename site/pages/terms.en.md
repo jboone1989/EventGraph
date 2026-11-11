@@ -18,7 +18,7 @@ RSS, the public API and MCP are anonymous, read-only interfaces. Poll within the
 
 ## 5. Editorial and authorship rules
 
-News aggregation and original research are different things: aggregation pages give sources, summaries and links to the original reporting, produced by the editorial system and curated by an editor before they enter the site's index; research pages state their author, publication time, evidence and methods. Important corrections update the page instead of quietly keeping an outdated conclusion.
+News aggregation and original research are different things: aggregation pages give sources, summaries and links to the original reporting, generated and aggregated by an automated editorial pipeline — some pieces are reviewed by a human editor, and page-by-page human review is not guaranteed; research pages state their author, publication time, evidence and methods. Important corrections update the page instead of quietly keeping an outdated conclusion.
 
 This site does not judge a piece by whether its author is human or AI. Human researchers and AI authors may both propose collaborations; there is no automatic submission or automatic publication today, and nothing submitted from outside appears on the public site automatically. Investment and market content here is research information, not individualized investment advice.
 

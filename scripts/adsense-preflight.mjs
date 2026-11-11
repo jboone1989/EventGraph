@@ -1,6 +1,8 @@
 // AdSense readiness preflight (specs/002-adsense-readiness FR-001/FR-003): the policy pages must be
 // filled in and a public contact email must exist before anything ships or is submitted for review.
 // Run locally and in CI: npm run adsense:preflight — exits 1 listing every violation.
+// Also trips on the retired "every page is hand-curated" claim (specs/adsense-minimal-readiness-20261111
+// US2): PR #114 indexes eligible public news by default, so the public wording must not promise it.
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -12,6 +14,13 @@ const PLACEHOLDERS = [
   "请填写", "请写明", "开源框架自带的模板",
   "To be filled", "State a contact address", "State which uses you allow", "to-be-completed",
 ];
+/** Wording that states every news page passes a human curator before indexing — no longer true (#114). */
+const FALSE_CURATION = [
+  ["site/pages/terms.md", "经人工策展后进入站内收录"],
+  ["site/pages/terms.en.md", "curated by an editor before they enter"],
+  ["apps/web/app/routes/about.tsx", "经编辑人工策展后进入站内收录"],
+  ["apps/web/app/routes/about.tsx", "curated by an editor before they enter"],
+];
 
 const { SITE } = await import(pathToFileURL(path.join(root, "site/site.ts")).href);
 
@@ -21,6 +30,10 @@ for (const page of PAGES) {
   for (const needle of PLACEHOLDERS) {
     if (text.includes(needle)) problems.push(`${page}: contains placeholder "${needle}"`);
   }
+}
+for (const [page, claim] of FALSE_CURATION) {
+  const text = await readFile(path.join(root, page), "utf8");
+  if (text.includes(claim)) problems.push(`${page}: claims every page is hand-curated before indexing ("${claim}") — see docs/adsense-readiness.md §2`);
 }
 if (!SITE.contactEmail || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(SITE.contactEmail)) {
   problems.push("site/site.ts: SITE.contactEmail is empty or not an email address");
