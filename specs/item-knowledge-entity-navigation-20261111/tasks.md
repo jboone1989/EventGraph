@@ -14,6 +14,6 @@
 - 给定最新入图 revision 落后于文章当前 revision，返回 not_ingested 和空实体；文章不存在或未公开/撤回/隐藏时返回 404，不能通过接口泄漏；保留许可与现有公开出版规则。
 - 接口状态区分 ok、empty、not_ingested、unavailable、disabled；Graphiti 4 秒内超时隔离，Graphiti 不可用时新闻页面正文仍可读且不会因实体区块变成 500/502；disabled 不渲染，empty/not_ingested/unavailable 使用 Spec 各自双语文案。
 - 返回 Graphiti 稳定 key/name，按 key 去重，强制去掉空白名称和纯 URL 名称，按 Spec 的名称再 key 顺序固定排序；最多 50 条，totalCount 是过滤去重后的全量，超出时 truncated=true 并展示准确的另有 N 个提示。
-- 中文链接到 /knowledge/entity/:key，英文链接到 /en/knowledge/entity/:key；使用现有 React Router Link，实体名可换行、390px 宽度不挤压布局、支持键盘聚焦；延迟请求可取消、不阻塞正文、不无限重试。
+- 中文链接到 /knowledge/entity/:key，英文链接到 /en/knowledge/entity/:key；使用现有 React Router Link，实体名可换行、390px 宽度不挤压布局、支持键盘聚焦；请求 loading 期间不渲染区块标题、容器、条目或占位，最终响应后才按状态展示，disabled 从不闪现；延迟请求可取消、不阻塞正文、不无限重试。
 - 提供覆盖文章 revision、仅直接 episode、去重/过滤/截断、404/公开性、空/未入图/禁用/故障及中英路由的聚焦自动测试；不引入新数据库迁移、模型调用、队列或依赖。
 - 核查真实示例 /items/up1qpo8b0p6x82s6sltvnqzbb 的 API 回包与可点开的实体详情，并提交浏览器或 Playwright 的中英/390px 验收证据；如样例尚未入图，报告真实状态，不硬编码实体、不声称功能已上线。
