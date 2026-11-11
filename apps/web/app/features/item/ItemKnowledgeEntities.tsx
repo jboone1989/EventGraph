@@ -39,7 +39,7 @@ export function ItemKnowledgeEntities({ itemId }: { itemId: string }) {
   }, [itemId, attempt]);
   // The anchor div stays mounted; only the response decides whether a block appears inside it.
   return <div ref={anchor}>
-    {result && result.status !== "disabled" && (
+    {result && result.status !== "disabled" && result.status !== "not_ingested" && (
       <section className="mt-7 rounded-panel border border-line-soft bg-bg-sunk/40 p-4 xl:mt-8">
         <span className="text-[12px] font-semibold text-accent">{t("关联知识实体", "Related entities")}</span>
         {result.status === "ok" ? (
@@ -72,9 +72,7 @@ export function ItemKnowledgeEntities({ itemId }: { itemId: string }) {
           </div>
         ) : (
           <p className="mt-2 text-[13px] leading-relaxed text-ink-3">
-            {result.status === "not_ingested"
-              ? t("尚未建立知识实体关联", "Knowledge entities not yet linked")
-              : t("暂无关联知识实体", "No related knowledge entities")}
+            {t("暂无关联知识实体", "No related knowledge entities")}
           </p>
         )}
       </section>
