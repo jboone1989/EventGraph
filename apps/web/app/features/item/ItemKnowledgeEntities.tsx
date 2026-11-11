@@ -8,7 +8,7 @@ import { englishPath } from "../../lib/edition";
  * "关联知识实体": the knowledge-graph entities this report's own Graphiti episode mentions, each chip
  * leading to the existing entity profile. Loaded after the page (StoryFollowups' IntersectionObserver
  * pattern), so the article never waits on the knowledge graph. While loading — and when the graph is
- * disabled — not even the heading shows, so a block that ends up empty never flashes in and out.
+ * disabled or the current revision has not been ingested — no heading or placeholder appears.
  */
 export function ItemKnowledgeEntities({ itemId }: { itemId: string }) {
   const [result, setResult] = useState<ItemKnowledgeEntitiesResponse | null>(null);
@@ -39,7 +39,7 @@ export function ItemKnowledgeEntities({ itemId }: { itemId: string }) {
   }, [itemId, attempt]);
   // The anchor div stays mounted; only the response decides whether a block appears inside it.
   return <div ref={anchor}>
-    {result && result.status !== "disabled" && (
+    {result && result.status !== "disabled" && result.status !== "not_ingested" && (
       <section className="mt-7 rounded-panel border border-line-soft bg-bg-sunk/40 p-4 xl:mt-8">
         <span className="text-[12px] font-semibold text-accent">{t("关联知识实体", "Related entities")}</span>
         {result.status === "ok" ? (
@@ -72,9 +72,7 @@ export function ItemKnowledgeEntities({ itemId }: { itemId: string }) {
           </div>
         ) : (
           <p className="mt-2 text-[13px] leading-relaxed text-ink-3">
-            {result.status === "not_ingested"
-              ? t("尚未建立知识实体关联", "Knowledge entities not yet linked")
-              : t("暂无关联知识实体", "No related knowledge entities")}
+            {t("暂无关联知识实体", "No related knowledge entities")}
           </p>
         )}
       </section>
