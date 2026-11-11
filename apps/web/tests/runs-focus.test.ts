@@ -28,7 +28,7 @@ test("three live queues cover news, worker, schedules and model failures with th
       subject: "信源采集中", articleId: null, provider: null, model: null,
       error: null, at: now, retryAt: null, jobId: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb", receiptId: null },
   ];
-  const runs = { checkedAt: now, processes: [{ role: "worker", pid: 1, host: "worker", release: "dev", startedAt: now, at: now, alive: true }],
+  const runs = { checkedAt: now, previewRuntime: { apiRelease: "new-develop-sha", workerRelease: "old-main-sha" }, processes: [{ role: "worker", pid: 1, host: "worker", release: "old-main-sha", startedAt: now, at: now, alive: true }],
     flowItems: rows, currentNews: { pending: 1, processing: 0, failed: 1 } };
   let retried = 0;
   const api = createServer(async (req, res) => {
@@ -60,6 +60,7 @@ test("three live queues cover news, worker, schedules and model failures with th
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     assert.equal((await page.goto(web.origin + "/admin/runs"))?.status(), 200);
     await expect(page.getByText("所有流程 · 三个实时状态")).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "当前版本不一致" })).toBeVisible();
     await expect(page.getByRole("button", { name: /待处理/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /正在处理/ })).toBeVisible();
     await expect(page.getByRole("button", { name: /处理失败/ })).toBeVisible();
