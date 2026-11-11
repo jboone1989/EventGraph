@@ -165,6 +165,7 @@ test("both admin navigations render before badges and update them after arriving
 });
 
 test("hovering private navigation does not repeat the page's reads before clicking", async () => {
+  badge = 7; // Previous test leaves badge at 19; establish this test's own fixture.
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   try {
     await page.goto(web.origin + "/admin/content");
