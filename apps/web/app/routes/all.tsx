@@ -47,13 +47,13 @@ export function meta({ loaderData }: Route.MetaArgs) {
   const page = loaderData?.data.page ?? 1;
   const path = listPath("/all", { ...(f && filterParams(f)), q, tab: q && f?.tab === "relevance" ? "relevance" : null, page: page > 1 ? page : null });
   const title = `${q ? `搜索：${q}` : ALL_TITLE}${page > 1 ? ` · 第 ${page} 页` : ""}`;
-  const noindex = !!q || hasFeedFilters(f);
+  // Search and filter combinations are browsing states: only the plain archive pages describe themselves as lists.
+  const filtered = !!q || hasFeedFilters(f);
   return pageMeta({
     title,
     description: `${SITE.name} 收录的${subjectAfter("全部", "相关动态")}，可按频道、类别与标签筛选，支持中英文搜索。`,
     path,
-    noindex,
-    jsonLd: noindex ? undefined : itemListLd(path, title, loaderData?.data.items.map((i) => i.title) ?? []),
+    jsonLd: filtered ? undefined : itemListLd(path, title, loaderData?.data.items.map((i) => i.title) ?? []),
   });
 }
 

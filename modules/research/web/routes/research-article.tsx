@@ -43,7 +43,7 @@ function articleLd(a: ResearchArticleView, at: string) {
 }
 
 export function meta({ loaderData, location }: { loaderData?: LoaderData; location: { pathname: string } }) {
-  if (!loaderData?.article) return [{ title: "研究不存在" }, { name: "robots", content: "noindex" }];
+  if (!loaderData?.article) return [{ title: "研究不存在" }];
   const a = loaderData.article;
   const en = location.pathname.startsWith("/en/");
   return pageMeta({
