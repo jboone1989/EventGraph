@@ -153,3 +153,10 @@ test('expired or legacy UTC-day failed-route records do not exclude tested healt
  assert.deepEqual([...active],['current']);
  assert.equal(activeFailedRouteIds([{key:'routing.failed:current',value:{until:'2026-11-13T07:30:30.000Z'}}],now+30001).size,0);
 });
+
+test('persisted cooldown excludes only the failed model instance, not a second account with the same upstream model',()=>{
+ const now=Date.parse('2026-11-13T07:30:00Z');
+ const excluded=activeFailedRouteIds([{key:'routing.failed:groq-uuid-a',value:{until:'2026-11-13T07:35:00Z'}}],now);
+ assert.ok(excluded.has('groq-uuid-a'));
+ assert.equal(excluded.has('groq-uuid-b'),false);
+});
