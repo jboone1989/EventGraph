@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ProviderConnection, RegisteredModel } from '@aihot/contracts/providers';
-import { rankAutomaticModels, stageComplexity, coolDownModel, rememberSuccessfulRoute } from '@aihot/backend/providers/registry/selection';
+import { rankAutomaticModels, stageComplexity, coolDownModel, rememberSuccessfulRoute, autoRouteFailureCooldownSeconds, activeFailedRouteIds } from '@aihot/backend/providers/registry/selection';
+import { ProviderRejectedError } from '@aihot/backend/providers/receipts';
 import { requestExtrasForTask } from '@aihot/backend/providers/llm';
 import { complexityFromModelId } from '@aihot/contracts/providers';
 
@@ -128,4 +129,27 @@ test('automatic routing can fail over across six providers and a paid instance',
  const last=rankAutomaticModels([...choices,paid],owners,'light');
  assert.deepEqual(last.map(m=>m.id),[first[6]!.id]);
  assert.equal(last.length,1);
+});
+
+test('failed automatic model calls cool briefly rather than through the rest of the UTC day',()=>{
+ assert.equal(autoRouteFailureCooldownSeconds(new ProviderRejectedError('HTTP 429 rate limit',429,true)),300);
+ assert.equal(autoRouteFailureCooldownSeconds(new ProviderRejectedError('HTTP 413 too large',413,false)),60);
+ assert.equal(autoRouteFailureCooldownSeconds(new ProviderRejectedError('HTTP 503',503,true)),120);
+ assert.equal(autoRouteFailureCooldownSeconds(new ProviderRejectedError('HTTP 401 invalid key',401,false)),1800);
+ assert.equal(autoRouteFailureCooldownSeconds(new ProviderRejectedError('HTTP 410 retired',410,false)),1800);
+ assert.equal(autoRouteFailureCooldownSeconds(new Error('No JSON object in model output')),60);
+ assert.equal(autoRouteFailureCooldownSeconds(new Error('output token limit reached')),60);
+});
+test('expired or legacy UTC-day failed-route records do not exclude tested healthy models',()=>{
+ const now=Date.parse('2026-11-13T07:30:00.000Z');
+ const active=activeFailedRouteIds([
+  {key:'routing.failed:legacy',value:{reason:'previous release',at:'2026-11-13T00:00:01Z'}},
+  {key:'routing.failed:expired',value:{until:'2026-11-13T07:29:59.999Z'}},
+  {key:'routing.failed:current',value:{until:'2026-11-13T07:30:30.000Z'}},
+  {key:'routing.failed:bad-date',value:{until:'not-a-date'}},
+  {key:'irrelevant:other',value:{until:'2026-11-14T00:00:00Z'}},
+  {key:'routing.failed:malformed',value:null},
+ ],now);
+ assert.deepEqual([...active],['current']);
+ assert.equal(activeFailedRouteIds([{key:'routing.failed:current',value:{until:'2026-11-13T07:30:30.000Z'}}],now+30001).size,0);
 });
