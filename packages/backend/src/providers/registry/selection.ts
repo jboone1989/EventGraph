@@ -1,7 +1,6 @@
 import { listConnections, listRegisteredModels } from './connections.ts';
-import { BudgetExceededError } from '../receipts.ts';
+import { BudgetExceededError, ProviderRejectedError } from '../receipts.ts';
 import { sql } from '../../db.ts';
-import { utcDayStart } from '../../operations/stale-work.ts';
 import type { RegisteredModel, ProviderConnection } from '@aihot/contracts/providers';
 
 export type Complexity = 'light' | 'medium' | 'heavy';
@@ -13,7 +12,7 @@ const weights: Record<string, Complexity> = {
 const levels: Record<Complexity, number> = { light: 0, medium: 1, heavy: 2 };
 const cooling = new Map<string, number>();
 // Reuse only a model that returned a valid, schema-checked result.
-// Model failure is durable across worker processes until the next UTC day.
+// Temporary model failures are shared across workers by a bounded database cooldown.
 const lastGood = new Map<string, string>();
 
 export function stageComplexity(stage: string): Complexity {
@@ -57,19 +56,44 @@ export const rankFreeModels = rankAutomaticModels;
 
 const failureKey = (id:string) => 'routing.failed:' + id;
 
-/** An unsuccessful model execution is not selected again during the current UTC day.
- * The existing settings table makes this decision visible to *all* worker processes.
- * No new scheduler or database table is needed; the UTC predicate expires it naturally.
+/** A provider hiccup must not poison unrelated articles until UTC midnight.
+ * The caller already excludes this UUID for the current logical task.
+ * Persist a short cross-worker cooldown to avoid hammering failing providers.
  */
+export function autoRouteFailureCooldownSeconds(error:unknown):number {
+  if(error instanceof ProviderRejectedError) {
+    if(error.status===429)return 300;
+    if(error.status===413)return 60;
+    if([401,403,404,410].includes(error.status??0))return 1800;
+    if((error.status??0)>=500)return 120;
+  }
+  return 60;
+}
+
+/** Older failure rows have no expiry and must not retain the old all-day ban. */
+export function activeFailedRouteIds(rows:ReadonlyArray<{key:string;value:unknown}>,now=Date.now()):Set<string> {
+  const active=new Set<string>();
+  for(const row of rows) {
+    if(!row.key.startsWith('routing.failed:'))continue;
+    const value=row.value;
+    const until=value&&typeof value==='object'&&!Array.isArray(value)&&'until' in value
+      ?(value as {until:unknown}).until:null;
+    if(typeof until==='string') {
+      const expires=Date.parse(until);
+      if(Number.isFinite(expires)&&expires>now)active.add(row.key.slice('routing.failed:'.length));
+    }
+  }
+  return active;
+}
+
 export async function markFailedAutoRoute(reference:string,error:unknown):Promise<void> {
   if(!reference.startsWith('model:'))return;
   const id=reference.slice(6);
-  // The database is the sole cross-worker failure gate. Do not apply a process-local
-  // 24-hour cooldown: it would outlive UTC midnight and an explicit model refresh.
-  for (const [key, cachedId] of lastGood) if (cachedId === id) lastGood.delete(key);
+  const at=new Date(),until=new Date(at.getTime()+autoRouteFailureCooldownSeconds(error)*1000);
+  for(const [key,cachedId] of lastGood)if(cachedId===id)lastGood.delete(key);
   await sql`
     INSERT INTO settings(key,value,updated_by)
-    VALUES (${failureKey(id)},${sql.json({ reason:String(error).slice(0,200),at:new Date().toISOString() })},'auto-routing')
+    VALUES (${failureKey(id)},${sql.json({reason:String(error).slice(0,200),at:at.toISOString(),until:until.toISOString()})},'auto-routing')
     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
 }
 
@@ -84,9 +108,9 @@ export async function selectConfiguredProviderForStage(stage:string,needsVision=
   excluded:ReadonlySet<string>=new Set()):Promise<string> {
   const [connections,models,failed]=await Promise.all([
     listConnections(),listRegisteredModels(),
-    sql<{key:string}[]>`SELECT key FROM settings WHERE key LIKE 'routing.failed:%' AND updated_at >= ${utcDayStart()}`,
+    sql<{key:string;value:unknown}[]>`SELECT key,value FROM settings WHERE key LIKE 'routing.failed:%'`,
   ]);
-  const ineligible=new Set([...excluded,...failed.map(r=>r.key.slice('routing.failed:'.length))]);
+  const ineligible=new Set([...excluded,...activeFailedRouteIds(failed)]);
   const candidates=rankAutomaticModels(models,connections,stage,Date.now(),needsVision,ineligible);
   if(!candidates.length)throw new BudgetExceededError('models','no_available_model',300);
   return 'model:'+candidates[0]!.id;
