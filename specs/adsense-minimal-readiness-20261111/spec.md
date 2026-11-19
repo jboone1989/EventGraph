@@ -1,6 +1,6 @@
 # AdSense 送审前最小整改（2026-11-11）
 
-**Status:** Draft — 2026-11-19 以用户之后已明确批准并通过 PR #575 实现的“所有公开页面完全移除 noindex”作为最高优先级约束，提交独立 Spec Review。除 US1 的 robots 语义外，2026-11-11 原先已批准的空研究页治理、预检、公开声明纠偏、广告白名单和版位均保留；当前不启用真实广告请求.
+**Status:** Owner-approved (owner-delegated Spec Review of 916fadffb50e55fd5e5389831b69dd5b3e6238e5)
 **Target:** feature → develop → main；开发验收仅 VM13；生产按原定 main 流程，不触碰 VM09。
 **Existing baseline:** `specs/002-adsense-readiness`、PR #88、PR #114、`specs/005-news-growth-funnel`；本规格是当前差异的收敛，不重做原功能。
 
