@@ -57,7 +57,7 @@ function description(data: TopicPage, parts: Part[]): string {
 }
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
-  if (!loaderData) return [{ title: titled("主题不存在") }, { name: "robots", content: "noindex" }];
+  if (!loaderData) return [{ title: titled("主题不存在") }];
   const data = loaderData.data;
   const { topic, page } = data;
   const parts = partsOf(data);
@@ -72,7 +72,6 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
     description: text,
     path,
     image: `/og/topics/${topic.slug}.png`,
-    noindex: !topic.indexable,
     jsonLd: page > 1
       ? crumbs
       : [
@@ -88,7 +87,8 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
   }), location.pathname, {
     title: `${enTopic(topic)} · Latest reports`,
     description: `${enDescription(topic)}: the latest selected reports, with links to their original sources and an RSS feed.`,
-    noindex: !topic.indexable,
+    // A topic below the curation bar is not advertised as a language pair.
+    noAlternates: !topic.indexable,
   });
 }
 

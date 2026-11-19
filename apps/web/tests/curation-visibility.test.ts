@@ -1,6 +1,7 @@
 // Curation visibility on the pages themselves (specs/003-content-assets CA-01/02/03): a curated page
 // names its curation date, an uncurated one does not, and a thin single-source event carries the
-// 快讯 label while staying out of the index.
+// 快讯 label and forwards to its one report. Since the noindex removal the curation marks no longer
+// decide indexing — no public page carries a robots directive.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
@@ -33,6 +34,7 @@ const api = createServer((req, res) => {
   if (url === '/api/site/stories/curated-note') return res.end(JSON.stringify(storyDetail('curated-note', { curatedAt: at, note: true, indexable: false })));
   if (url === '/api/site/stories/curated-story') return res.end(JSON.stringify(storyDetail('curated-story', { curatedAt: at, note: false, indexable: true })));
   if (url === '/api/site/stories/plain-story') return res.end(JSON.stringify(storyDetail('plain-story', { curatedAt: null, note: false, indexable: true })));
+  if (url === '/api/site/stories/uncurated-story') return res.end(JSON.stringify(storyDetail('uncurated-story', { curatedAt: null, note: false, indexable: false })));
   if (url === '/api/site/items/curated-item') return res.end(JSON.stringify(itemDetail('curated-item', at)));
   if (url === '/api/site/items/plain-item') return res.end(JSON.stringify(itemDetail('plain-item', null)));
   res.statusCode = 404;
@@ -55,6 +57,13 @@ test('CA-02: a curated item names its curation date; an uncurated one does not',
   assert.ok(curated('body').text().includes('编辑策展于'), 'the curation line renders on the item page');
   const plain = cheerio.load(await (await fetch(`${web.origin}/items/plain-item`)).text());
   assert.ok(!plain('body').text().includes('编辑策展于'), 'no curation line without a mark');
+});
+
+test('an event below the curation bar keeps its readable page without a robots directive', async () => {
+  const res = await fetch(`${web.origin}/story/uncurated-story`);
+  assert.equal(res.status, 200, 'the page keeps its own address');
+  const $ = cheerio.load(await res.text());
+  assert.equal($('meta[name="robots"]').length, 0, 'curation marks no longer decide indexing');
 });
 
 test('EO/FR-003: a quick note event forwards to its one report, reversibly', async () => {

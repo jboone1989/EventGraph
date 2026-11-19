@@ -23,7 +23,7 @@ export function headers() {
 }
 
 export function meta() {
-  return pageMeta({ title: "我的收藏", description: `保存在这台设备上的 ${SITE.name} 收藏。`, path: "/starred", noindex: true });
+  return pageMeta({ title: "我的收藏", description: `保存在这台设备上的 ${SITE.name} 收藏。`, path: "/starred" });
 }
 
 function reportText(r: ImportReport, t: (zh: string, en: string) => string): string {

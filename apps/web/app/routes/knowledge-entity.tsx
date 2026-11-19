@@ -27,10 +27,10 @@ const hasHan = (s: string) => /[㐀-鿿]/u.test(s);
 const day = (iso: string | null) => (iso ? beijingDate(iso) : null);
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  // A temporary knowledge API failure must not turn an already indexed entity into a 200/noindex page.
+  // A temporary knowledge API failure must not turn an entity page into a cached empty 200.
   const profile = await loadOr404<EntityProfile>(`/api/site/knowledge/entities/${encodeURIComponent(params.key)}`, { signal: request.signal, timeoutMs: 4_000 });
   // The knowledge backend reports Graphiti outages inside a 200 JSON response.
-  // Do not cache that as a successful empty, noindex page for search crawlers.
+  // Do not cache that outage as a successful empty page for search crawlers.
   if (profile.status === "unavailable" || profile.status === "disabled")
     throw data({ message: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "300" } });
   return cachedPage(120, { profile });
@@ -40,10 +40,10 @@ export function meta({ loaderData, params, location }: Route.MetaArgs) {
   const p = loaderData?.profile;
   const name = p?.entity?.name;
   const path = `/knowledge/entity/${encodeURIComponent(params.key)}`;
-  // An entity with sourced relations is a page worth finding, unless its "name" is a raw source URL.
-  // Source URLs can appear as Graphiti entity labels; preserve the useful page without indexing that label.
+  // An entity with sourced relations is a page worth finding. One without them, or whose "name" is a
+  // raw source URL (Graphiti labels can be), keeps the same readable page — no indexing directive either way.
   if (!name || !p.edges.length || /^https?:\/\//i.test(name.trim()))
-    return pageMeta({ title: `${name ?? "实体档案"} · 知识网络`, path, noindex: true });
+    return pageMeta({ title: `${name ?? "实体档案"} · 知识网络`, path });
   const current = p.edges.filter((e) => !e.invalidAt).length;
   const summary = p.entity?.summary ?? null;
   return localized(pageMeta({
@@ -54,8 +54,8 @@ export function meta({ loaderData, params, location }: Route.MetaArgs) {
   }), location.pathname, {
     title: `${name} · Entity profile`,
     description: summary && !hasHan(summary) ? summary.slice(0, 150) : `${name}: ${p.edges.length} relations in the knowledge graph (${current} current), with the related events and source reports.`,
-    // An entity known only by a Chinese name has no English page worth indexing.
-    noindex: hasHan(name),
+    // An entity known only by a Chinese name has no English edition worth pairing.
+    noAlternates: hasHan(name),
   });
 }
 

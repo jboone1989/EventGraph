@@ -1,5 +1,6 @@
-// Search-discovery guard for Graphiti entities whose extracted label is a source URL.
-// Keep entity pages accessible for exploration; do not promote raw links as indexable entities.
+// Entity pages through the knowledge graph: Graphiti labels can be raw source URLs, and entities can
+// lack public relations. Every page stays readable in both languages and, since the public noindex
+// removal (specs/remove-public-noindex-20261111), carries no indexing directive; outages stay 503.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
@@ -48,15 +49,15 @@ async function tags(route: string) {
   return cheerio.load(await response.text());
 }
 
-test('raw URL entity names remain readable but do not appear in search (zh/en)', async () => {
+test('raw URL entity names remain readable with no indexing directive (zh/en)', async () => {
   for (const route of ['/knowledge/entity/url', '/en/knowledge/entity/url']) {
     const $ = await tags(route);
     assert.match($('h1').first().text(), /bls\.gov/);
-    assert.match($('meta[name="robots"]').attr('content') ?? '', /noindex/);
+    assert.equal($('meta[name="robots"]').length, 0);
   }
 });
 
-test('named entities with sourced relations remain indexable in both languages', async () => {
+test('named entities with sourced relations keep their canonical pair in both languages', async () => {
   for (const route of ['/knowledge/entity/named', '/en/knowledge/entity/named']) {
     const $ = await tags(route);
     assert.equal($('meta[name="robots"]').length, 0);
@@ -64,13 +65,13 @@ test('named entities with sourced relations remain indexable in both languages',
   }
 });
 
-test('entities without public relations still stay noindex', async () => {
+test('entities without public relations still answer without an indexing directive', async () => {
   const $ = await tags('/knowledge/entity/empty');
-  assert.match($('meta[name="robots"]').attr('content') ?? '', /noindex/);
+  assert.equal($('meta[name="robots"]').length, 0);
 });
 
 // Graphiti's real contract returns HTTP 200 even when its JSON status says unavailable/disabled.
-test('Graphiti outages return 503 rather than a cached 200/noindex entity page', async () => {
+test('Graphiti outages return 503 rather than a cached empty entity page', async () => {
   for (const route of [
     '/knowledge/entity/unavailable', '/en/knowledge/entity/unavailable',
     '/knowledge/entity/disabled', '/en/knowledge/entity/disabled',
@@ -80,9 +81,9 @@ test('Graphiti outages return 503 rather than a cached 200/noindex entity page',
   }
 });
 
-test('missing entities remain a readable 200/noindex page under the current API contract', async () => {
+test('missing entities remain a readable page without an indexing directive under the current API contract', async () => {
   const response = await fetch(web.origin + '/knowledge/entity/absent');
   assert.equal(response.status, 200);
   const $ = cheerio.load(await response.text());
-  assert.match($('meta[name="robots"]').attr('content') ?? '', /noindex/);
+  assert.equal($('meta[name="robots"]').length, 0);
 });

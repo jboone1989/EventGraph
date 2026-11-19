@@ -22,7 +22,7 @@ export function headers() {
 }
 
 export function meta() {
-  return pageMeta({ title: "我的", path: "/more", noindex: true });
+  return pageMeta({ title: "我的", path: "/more" });
 }
 
 /**

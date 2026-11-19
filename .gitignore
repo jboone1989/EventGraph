@@ -23,3 +23,6 @@ __pycache__/
 
 # Playwright failure artifacts (e2e and web tests)
 test-results/
+
+# modern-web-guidance local guide corpus (docs/agent-skills-adoption.md)
+.agents/skills/modern-web-guidance/guides/

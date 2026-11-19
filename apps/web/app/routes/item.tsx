@@ -61,7 +61,7 @@ export async function clientLoader(args: ClientLoaderFunctionArgs) {
 clientLoader.hydrate = true as const;
 
 export function meta({ loaderData, location }: Route.MetaArgs) {
-  if (!loaderData) return [{ title: titled(isEnglishPath(location.pathname) ? "Content not found" : "内容不存在") }, { name: "robots", content: "noindex" }];
+  if (!loaderData) return [{ title: titled(isEnglishPath(location.pathname) ? "Content not found" : "内容不存在") }];
   const { item } = loaderData;
   if (!item) {
     const preview = loaderData.preview;
@@ -72,8 +72,9 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
 }
 
 /**
- * The article's tags in either language. The English page (/en/items) is indexed only with English copy of
- * its own (editorial/english.ts) and an event of several reports (englishIndexable), never on a bare headline.
+ * The article's tags in either language. The English page (/en/items) pairs with the Chinese one only
+ * with English copy of its own (editorial/english.ts) and an event of several reports (englishIndexable),
+ * never on a bare headline; the pages themselves carry no indexing directive.
  */
 export function itemMeta(item: SiteItemDetail, pathname: string) {
   // A non-selected report lives under 全部动态; with that entry out of the navigation, the crumb reads 精选
@@ -87,7 +88,6 @@ export function itemMeta(item: SiteItemDetail, pathname: string) {
     path: `/items/${item.id}`,
     image: `/og/items/${item.id}.png`,
     type: "article",
-    noindex: !item.indexable,
     jsonLd: onEnglish ? [
       articleLd({ path: `/en/items/${item.id}`, headline: english.title, description: english.summary, publishedAt: item.publishedAt, image: `/og/items/${item.id}.png`, basedOn: item.links.original, inLanguage: "en" }),
     ] : [
@@ -101,7 +101,7 @@ export function itemMeta(item: SiteItemDetail, pathname: string) {
   }), pathname, {
     title: english?.title ?? englishText(item.originalTitle) ?? "Original report",
     description: english?.summary ?? `Source record from ${englishSourceName(item.source.name, item.links.original)}, with a link to the original reporting.`,
-    noindex: !english || !item.indexable || (isEnglishPath(pathname) && !item.englishIndexable),
+    noAlternates: !english || !item.indexable || (isEnglishPath(pathname) && !item.englishIndexable),
   });
 }
 

@@ -14,7 +14,7 @@ The public routes now have English experiences: homepage, news feed, hot/events,
 
 ## SEO and QA boundaries
 
-English pages have stable `/en` addresses with hreflang to their Chinese pages (`apps/web/app/lib/edition.ts`). Event pages are indexed in English once they have an English digest. An English article page is the same article page as the Chinese one: it shows the English copy, the publisher's own title and, when the original reads without translation, the original body. It is indexed only when it has English copy and its event has at least two public reports (`INDEXED_MIN_REPORTS`, surfaced as `englishIndexable` by `packages/backend/src/publication/detail.ts`), so the page stands with an event beyond one summary; other pages carry `noindex` and stay out of the sitemap.
+English pages have stable `/en` addresses with hreflang to their Chinese pages (`apps/web/app/lib/edition.ts`). Since the public `noindex` removal (specs/remove-public-noindex-20261111) every public page is indexable; the English rules below decide sitemap membership, and a page without a real English edition of its own simply gets no hreflang pair. An English article page is the same article page as the Chinese one: it shows the English copy, the publisher's own title and, when the original reads without translation, the original body. It enters the sitemap only when it has English copy and its event has at least two public reports (`INDEXED_MIN_REPORTS`, surfaced as `englishIndexable` by `packages/backend/src/publication/detail.ts`), so the page stands with an event beyond one summary; a lone summary page stays out of the sitemap.
 
 Checks:
 ```sh

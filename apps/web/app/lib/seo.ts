@@ -1,6 +1,7 @@
-// Page metadata from one place: title template, canonical address, OG images, robots; and list addresses,
+// Page metadata from one place: title template, canonical address, OG images; and list addresses,
 // with the feed filters they carry. The site's name and wording come from site/site.ts;
-//; its address from SITE_URL.
+//; its address from SITE_URL. Public pages emit no robots directives at all
+// (specs/remove-public-noindex-20261111): every response is indexable, private ones live under /admin.
 import { chinesePath, englishPath, isEnglishPath } from "./edition.ts";
 import type { MetaDescriptor } from "react-router";
 import type { ReportDetail, StoryDetail, TimelineFilters } from "@aihot/contracts/site";
@@ -26,8 +27,6 @@ export interface PageMetaInput {
   description?: string | null;
   path: string;
   image?: string | null;
-  noindex?: boolean;
-  nofollow?: boolean;
   type?: "website" | "article";
   jsonLd?: Record<string, unknown> | Array<Record<string, unknown>>;
 }
@@ -116,7 +115,6 @@ export function pageMeta(input: PageMetaInput): MetaDescriptor[] {
     { name: "twitter:description", content: description },
     { name: "twitter:image", content: image },
   ];
-  if (input.noindex) tags.push({ name: "robots", content: input.nofollow ? "noindex, nofollow" : "noindex, follow" });
   if (input.jsonLd) tags.push({ "script:ld+json": input.jsonLd });
   return tags;
 }
@@ -125,7 +123,7 @@ export function pageMeta(input: PageMetaInput): MetaDescriptor[] {
  * A page's tags at its Chinese or English (/en) address: hreflang between the two when the page has an
  * English edition, and at the /en address the English title and description with their own canonical.
  */
-export function localized(tags: MetaDescriptor[], pathname: string, en: { title: string; description: string; noindex?: boolean }): MetaDescriptor[] {
+export function localized(tags: MetaDescriptor[], pathname: string, en: { title: string; description: string; noAlternates?: boolean }): MetaDescriptor[] {
   const base = siteUrl();
   const canonical = tags.find((t) => "rel" in t && t.rel === "canonical") as { href: string } | undefined;
   const zhPath = chinesePath(canonical ? canonical.href.slice(base.length) || "/" : pathname);
@@ -133,8 +131,10 @@ export function localized(tags: MetaDescriptor[], pathname: string, en: { title:
   const english = englishPath(zhPage!);
   if (!english) return tags;
   const enPath = query ? `${english}?${query}` : english;
-  // Filtered lists, and English pages without a real English title, are not indexed: they get no alternates.
-  const alternates: MetaDescriptor[] = query || en.noindex ? [] : [
+  // Filtered lists, and pages whose English edition is a fallback rather than a page of its own, are
+  // not advertised as a language pair: they get no alternates. That is a pairing decision, not an
+  // indexing rule — both addresses stay indexable (specs/remove-public-noindex-20261111).
+  const alternates: MetaDescriptor[] = query || en.noAlternates ? [] : [
     { tagName: "link", rel: "alternate", hrefLang: "zh-CN", href: `${base}${zhPath}` },
     { tagName: "link", rel: "alternate", hrefLang: "en", href: `${base}${enPath}` },
     { tagName: "link", rel: "alternate", hrefLang: "x-default", href: `${base}${zhPath}` },
@@ -155,7 +155,6 @@ export function localized(tags: MetaDescriptor[], pathname: string, en: { title:
       return t;
     }),
     { property: "og:locale:alternate", content: SITE.locale.replace("-", "_") },
-    ...(en.noindex && !tags.some((t) => "name" in t && t.name === "robots") ? [{ name: "robots", content: "noindex, follow" }] : []),
     ...alternates,
   ];
 }
@@ -239,8 +238,8 @@ export function siteLd() {
 }
 
 /**
- * A list's entries by their visible titles. No entry URLs: item pages are mostly noindex, and a
- * list item must point at an indexable page; the list itself is the signal.
+ * A list's entries by their visible titles. No entry URLs: most item pages stay out of the sitemap,
+ * and a list item must point at an indexable page; the list itself is the signal.
  */
 export function itemListLd(path: string, name: string, titles: string[]) {
   const names = titles.slice(0, 30);

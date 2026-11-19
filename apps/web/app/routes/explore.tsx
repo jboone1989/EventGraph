@@ -29,7 +29,7 @@ export const { clientLoader, shouldRevalidate } = pageReuse<typeof loader>();
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
-  // The evolution experiment's case mode: read-only curated tracks, off the index like story mode.
+  // The evolution experiment's case mode: read-only curated tracks, like story mode a workbench view.
   const caseId = url.searchParams.get("case")?.trim().slice(0, 100) || null;
   if (caseId) {
     const caseStudy = await loadOr404<CaseStudyResponse>(`/api/site/case-studies/${encodeURIComponent(caseId)}`, { signal: request.signal });
@@ -61,7 +61,6 @@ export function meta({ loaderData, location }: Route.MetaArgs) {
       : story ? `${story.title} · 探索工作台` : "探索工作台",
     description: `在 ${SITE.name} 的事件探索工作台里回到任意时点，联动查看当时的报道、实体关系与可核查的证据来源。`,
     path: location.pathname,
-    noindex: !!story || !!caseStudy,
   }), location.pathname, {
     title: caseStudy ? `${caseStudy.titleEn} · Cross-event reading experiment`
       : story ? `${story.title} · Event explorer` : "Event explorer",

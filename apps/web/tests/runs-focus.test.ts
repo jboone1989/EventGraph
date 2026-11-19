@@ -31,13 +31,20 @@ test("three live queues cover news, worker, schedules and model failures with th
   const runs = { checkedAt: now, previewRuntime: { apiRelease: "new-develop-sha", workerRelease: "old-main-sha" }, processes: [{ role: "worker", pid: 1, host: "worker", release: "old-main-sha", startedAt: now, at: now, alive: true }],
     flowItems: rows, currentNews: { pending: 1, processing: 0, failed: 1 } };
   let retried = 0;
+  const refreshGate: { enabled: boolean; release?: () => void } = { enabled: false };
   const api = createServer(async (req, res) => {
     const path = new URL(req.url!, "http://api.local").pathname;
     res.setHeader("content-type", "application/json");
     if (path === "/api/site/meta") return res.end(JSON.stringify({ changelogVersion: null }));
     if (path === "/api/admin/me") return res.end(JSON.stringify({ name: "Runs test", csrf: "fixture", dev: true }));
     if (path === "/api/admin/nav-counts") return res.end(JSON.stringify({ runs: 1 }));
-    if (path === "/api/admin/runs") return res.end(JSON.stringify(runs));
+    if (path === "/api/admin/runs") {
+      if (refreshGate.enabled) {
+        refreshGate.enabled = false;
+        await new Promise<void>(resolve => { refreshGate.release = resolve; });
+      }
+      return res.end(JSON.stringify(runs));
+    }
     if (req.method === "POST" && (path === "/api/admin/content/news-1/rerun" ||
         path === "/api/admin/jobs/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa/retry" ||
         path === "/api/admin/schedules/knowledge.graphiti.ingest/retry")) {
@@ -46,6 +53,8 @@ test("three live queues cover news, worker, schedules and model failures with th
         assert.equal(JSON.parse(body).step, "analyze");
         assert.ok(String(req.headers["idempotency-key"] ?? "").length >= 8);
         rows[0]!.status = "pending";
+        // Hold the whole-page refresh: an acknowledged replay must still leave failures promptly.
+        refreshGate.enabled = true;
       } else if (path.includes("/jobs/")) rows[1]!.status = "pending";
       else rows[2]!.status = "pending";
       retried += 1;
@@ -73,6 +82,9 @@ test("three live queues cover news, worker, schedules and model failures with th
     }
     await page.getByRole("button", { name: "重新执行该流程" }).first().click();
     await expect(page.getByRole("link", { name: "失败新闻", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "处理失败" })).toContainText("3");
+    await expect.poll(() => Boolean(refreshGate.release)).toBe(true);
+    refreshGate.release?.();
     await page.getByRole("button", { name: /待处理/ }).click();
     await expect(page.getByRole("link", { name: "失败新闻", exact: true })).toBeVisible();
     await page.getByRole("button", { name: /处理失败/ }).click();
@@ -84,6 +96,7 @@ test("three live queues cover news, worker, schedules and model failures with th
     await expect(page.getByText("Graphiti HTTP 500")).toHaveCount(0);
     assert.equal(retried, 3);
   } finally {
+    refreshGate.release?.();
     await browser.close();
     await web.stop();
   }
