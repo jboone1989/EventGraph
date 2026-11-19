@@ -31,11 +31,15 @@ jobs:
       - name: Open upstream update PR
         env:
           GH_TOKEN: ${{ github.token }}
+          # GitHub's default token may push branches but the repository disallows it from creating PRs.
+          # Reuse the already-managed GH-AW credential only for gh pr create.
+          PR_CREATE_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
           # gh otherwise prefers the added 'upstream' remote over 'origin'.
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
+          [[ -n "${PR_CREATE_TOKEN:-}" ]] || { echo '::error::GH_AW_GITHUB_TOKEN missing; cannot create upstream PR'; exit 1; }
           git remote add upstream https://github.com/KKKKhazix/AIHOT.git
           git fetch --no-tags upstream main:refs/remotes/upstream/main
           git fetch --no-tags origin develop:refs/remotes/origin/develop
@@ -118,9 +122,9 @@ jobs:
             fi
           } > "$RUNNER_TEMP/upstream-pr.md"
           if [[ "$mode" == conflict ]]; then
-            gh pr create --base develop --head "$branch" --draft               --title "chore: sync AIHOT upstream ${upstream_sha:0:12} (conflicts)"               --body-file "$RUNNER_TEMP/upstream-pr.md"
+            GH_TOKEN="$PR_CREATE_TOKEN" gh pr create --base develop --head "$branch" --draft               --title "chore: sync AIHOT upstream ${upstream_sha:0:12} (conflicts)"               --body-file "$RUNNER_TEMP/upstream-pr.md"
           else
-            gh pr create --base develop --head "$branch"               --title "chore: sync AIHOT upstream ${upstream_sha:0:12}"               --body-file "$RUNNER_TEMP/upstream-pr.md"
+            GH_TOKEN="$PR_CREATE_TOKEN" gh pr create --base develop --head "$branch"               --title "chore: sync AIHOT upstream ${upstream_sha:0:12}"               --body-file "$RUNNER_TEMP/upstream-pr.md"
             # GITHUB_TOKEN-generated PR events do not start check.yml by themselves.
             # Explicit dispatch is allowed and runs checks without publishing/deploying.
             gh workflow run check.yml --ref "$branch"
