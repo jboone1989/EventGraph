@@ -33,6 +33,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # GitHub's default token may push branches but the repository disallows it from creating PRs.
           # Reuse the already-managed GH-AW credential only for gh pr create.
+          # Branch pushes and the explicit Check dispatch still use the default Actions token.
           PR_CREATE_TOKEN: ${{ secrets.GH_AW_GITHUB_TOKEN }}
           # gh otherwise prefers the added 'upstream' remote over 'origin'.
           GH_REPO: ${{ github.repository }}
