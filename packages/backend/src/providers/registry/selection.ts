@@ -55,6 +55,21 @@ export function rankAutomaticModels(models:RegisteredModel[],connections:Provide
 export const rankFreeModels = rankAutomaticModels;
 
 const failureKey = (id:string) => 'routing.failed:' + id;
+const freeAccountKey = (connectionId:string) => 'routing.failed.free-account:' + connectionId;
+
+/** OpenRouter resets its explicit free-tier daily cap at UTC midnight. */
+export function nextUtcMidnight(now=Date.now()):Date {
+  const d=new Date(now);
+  return new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()+1));
+}
+
+/** Only the documented/observed exact daily quota tokens qualify, never an arbitrary 429. */
+export function isOpenRouterDailyFreeQuota(error:unknown):boolean {
+  if(!(error instanceof ProviderRejectedError)||error.status!==429)return false;
+  const detail=error.providerDetail??error.message;
+  return /(?:^|[^\w-])(?:free-models-per-day-high-balance|free-models-per-day)(?=$|[^\w-])/i.test(detail)
+    ||/(?:^|[^\w-])limit_source=openrouter_free_tier_daily(?=$|[^\w-])/i.test(detail);
+}
 
 /** A provider hiccup must not poison unrelated articles until UTC midnight.
  * The caller already excludes this UUID for the current logical task.
@@ -62,7 +77,11 @@ const failureKey = (id:string) => 'routing.failed:' + id;
  */
 export function autoRouteFailureCooldownSeconds(error:unknown):number {
   if(error instanceof ProviderRejectedError) {
-    if(error.status===429)return 300;
+    if(error.status===429){
+      const hint=error.retryAfterSeconds;
+      return typeof hint==='number'&&Number.isFinite(hint)&&hint>0
+        ?Math.max(300,Math.min(86400,Math.ceil(hint))):300;
+    }
     if(error.status===413)return 60;
     if([401,403,404,410].includes(error.status??0))return 1800;
     if((error.status??0)>=500)return 120;
@@ -71,29 +90,49 @@ export function autoRouteFailureCooldownSeconds(error:unknown):number {
 }
 
 /** Older failure rows have no expiry and must not retain the old all-day ban. */
-export function activeFailedRouteIds(rows:ReadonlyArray<{key:string;value:unknown}>,now=Date.now()):Set<string> {
+function activeFailureSuffixes(rows:ReadonlyArray<{key:string;value:unknown}>,prefix:string,now:number):Set<string> {
   const active=new Set<string>();
-  for(const row of rows) {
-    if(!row.key.startsWith('routing.failed:'))continue;
+  for(const row of rows){
+    if(!row.key.startsWith(prefix))continue;
     const value=row.value;
     const until=value&&typeof value==='object'&&!Array.isArray(value)&&'until' in value
       ?(value as {until:unknown}).until:null;
-    if(typeof until==='string') {
-      const expires=Date.parse(until);
-      if(Number.isFinite(expires)&&expires>now)active.add(row.key.slice('routing.failed:'.length));
-    }
+    if(typeof until!=='string')continue;
+    const expires=Date.parse(until);
+    if(Number.isFinite(expires)&&expires>now)active.add(row.key.slice(prefix.length));
   }
   return active;
 }
 
+/** A free-connection cooldown is not a model UUID and must never be treated as one. */
+export function activeFailedRouteIds(rows:ReadonlyArray<{key:string;value:unknown}>,now=Date.now()):Set<string> {
+  return activeFailureSuffixes(rows.filter(row=>!row.key.startsWith('routing.failed.free-account:')),'routing.failed:',now);
+}
+export function activeFailedFreeAccountIds(rows:ReadonlyArray<{key:string;value:unknown}>,now=Date.now()):Set<string> {
+  return activeFailureSuffixes(rows,'routing.failed.free-account:',now);
+}
 export async function markFailedAutoRoute(reference:string,error:unknown):Promise<void> {
   if(!reference.startsWith('model:'))return;
   const id=reference.slice(6);
-  const at=new Date(),until=new Date(at.getTime()+autoRouteFailureCooldownSeconds(error)*1000);
+  const at=new Date();
+  let key=failureKey(id);
+  let until=new Date(at.getTime()+autoRouteFailureCooldownSeconds(error)*1000);
+  if(isOpenRouterDailyFreeQuota(error)){
+    // Free-tier daily caps belong to a single connection/account, not a model name.
+    const [models,connections]=await Promise.all([listRegisteredModels(),listConnections()]);
+    const model=models.find(m=>m.id===id);
+    const owner=connections.find(c=>c.id===model?.providerId);
+    if(model?.billing==='free'&&owner?.vendor.toLowerCase()==='openrouter'){
+      key=freeAccountKey(owner.id);
+      until=nextUtcMidnight(at.getTime());
+      const affected=new Set(models.filter(m=>m.providerId===owner.id&&m.billing==='free').map(m=>m.id));
+      for(const [cache,cachedId] of lastGood)if(affected.has(cachedId))lastGood.delete(cache);
+    }
+  }
   for(const [key,cachedId] of lastGood)if(cachedId===id)lastGood.delete(key);
   await sql`
     INSERT INTO settings(key,value,updated_by)
-    VALUES (${failureKey(id)},${sql.json({reason:String(error).slice(0,200),at:at.toISOString(),until:until.toISOString()})},'auto-routing')
+    VALUES (${key},${sql.json({reason:String(error).slice(0,200),at:at.toISOString(),until:until.toISOString()})},'auto-routing')
     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
 }
 
@@ -111,6 +150,8 @@ export async function selectConfiguredProviderForStage(stage:string,needsVision=
     sql<{key:string;value:unknown}[]>`SELECT key,value FROM settings WHERE key LIKE 'routing.failed:%'`,
   ]);
   const ineligible=new Set([...excluded,...activeFailedRouteIds(failed)]);
+  const failedFreeAccounts=activeFailedFreeAccountIds(failed);
+  for(const model of models)if(model.billing==='free'&&failedFreeAccounts.has(model.providerId))ineligible.add(model.id);
   const candidates=rankAutomaticModels(models,connections,stage,Date.now(),needsVision,ineligible);
   if(!candidates.length)throw new BudgetExceededError('models','no_available_model',300);
   return 'model:'+candidates[0]!.id;
