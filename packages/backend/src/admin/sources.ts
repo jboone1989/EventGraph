@@ -40,8 +40,7 @@ export async function listSources(f: SourceListFilters): Promise<BeforeJson<Admi
            (SELECT count(*)::int FROM publications p WHERE p.source_id = s.id AND p.selected AND p.discovered_at > now() - interval '30 days') AS selected_30d
     FROM (
       SELECT * FROM sources
-      WHERE deleted_at IS NULL
-        AND (${q}::text IS NULL OR name ILIKE ${q} OR id ILIKE ${q} OR tags::text ILIKE ${q} OR config::text ILIKE ${q})
+      WHERE (${q}::text IS NULL OR name ILIKE ${q} OR id ILIKE ${q} OR tags::text ILIKE ${q} OR config::text ILIKE ${q})
         AND (${f.kind ?? null}::text IS NULL OR kind = ${f.kind ?? null})
         AND (${f.health ?? null}::text IS NULL OR health = ${f.health ?? null})
         AND (${f.mode ?? null}::text IS NULL OR participation_mode = ${f.mode ?? null})
@@ -53,13 +52,13 @@ export async function listSources(f: SourceListFilters): Promise<BeforeJson<Admi
     sql<{ total: number; enabled: number; failing: number; degraded: number }[]>`
     SELECT count(*)::int AS total, count(*) FILTER (WHERE enabled)::int AS enabled,
            count(*) FILTER (WHERE health = 'failing')::int AS failing, count(*) FILTER (WHERE health = 'degraded')::int AS degraded
-    FROM sources WHERE deleted_at IS NULL`,
+    FROM sources`,
   ]);
   return { page, rows, totals };
 }
 
 export async function sourceDetail(id: string): Promise<BeforeJson<AdminSourceDetail> | null> {
-  const [source] = await sql<BeforeJson<AdminSource>[]>`SELECT *, (tier = 'T1') AS first_party FROM sources WHERE id = ${id} AND deleted_at IS NULL`;
+  const [source] = await sql<BeforeJson<AdminSource>[]>`SELECT *, (tier = 'T1') AS first_party FROM sources WHERE id = ${id}`;
   if (!source) return null;
   const [runs, items, [stats], history, [republish]] = await Promise.all([
     sql<BeforeJson<AdminSourceDetail["runs"][number]>[]>`SELECT id, started_at, finished_at, status, found_count, new_count, error, detail FROM fetch_runs WHERE source_id = ${id} ORDER BY started_at DESC LIMIT 30`,
@@ -78,7 +77,7 @@ export async function sourceDetail(id: string): Promise<BeforeJson<AdminSourceDe
 
 /** A stored source fetched now without storing anything; null when there is no such source. */
 export async function previewStoredSource(id: string): Promise<BeforeJson<AdminSourcePreview> | null> {
-  const [source] = await sql<SourceRow[]>`SELECT * FROM sources WHERE id = ${id} AND deleted_at IS NULL`;
+  const [source] = await sql<SourceRow[]>`SELECT * FROM sources WHERE id = ${id}`;
   return source ? previewSource(source) : null;
 }
 
@@ -143,7 +142,7 @@ export async function updateSource(id: string, input: { patch: unknown; version:
   const apply = async (tx: Db) => {
     // Creation and address edits share the lock: checking then inserting must not race.
     if (patch.config) await tx`SELECT pg_advisory_xact_lock(hashtext('admin-source-identity'))`;
-    const [before] = await tx`SELECT * FROM sources WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+    const [before] = await tx`SELECT * FROM sources WHERE id = ${id} FOR UPDATE`;
     if (!before) return null;
     if (new Date(before.updated_at as Date).toISOString() !== input.version) throw new Conflict("信源已被其他操作修改，请刷新后再改");
     const kindChanged = patch.kind !== undefined && patch.kind !== before.kind;
@@ -207,18 +206,29 @@ export async function updateSource(id: string, input: { patch: unknown; version:
   return db === sql ? sql.begin(apply) : apply(db);
 }
 
-/** Remove a source from collection and administration without destroying its published articles. */
+/** Permanently remove a source and its articles, keeping an administrative audit entry. */
 export async function deleteSource(id: string, version: string, actor: string, db: Db = sql) {
   const apply = async (tx: Db) => {
     // Candidate actions lock candidate rows before source rows; preserve that order.
     await tx`UPDATE source_candidates SET manual_hold = true, updated_at = now()
       WHERE attached_source_id = ${id} AND NOT manual_hold`;
     const [before] = await tx<{ id: string; name: string; enabled: boolean; updated_at: Date }[]>`
-      SELECT id, name, enabled, updated_at FROM sources WHERE id = ${id} AND deleted_at IS NULL FOR UPDATE`;
+      SELECT id, name, enabled, updated_at FROM sources WHERE id = ${id} FOR UPDATE`;
     if (!before) return null;
     if (new Date(before.updated_at).toISOString() !== version) throw new Conflict("信源已被其他操作修改，请刷新后再删除");
-    await tx`UPDATE sources SET deleted_at = now(), enabled = false, health = 'paused', next_fetch_at = NULL,
-      updated_at = now() WHERE id = ${id}`;
+
+    // Existing incremental subscribers must see removals for previously selected articles.
+    await tx`SELECT pg_advisory_xact_lock(hashtext('selected_ledger'))`;
+    const [head] = await tx<{ next: string }[]>`SELECT coalesce(max(seq), 0) + 1 AS next FROM selected_ledger`;
+    await tx`INSERT INTO selected_ledger (seq, article_id, op, changed_at, visible_at, payload)
+      SELECT ${head!.next}::bigint + row_number() OVER (ORDER BY st.article_id) - 1,
+             st.article_id, 'remove', now(), now(), NULL
+      FROM selected_state st JOIN articles a ON a.id = st.article_id
+      WHERE a.source_id = ${id} AND st.in_set`;
+    await tx`DELETE FROM selected_state WHERE article_id IN (SELECT id FROM articles WHERE source_id = ${id})`;
+    await tx`DELETE FROM article_discoveries WHERE source_id = ${id}`;
+    await tx`DELETE FROM articles WHERE source_id = ${id}`;
+    await tx`DELETE FROM sources WHERE id = ${id}`;
     await audit(actor, "source.delete", `source:${id}`, null,
       { name: before.name, enabled: before.enabled }, { deleted: true }, { db: tx });
     return { id, deleted: true };
@@ -278,7 +288,7 @@ export function sourceIdentity(kind: string, config: Record<string, unknown>): s
 export async function findDuplicateSource(kind: string, config: Record<string, unknown>, exceptId?: string, db: Db = sql) {
   const identity = sourceIdentity(kind, config);
   if (!identity) return null;
-  const rows = await db<{ id: string; kind: string; config: Record<string, unknown>; name: string }[]>`SELECT id, kind, config, name FROM sources WHERE kind = ${kind} AND deleted_at IS NULL`;
+  const rows = await db<{ id: string; kind: string; config: Record<string, unknown>; name: string }[]>`SELECT id, kind, config, name FROM sources WHERE kind = ${kind}`;
   return rows.find((r) => r.id !== exceptId && sourceIdentity(r.kind, r.config) === identity) ?? null;
 }
 
@@ -302,7 +312,7 @@ export async function createSource(input: unknown, actor: string): Promise<Befor
 }
 
 export async function fetchNow(id: string, actor: string) {
-  const [s] = await sql<{ id: string; kind: string; config: Record<string, unknown> }[]>`SELECT id, kind, config FROM sources WHERE id = ${id} AND deleted_at IS NULL`;
+  const [s] = await sql<{ id: string; kind: string; config: Record<string, unknown> }[]>`SELECT id, kind, config FROM sources WHERE id = ${id}`;
   if (!s) return null;
   const own = kindHooks(s.kind).find((h) => h.fetchNow)?.fetchNow;
   if (own) {

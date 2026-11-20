@@ -326,7 +326,7 @@ export default function SourceDetail({ loaderData }: Route.ComponentProps) {
         open={dialog === "delete"}
         showReason={false}
         title="删除这个信源"
-        description={`删除 ${s.name} 后不再采集，并从信源管理列表移除。已采集的新闻和事件保留。`}
+        description={`删除 ${s.name} 后不再采集，并从信源管理列表移除。该信源已采集的新闻及其分析数据将被永久删除，无法恢复。`}
         confirmLabel="确认删除"
         danger
         busy={pending === "delete"}

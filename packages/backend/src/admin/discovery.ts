@@ -115,7 +115,7 @@ export async function buildGapSubjects(maxGaps: number, db: Db = sql): Promise<G
  */
 export async function existingIdentities(db: Db = sql): Promise<Set<string>> {
   const sources = await db<{ kind: string; config: Record<string, unknown> }[]>`
-    SELECT kind, config FROM sources WHERE deleted_at IS NULL AND kind IN ('rss', 'json_list')`;
+    SELECT kind, config FROM sources WHERE kind IN ('rss', 'json_list')`;
   const candidates = await db<{ identity: string }[]>`SELECT identity FROM source_candidates`;
   const identities = new Set(candidates.map((r) => r.identity));
   for (const s of sources) {
