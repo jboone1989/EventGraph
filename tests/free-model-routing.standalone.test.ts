@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ProviderConnection, RegisteredModel } from '@aihot/contracts/providers';
-import { rankAutomaticModels, stageComplexity, coolDownModel, rememberSuccessfulRoute, autoRouteFailureCooldownSeconds, activeFailedRouteIds } from '@aihot/backend/providers/registry/selection';
-import { ProviderRejectedError } from '@aihot/backend/providers/receipts';
+import { rankAutomaticModels, stageComplexity, coolDownModel, rememberSuccessfulRoute, autoRouteFailureCooldownSeconds, activeFailedRouteIds, activeFailedFreeAccountIds, isOpenRouterDailyFreeQuota, nextUtcMidnight } from '@aihot/backend/providers/registry/selection';
+import { ProviderRejectedError, parseRetryAfterSeconds } from '@aihot/backend/providers/receipts';
 import { requestExtrasForTask } from '@aihot/backend/providers/llm';
 import { complexityFromModelId } from '@aihot/contracts/providers';
 
@@ -159,4 +159,57 @@ test('persisted cooldown excludes only the failed model instance, not a second a
  const excluded=activeFailedRouteIds([{key:'routing.failed:groq-uuid-a',value:{until:'2026-11-13T07:35:00Z'}}],now);
  assert.ok(excluded.has('groq-uuid-a'));
  assert.equal(excluded.has('groq-uuid-b'),false);
+});
+
+test('only the closed set of OpenRouter free daily quota markers is connection-wide',()=>{
+  const rejected=(detail:string,status=429)=>new ProviderRejectedError('Provider HTTP '+status,status,true,detail);
+  for(const daily of ['free-models-per-day-high-balance','free-models-per-day','limit_source=openrouter_free_tier_daily']){
+    assert.equal(isOpenRouterDailyFreeQuota(rejected('code 429: '+daily+'.')),true,daily);
+  }
+  for(const transient of ['free-models-per-min','limit_source=openrouter_free_tier_per_minute',
+    'limit_source=upstream_provider_shared_pool','free-models-per-day-next','rate limit exceeded']){
+    assert.equal(isOpenRouterDailyFreeQuota(rejected('code 429: '+transient+'.')),false,transient);
+  }
+  assert.equal(isOpenRouterDailyFreeQuota(rejected('free-models-per-day-high-balance',413)),false);
+  assert.equal(isOpenRouterDailyFreeQuota(new Error('free-models-per-day-high-balance')),false);
+});
+
+test('Retry-After preserves bounded numeric seconds but not untrusted date or malformed headers',()=>{
+  assert.equal(parseRetryAfterSeconds('1200'),1200);
+  assert.equal(parseRetryAfterSeconds(' 0.25 '),1);
+  assert.equal(parseRetryAfterSeconds('999999'),86400);
+  for(const invalid of [null,'0','-1','NaN','Infinity','bad','Fri, 20 Nov 2026 12:00:00 GMT']){
+    assert.equal(parseRetryAfterSeconds(invalid),undefined,String(invalid));
+  }
+  assert.equal(autoRouteFailureCooldownSeconds(new ProviderRejectedError('429',429,true,undefined,1200)),1200);
+  assert.equal(autoRouteFailureCooldownSeconds(new ProviderRejectedError('429',429,true,undefined,999999)),86400);
+  assert.equal(autoRouteFailureCooldownSeconds(new ProviderRejectedError('429',429,true,undefined,30)),300);
+});
+
+test('free quota reset expires at next UTC midnight including across month boundaries',()=>{
+  assert.equal(nextUtcMidnight(Date.parse('2026-11-20T23:50:00Z')).toISOString(),'2026-11-21T00:00:00.000Z');
+  assert.equal(nextUtcMidnight(Date.parse('2026-12-31T23:59:59Z')).toISOString(),'2027-01-01T00:00:00.000Z');
+  assert.equal(nextUtcMidnight(Date.parse('2026-11-21T00:00:00Z')).toISOString(),'2026-11-22T00:00:00.000Z');
+});
+
+test('a daily free quota blocks free models only on the affected provider account',()=>{
+  const now=Date.parse('2026-11-20T12:00:00Z');
+  const owners=[provider('or-quota-account','openrouter'),provider('or-healthy-account','openrouter')];
+  const freeA=model('quota-free-a',owners[0]!.id,'shared/free-120b','medium');
+  const freeB=model('quota-free-b',owners[0]!.id,'another/free-120b','medium');
+  const paidA={...model('quota-paid',owners[0]!.id,'paid-120b','medium'),billing:'paid' as const};
+  const freeOther=model('healthy-free',owners[1]!.id,'shared/free-120b','medium');
+  const models=[freeA,freeB,paidA,freeOther];
+  const rows=[
+    {key:'routing.failed.free-account:or-quota-account',value:{until:'2026-11-21T00:00:00.000Z'}},
+    {key:'routing.failed:old',value:{until:'2026-11-19T00:00:00.000Z'}},
+  ];
+  const freeAccounts=activeFailedFreeAccountIds(rows,now);
+  assert.deepEqual([...freeAccounts],['or-quota-account']);
+  assert.equal(activeFailedRouteIds(rows,now).has('free-account:or-quota-account'),false);
+  const excluded=new Set(models.filter(m=>m.billing==='free'&&freeAccounts.has(m.providerId)).map(m=>m.id));
+  assert.deepEqual(new Set(rankAutomaticModels(models,owners,'medium',now,false,excluded).map(m=>m.id)),
+    new Set(['quota-paid','healthy-free']));
+  assert.equal(activeFailedFreeAccountIds(rows,Date.parse('2026-11-21T00:00:00Z')).size,0);
+  assert.equal(activeFailedFreeAccountIds([{key:'routing.failed:quota-free-a',value:{until:'2026-11-20T12:05:00Z'}}],now).size,0);
 });
