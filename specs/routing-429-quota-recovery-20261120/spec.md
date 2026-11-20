@@ -1,6 +1,6 @@
 # 429 quota-aware automatic model recovery
 
-**Status:** Draft for independent Spec Review (2026-11-20). Owner authorized continued EventGraph repair after production diagnosis; this version resolves the conflict between the earlier UTC-day failure exclusion in `specs/auto-success-only-routing-and-actionable-failures-20261111/spec.md` and unconditional five-minute 429 cooling in merged PR #576.
+**Status:** Owner-approved (owner-delegated Spec Review of 3b3b5ba246816adda7c214c79e4f2970f62771d7)
 **Target:** feature → develop → VM13 preview; main/VM09 only through existing protected release flow after independent acceptance.
 
 ## Evidence and problem
