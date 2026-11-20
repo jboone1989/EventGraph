@@ -56,6 +56,8 @@ export const rankFreeModels = rankAutomaticModels;
 
 const failureKey = (id:string) => 'routing.failed:' + id;
 const freeAccountKey = (connectionId:string) => 'routing.failed.free-account:' + connectionId;
+// Both per-model and per-account keys share this SQL namespace. Never query only 'routing.failed:%'.
+const failureSettingsLike = 'routing.failed%';
 
 /** OpenRouter resets its explicit free-tier daily cap at UTC midnight. */
 export function nextUtcMidnight(now=Date.now()):Date {
@@ -136,9 +138,14 @@ export async function markFailedAutoRoute(reference:string,error:unknown):Promis
     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_by=EXCLUDED.updated_by,updated_at=now()`;
 }
 
+/** Shared read path for automatic routing; also exercised against PostgreSQL in tests. */
+export async function loadFailedAutoRouteSettings():Promise<Array<{key:string;value:unknown}>> {
+  return await sql<{key:string;value:unknown}[]>`SELECT key,value FROM settings WHERE key LIKE ${failureSettingsLike}`;
+}
+
 /** Admin's explicit "refresh models" also gives previously failed models a new chance. */
 export async function clearFailedAutoRoutes():Promise<number> {
-  const deleted=await sql<{key:string}[]>`DELETE FROM settings WHERE key LIKE 'routing.failed:%' RETURNING key`;
+  const deleted=await sql<{key:string}[]>`DELETE FROM settings WHERE key LIKE ${failureSettingsLike} RETURNING key`;
   cooling.clear();lastGood.clear();
   return deleted.length;
 }
@@ -147,7 +154,7 @@ export async function selectConfiguredProviderForStage(stage:string,needsVision=
   excluded:ReadonlySet<string>=new Set()):Promise<string> {
   const [connections,models,failed]=await Promise.all([
     listConnections(),listRegisteredModels(),
-    sql<{key:string;value:unknown}[]>`SELECT key,value FROM settings WHERE key LIKE 'routing.failed:%'`,
+    loadFailedAutoRouteSettings(),
   ]);
   const ineligible=new Set([...excluded,...activeFailedRouteIds(failed)]);
   const failedFreeAccounts=activeFailedFreeAccountIds(failed);
