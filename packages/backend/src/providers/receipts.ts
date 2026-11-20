@@ -53,7 +53,7 @@ export class ProviderRejectedError extends Error {
 /** Numeric Retry-After header only. Keep a one-day maximum for bad or excessive provider hints. */
 export function parseRetryAfterSeconds(header: string | null): number | undefined {
   const value = header?.trim();
-  if (!value || !/^\\d+(?:\\.\\d+)?$/.test(value)) return undefined;
+  if (!value || !/^\d+(?:\.\d+)?$/.test(value)) return undefined;
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds > 0 ? Math.min(86400, Math.ceil(seconds)) : undefined;
 }
