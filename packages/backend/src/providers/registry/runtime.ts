@@ -4,7 +4,7 @@ import {config} from '../../config.ts';
 import {sql} from '../../db.ts';
 import {audit} from '../../audit.ts';
 import {guardedFetch} from '../../lib/http-fetch.ts';
-import {paidRequest,ProviderRejectedError,ReceiptUnknownError,BudgetExceededError,rejectReceivedResponse} from '../receipts.ts';
+import {paidRequest,ProviderRejectedError,ReceiptUnknownError,BudgetExceededError,rejectReceivedResponse,parseRetryAfterSeconds} from '../receipts.ts';
 import {parseSseCompletion} from './adapter.ts';
 import {loadConnection,loadModel,modelInput,connectionView,configurationFingerprint,configurationSnapshot,routingState,type CheckRow,type ModelRow,type ConnectionRow} from './connections.ts';
 import {storedCredential} from './connection-secrets.ts';
@@ -52,7 +52,13 @@ function providerErrorDetail(raw:string,key:string):string|null {
   .replace(/\b(?:api[_ -]?key|access[_ -]?token|authorization|secret)\s*[:=]\s*["']?[^\s"',;]+/gi,'credential=[redacted]')
   .replace(/\b(?:sk-[\w-]{8,}|[A-Za-z0-9_-]{48,})\b/g,'[redacted]')
   .replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,240):'';
- return [code,message].filter(Boolean).join(': ')||null;
+ // Keep only documented, non-secret source identifiers; arbitrary response metadata is untrusted.
+ const metadata=error.metadata&&typeof error.metadata==='object'&&!Array.isArray(error.metadata)
+  ?error.metadata as Record<string,unknown>:null;
+ const source=metadata?.limit_source;
+ const limitSource=typeof source==='string'&&['openrouter_free_tier_daily','openrouter_free_tier_per_minute','upstream_provider_shared_pool'].includes(source)
+  ?'limit_source='+source:'';
+ return [code,message,limitSource].filter(Boolean).join(': ')||null;
 }
 
 async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<string,unknown>) {
@@ -72,7 +78,7 @@ async function transport(c:ConnectionRow,m:ModelRow|undefined,body?:Record<strin
   if(res.status<200||res.status>=300) {
    const detail=providerErrorDetail(res.text(),key);
    throw new ProviderRejectedError('Provider HTTP '+res.status+(detail?' — '+detail:''),res.status,
-    res.status===429||res.status>=500,detail??undefined);
+    res.status===429||res.status>=500,detail??undefined,parseRetryAfterSeconds(res.headers.get('retry-after')));
   }
   const raw=res.text().split(key).join('[redacted]');
   const parsed=body?.stream===true?parseSseCompletion(raw):JSON.parse(raw) as Record<string,unknown>;

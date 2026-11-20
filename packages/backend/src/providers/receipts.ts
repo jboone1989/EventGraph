@@ -39,12 +39,23 @@ export class ProviderRejectedError extends Error {
   readonly retryable: boolean;
   /** Sanitized, structured error from a registered provider; never a raw HTTP body. */
   readonly providerDetail?: string;
-  constructor(message: string, status: number | null, retryable: boolean, providerDetail?: string) {
+  /** Trusted, numeric provider Retry-After seconds, bounded before persisting a cooldown. */
+  readonly retryAfterSeconds?: number;
+  constructor(message: string, status: number | null, retryable: boolean, providerDetail?: string, retryAfterSeconds?: number) {
     super(message);
     this.status = status;
     this.retryable = retryable;
     this.providerDetail = providerDetail;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/** Numeric Retry-After header only. Keep a one-day maximum for bad or excessive provider hints. */
+export function parseRetryAfterSeconds(header: string | null): number | undefined {
+  const value = header?.trim();
+  if (!value || !/^\d+(?:\.\d+)?$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.min(86400, Math.ceil(seconds)) : undefined;
 }
 
 /**
